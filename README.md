@@ -1,5 +1,6 @@
 # CyberpunkVRPort
 This is a open-source VR implementation proxy (dxgi.dll) for Cyberpunk 2077.
+Github: [https://github.com/dariulone/cyberpunk-vr-port](https://github.com/dariulone/cyberpunk-vr-port)
 Press F10 ingame to open VR settings menu.
 
 ## Features & Fixes
@@ -18,14 +19,12 @@ Press F10 ingame to open VR settings menu.
 3. Start the game.
 
 ## Media
-Videos:
 [![Cyberpunk VR Short 1](https://img.youtube.com/vi/Q_nt0dceXNU/0.jpg)](https://www.youtube.com/shorts/Q_nt0dceXNU)
 [![Cyberpunk VR Short 2](https://img.youtube.com/vi/CXeYW1_FTWE/0.jpg)](https://www.youtube.com/shorts/CXeYW1_FTWE)
 
-Images:
-![IMG_6564](images/IMG_6564.HEIC)
-![IMG_6566](images/IMG_6566.HEIC)
-![IMG_6570](images/IMG_6570.HEIC)
+![IMG_6564](images/IMG_6564.png)
+![IMG_6566](images/IMG_6566.png)
+![IMG_6570](images/IMG_6570.png)
 ![IMG_6573](images/IMG_6573.JPG)
 
 *Note: All pictures were taken through PICO 4 lenses using an iPhone 13 Pro Max.*
