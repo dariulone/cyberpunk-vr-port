@@ -1,0 +1,13 @@
+/build/
+/build-vs/
+/.vs/
+/out/
+*.suo
+*.user
+*.log
+*.cbv.tsv
+CyberpunkVRProxy.live.txt
+CyberpunkVRProxy.log
+tools/
+releases/
+*.py
