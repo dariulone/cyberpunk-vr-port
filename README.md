@@ -49,8 +49,7 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 
 ## Startup / Runtime Notes
 
-This mod uses **OpenXR**. It does not require a separate RED4ext plugin for the base VR path.
-
+This mod uses **OpenXR**.
 The mod now logs which runtime is active
 
 ### Virtual Desktop / PICO
