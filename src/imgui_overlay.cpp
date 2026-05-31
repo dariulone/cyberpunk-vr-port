@@ -137,20 +137,62 @@ bool DrawLiveControls(LiveControlsUiState& state) {
 
     if (ImGui::CollapsingHeader("View / Resolution", ImGuiTreeNodeFlags_DefaultOpen)) {
         changed |= DrawFovControl(state);
-        changed |= InputIntClamped("Window width override", &state.xrWindowWidth, 0, 8192);
-        changed |= InputIntClamped("Window height override", &state.xrWindowHeight, 0, 8192);
         changed |= CheckboxInt("VR menu quad", &state.xrMenuRect);
         changed |= ImGui::SliderFloat("VR menu FOV", &state.xrMenuFov, 30.0f, 120.0f, "%.1f deg");
     }
 
     if (ImGui::CollapsingHeader("Stereo / AER", ImGuiTreeNodeFlags_DefaultOpen)) {
-        changed |= CheckboxInt("Mono/OpenXR submit", &state.xrMonoSubmit);
-        changed |= CheckboxInt("AER stereo submit", &state.xrAERSubmit);
-        changed |= CheckboxInt("Sequential sync", &state.xrSyncSequential);
+        const char* renderModes[] = {"Mono", "AER"};
+        int renderMode = state.xrAERSubmit != 0 ? 1 : 0;
+        if (ImGui::Combo("Render mode", &renderMode, renderModes, IM_ARRAYSIZE(renderModes))) {
+            state.xrMonoSubmit = 1;
+            state.xrAERSubmit = renderMode == 1 ? 1 : 0;
+            changed = true;
+        }
         changed |= CheckboxInt("AER pair gate", &state.xrAERPairGate);
         changed |= CheckboxInt("AER start right eye", &state.xrAERStartEye);
-        changed |= CheckboxInt("AER debug eye", &state.xrAERDebugEye);
-        changed |= SliderIntClamped("AER warmup frames", &state.xrAERWarmupFrames, 0, 8);
+        const char* debugEyes[] = {"Normal", "Both right", "Both left", "Swap L/R"};
+        int debugEye = state.xrAERDebugEye;
+        if (debugEye < 0 || debugEye > 3) debugEye = 0;
+        if (ImGui::Combo("AER debug eye", &debugEye, debugEyes, IM_ARRAYSIZE(debugEyes))) {
+            state.xrAERDebugEye = debugEye;
+            changed = true;
+        }
+        changed |= ImGui::SliderFloat("Motion prediction (ms)", &state.xrMotionPredictMs, 0.0f, 60.0f, "%.1f ms");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Forward-predicts the head pose by this many ms using head\n"
+                              "velocity, hiding AER render-to-photon latency. 0 = off.\n"
+                              "Tune up until motion feels responsive without overshoot.");
+        }
+        changed |= ImGui::SliderFloat("Stereo separation x", &state.xrStereoScale, 0.25f, 5.0f, "%.2fx");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Personal fine-tune on the auto IPD. 1.0 = calibrated natural\n"
+                              "separation, auto-scaled to the headset's runtime IPD. Nudge\n"
+                              "0.8-1.2 for taste; crank to 3-5x to exaggerate depth and make\n"
+                              "the eye alternation obvious on the flat monitor for testing.");
+        }
+        changed |= CheckboxInt("Render-pose submit", &state.xrRenderPoseSubmit);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Submit each eye with the exact head pose its frame was rendered\n"
+                              "with, so the runtime time-warps the older (1/2-rate) eye forward\n"
+                              "to display time. Fixes left-eye judder on head turns. Off =\n"
+                              "legacy present-time pose (both eyes share one latched pose).");
+        }
+        changed |= CheckboxInt("Half-rate submit (SSW/ASW)", &state.xrAERHalfRate);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Present only fresh AER pairs (1/2 rate) instead of resubmitting\n"
+                              "stale ones, so the runtime engages motion smoothing (SSW/ASW)\n"
+                              "to synthesize the in-between frames. REQUIRES SSW/Spacewarp\n"
+                              "enabled in the runtime (Virtual Desktop / SteamVR); without it\n"
+                              "the image will look like half-fps judder.");
+        }
+        changed |= CheckboxInt("AER V2 optical flow (WIP)", &state.xrAERV2);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Experimental optical-flow AER V2 path. Current build only\n"
+                              "initializes NVIDIA Optical Flow and records the previous/current\n"
+                              "per-eye frame history needed for interpolation. The synthesized\n"
+                              "submit path is the next step.");
+        }
     }
 
     if (ImGui::CollapsingHeader("Tracking / Camera")) {
@@ -160,8 +202,6 @@ bool DrawLiveControls(LiveControlsUiState& state) {
             changed |= ImGui::SliderFloat("Head Y forward", &state.xrHeadOffsetY, -0.50f, 0.50f, "%.3f m");
             changed |= ImGui::SliderFloat("Head Z up", &state.xrHeadOffsetZ, -0.50f, 0.50f, "%.3f m");
         }
-        changed |= ImGui::SliderFloat("Pitch sign", &state.xrPitchSign, -1.0f, 1.0f, "%.1f");
-        changed |= ImGui::SliderFloat("Pitch scale", &state.xrPitchScale, 0.1f, 3.0f, "%.2f");
     }
 
     if (ImGui::CollapsingHeader("DLSS / Debug")) {

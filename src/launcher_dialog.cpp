@@ -1,13 +1,29 @@
 #include "launcher_dialog.h"
 #include <windows.h>
 #include <commctrl.h>
+#include <iterator>
 #include <string>
 
-extern "C" void SetWindowResolutionAndPersist(int size);
+extern "C" void SetWindowResolutionAndPersist(int width, int height);
 extern "C" int GetCurrentWindowWidth();
+extern "C" int GetCurrentWindowHeight();
 
 #define ID_COMBOBOX 101
 #define ID_BUTTON_START 102
+
+struct ResolutionPreset {
+    int width;
+    int height;
+    const wchar_t* label;
+};
+
+static const ResolutionPreset kResolutionPresets[] = {
+    {2048, 2048, L"2048x2048"},
+    {2560, 2560, L"2560x2560"},
+    {3072, 3072, L"3072x3072"},
+    {3584, 3584, L"3584x3584"},
+    {4096, 4096, L"4096x4096"},
+};
 
 LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static HWND hwndCombo;
@@ -25,14 +41,14 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             20, 50, 250, 150,
             hwnd, (HMENU)ID_COMBOBOX, NULL, NULL);
 
-        const int resolutions[] = { 2048, 2560, 3072, 3584, 4096 };
-        int currentRes = GetCurrentWindowWidth();
+        int currentWidth = GetCurrentWindowWidth();
+        int currentHeight = GetCurrentWindowHeight();
         int selectedIndex = 0;
 
-        for (int i = 0; i < 5; ++i) {
-            std::wstring resStr = std::to_wstring(resolutions[i]) + L"x" + std::to_wstring(resolutions[i]);
-            SendMessageW(hwndCombo, CB_ADDSTRING, 0, (LPARAM)resStr.c_str());
-            if (resolutions[i] == currentRes) {
+        for (int i = 0; i < static_cast<int>(std::size(kResolutionPresets)); ++i) {
+            SendMessageW(hwndCombo, CB_ADDSTRING, 0, (LPARAM)kResolutionPresets[i].label);
+            if (kResolutionPresets[i].width == currentWidth &&
+                kResolutionPresets[i].height == currentHeight) {
                 selectedIndex = i;
             }
         }
@@ -49,9 +65,8 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     case WM_COMMAND: {
         if (LOWORD(wParam) == ID_BUTTON_START) {
             int idx = (int)SendMessageW(hwndCombo, CB_GETCURSEL, 0, 0);
-            const int resolutions[] = { 2048, 2560, 3072, 3584, 4096 };
-            if (idx >= 0 && idx < 5) {
-                SetWindowResolutionAndPersist(resolutions[idx]);
+            if (idx >= 0 && idx < static_cast<int>(std::size(kResolutionPresets))) {
+                SetWindowResolutionAndPersist(kResolutionPresets[idx].width, kResolutionPresets[idx].height);
             }
             DestroyWindow(hwnd);
         }

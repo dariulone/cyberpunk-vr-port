@@ -1,5 +1,6 @@
 /build/
 /build-vs/
+/build-vs-aerv2/
 /.vs/
 /out/
 *.suo
@@ -11,3 +12,9 @@ CyberpunkVRProxy.log
 tools/
 releases/
 *.py
+docs/
+memory/
+package.json
+.opencode/*
+!.opencode/memory/
+!.opencode/memory/*.md

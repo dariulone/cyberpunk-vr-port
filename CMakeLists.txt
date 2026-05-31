@@ -36,9 +36,13 @@ target_include_directories(imgui PUBLIC
 add_library(dxgi SHARED
     src/dxgi_proxy.cpp
     src/openxr_manager.cpp
+    src/optical_flow_d3d12.cpp
     src/dxgi_factory_wrapper.cpp
     src/imgui_overlay.cpp
     src/launcher_dialog.cpp
+    third_party/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOF.cpp
+    third_party/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOFD3D12.cpp
+    third_party/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOFD3DCommon.cpp
 )
 
 add_library(d3d12 SHARED
@@ -47,7 +51,11 @@ add_library(d3d12 SHARED
 
 target_compile_features(dxgi PRIVATE cxx_std_20)
 target_compile_definitions(dxgi PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
-target_link_libraries(dxgi PRIVATE openxr_loader imgui)
+target_link_libraries(dxgi PRIVATE openxr_loader imgui d3d12 d3dcompiler)
+target_include_directories(dxgi PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Optical_Flow_SDK_5.0.7/Common/NvOFBase
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Optical_Flow_SDK_5.0.7/NvOFInterface
+)
 
 target_compile_features(d3d12 PRIVATE cxx_std_20)
 target_compile_definitions(d3d12 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

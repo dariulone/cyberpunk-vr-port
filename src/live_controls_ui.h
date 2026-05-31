@@ -7,14 +7,9 @@ struct LiveControlsUiState {
     int xrRecenter;
     int xrMonoSubmit;
     int xrAERSubmit;
-    int xrWindowWidth;
-    int xrWindowHeight;
     float xrForceFov;
     int xrMenuRect;
     float xrMenuFov;
-    float xrPitchSign;
-    float xrPitchScale;
-    int xrSyncSequential;
     int xr3DofMovement;
     int xrDLSSMatrixHook;
     int xrDLSSSlotMode;
@@ -22,7 +17,12 @@ struct LiveControlsUiState {
     int xrAERPairGate;
     int xrAERStartEye;
     int xrAERDebugEye;
-    int xrAERWarmupFrames;
+    float xrMotionPredictMs;
+    float xrStereoScale;
+    int xrRenderPoseSubmit;
+    int xrAERHalfRate;
+    int xrAERV2;
+    int xrPoseLag;
 };
 
 extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState);

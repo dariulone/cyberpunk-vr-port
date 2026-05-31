@@ -32,6 +32,7 @@ HMODULE g_realDxgi = nullptr;
 static FILE* g_logFile = nullptr;
 static char g_gameDir[MAX_PATH] = {};
 static char g_liveControlPath[MAX_PATH] = {};
+static char g_launcherConfigPath[MAX_PATH] = {};
 static char g_backendModulePath[MAX_PATH] = {};
 static FILETIME g_lastLiveControlWrite = {};
 static uintptr_t g_gameModuleBase = 0;
@@ -46,14 +47,9 @@ struct LiveControls {
     volatile int xrRecenter;
     volatile int xrMonoSubmit;
     volatile int xrAERSubmit;
-    volatile int xrWindowWidth;
-    volatile int xrWindowHeight;
     volatile float xrForceFov;
     volatile int xrMenuRect;
     volatile float xrMenuFov;
-    volatile float xrPitchSign;
-    volatile float xrPitchScale;
-    volatile int xrSyncSequential;
     volatile int xr3DofMovement;
     volatile int xrDLSSMatrixHook;
     volatile int xrDLSSSlotMode;
@@ -61,10 +57,17 @@ struct LiveControls {
     volatile int xrAERPairGate;
     volatile int xrAERStartEye;
     volatile int xrAERDebugEye;
-    volatile int xrAERWarmupFrames;
+    volatile float xrMotionPredictMs;
+    volatile float xrStereoScale;
+    volatile int xrRenderPoseSubmit;
+    volatile int xrAERHalfRate;
+    volatile int xrAERV2;
+    volatile int xrPoseLag;
 };
 
 static LiveControls g_liveControls = {};
+static int g_launcherWidth = 2048;
+static int g_launcherHeight = 2048;
 
 static void InitRuntimePaths() {
     if (g_gameDir[0] != '\0') return;
@@ -77,6 +80,9 @@ static void InitRuntimePaths() {
 
     strcpy_s(g_liveControlPath, g_gameDir);
     strcat_s(g_liveControlPath, "\\vrport.ini");
+
+    strcpy_s(g_launcherConfigPath, g_gameDir);
+    strcat_s(g_launcherConfigPath, "\\vrport-launcher.ini");
 }
 
 static void EnsureLiveControlFileExists() {
@@ -94,14 +100,9 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_recenter=0\n");
     fprintf(file, "xr_mono_submit=1\n");
     fprintf(file, "xr_aer_submit=1\n");
-    fprintf(file, "xr_window_width=0\n");
-    fprintf(file, "xr_window_height=0\n");
     fprintf(file, "xr_force_fov=0\n");
     fprintf(file, "xr_menu_rect=0\n");
     fprintf(file, "xr_menu_fov=65.0\n");
-    fprintf(file, "xr_pitch_sign=1.0\n");
-    fprintf(file, "xr_pitch_scale=1.35\n");
-    fprintf(file, "xr_sync_sequential=1\n");
     fprintf(file, "xr_3dof_movement=1\n");
     fprintf(file, "xr_dlss_matrix_hook=1\n");
     fprintf(file, "xr_dlss_slot_mode=0\n");
@@ -109,7 +110,49 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_aer_pair_gate=1\n");
     fprintf(file, "xr_aer_start_eye=0\n");
     fprintf(file, "xr_aer_debug_eye=0\n");
-    fprintf(file, "xr_aer_warmup_frames=1\n");
+    fprintf(file, "xr_motion_predict_ms=0.0\n");
+    fprintf(file, "xr_stereo_scale=1.0\n");
+    fprintf(file, "xr_render_pose_submit=1\n");
+    fprintf(file, "xr_aer_half_rate=0\n");
+    fprintf(file, "xr_aer_v2=0\n");
+    fprintf(file, "xr_pose_lag=1\n");
+    fclose(file);
+}
+
+static void LoadLauncherConfig() {
+    InitRuntimePaths();
+    g_launcherWidth = 2048;
+    g_launcherHeight = 2048;
+
+    FILE* file = _fsopen(g_launcherConfigPath, "r", _SH_DENYNO);
+    if (!file) return;
+
+    char line[128];
+    while (fgets(line, sizeof(line), file)) {
+        int intValue = 0;
+        if (sscanf_s(line, "width=%d", &intValue) == 1 ||
+            sscanf_s(line, "width = %d", &intValue) == 1) {
+            g_launcherWidth = intValue > 0 ? intValue : g_launcherWidth;
+            continue;
+        }
+        if (sscanf_s(line, "height=%d", &intValue) == 1 ||
+            sscanf_s(line, "height = %d", &intValue) == 1) {
+            g_launcherHeight = intValue > 0 ? intValue : g_launcherHeight;
+            continue;
+        }
+    }
+    fclose(file);
+}
+
+static void SaveLauncherConfig(int width, int height) {
+    InitRuntimePaths();
+    g_launcherWidth = width > 0 ? width : g_launcherWidth;
+    g_launcherHeight = height > 0 ? height : g_launcherHeight;
+
+    FILE* file = _fsopen(g_launcherConfigPath, "w", _SH_DENYNO);
+    if (!file) return;
+    fprintf(file, "width=%d\n", g_launcherWidth);
+    fprintf(file, "height=%d\n", g_launcherHeight);
     fclose(file);
 }
 
@@ -149,6 +192,12 @@ static void PollLiveControls() {
     int xrAERStartEye = 0;
     int xrAERDebugEye = 0;
     int xrAERWarmupFrames = 1;
+    float xrMotionPredictMs = 0.0f;
+    float xrStereoScale = 1.0f;
+    int xrRenderPoseSubmit = 1;
+    int xrAERHalfRate = 0;
+    int xrAERV2 = 0;
+    int xrPoseLag = 1;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -271,6 +320,36 @@ static void PollLiveControls() {
             xrAERWarmupFrames = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_motion_predict_ms=%f", &value) == 1 ||
+            sscanf_s(line, "xr_motion_predict_ms = %f", &value) == 1) {
+            xrMotionPredictMs = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_stereo_scale=%f", &value) == 1 ||
+            sscanf_s(line, "xr_stereo_scale = %f", &value) == 1) {
+            xrStereoScale = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_render_pose_submit=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_render_pose_submit = %d", &intValue) == 1) {
+            xrRenderPoseSubmit = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_aer_half_rate=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_aer_half_rate = %d", &intValue) == 1) {
+            xrAERHalfRate = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_aer_v2=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_aer_v2 = %d", &intValue) == 1) {
+            xrAERV2 = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_pose_lag=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_pose_lag = %d", &intValue) == 1) {
+            xrPoseLag = intValue;
+            continue;
+        }
 
     }
     fclose(file);
@@ -285,14 +364,9 @@ static void PollLiveControls() {
         g_liveControls.xrRecenter != xrRecenter ||
         g_liveControls.xrMonoSubmit != xrMonoSubmit ||
         g_liveControls.xrAERSubmit != xrAERSubmit ||
-        g_liveControls.xrWindowWidth != xrWindowWidth ||
-        g_liveControls.xrWindowHeight != xrWindowHeight ||
         g_liveControls.xrForceFov != xrForceFov ||
         g_liveControls.xrMenuRect != xrMenuRect ||
         g_liveControls.xrMenuFov != xrMenuFov ||
-        g_liveControls.xrPitchSign != xrPitchSign ||
-        g_liveControls.xrPitchScale != xrPitchScale ||
-        g_liveControls.xrSyncSequential != xrSyncSequential ||
         g_liveControls.xr3DofMovement != xr3DofMovement ||
         g_liveControls.xrDLSSMatrixHook != xrDLSSMatrixHook ||
         g_liveControls.xrDLSSSlotMode != xrDLSSSlotMode ||
@@ -300,7 +374,11 @@ static void PollLiveControls() {
         g_liveControls.xrAERPairGate != xrAERPairGate ||
         g_liveControls.xrAERStartEye != xrAERStartEye ||
         g_liveControls.xrAERDebugEye != xrAERDebugEye ||
-        g_liveControls.xrAERWarmupFrames != xrAERWarmupFrames;
+        g_liveControls.xrMotionPredictMs != xrMotionPredictMs ||
+        g_liveControls.xrStereoScale != xrStereoScale ||
+        g_liveControls.xrRenderPoseSubmit != xrRenderPoseSubmit ||
+        g_liveControls.xrAERHalfRate != xrAERHalfRate ||
+        g_liveControls.xrAERV2 != xrAERV2;
 
     g_liveControls.xrHeadOffsetX = xrHeadOffsetX;
     g_liveControls.xrHeadOffsetY = xrHeadOffsetY;
@@ -308,14 +386,9 @@ static void PollLiveControls() {
     g_liveControls.xrRecenter = xrRecenter;
     g_liveControls.xrMonoSubmit = xrMonoSubmit;
     g_liveControls.xrAERSubmit = xrAERSubmit;
-    g_liveControls.xrWindowWidth = xrWindowWidth;
-    g_liveControls.xrWindowHeight = xrWindowHeight;
     g_liveControls.xrForceFov = xrForceFov;
     g_liveControls.xrMenuRect = xrMenuRect;
     g_liveControls.xrMenuFov = xrMenuFov;
-    g_liveControls.xrPitchSign = xrPitchSign;
-    g_liveControls.xrPitchScale = xrPitchScale;
-    g_liveControls.xrSyncSequential = xrSyncSequential;
     g_liveControls.xr3DofMovement = xr3DofMovement;
     g_liveControls.xrDLSSMatrixHook = xrDLSSMatrixHook;
     g_liveControls.xrDLSSSlotMode = xrDLSSSlotMode;
@@ -323,7 +396,12 @@ static void PollLiveControls() {
     g_liveControls.xrAERPairGate = xrAERPairGate;
     g_liveControls.xrAERStartEye = xrAERStartEye != 0 ? 1 : 0;
     g_liveControls.xrAERDebugEye = xrAERDebugEye;
-    g_liveControls.xrAERWarmupFrames = xrAERWarmupFrames > 0 ? xrAERWarmupFrames : 0;
+    g_liveControls.xrMotionPredictMs = xrMotionPredictMs >= 0.0f ? xrMotionPredictMs : 0.0f;
+    g_liveControls.xrStereoScale = xrStereoScale < 0.0f ? 0.0f : (xrStereoScale > 10.0f ? 10.0f : xrStereoScale);
+    g_liveControls.xrRenderPoseSubmit = xrRenderPoseSubmit != 0 ? 1 : 0;
+    g_liveControls.xrAERHalfRate = xrAERHalfRate != 0 ? 1 : 0;
+    g_liveControls.xrAERV2 = xrAERV2 != 0 ? 1 : 0;
+    g_liveControls.xrPoseLag = xrPoseLag;
     if (prevXrRecenter == 0 && xrRecenter != 0) {
         OpenXRManager::Get().RequestRecenter();
         Log("OpenXR recenter requested.\n");
@@ -340,11 +418,8 @@ static void PollLiveControls() {
     }
 
     if (changed) {
-        Log("Live controls updated: xr_head_offset=(%.4f,%.4f,%.4f) xr_recenter=%d xr_mono_submit=%d xr_aer_submit=%d xr_force_fov=%.3f xr_menu_rect=%d xr_menu_fov=%.3f xr_pitch_sign=%.1f xr_pitch_scale=%.3f xr_sync_sequential=%d xr_3dof_movement=%d xr_dlss_matrix_hook=%d xr_dlss_slot_mode=%d xr_dlss_log_stride=%d xr_aer_pair_gate=%d xr_aer_start_eye=%d xr_aer_debug_eye=%d xr_aer_warmup_frames=%d\n",
-            g_liveControls.xrHeadOffsetX, g_liveControls.xrHeadOffsetY, g_liveControls.xrHeadOffsetZ, g_liveControls.xrRecenter, g_liveControls.xrMonoSubmit, g_liveControls.xrAERSubmit, g_liveControls.xrForceFov, g_liveControls.xrMenuRect, g_liveControls.xrMenuFov, g_liveControls.xrPitchSign, g_liveControls.xrPitchScale, g_liveControls.xrSyncSequential, g_liveControls.xr3DofMovement, g_liveControls.xrDLSSMatrixHook, g_liveControls.xrDLSSSlotMode, g_liveControls.xrDLSSLogStride, g_liveControls.xrAERPairGate, g_liveControls.xrAERStartEye, g_liveControls.xrAERDebugEye, g_liveControls.xrAERWarmupFrames);
-        Log("Window override: xr_window_width=%d xr_window_height=%d\n",
-            g_liveControls.xrWindowWidth,
-            g_liveControls.xrWindowHeight);
+        Log("Live controls updated: xr_head_offset=(%.4f,%.4f,%.4f) xr_recenter=%d xr_mono_submit=%d xr_aer_submit=%d xr_force_fov=%.3f xr_menu_rect=%d xr_menu_fov=%.3f xr_3dof_movement=%d xr_dlss_matrix_hook=%d xr_dlss_slot_mode=%d xr_dlss_log_stride=%d xr_aer_pair_gate=%d xr_aer_start_eye=%d xr_aer_debug_eye=%d xr_motion_predict_ms=%.2f xr_stereo_scale=%.3f xr_render_pose_submit=%d xr_aer_half_rate=%d xr_aer_v2=%d\n",
+            g_liveControls.xrHeadOffsetX, g_liveControls.xrHeadOffsetY, g_liveControls.xrHeadOffsetZ, g_liveControls.xrRecenter, g_liveControls.xrMonoSubmit, g_liveControls.xrAERSubmit, g_liveControls.xrForceFov, g_liveControls.xrMenuRect, g_liveControls.xrMenuFov, g_liveControls.xr3DofMovement, g_liveControls.xrDLSSMatrixHook, g_liveControls.xrDLSSSlotMode, g_liveControls.xrDLSSLogStride, g_liveControls.xrAERPairGate, g_liveControls.xrAERStartEye, g_liveControls.xrAERDebugEye, g_liveControls.xrMotionPredictMs, g_liveControls.xrStereoScale, g_liveControls.xrRenderPoseSubmit, g_liveControls.xrAERHalfRate, g_liveControls.xrAERV2);
     }
 }
 
@@ -356,14 +431,9 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrRecenter = g_liveControls.xrRecenter;
     state.xrMonoSubmit = g_liveControls.xrMonoSubmit;
     state.xrAERSubmit = g_liveControls.xrAERSubmit;
-    state.xrWindowWidth = g_liveControls.xrWindowWidth;
-    state.xrWindowHeight = g_liveControls.xrWindowHeight;
     state.xrForceFov = g_liveControls.xrForceFov;
     state.xrMenuRect = g_liveControls.xrMenuRect;
     state.xrMenuFov = g_liveControls.xrMenuFov;
-    state.xrPitchSign = g_liveControls.xrPitchSign;
-    state.xrPitchScale = g_liveControls.xrPitchScale;
-    state.xrSyncSequential = g_liveControls.xrSyncSequential;
     state.xr3DofMovement = g_liveControls.xr3DofMovement;
     state.xrDLSSMatrixHook = g_liveControls.xrDLSSMatrixHook;
     state.xrDLSSSlotMode = g_liveControls.xrDLSSSlotMode;
@@ -371,7 +441,12 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrAERPairGate = g_liveControls.xrAERPairGate;
     state.xrAERStartEye = g_liveControls.xrAERStartEye;
     state.xrAERDebugEye = g_liveControls.xrAERDebugEye;
-    state.xrAERWarmupFrames = g_liveControls.xrAERWarmupFrames;
+    state.xrMotionPredictMs = g_liveControls.xrMotionPredictMs;
+    state.xrStereoScale = g_liveControls.xrStereoScale;
+    state.xrRenderPoseSubmit = g_liveControls.xrRenderPoseSubmit;
+    state.xrAERHalfRate = g_liveControls.xrAERHalfRate;
+    state.xrAERV2 = g_liveControls.xrAERV2;
+    state.xrPoseLag = g_liveControls.xrPoseLag;
     return state;
 }
 
@@ -386,22 +461,22 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_recenter=0\n");
     fprintf(file, "xr_mono_submit=%d\n", state.xrMonoSubmit != 0 ? 1 : 0);
     fprintf(file, "xr_aer_submit=%d\n", state.xrAERSubmit != 0 ? 1 : 0);
-    fprintf(file, "xr_window_width=%d\n", state.xrWindowWidth);
-    fprintf(file, "xr_window_height=%d\n", state.xrWindowHeight);
     fprintf(file, "xr_force_fov=%.3f\n", state.xrForceFov);
     fprintf(file, "xr_menu_rect=%d\n", state.xrMenuRect != 0 ? 1 : 0);
     fprintf(file, "xr_menu_fov=%.3f\n", state.xrMenuFov);
-    fprintf(file, "xr_pitch_sign=%.1f\n", state.xrPitchSign < 0.0f ? -1.0f : 1.0f);
-    fprintf(file, "xr_pitch_scale=%.3f\n", state.xrPitchScale);
-    fprintf(file, "xr_sync_sequential=%d\n", state.xrSyncSequential != 0 ? 1 : 0);
     fprintf(file, "xr_3dof_movement=%d\n", state.xr3DofMovement != 0 ? 1 : 0);
     fprintf(file, "xr_dlss_matrix_hook=%d\n", state.xrDLSSMatrixHook != 0 ? 1 : 0);
     fprintf(file, "xr_dlss_slot_mode=%d\n", state.xrDLSSSlotMode);
     fprintf(file, "xr_dlss_log_stride=%d\n", state.xrDLSSLogStride);
     fprintf(file, "xr_aer_pair_gate=%d\n", state.xrAERPairGate != 0 ? 1 : 0);
     fprintf(file, "xr_aer_start_eye=%d\n", state.xrAERStartEye != 0 ? 1 : 0);
-    fprintf(file, "xr_aer_debug_eye=%d\n", state.xrAERDebugEye != 0 ? 1 : 0);
-    fprintf(file, "xr_aer_warmup_frames=%d\n", state.xrAERWarmupFrames);
+    fprintf(file, "xr_aer_debug_eye=%d\n", state.xrAERDebugEye < 0 ? 0 : (state.xrAERDebugEye > 3 ? 3 : state.xrAERDebugEye));
+    fprintf(file, "xr_motion_predict_ms=%.2f\n", state.xrMotionPredictMs);
+    fprintf(file, "xr_stereo_scale=%.3f\n", state.xrStereoScale);
+    fprintf(file, "xr_render_pose_submit=%d\n", state.xrRenderPoseSubmit != 0 ? 1 : 0);
+    fprintf(file, "xr_aer_half_rate=%d\n", state.xrAERHalfRate != 0 ? 1 : 0);
+    fprintf(file, "xr_aer_v2=%d\n", state.xrAERV2 != 0 ? 1 : 0);
+    fprintf(file, "xr_pose_lag=%d\n", state.xrPoseLag);
     fclose(file);
 
     WIN32_FILE_ATTRIBUTE_DATA fileData;
@@ -434,22 +509,22 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrRecenter = 0;
     g_liveControls.xrMonoSubmit = state->xrMonoSubmit != 0 ? 1 : 0;
     g_liveControls.xrAERSubmit = state->xrAERSubmit != 0 ? 1 : 0;
-    g_liveControls.xrWindowWidth = state->xrWindowWidth > 0 ? state->xrWindowWidth : 0;
-    g_liveControls.xrWindowHeight = state->xrWindowHeight > 0 ? state->xrWindowHeight : 0;
     g_liveControls.xrForceFov = state->xrForceFov > 0.0f ? state->xrForceFov : 0.0f;
     g_liveControls.xrMenuRect = state->xrMenuRect != 0 ? 1 : 0;
     g_liveControls.xrMenuFov = state->xrMenuFov > 1.0f ? state->xrMenuFov : 65.0f;
-    g_liveControls.xrPitchSign = state->xrPitchSign < 0.0f ? -1.0f : 1.0f;
-    g_liveControls.xrPitchScale = state->xrPitchScale > 0.01f ? state->xrPitchScale : 1.0f;
-    g_liveControls.xrSyncSequential = state->xrSyncSequential != 0 ? 1 : 0;
     g_liveControls.xr3DofMovement = state->xr3DofMovement != 0 ? 1 : 0;
     g_liveControls.xrDLSSMatrixHook = state->xrDLSSMatrixHook != 0 ? 1 : 0;
     g_liveControls.xrDLSSSlotMode = state->xrDLSSSlotMode;
     g_liveControls.xrDLSSLogStride = state->xrDLSSLogStride > 0 ? state->xrDLSSLogStride : 0;
     g_liveControls.xrAERPairGate = state->xrAERPairGate != 0 ? 1 : 0;
     g_liveControls.xrAERStartEye = state->xrAERStartEye != 0 ? 1 : 0;
-    g_liveControls.xrAERDebugEye = state->xrAERDebugEye != 0 ? 1 : 0;
-    g_liveControls.xrAERWarmupFrames = state->xrAERWarmupFrames > 0 ? state->xrAERWarmupFrames : 0;
+    g_liveControls.xrAERDebugEye = state->xrAERDebugEye < 0 ? 0 : (state->xrAERDebugEye > 3 ? 3 : state->xrAERDebugEye);
+    g_liveControls.xrMotionPredictMs = state->xrMotionPredictMs >= 0.0f ? state->xrMotionPredictMs : 0.0f;
+    g_liveControls.xrStereoScale = state->xrStereoScale < 0.0f ? 0.0f : (state->xrStereoScale > 10.0f ? 10.0f : state->xrStereoScale);
+    g_liveControls.xrRenderPoseSubmit = state->xrRenderPoseSubmit != 0 ? 1 : 0;
+    g_liveControls.xrAERHalfRate = state->xrAERHalfRate != 0 ? 1 : 0;
+    g_liveControls.xrAERV2 = state->xrAERV2 != 0 ? 1 : 0;
+    g_liveControls.xrPoseLag = state->xrPoseLag;
 
     if (prevMono != g_liveControls.xrMonoSubmit) {
         OpenXRManager::Get().SetMonoSubmitEnabled(g_liveControls.xrMonoSubmit != 0);
@@ -495,6 +570,7 @@ extern "C" void PrepareStartupLiveControls() {
     static bool g_dialogShown = false;
     EnsureLiveControlFileExists();
     PollLiveControls();
+    LoadLauncherConfig();
 
     if (!g_dialogShown) {
         g_dialogShown = true;
@@ -502,14 +578,16 @@ extern "C" void PrepareStartupLiveControls() {
     }
 }
 
-extern "C" void SetWindowResolutionAndPersist(int size) {
-    g_liveControls.xrWindowWidth = size;
-    g_liveControls.xrWindowHeight = size;
-    PersistLiveControlsUiState(MakeLiveControlsUiState());
+extern "C" void SetWindowResolutionAndPersist(int width, int height) {
+    SaveLauncherConfig(width, height);
 }
 
 extern "C" int GetCurrentWindowWidth() {
-    return g_liveControls.xrWindowWidth;
+    return g_launcherWidth;
+}
+
+extern "C" int GetCurrentWindowHeight() {
+    return g_launcherHeight;
 }
 
 static UINT GetForcedRenderWidthValue() {
@@ -529,15 +607,15 @@ static UINT GetForcedRenderHeightValue() {
 }
 
 static UINT GetForcedWindowWidthValue() {
-    if (g_liveControls.xrWindowWidth > 0) {
-        return static_cast<UINT>(g_liveControls.xrWindowWidth);
+    if (g_launcherWidth > 0) {
+        return static_cast<UINT>(g_launcherWidth);
     }
     return GetForcedRenderWidthValue();
 }
 
 static UINT GetForcedWindowHeightValue() {
-    if (g_liveControls.xrWindowHeight > 0) {
-        return static_cast<UINT>(g_liveControls.xrWindowHeight);
+    if (g_launcherHeight > 0) {
+        return static_cast<UINT>(g_launcherHeight);
     }
     return GetForcedRenderHeightValue();
 }
@@ -552,11 +630,11 @@ static UINT GetForcedSquareResolutionValue() {
 }
 
 extern "C" UINT GetForcedSwapchainWidth() {
-    return g_liveControls.xrWindowWidth > 0 ? static_cast<UINT>(g_liveControls.xrWindowWidth) : 0;
+    return g_launcherWidth > 0 ? static_cast<UINT>(g_launcherWidth) : 0;
 }
 
 extern "C" UINT GetForcedSwapchainHeight() {
-    return g_liveControls.xrWindowHeight > 0 ? static_cast<UINT>(g_liveControls.xrWindowHeight) : 0;
+    return g_launcherHeight > 0 ? static_cast<UINT>(g_launcherHeight) : 0;
 }
 
 extern "C" UINT GetForcedDisplayModeWidth() {
@@ -592,7 +670,7 @@ extern "C" int GetMenuRectMode() {
 }
 
 extern "C" int GetSyncSequential() {
-    return g_liveControls.xrSyncSequential;
+    return 0;
 }
 
 extern "C" int Get3DofMovement() {
@@ -612,7 +690,27 @@ extern "C" int GetAERDebugEye() {
 }
 
 extern "C" int GetAERWarmupFrames() {
-    return g_liveControls.xrAERWarmupFrames;
+    return 0;
+}
+
+extern "C" float GetMotionPredictMs() {
+    return g_liveControls.xrMotionPredictMs;
+}
+
+extern "C" int GetRenderPoseSubmit() {
+    return g_liveControls.xrRenderPoseSubmit;
+}
+
+extern "C" int GetPoseLag() {
+    return g_liveControls.xrPoseLag;
+}
+
+extern "C" int GetAERHalfRate() {
+    return g_liveControls.xrAERHalfRate;
+}
+
+extern "C" int GetAERV2Enabled() {
+    return g_liveControls.xrAERV2;
 }
 
 
@@ -1125,9 +1223,23 @@ static float GetWorldScale() {
 }
 
 static float GetDesiredHalfIpd() {
+    // Auto per-person/per-headset: the half-IPD comes straight from the OpenXR
+    // runtime view separation, so it already adapts to whoever is wearing the HMD.
     const float runtimeIpd = OpenXRManager::Get().GetRuntimeIpd();
     const float halfIpd = runtimeIpd > 0.001f ? runtimeIpd * 0.5f : 0.032f;
-    return halfIpd > 0.0001f ? halfIpd * GetWorldScale() : 0.0f;
+    // Universal game-world calibration applied to the auto half-IPD so that
+    // xr_stereo_scale=1.0 gives correct (non-inverted) stereo depth. Calibrated on
+    // HW: ~1.5x the raw runtime half-IPD reads right in REDengine's first-person
+    // view. It is a game constant, NOT per-person (the IPD itself comes from
+    // runtimeIpd above), so the separation auto-adapts to any headset/person.
+    // xr_stereo_scale is an optional personal taste multiplier on top (lower it
+    // toward ~0.7 for near-true-IPD depth, raise for stronger pop).
+    constexpr float kVrStereoCalibration = 1.5f;
+    float stereoScale = g_liveControls.xrStereoScale;
+    if (!(stereoScale > 0.0f)) {
+        stereoScale = 1.0f;  // guard zero-init window / bad values
+    }
+    return halfIpd > 0.0001f ? halfIpd * GetWorldScale() * kVrStereoCalibration * stereoScale : 0.0f;
 }
 
 static bool IsFiniteFloat(float value) {
@@ -1259,6 +1371,17 @@ static bool IsPlausibleCameraSpan(const float* a, const float* b) {
 static volatile int32_t g_lastLocatePosFP[3] = {};
 static volatile float g_lastLocateQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 static volatile uint32_t g_lastLocateSeq = 0;
+static volatile uint32_t g_renderedSeq = 0;
+static volatile uint8_t g_locateEyeBySeq[256] = {};
+static volatile int g_renderedEye = 0;
+
+extern "C" uint32_t GetRenderedCameraSeq() {
+    return g_renderedSeq;
+}
+
+extern "C" int GetRenderedCameraEye() {
+    return g_renderedEye;
+}
 
 extern "C" int GetMenuMode() {
     return g_menuModeValue;
@@ -1325,6 +1448,12 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     OpenXRHeadPose xrPose{};
     const bool hasXR = OpenXRManager::Get().GetHeadPose(&xrPose);
     if (hasXR) {
+        uint32_t currentSeq = g_lastLocateSeq + 1;
+        const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
+        g_locateEyeBySeq[currentSeq % 256] = static_cast<uint8_t>(renderEye & 1);
+        OpenXRManager::Get().StoreRenderEyePose(0, xrPose, currentSeq);
+        OpenXRManager::Get().StoreRenderEyePose(1, xrPose, currentSeq);
+
         // Keep mouse/controller yaw as the body heading, but do not add mouse-Y pitch
         // on top of HMD pitch. The headset supplies vertical look in VR.
         const float gameYaw = atan2f(-bodyGameForwardX, bodyGameForwardY);
@@ -1426,6 +1555,36 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
                 g_liveControls.xrHeadOffsetX,
                 g_liveControls.xrHeadOffsetY,
                 g_liveControls.xrHeadOffsetZ);
+        }
+    }
+
+    // Per-eye stereo separation for AER. Injected HERE — the camera path that
+    // provably reaches the render (head orientation above works) — rather than
+    // the separate PatchCamera struct, which observation showed does not drive
+    // the final view (13.5 m spans / FLT_MAX). Applies in both 3DoF and 6DoF,
+    // along the head's right vector, sign by current eye. GetDesiredHalfIpd()
+    // already folds in xr_stereo_scale.
+    if (hasXR && OpenXRManager::Get().IsAERSubmitEnabled()) {
+        float right[3] = {};
+        ComputeRightVectorFromQuaternion(quat, right);
+        if (IsPlausibleUnitVector3(right)) {
+            const float halfIpd = GetDesiredHalfIpd();
+            // eye 0 -> -right, eye 1 -> +right.
+            // After fixing the rendered-eye tagging (frames now land in the slot of
+            // the eye that ACTUALLY rendered them), the old flipped sign became
+            // pseudoscopic: the left eye was rendered from the right viewpoint and
+            // vice versa. Using the natural convention restores orthoscopic depth.
+            const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
+            const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
+            const float ipdShift = halfIpd * eyeSign;
+            posFP[0] += static_cast<int32_t>(right[0] * ipdShift * 65536.0f);
+            posFP[1] += static_cast<int32_t>(right[1] * ipdShift * 65536.0f);
+            posFP[2] += static_cast<int32_t>(right[2] * ipdShift * 65536.0f);
+            if ((g_locateCameraHits % 600) == 1) {
+                Log("LocateCamera IPD: eye=%d halfIpd=%.4f right=(%.3f, %.3f, %.3f) shift=%.4f\n",
+                    renderEye,
+                    halfIpd, right[0], right[1], right[2], ipdShift);
+            }
         }
     }
 
@@ -1691,10 +1850,15 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
         g_telemetry->finalRsi = reinterpret_cast<uintptr_t>(rsiPtr);
     }
 
+    const uint32_t locateSeq = g_lastLocateSeq;
+    if (locateSeq != 0) {
+        g_renderedSeq = locateSeq;
+        g_renderedEye = static_cast<int>(g_locateEyeBySeq[locateSeq % 256] & 1);
+    }
+
     if (!OpenXRManager::Get().IsAERSubmitEnabled()) return;
     if (!rsiPtr || reinterpret_cast<uintptr_t>(rsiPtr) < 0x10000) return;
 
-    const uint32_t locateSeq = g_lastLocateSeq;
     float locateQuat[4] = {
         g_lastLocateQuat[0],
         g_lastLocateQuat[1],
@@ -2750,7 +2914,7 @@ static void LogDLSSMatricesStateWindow(uintptr_t state) {
     }
 }
 
-extern "C" void __fastcall OnDLSSMatricesCallback(void* callThis, void* matrixState, uint32_t matrixSlot) {
+extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matrixState, uint32_t matrixSlot) {
     uint32_t adjustedSlot = matrixSlot;
     const int eye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
 
@@ -2776,7 +2940,7 @@ extern "C" void __fastcall OnDLSSMatricesCallback(void* callThis, void* matrixSt
     g_dlssMatricesAdjustedSlot = adjustedSlot;
 
     if (g_liveControls.xrDLSSMatrixHook == 0) {
-        return;
+        return adjustedSlot;
     }
 
     const uint64_t hit = ++g_dlssMatricesHits;
@@ -2791,7 +2955,7 @@ extern "C" void __fastcall OnDLSSMatricesCallback(void* callThis, void* matrixSt
     const int logStride = g_liveControls.xrDLSSLogStride;
     const bool periodicLog = logStride > 0 && (hit % static_cast<uint64_t>(logStride)) == 1;
     if (hit > 8 && !periodicLog) {
-        return;
+        return adjustedSlot;
     }
 
     const uintptr_t returnAddr = g_dlssMatricesHookSite ? g_dlssMatricesHookSite + 14 : 0;
@@ -2818,10 +2982,11 @@ extern "C" void __fastcall OnDLSSMatricesCallback(void* callThis, void* matrixSt
 
     if (state < 0x10000) {
         Log("DLSSMatrices state skipped: pointer is not plausible.\n");
-        return;
+        return adjustedSlot;
     }
 
     LogDLSSMatricesStateWindow(state);
+    return adjustedSlot;
 }
 
 bool InstallDLSSMatricesHook() {
@@ -2880,6 +3045,11 @@ bool InstallDLSSMatricesHook() {
     code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
     code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
     code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xC4; code[pos++] = 0x40;
+
+    // OVERWRITE the saved 'rdx' on the stack with our returned 'eax' (adjustedSlot)
+    // so that the upcoming 'pop rdx' puts it into the game's register!
+    // rdx is located at [rsp+28h] after the above add.
+    code[pos++] = 0x89; code[pos++] = 0x44; code[pos++] = 0x24; code[pos++] = 0x28; // mov dword ptr [rsp+28h], eax
 
     code[pos++] = 0x5D;
     code[pos++] = 0x41; code[pos++] = 0x5B;
