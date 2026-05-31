@@ -53,10 +53,6 @@ This mod uses **OpenXR**. It does not require a separate RED4ext plugin for the 
 
 The mod now logs which runtime is active
 
-### SteamVR / WMR / Reverb G2
-- Make sure **SteamVR is your active OpenXR runtime** before launching the game.
-- The log will confirm which runtime was actually picked.
-
 ### Virtual Desktop / PICO
 - Start Virtual Desktop / VDXR first.
 - Then launch the game normally.
