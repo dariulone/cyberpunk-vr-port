@@ -382,7 +382,10 @@ static int64_t PickMonoSwapchainFormat(const std::vector<int64_t>& runtimeFormat
 }
 
 static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, float width, float height) {
-    const float forceFov = GetForcedFov();
+    float forceFov = GetForcedFov();
+    if (forceFov <= 1.0f || forceFov >= 170.0f) {
+        forceFov = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
+    }
     if (forceFov <= 1.0f || forceFov >= 170.0f) {
         return sourceFov;
     }
@@ -2004,10 +2007,6 @@ DWORD OpenXRManager::FrameThreadMain() {
                             sourceEye = eye ^ 1;
                         }
 
-                        if (m_runtimeIsSteamVR.load(std::memory_order_relaxed)) {
-                            sourceEye = sourceEye ^ 1;
-                        }
-
                         uint32_t imageIndex = 0;
                         XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
                         const XrResult acquireRes = xrAcquireSwapchainImage(m_eyeSwapchains[eye].handle, &acquireInfo, &imageIndex);
@@ -2061,7 +2060,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // the rendered image or the runtime reprojects it the wrong way
                         // (tearing / wobble). For debugEye source overrides, follow the
                         // SOURCE eye's pose so the image+pose pair stays matched.
-                        const uint32_t poseEye = sourceEye;
+                        const uint32_t poseEye = (debugEye == 1 || debugEye == 2 || debugEye == 3) ? sourceEye : eye;
                         if (poseEye < 2) {
                             projectionViews[eye].pose = eyePoses[poseEye];
                             projectionViews[eye].fov = eyeFovs[poseEye];
