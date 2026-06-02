@@ -21,6 +21,7 @@ extern "C" int GetAERDebugEye();
 extern "C" int GetAERWarmupFrames();
 extern "C" float GetMotionPredictMs();
 extern "C" int GetRenderPoseSubmit();
+extern "C" int GetDepthSubmit();
 extern "C" int GetPoseLag();
 extern "C" int GetRenderedCameraEye();
 extern "C" uint32_t GetRenderedCameraSeq();
@@ -568,6 +569,22 @@ extern "C" unsigned int OmoGetSceneDepthFormat();
 
 bool OpenXRManager::EnsureDepthSnapshot(ID3D12Resource* gameDepth) {
     if (!gameDepth || !m_d3dDevice) {
+        return false;
+    }
+    // Depth submit is OFF by default (xr_depth_submit=0). Copying the game's LIVE
+    // scene-depth resource on our capture queue races the game's own queue (which is
+    // simultaneously writing DepthPrepass/GBuffer and reallocating render targets on
+    // load/spawn). That cross-queue access caused GPU device-hung (0x887a0006) under
+    // VDXR, where the scene depth is an R32-family format the snapshot path accepts.
+    // depth gave no confirmed benefit (the left-eye fix was the RealVR-style pose-pair
+    // lock, not depth), so keep it gated unless explicitly re-enabled for experiments.
+    if (GetDepthSubmit() == 0) {
+        if (m_depthLayerSupported) {
+            Log("OpenXRManager: [DEPTH] depth submit disabled (xr_depth_submit=0)\n");
+        }
+        m_depthLayerSupported = false;
+        m_depthSwapchainFormat = 0;
+        m_depthSnapshotSerial = 0;
         return false;
     }
     const D3D12_RESOURCE_DESC desc = gameDepth->GetDesc();
@@ -1256,7 +1273,7 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
     ID3D12Resource* pinnedDepth = OmoGetSceneDepthResource();
     const DXGI_FORMAT pinnedDepthFormat = pinnedDepth ? pinnedDepth->GetDesc().Format : DXGI_FORMAT_UNKNOWN;
     int64_t selectedDepthFormat = 0;
-    if (m_depthLayerSupported && pinnedDepth) {
+    if (GetDepthSubmit() != 0 && m_depthLayerSupported && pinnedDepth) {
         for (int64_t rf : runtimeFormats) {
             if (rf == static_cast<int64_t>(DXGI_FORMAT_D32_FLOAT)) {
                 selectedDepthFormat = static_cast<int64_t>(DXGI_FORMAT_D32_FLOAT);

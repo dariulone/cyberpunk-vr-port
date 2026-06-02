@@ -64,6 +64,7 @@ struct LiveControls {
     volatile int xrAERV2;
     volatile int xrPoseLag;
     volatile int xrRuntime;
+    volatile int xrDepthSubmit;
 };
 
 static constexpr int kEnablePatchBufferTracer = 0;
@@ -125,6 +126,7 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_aer_v2=0\n");
     fprintf(file, "xr_pose_lag=1\n");
     fprintf(file, "xr_runtime=0\n");
+    fprintf(file, "xr_depth_submit=0\n");
     fclose(file);
 }
 
@@ -208,6 +210,7 @@ static void PollLiveControls() {
     int xrAERV2 = 0;
     int xrPoseLag = 1;
     int xrRuntime = 0;
+    int xrDepthSubmit = 0;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -365,6 +368,11 @@ static void PollLiveControls() {
             xrRuntime = ClampRuntimeMode(intValue);
             continue;
         }
+        if (sscanf_s(line, "xr_depth_submit=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_depth_submit = %d", &intValue) == 1) {
+            xrDepthSubmit = intValue;
+            continue;
+        }
 
     }
     fclose(file);
@@ -394,7 +402,8 @@ static void PollLiveControls() {
         g_liveControls.xrRenderPoseSubmit != xrRenderPoseSubmit ||
         g_liveControls.xrAERHalfRate != xrAERHalfRate ||
         g_liveControls.xrAERV2 != xrAERV2 ||
-        g_liveControls.xrRuntime != xrRuntime;
+        g_liveControls.xrRuntime != xrRuntime ||
+        g_liveControls.xrDepthSubmit != xrDepthSubmit;
 
     g_liveControls.xrHeadOffsetX = xrHeadOffsetX;
     g_liveControls.xrHeadOffsetY = xrHeadOffsetY;
@@ -419,6 +428,7 @@ static void PollLiveControls() {
     g_liveControls.xrAERV2 = xrAERV2 != 0 ? 1 : 0;
     g_liveControls.xrPoseLag = xrPoseLag;
     g_liveControls.xrRuntime = ClampRuntimeMode(xrRuntime);
+    g_liveControls.xrDepthSubmit = xrDepthSubmit != 0 ? 1 : 0;
     if (prevXrRecenter == 0 && xrRecenter != 0) {
         OpenXRManager::Get().RequestRecenter();
         Log("OpenXR recenter requested.\n");
@@ -738,6 +748,10 @@ extern "C" float GetMotionPredictMs() {
 
 extern "C" int GetRenderPoseSubmit() {
     return g_liveControls.xrRenderPoseSubmit;
+}
+
+extern "C" int GetDepthSubmit() {
+    return g_liveControls.xrDepthSubmit;
 }
 
 extern "C" int GetPoseLag() {
