@@ -181,6 +181,7 @@ private:
     std::atomic<float> m_runtimeHorizontalFovDeg = 0.0f;
     std::atomic<float> m_runtimeVerticalFovDeg = 0.0f;
     std::atomic<float> m_runtimeIpd = 0.0f;
+    std::atomic<bool> m_runtimeIsSteamVR = false;
     // Head velocity in the base-recentered frame (rad/s, m/s) for AER forward pose
     // prediction. Sampled from xrLocateSpace and consumed by GetHeadPose().
     std::atomic<bool> m_velValid = false;
