@@ -390,13 +390,7 @@ static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, float width, flo
         return sourceFov;
     }
 
-    float aspect = 1.0f;
-    if (width > 1.0f && height > 1.0f) {
-        aspect = width / height;
-    }
-    if (aspect < 0.01f) {
-        aspect = 1.0f;
-    }
+    const float aspect = 1.0f; //tells OpenXR vertical FOV matches horizontal. Prevends vertical camera stretching.
 
     const float halfFovH = (forceFov * 3.1415926535f / 180.0f) * 0.5f;
     const float halfFovV = atanf(tanf(halfFovH) / aspect);
