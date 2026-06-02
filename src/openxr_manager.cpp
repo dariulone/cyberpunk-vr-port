@@ -1481,7 +1481,6 @@ bool OpenXRManager::Init() {
         if (GetXrRuntimeMode() == 1 && strcmp(ClassifyOpenXRRuntime(instanceProps.runtimeName), "SteamVR") != 0) {
             Log("OpenXRManager: xr_runtime=1 requested SteamVR, but the active runtime identified as %s.\n", ClassifyOpenXRRuntime(instanceProps.runtimeName));
         }
-        m_runtimeIsSteamVR.store(strcmp(ClassifyOpenXRRuntime(instanceProps.runtimeName), "SteamVR") == 0, std::memory_order_relaxed);
     }
 
     XrSystemGetInfo systemInfo{XR_TYPE_SYSTEM_GET_INFO};
@@ -3287,7 +3286,6 @@ void OpenXRManager::Shutdown() {
     m_eyeSwapchains.clear();
     m_views.clear();
     m_viewConfigViews.clear();
-    m_runtimeIsSteamVR.store(false, std::memory_order_relaxed);
 
     if (m_fenceEvent) {
         CloseHandle(m_fenceEvent);
