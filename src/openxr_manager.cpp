@@ -3286,6 +3286,7 @@ void OpenXRManager::Shutdown() {
     m_eyeSwapchains.clear();
     m_views.clear();
     m_viewConfigViews.clear();
+    m_runtimeIsSteamVR.store(false, std::memory_order_relaxed);
 
     if (m_fenceEvent) {
         CloseHandle(m_fenceEvent);
