@@ -1484,6 +1484,7 @@ bool OpenXRManager::Init() {
         if (GetXrRuntimeMode() == 1 && strcmp(ClassifyOpenXRRuntime(instanceProps.runtimeName), "SteamVR") != 0) {
             Log("OpenXRManager: xr_runtime=1 requested SteamVR, but the active runtime identified as %s.\n", ClassifyOpenXRRuntime(instanceProps.runtimeName));
         }
+        m_runtimeIsSteamVR.store(strcmp(ClassifyOpenXRRuntime(instanceProps.runtimeName), "SteamVR") == 0, std::memory_order_relaxed);
     }
 
     XrSystemGetInfo systemInfo{XR_TYPE_SYSTEM_GET_INFO};
@@ -2003,6 +2004,10 @@ DWORD OpenXRManager::FrameThreadMain() {
                             sourceEye = eye ^ 1;
                         }
 
+                        if (m_runtimeIsSteamVR.load(std::memory_order_relaxed)) {
+                            sourceEye = sourceEye ^ 1;
+                        }
+
                         uint32_t imageIndex = 0;
                         XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
                         const XrResult acquireRes = xrAcquireSwapchainImage(m_eyeSwapchains[eye].handle, &acquireInfo, &imageIndex);
@@ -2056,7 +2061,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // the rendered image or the runtime reprojects it the wrong way
                         // (tearing / wobble). For debugEye source overrides, follow the
                         // SOURCE eye's pose so the image+pose pair stays matched.
-                        const uint32_t poseEye = (debugEye == 1 || debugEye == 2 || debugEye == 3) ? sourceEye : eye;
+                        const uint32_t poseEye = sourceEye;
                         if (poseEye < 2) {
                             projectionViews[eye].pose = eyePoses[poseEye];
                             projectionViews[eye].fov = eyeFovs[poseEye];

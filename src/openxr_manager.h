@@ -54,6 +54,7 @@ public:
 
     bool IsInitialized() const { return m_initialized; }
     bool IsSessionRunning() const { return m_sessionRunning.load(std::memory_order_relaxed); }
+    bool IsRuntimeSteamVR() const { return m_runtimeIsSteamVR.load(std::memory_order_relaxed); }
 
 private:
     static DWORD WINAPI FrameThreadThunk(LPVOID param);
