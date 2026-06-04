@@ -307,11 +307,45 @@ registerForEvent('onInit', function()
     isReady = true
 end)
 
+local vrTrackingEnabled = false
+local mouseDisableEnabled = false
+
+registerHotkey('ToggleVRHands', 'Toggle VR Hands', function()
+    vrTrackingEnabled = not vrTrackingEnabled
+    if vrTrackingEnabled then
+        pcall(function() Game.InstallVRAnimPoseHook() end)
+        pcall(function() Game.ArmVRAnimPosePlayer() end)
+        pcall(function() Game.SetVRBindMode(2) end)
+    else
+        pcall(function() Game.SetVRBindMode(0) end)
+    end
+end)
+
+registerHotkey('ToggleMouseY', 'Toggle Disable Mouse Y', function()
+    mouseDisableEnabled = not mouseDisableEnabled
+end)
+
 registerForEvent('onUpdate', function(dt)
     if not isReady then return end
-    if type(IsVRHandLinked) ~= 'function' then return end
+    
+    local player = Game.GetPlayer()
+    if not player then return end
 
-    -- VRFPP arm hiding/chunk debug is fully disabled.
+    if mouseDisableEnabled then
+        local cam = player:GetFPPCameraComponent()
+        if cam then
+            -- Force pitch to 0
+            cam.pitchMax = 0.0
+            cam.pitchMin = 0.0
+        end
+    else
+        local cam = player:GetFPPCameraComponent()
+        if cam then
+            -- Restore defaults roughly
+            cam.pitchMax = 80.0
+            cam.pitchMin = -80.0
+        end
+    end
     -- We only do a one-shot restore in case a previous session hid the arms.
     if needRestoreArms and type(RestoreVRFppArms) == 'function' then
         pcall(function() RestoreVRFppArms() end)
@@ -328,6 +362,16 @@ registerForEvent('onUpdate', function(dt)
     -- VR Transforms Update for Model-Space IK
     local camPos, camQuat = getCameraWorldPose(player)
     if not camPos or not camQuat then return end
+
+    if type(SetVRPlayerYaw) == 'function' then
+        local ok2, playerOri = pcall(function() return player:GetWorldOrientation() end)
+        local yaw = 0.0
+        if ok2 and playerOri and type(playerOri.yaw) == 'number' then
+            yaw = playerOri.yaw
+        end
+        pcall(function() SetVRPlayerYaw(yaw, camQuat.i, camQuat.j, camQuat.k, camQuat.r) end)
+        status.debugYaw = string.format("Yaw: %.2f", yaw)
+    end
 
     if not dvs and not ddh then return end
 
@@ -353,12 +397,35 @@ registerForEvent('onDraw', function()
     if not isReady then return end
 
     ImGui.SetNextWindowPos(100, 100, ImGuiCond.FirstUseEver)
-    ImGui.SetNextWindowSize(500, 250, ImGuiCond.FirstUseEver)
-    ImGui.Begin('VR Controller Gizmos')
+    ImGui.SetNextWindowSize(500, 400, ImGuiCond.FirstUseEver)
+    ImGui.Begin('VR Hands Control')
+
+    ImGui.Separator()
+    ImGui.Text("VR Tracking Controls")
+    
+    if ImGui.Button(vrTrackingEnabled and 'Stop VR Tracking' or 'Start VR Tracking') then
+        vrTrackingEnabled = not vrTrackingEnabled
+        if vrTrackingEnabled then
+            pcall(function() Game.InstallVRAnimPoseHook() end)
+            pcall(function() Game.ArmVRAnimPosePlayer() end)
+            pcall(function() Game.SetVRBindMode(2) end)
+        else
+            pcall(function() Game.SetVRBindMode(0) end)
+        end
+    end
+    
+    local mouseChanged, newMouse = ImGui.Checkbox('Disable Mouse Y (Pitch)', mouseDisableEnabled)
+    if mouseChanged then
+        mouseDisableEnabled = newMouse
+    end
+    ImGui.Separator()
 
     ImGui.Text('DebugVisualizer: ' .. tostring(status.debugVisualizer))
     ImGui.Text('Debug source: ' .. status.debugSource)
     ImGui.Text('DebugHistory: ' .. tostring(status.debugHistory))
+    if status.debugYaw then
+        ImGui.Text('Player Yaw: ' .. status.debugYaw)
+    end
     ImGui.Text('Last draw err: ' .. status.lastDrawErr)
     ImGui.Text('Draw gizmos: ' .. tostring(drawEnabled))
     ImGui.SameLine()
