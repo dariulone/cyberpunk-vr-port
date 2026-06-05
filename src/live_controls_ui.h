@@ -4,6 +4,7 @@ struct LiveControlsUiState {
     float xrHeadOffsetX;
     float xrHeadOffsetY;
     float xrHeadOffsetZ;
+    int xrMovementControl;
     int xrRecenter;
     int xrMonoSubmit;
     int xrAERSubmit;
@@ -24,6 +25,59 @@ struct LiveControlsUiState {
     int xrAERV2;
     int xrPoseLag;
     int xrRuntime;
+
+    // HUD placement / scale controls expected by imgui_overlay.cpp.
+    float xrHudScale;
+    float xrHudScaleY;
+    float xrHudMinimapQuestScale;
+
+    float xrHudPhone;
+    float xrHudPhoneY;
+    float xrHudPhoneScale;
+
+    float xrHudTopLeftAlerts;
+    float xrHudTopLeftAlertsY;
+    float xrHudTopLeftAlertsScale;
+
+    float xrHudTopRight;
+    float xrHudTopRightY;
+    float xrHudTopRightScale;
+
+    float xrHudBottomLeft;
+    float xrHudBottomLeftY;
+    float xrHudBottomLeftScale;
+
+    float xrHudBottomLeftTop;
+    float xrHudBottomLeftTopY;
+    float xrHudBottomLeftTopScale;
+
+    float xrHudRadio;
+    float xrHudRadioY;
+    float xrHudRadioScale;
+
+    float xrHudBottomRight;
+    float xrHudBottomRightY;
+    float xrHudBottomRightScale;
+
+    float xrHudRightCenter;
+    float xrHudRightCenterY;
+    float xrHudRightCenterScale;
+
+    float xrHudJohnnyHint;
+    float xrHudActivityLog;
+    float xrHudWarning;
+    float xrHudBossHealth;
+    float xrHudVehicleScan;
+    float xrHudProgressBar;
+    float xrHudOxygenBar;
+
+    // Weapon proxy controls expected by newer overlay/runtime code.
+    float xrWeaponPitch;
+    float xrWeaponYaw;
+    float xrWeaponRoll;
+    float xrWeaponOffsetX;
+    float xrWeaponOffsetY;
+    float xrWeaponOffsetZ;
 };
 
 extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState);
