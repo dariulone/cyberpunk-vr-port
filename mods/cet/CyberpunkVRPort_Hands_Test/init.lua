@@ -308,7 +308,7 @@ registerForEvent('onInit', function()
 end)
 
 local vrTrackingEnabled = false
-local mouseDisableEnabled = false
+local mouseDisableEnabled = true  -- Mouse/look pitch (Y) disabled by default for VR
 
 registerHotkey('ToggleVRHands', 'Toggle VR Hands', function()
     vrTrackingEnabled = not vrTrackingEnabled
