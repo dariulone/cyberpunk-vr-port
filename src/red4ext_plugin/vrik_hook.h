@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <cstdint>
 #include <iostream>
+#include <cmath>
 #include <MinHook.h>
 #include "vrik_solver.h"
 
@@ -139,7 +140,7 @@ extern volatile int       g_VRBindAxis;          // axis-remap preset 0..5
 extern volatile int       g_VRRightBoneIdx;      // default 24 (RightHand)
 extern volatile int       g_VRLeftBoneIdx;       // default 23 (LeftHand)
 
-
+extern volatile float     g_VRPlayerYaw;
 
 // Maps a VR-space vector to model-space per the selected preset (VR is Y-up).
 static inline void VRIK_RemapAxis(int preset, const float* v, float* o) {
@@ -206,13 +207,27 @@ extern "C" inline void* Hooked_AnimPoseApply(void* a1, void* a2, void* a3, unsig
                                 float vr_pos[3] = { g_pSharedHands[9], g_pSharedHands[10], g_pSharedHands[11] };
                                 float md_pos[3];
                                 VRIK_RemapAxis(axis, vr_pos, md_pos);
-                                
+
+                                // g_pSharedHands holds the controller offset RELATIVE TO THE
+                                // HEADSET, in head-local axes (the CET gizmo proves this: it
+                                // renders correctly via worldPos = camPos + camQuat*mapLocalPos).
+                                // The hand's parent forearm is camera-parented, so writing this
+                                // head-local offset straight into the bone's parent-local
+                                // translation lets the skeleton's own rotation reconstruct the
+                                // world placement -- identical to the gizmo. NO yaw fix-up: that
+                                // double-counts the rig rotation and is what made the hand swing
+                                // up/down on head turns.
                                 t[0] = md_pos[0] * s + offX;
                                 t[1] = md_pos[1] * s + offY;
                                 t[2] = md_pos[2] * s + offZ;
-                                
+
                                 if (g_VRBind == 2 || g_VRBind == 3) {
-                                    // ... rotation later
+                                    // mapLocalQuat: (i, -k, j, r) -- same VR->game axis swap as the position.
+                                    float* r = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(boneBuf) + bIdx * 48 + 16);
+                                    r[0] =  g_pSharedHands[12]; // i
+                                    r[1] = -g_pSharedHands[14]; // -k
+                                    r[2] =  g_pSharedHands[13]; // j
+                                    r[3] =  g_pSharedHands[15]; // r
                                 }
                             }
                         }
@@ -225,10 +240,20 @@ extern "C" inline void* Hooked_AnimPoseApply(void* a1, void* a2, void* a3, unsig
                                 float vr_pos[3] = { g_pSharedHands[1], g_pSharedHands[2], g_pSharedHands[3] };
                                 float md_pos[3];
                                 VRIK_RemapAxis(axis, vr_pos, md_pos);
-                                
+
+                                // Head-local controller offset straight into the bone (see right-hand note).
                                 t[0] = md_pos[0] * s + offX;
                                 t[1] = md_pos[1] * s + offY;
                                 t[2] = md_pos[2] * s + offZ;
+
+                                if (g_VRBind == 3) {
+                                    // mapLocalQuat: (i, -k, j, r).
+                                    float* r = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(boneBuf) + bIdx * 48 + 16);
+                                    r[0] =  g_pSharedHands[4]; // i
+                                    r[1] = -g_pSharedHands[6]; // -k
+                                    r[2] =  g_pSharedHands[5]; // j
+                                    r[3] =  g_pSharedHands[7]; // r
+                                }
                             }
                         }
                     } __except (EXCEPTION_EXECUTE_HANDLER) {}
