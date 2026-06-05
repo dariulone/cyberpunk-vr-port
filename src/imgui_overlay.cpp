@@ -1,13 +1,18 @@
 #include "imgui_overlay.h"
 #include "live_controls_ui.h"
+#include "openxr_manager.h"
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
+#include <string>
 #include <vector>
 
 #include <imgui.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
+
+#include "im3d.h"
 
 extern void Log(const char* fmt, ...);
 
@@ -38,6 +43,403 @@ HWND g_hwnd = nullptr;
 WNDPROC g_originalWndProc = nullptr;
 bool g_imguiInitialized = false;
 bool g_menuVisible = false;
+bool g_drawHandLocator = true;
+bool g_drawHandProxy3D = true;
+bool g_drawHandDebugAxes = false;
+float g_handLocatorScale = 1.0f;
+
+void MapAbstractHandPoint(bool isLeftHand, float hx, float hy, float hz, float* cx, float* cy, float* cz) {
+    if (isLeftHand) {
+        *cx = -hz;
+    } else {
+        *cx = hz;
+    }
+    *cy = -hy;
+    *cz = -hx;
+}
+
+void RotateVectorByQuaternion(float vx, float vy, float vz, float qx, float qy, float qz, float qw,
+    float* outX, float* outY, float* outZ) {
+    const float tx = 2.0f * (qy * vz - qz * vy);
+    const float ty = 2.0f * (qz * vx - qx * vz);
+    const float tz = 2.0f * (qx * vy - qy * vx);
+
+    *outX = vx + qw * tx + (qy * tz - qz * ty);
+    *outY = vy + qw * ty + (qz * tx - qx * tz);
+    *outZ = vz + qw * tz + (qx * ty - qy * tx);
+}
+
+bool ProjectXrPointToScreen(const OpenXRHeadPose& headPose, float pointX, float pointY, float pointZ,
+    const ImVec2& displaySize, ImVec2* outScreen) {
+    if (!outScreen || displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
+
+    const float deltaX = pointX - headPose.posX;
+    const float deltaY = pointY - headPose.posY;
+    const float deltaZ = pointZ - headPose.posZ;
+
+    // Inverse of a unit quaternion.
+    const float iqx = -headPose.oriX;
+    const float iqy = -headPose.oriY;
+    const float iqz = -headPose.oriZ;
+    const float iqw = headPose.oriW;
+
+    float viewX = 0.0f;
+    float viewY = 0.0f;
+    float viewZ = 0.0f;
+    RotateVectorByQuaternion(deltaX, deltaY, deltaZ, iqx, iqy, iqz, iqw, &viewX, &viewY, &viewZ);
+
+    const float forward = -viewZ;
+    if (forward <= 0.01f) return false;
+
+    float hfovDeg = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
+    float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
+    if (hfovDeg <= 1.0f) hfovDeg = 100.0f;
+    if (vfovDeg <= 1.0f) vfovDeg = 100.0f;
+
+    const float tanHalfX = tanf((hfovDeg * 0.5f) * (3.1415926535f / 180.0f));
+    const float tanHalfY = tanf((vfovDeg * 0.5f) * (3.1415926535f / 180.0f));
+    if (tanHalfX <= 0.0001f || tanHalfY <= 0.0001f) return false;
+
+    const float ndcX = viewX / (forward * tanHalfX);
+    const float ndcY = viewY / (forward * tanHalfY);
+
+    outScreen->x = (ndcX * 0.5f + 0.5f) * displaySize.x;
+    outScreen->y = (-ndcY * 0.5f + 0.5f) * displaySize.y;
+    return true;
+}
+
+bool ProjectHeadSpacePointToScreen(float pointX, float pointY, float pointZ,
+    const ImVec2& displaySize, ImVec2* outScreen) {
+    if (!outScreen || displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
+
+    const float forward = -pointZ;
+    if (forward <= 0.01f) return false;
+
+    float hfovDeg = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
+    float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
+    if (hfovDeg <= 1.0f) hfovDeg = 100.0f;
+    if (vfovDeg <= 1.0f) vfovDeg = 100.0f;
+
+    const float tanHalfX = tanf((hfovDeg * 0.5f) * (3.1415926535f / 180.0f));
+    const float tanHalfY = tanf((vfovDeg * 0.5f) * (3.1415926535f / 180.0f));
+    if (tanHalfX <= 0.0001f || tanHalfY <= 0.0001f) return false;
+
+    const float ndcX = pointX / (forward * tanHalfX);
+    const float ndcY = pointY / (forward * tanHalfY);
+
+    outScreen->x = (ndcX * 0.5f + 0.5f) * displaySize.x;
+    outScreen->y = (-ndcY * 0.5f + 0.5f) * displaySize.y;
+    return true;
+}
+
+Im3d::Vec3 AbstractHandPointToHeadSpace(const OpenXRHeadPose& handPose, bool isLeftHand, float hx, float hy, float hz) {
+    float cx = 0.0f;
+    float cy = 0.0f;
+    float cz = 0.0f;
+    MapAbstractHandPoint(isLeftHand, hx, hy, hz, &cx, &cy, &cz);
+
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float dz = 0.0f;
+    RotateVectorByQuaternion(cx, cy, cz,
+        handPose.oriX, handPose.oriY, handPose.oriZ, handPose.oriW,
+        &dx, &dy, &dz);
+
+    return Im3d::Vec3(handPose.posX + dx, handPose.posY + dy, handPose.posZ + dz);
+}
+
+bool ProjectIm3dPointToScreen(const Im3d::Vec3& point, const ImVec2& displaySize, ImVec2* outScreen) {
+    return ProjectHeadSpacePointToScreen(point.x, point.y, point.z, displaySize, outScreen);
+}
+
+ImU32 ToImU32(const Im3d::Color& color) {
+    return static_cast<ImU32>(color.getABGR());
+}
+
+void RenderIm3dToDrawList(ImDrawList* drawList, const ImVec2& displaySize) {
+    if (!drawList) return;
+
+    const Im3d::DrawList* drawLists = Im3d::GetDrawLists();
+    const Im3d::U32 drawListCount = Im3d::GetDrawListCount();
+    for (Im3d::U32 listIndex = 0; listIndex < drawListCount; ++listIndex) {
+        const Im3d::DrawList& list = drawLists[listIndex];
+        const Im3d::VertexData* verts = list.m_vertexData;
+        if (!verts || list.m_vertexCount == 0) continue;
+
+        if (list.m_primType == Im3d::DrawPrimitive_Triangles) {
+            for (Im3d::U32 i = 0; i + 2 < list.m_vertexCount; i += 3) {
+                ImVec2 a{}, b{}, c{};
+                if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i].m_positionSize), displaySize, &a)) continue;
+                if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i + 1].m_positionSize), displaySize, &b)) continue;
+                if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i + 2].m_positionSize), displaySize, &c)) continue;
+                drawList->AddTriangleFilled(a, b, c, ToImU32(verts[i].m_color));
+            }
+        } else if (list.m_primType == Im3d::DrawPrimitive_Lines) {
+            for (Im3d::U32 i = 0; i + 1 < list.m_vertexCount; i += 2) {
+                ImVec2 a{}, b{};
+                if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i].m_positionSize), displaySize, &a)) continue;
+                if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i + 1].m_positionSize), displaySize, &b)) continue;
+                const float thickness = std::max(1.0f, (verts[i].m_positionSize.w + verts[i + 1].m_positionSize.w) * 0.5f);
+                drawList->AddLine(a, b, ToImU32(verts[i].m_color), thickness);
+            }
+        } else if (list.m_primType == Im3d::DrawPrimitive_Points) {
+            for (Im3d::U32 i = 0; i < list.m_vertexCount; ++i) {
+                ImVec2 p{};
+                if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i].m_positionSize), displaySize, &p)) continue;
+                const float radius = std::max(1.0f, verts[i].m_positionSize.w * 0.5f);
+                drawList->AddCircleFilled(p, radius, ToImU32(verts[i].m_color));
+            }
+        }
+    }
+}
+
+void EmitIm3dQuad(const Im3d::Vec3& a, const Im3d::Vec3& b, const Im3d::Vec3& c, const Im3d::Vec3& d, const Im3d::Color& color) {
+    Im3d::Vertex(a, color);
+    Im3d::Vertex(b, color);
+    Im3d::Vertex(c, color);
+    Im3d::Vertex(a, color);
+    Im3d::Vertex(c, color);
+    Im3d::Vertex(d, color);
+}
+
+void EmitHandBox(const OpenXRHeadPose& handPose, bool isLeftHand,
+    float minX, float minY, float minZ,
+    float maxX, float maxY, float maxZ,
+    const Im3d::Color& color) {
+    const Im3d::Vec3 p000 = AbstractHandPointToHeadSpace(handPose, isLeftHand, minX, minY, minZ);
+    const Im3d::Vec3 p100 = AbstractHandPointToHeadSpace(handPose, isLeftHand, maxX, minY, minZ);
+    const Im3d::Vec3 p110 = AbstractHandPointToHeadSpace(handPose, isLeftHand, maxX, maxY, minZ);
+    const Im3d::Vec3 p010 = AbstractHandPointToHeadSpace(handPose, isLeftHand, minX, maxY, minZ);
+    const Im3d::Vec3 p001 = AbstractHandPointToHeadSpace(handPose, isLeftHand, minX, minY, maxZ);
+    const Im3d::Vec3 p101 = AbstractHandPointToHeadSpace(handPose, isLeftHand, maxX, minY, maxZ);
+    const Im3d::Vec3 p111 = AbstractHandPointToHeadSpace(handPose, isLeftHand, maxX, maxY, maxZ);
+    const Im3d::Vec3 p011 = AbstractHandPointToHeadSpace(handPose, isLeftHand, minX, maxY, maxZ);
+
+    Im3d::BeginTriangles();
+    EmitIm3dQuad(p000, p100, p110, p010, color);
+    EmitIm3dQuad(p001, p011, p111, p101, color);
+    EmitIm3dQuad(p000, p001, p101, p100, color);
+    EmitIm3dQuad(p010, p110, p111, p011, color);
+    EmitIm3dQuad(p000, p010, p011, p001, color);
+    EmitIm3dQuad(p100, p101, p111, p110, color);
+    Im3d::End();
+}
+
+void EmitHandProxyIm3d(const OpenXRHeadPose& handPose, bool isLeftHand, float scale, bool drawAxes) {
+    const Im3d::Color palmColor = isLeftHand ? Im3d::Color(0.10f, 0.85f, 1.00f, 0.32f) : Im3d::Color(1.00f, 0.72f, 0.15f, 0.32f);
+    const Im3d::Color fingerColor = isLeftHand ? Im3d::Color(0.35f, 0.92f, 1.00f, 0.50f) : Im3d::Color(1.00f, 0.86f, 0.35f, 0.50f);
+    const Im3d::Color thumbColor = isLeftHand ? Im3d::Color(0.22f, 0.72f, 1.00f, 0.55f) : Im3d::Color(1.00f, 0.58f, 0.22f, 0.55f);
+
+    const float s = scale;
+
+    // Palm block.
+    EmitHandBox(handPose, isLeftHand, -0.034f * s, -0.052f * s, -0.014f * s, 0.034f * s, 0.044f * s, 0.014f * s, palmColor);
+
+    // Fingers.
+    EmitHandBox(handPose, isLeftHand, -0.028f * s, 0.044f * s, -0.010f * s, -0.018f * s, 0.102f * s, 0.010f * s, fingerColor);
+    EmitHandBox(handPose, isLeftHand, -0.012f * s, 0.044f * s, -0.010f * s, -0.002f * s, 0.116f * s, 0.010f * s, fingerColor);
+    EmitHandBox(handPose, isLeftHand, 0.004f * s, 0.044f * s, -0.010f * s, 0.014f * s, 0.128f * s, 0.010f * s, fingerColor);
+    EmitHandBox(handPose, isLeftHand, 0.020f * s, 0.044f * s, -0.010f * s, 0.030f * s, 0.112f * s, 0.010f * s, fingerColor);
+
+    // Thumb as two compact volumes.
+    EmitHandBox(handPose, isLeftHand, 0.018f * s, -0.004f * s, -0.010f * s, 0.046f * s, 0.018f * s, 0.010f * s, thumbColor);
+    EmitHandBox(handPose, isLeftHand, 0.042f * s, 0.012f * s, -0.010f * s, 0.068f * s, 0.036f * s, 0.010f * s, thumbColor);
+
+    if (drawAxes) {
+        Im3d::PushSize(2.0f);
+        Im3d::BeginLines();
+        Im3d::Vertex(AbstractHandPointToHeadSpace(handPose, isLeftHand, -0.060f * s, 0.0f, 0.0f), Im3d::Color_Red);
+        Im3d::Vertex(AbstractHandPointToHeadSpace(handPose, isLeftHand, 0.060f * s, 0.0f, 0.0f), Im3d::Color_Red);
+        Im3d::Vertex(AbstractHandPointToHeadSpace(handPose, isLeftHand, 0.0f, -0.060f * s, 0.0f), Im3d::Color_Green);
+        Im3d::Vertex(AbstractHandPointToHeadSpace(handPose, isLeftHand, 0.0f, 0.060f * s, 0.0f), Im3d::Color_Green);
+        Im3d::Vertex(AbstractHandPointToHeadSpace(handPose, isLeftHand, 0.0f, 0.0f, 0.0f), Im3d::Color_Blue);
+        Im3d::Vertex(AbstractHandPointToHeadSpace(handPose, isLeftHand, 0.0f, 0.0f, -0.180f * s), Im3d::Color_Blue);
+        Im3d::End();
+        Im3d::PopSize();
+    }
+}
+
+bool ProjectHandLocalPoint(const OpenXRHeadPose& headPose, const OpenXRHeadPose& handPose,
+    float localX, float localY, float localZ, const ImVec2& displaySize, ImVec2* outScreen) {
+    (void)headPose;
+    float worldDeltaX = 0.0f;
+    float worldDeltaY = 0.0f;
+    float worldDeltaZ = 0.0f;
+    RotateVectorByQuaternion(localX, localY, localZ,
+        handPose.oriX, handPose.oriY, handPose.oriZ, handPose.oriW,
+        &worldDeltaX, &worldDeltaY, &worldDeltaZ);
+
+    return ProjectHeadSpacePointToScreen(
+        handPose.posX + worldDeltaX,
+        handPose.posY + worldDeltaY,
+        handPose.posZ + worldDeltaZ,
+        displaySize,
+        outScreen);
+}
+
+void DrawProjectedBone(ImDrawList* drawList, const OpenXRHeadPose& headPose, const OpenXRHeadPose& handPose,
+    float ax, float ay, float az, float bx, float by, float bz,
+    const ImVec2& displaySize, ImU32 color, float thickness) {
+    ImVec2 a{};
+    ImVec2 b{};
+    if (!ProjectHandLocalPoint(headPose, handPose, ax, ay, az, displaySize, &a)) return;
+    if (!ProjectHandLocalPoint(headPose, handPose, bx, by, bz, displaySize, &b)) return;
+    drawList->AddLine(a, b, color, thickness);
+}
+
+void DrawHandLocatorOverlay() {
+    if (!g_drawHandLocator) return;
+
+    OpenXRHeadPose head{};
+    OpenXRHeadPose left{};
+    OpenXRHeadPose right{};
+    if (!OpenXRManager::Get().GetHeadPose(&head) || !head.valid) return;
+
+    const bool hasLeft = OpenXRManager::Get().GetHandPose(0, &left) && left.valid;
+    const bool hasRight = OpenXRManager::Get().GetHandPose(1, &right) && right.valid;
+    if (!hasLeft && !hasRight) return;
+
+    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return;
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    if (!drawList) return;
+
+    Im3d::AppData& appData = Im3d::GetAppData();
+    appData.m_viewOrigin = Im3d::Vec3(0.0f, 0.0f, 0.0f);
+    appData.m_viewDirection = Im3d::Vec3(0.0f, 0.0f, -1.0f);
+    appData.m_worldUp = Im3d::Vec3(0.0f, 1.0f, 0.0f);
+    appData.m_viewportSize = Im3d::Vec2(displaySize.x, displaySize.y);
+    appData.m_deltaTime = 1.0f / 90.0f;
+    appData.m_projOrtho = false;
+    float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
+    if (vfovDeg <= 1.0f) vfovDeg = 100.0f;
+    appData.m_projScaleY = tanf((vfovDeg * 0.5f) * (3.1415926535f / 180.0f));
+    Im3d::NewFrame();
+
+    const auto drawEndpointLabel = [&](const OpenXRHeadPose& handPose, float x, float y, float z,
+        ImU32 color, const char* text, const ImVec2& offset) {
+        ImVec2 screen{};
+        if (!ProjectHandLocalPoint(head, handPose, x, y, z, displaySize, &screen)) return;
+        drawList->AddText(ImVec2(screen.x + offset.x, screen.y + offset.y), color, text);
+    };
+
+    const auto drawHandWire = [&](const OpenXRHeadPose& handPose, ImU32 bodyColor, const char* name, bool isLeftHand) {
+        const ImU32 rightColor = IM_COL32(255, 80, 80, 255);
+        const ImU32 upColor = IM_COL32(80, 255, 80, 255);
+        const ImU32 fwdColor = IM_COL32(80, 160, 255, 255);
+        const ImU32 textColor = IM_COL32(255, 255, 255, 255);
+
+        const float s = g_handLocatorScale;
+        const float wristHalfW = 0.026f * s;
+        const float palmHalfW = 0.034f * s;
+        const float wristY = -0.055f * s;
+        const float palmMidY = -0.018f * s;
+        const float knuckleY = 0.045f * s;
+        const float fwdLen = 0.180f * s;
+
+        // Hand abstract frame:
+        //   +X = thumb side
+        //   +Y = fingers direction
+        //   +Z = palm normal
+        // Empirical grip-pose basis from the current runtime/controller:
+        //   +X = left, +Y = forward, -Z = up
+        // Desired hand mapping:
+        //   thumb   -> up      => -Z
+        //   fingers -> forward => +Y
+        //   palm    -> left/right => +X for right hand, -X for left hand
+        const auto mapHandPoint = [&](float hx, float hy, float hz, float* cx, float* cy, float* cz) {
+            if (isLeftHand) {
+                *cx = -hz;
+            } else {
+                *cx = hz;
+            }
+            *cy = -hy;
+            *cz = -hx;
+        };
+
+        const auto bone = [&](float ax, float ay, float az, float bx, float by, float bz, ImU32 color, float thickness) {
+            float cax = 0.0f, cay = 0.0f, caz = 0.0f;
+            float cbx = 0.0f, cby = 0.0f, cbz = 0.0f;
+            mapHandPoint(ax, ay, az, &cax, &cay, &caz);
+            mapHandPoint(bx, by, bz, &cbx, &cby, &cbz);
+            DrawProjectedBone(drawList, head, handPose, cax, cay, caz, cbx, cby, cbz, displaySize, color, thickness);
+        };
+
+        const auto finger = [&](float baseX, float baseY, float midX, float midY, float tipX, float tipY) {
+            bone(baseX, baseY, 0.0f, midX, midY, -0.010f * s, bodyColor, 2.0f);
+            bone(midX, midY, -0.010f * s, tipX, tipY, -0.020f * s, bodyColor, 2.0f);
+        };
+
+        // Wrist and palm outline.
+        bone(-wristHalfW, wristY, 0.0f, wristHalfW, wristY, 0.0f, bodyColor, 2.0f);
+        bone(-wristHalfW, wristY, 0.0f, -palmHalfW, palmMidY, 0.0f, bodyColor, 2.0f);
+        bone(wristHalfW, wristY, 0.0f, palmHalfW, palmMidY, 0.0f, bodyColor, 2.0f);
+        bone(-palmHalfW, palmMidY, 0.0f, -palmHalfW, knuckleY, 0.0f, bodyColor, 2.0f);
+        bone(palmHalfW, palmMidY, 0.0f, palmHalfW, knuckleY, 0.0f, bodyColor, 2.0f);
+        bone(-palmHalfW, knuckleY, 0.0f, palmHalfW, knuckleY, 0.0f, bodyColor, 2.0f);
+
+        // Fingers.
+        finger(-0.024f * s, knuckleY, -0.026f * s, 0.074f * s, -0.026f * s, 0.096f * s); // pinky
+        finger(-0.010f * s, knuckleY, -0.011f * s, 0.086f * s, -0.011f * s, 0.116f * s); // ring
+        finger(0.006f * s, knuckleY, 0.006f * s, 0.094f * s, 0.006f * s, 0.128f * s);     // middle
+        finger(0.022f * s, knuckleY, 0.023f * s, 0.086f * s, 0.023f * s, 0.116f * s);     // index
+
+        // Thumb: always +X in abstract hand space. Handedness is handled by mapHandPoint.
+        bone(0.020f * s, -0.004f * s, 0.0f,
+             0.046f * s, 0.014f * s, -0.006f * s,
+             bodyColor, 2.0f);
+        bone(0.046f * s, 0.014f * s, -0.006f * s,
+             0.065f * s, 0.035f * s, -0.016f * s,
+             bodyColor, 2.0f);
+
+        // Axes: right/left, up/down, forward.
+        bone(-0.060f * s, 0.0f, 0.0f, 0.060f * s, 0.0f, 0.0f, rightColor, 2.0f);
+        bone(0.0f, -0.060f * s, 0.0f, 0.0f, 0.060f * s, 0.0f, upColor, 2.0f);
+        bone(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -fwdLen, fwdColor, 3.0f);
+
+        // Forward arrow head.
+        bone(0.0f, 0.0f, -fwdLen, 0.020f * s, 0.0f, -(fwdLen - 0.028f * s), fwdColor, 2.0f);
+        bone(0.0f, 0.0f, -fwdLen, -0.020f * s, 0.0f, -(fwdLen - 0.028f * s), fwdColor, 2.0f);
+        bone(0.0f, 0.0f, -fwdLen, 0.0f, 0.020f * s, -(fwdLen - 0.028f * s), fwdColor, 2.0f);
+        bone(0.0f, 0.0f, -fwdLen, 0.0f, -0.020f * s, -(fwdLen - 0.028f * s), fwdColor, 2.0f);
+
+        // Center dot.
+        ImVec2 center{};
+        if (ProjectHandLocalPoint(head, handPose, 0.0f, 0.0f, 0.0f, displaySize, &center)) {
+            drawList->AddCircleFilled(center, 4.0f, bodyColor);
+            drawList->AddText(ImVec2(center.x + 8.0f, center.y - 20.0f), bodyColor, name);
+        }
+
+        drawEndpointLabel(handPose, 0.070f * s, 0.0f, 0.0f, textColor, "R", ImVec2(4.0f, -6.0f));
+        drawEndpointLabel(handPose, -0.070f * s, 0.0f, 0.0f, textColor, "L", ImVec2(-10.0f, -6.0f));
+        drawEndpointLabel(handPose, 0.0f, 0.070f * s, 0.0f, textColor, "U", ImVec2(-4.0f, -14.0f));
+        drawEndpointLabel(handPose, 0.0f, -0.070f * s, 0.0f, textColor, "D", ImVec2(-4.0f, 2.0f));
+        drawEndpointLabel(handPose, 0.0f, 0.0f, -(fwdLen + 0.020f * s), textColor, "F", ImVec2(4.0f, -6.0f));
+    };
+
+    if (hasLeft) {
+        if (g_drawHandProxy3D) {
+            EmitHandProxyIm3d(left, true, g_handLocatorScale, g_drawHandDebugAxes);
+        }
+        if (g_drawHandDebugAxes || !g_drawHandProxy3D) {
+            drawHandWire(left, IM_COL32(0, 220, 255, 255), "LEFT", true);
+        }
+    }
+    if (hasRight) {
+        if (g_drawHandProxy3D) {
+            EmitHandProxyIm3d(right, false, g_handLocatorScale, g_drawHandDebugAxes);
+        }
+        if (g_drawHandDebugAxes || !g_drawHandProxy3D) {
+            drawHandWire(right, IM_COL32(255, 180, 0, 255), "RIGHT", false);
+        }
+    }
+
+    Im3d::EndFrame();
+    if (g_drawHandProxy3D) {
+        RenderIm3dToDrawList(drawList, displaySize);
+    }
+}
 
 template <typename T>
 void SafeRelease(T*& value) {
@@ -97,6 +499,40 @@ bool DrawFovControl(LiveControlsUiState& state) {
     return changed;
 }
 
+bool DrawHudXYAndScale(const char* label, float* x, float* y, float* scale) {
+    bool changed = false;
+    const std::string xLabel = std::string(label) + " X";
+    const std::string yLabel = std::string(label) + " Y";
+    const std::string sizeLabel = std::string(label) + " Size";
+    changed |= ImGui::SliderFloat(xLabel.c_str(), x, -1200.0f, 1200.0f, "X %.0f px");
+    changed |= ImGui::SliderFloat(yLabel.c_str(), y, -1200.0f, 1200.0f, "Y %.0f px");
+    changed |= ImGui::SliderFloat(sizeLabel.c_str(), scale, 0.01f, 2.00f, "Size %.2f");
+    return changed;
+}
+
+bool DrawHudControls(LiveControlsUiState& state) {
+    bool changed = false;
+    ImGui::TextUnformatted("Per-region HUD controls: X right+, Y down+, Size 1.00 = half old size, 2.00 = full old size.");
+    changed |= DrawHudXYAndScale("Minimap / Quest", &state.xrHudScale, &state.xrHudScaleY, &state.xrHudMinimapQuestScale);
+    changed |= DrawHudXYAndScale("Phone", &state.xrHudPhone, &state.xrHudPhoneY, &state.xrHudPhoneScale);
+    changed |= DrawHudXYAndScale("Top-left alerts", &state.xrHudTopLeftAlerts, &state.xrHudTopLeftAlertsY, &state.xrHudTopLeftAlertsScale);
+    changed |= DrawHudXYAndScale("Top-right", &state.xrHudTopRight, &state.xrHudTopRightY, &state.xrHudTopRightScale);
+    changed |= DrawHudXYAndScale("Bottom-left main", &state.xrHudBottomLeft, &state.xrHudBottomLeftY, &state.xrHudBottomLeftScale);
+    changed |= DrawHudXYAndScale("Bottom-left top", &state.xrHudBottomLeftTop, &state.xrHudBottomLeftTopY, &state.xrHudBottomLeftTopScale);
+    changed |= DrawHudXYAndScale("Radio", &state.xrHudRadio, &state.xrHudRadioY, &state.xrHudRadioScale);
+    changed |= DrawHudXYAndScale("Bottom-right main", &state.xrHudBottomRight, &state.xrHudBottomRightY, &state.xrHudBottomRightScale);
+    changed |= DrawHudXYAndScale("Right center", &state.xrHudRightCenter, &state.xrHudRightCenterY, &state.xrHudRightCenterScale);
+    changed |= ImGui::SliderFloat("Johnny hint X", &state.xrHudJohnnyHint, -1200.0f, 1200.0f, "X %.0f px");
+    changed |= ImGui::SliderFloat("Activity log X", &state.xrHudActivityLog, -1200.0f, 1200.0f, "X %.0f px");
+    changed |= ImGui::SliderFloat("Warning Y", &state.xrHudWarning, -1200.0f, 1200.0f, "Y %.0f px");
+    changed |= ImGui::SliderFloat("Boss health Y", &state.xrHudBossHealth, -1200.0f, 1200.0f, "Y %.0f px");
+    changed |= ImGui::SliderFloat("Vehicle scan Y", &state.xrHudVehicleScan, -1200.0f, 1200.0f, "Y %.0f px");
+    changed |= ImGui::SliderFloat("Progress bar Y", &state.xrHudProgressBar, -1200.0f, 1200.0f, "Y %.0f px");
+    changed |= ImGui::SliderFloat("Oxygen bar Y", &state.xrHudOxygenBar, -1200.0f, 1200.0f, "Y %.0f px");
+    ImGui::TextUnformatted("HUD is still screen-space/head-locked. These controls only change placement and readability.");
+    return changed;
+}
+
 void ReleaseGameMouseCapture() {
     ClipCursor(nullptr);
     ReleaseCapture();
@@ -135,13 +571,15 @@ bool DrawLiveControls(LiveControlsUiState& state) {
         SetLiveControlsUiState(&state, 1);
     }
 
-    if (ImGui::CollapsingHeader("View / Resolution", ImGuiTreeNodeFlags_DefaultOpen)) {
-        changed |= DrawFovControl(state);
-        changed |= CheckboxInt("VR menu quad", &state.xrMenuRect);
-        changed |= ImGui::SliderFloat("VR menu FOV", &state.xrMenuFov, 30.0f, 120.0f, "%.1f deg");
-    }
+    if (ImGui::BeginTabBar("CyberpunkVRPortTabs")) {
+        if (ImGui::BeginTabItem("General")) {
+            if (ImGui::CollapsingHeader("View / Resolution", ImGuiTreeNodeFlags_DefaultOpen)) {
+                changed |= DrawFovControl(state);
+                changed |= CheckboxInt("VR menu quad", &state.xrMenuRect);
+                changed |= ImGui::SliderFloat("VR menu FOV", &state.xrMenuFov, 30.0f, 120.0f, "%.1f deg");
+            }
 
-    if (ImGui::CollapsingHeader("Stereo / AER", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::CollapsingHeader("Stereo / AER", ImGuiTreeNodeFlags_DefaultOpen)) {
         const char* renderModes[] = {"Mono", "AER"};
         int renderMode = state.xrAERSubmit != 0 ? 1 : 0;
         if (ImGui::Combo("Render mode", &renderMode, renderModes, IM_ARRAYSIZE(renderModes))) {
@@ -193,21 +631,61 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                               "per-eye frame history needed for interpolation. The synthesized\n"
                               "submit path is the next step.");
         }
-    }
+            }
 
-    if (ImGui::CollapsingHeader("Tracking / Camera")) {
+            if (ImGui::CollapsingHeader("Tracking / Camera")) {
+        const char* movementControlModes[] = {"Game", "HMD"};
+        int movementControl = state.xrMovementControl == 1 ? 1 : 0;
+        if (ImGui::Combo("Movement Control", &movementControl, movementControlModes, IM_ARRAYSIZE(movementControlModes))) {
+            state.xrMovementControl = movementControl;
+            changed = true;
+        }
+        ImGui::TextUnformatted("HMD mode is on-foot only. Vehicles keep game heading.");
         changed |= CheckboxInt("Fix Head", &state.xr3DofMovement);
         if (state.xr3DofMovement == 0) {
             changed |= ImGui::SliderFloat("Head X right", &state.xrHeadOffsetX, -0.50f, 0.50f, "%.3f m");
             changed |= ImGui::SliderFloat("Head Y forward", &state.xrHeadOffsetY, -0.50f, 0.50f, "%.3f m");
             changed |= ImGui::SliderFloat("Head Z up", &state.xrHeadOffsetZ, -0.50f, 0.50f, "%.3f m");
         }
-    }
+            }
 
-    if (ImGui::CollapsingHeader("DLSS / Debug")) {
+            if (ImGui::CollapsingHeader("Hand Proxies & Weapons")) {
+                // Drive the in-game skeletal hand tracking (RED4ext plugin) straight
+                // from the headset, so it can be toggled without the desktop CET menu.
+                static bool s_vrHandTracking = false;
+                if (ImGui::Checkbox("Enable VR hand tracking (write to skeleton)", &s_vrHandTracking)) {
+                    OpenXRManager::Get().SetVRHandTrackingMode(s_vrHandTracking ? 2 : 0);
+                }
+                ImGui::Separator();
+                ImGui::TextUnformatted("Raw hand overlay modes:");
+                ImGui::Checkbox("Enable hand overlay", &g_drawHandLocator);
+                ImGui::Checkbox("Draw 3D hand proxy", &g_drawHandProxy3D);
+                ImGui::Checkbox("Draw debug wire/axes", &g_drawHandDebugAxes);
+                ImGui::SliderFloat("Locator scale", &g_handLocatorScale, 0.50f, 2.00f, "%.2f");
+                ImGui::Separator();
+                ImGui::TextUnformatted("Align the in-game weapon to match your physical controller.");
+                changed |= ImGui::SliderFloat("Weapon Pitch", &state.xrWeaponPitch, -180.0f, 180.0f, "%.1f deg");
+                changed |= ImGui::SliderFloat("Weapon Yaw", &state.xrWeaponYaw, -180.0f, 180.0f, "%.1f deg");
+                changed |= ImGui::SliderFloat("Weapon Roll", &state.xrWeaponRoll, -180.0f, 180.0f, "%.1f deg");
+                changed |= ImGui::SliderFloat("Weapon X (Right)", &state.xrWeaponOffsetX, -0.5f, 0.5f, "%.3f m");
+                changed |= ImGui::SliderFloat("Weapon Y (Forward)", &state.xrWeaponOffsetY, -0.5f, 0.5f, "%.3f m");
+                changed |= ImGui::SliderFloat("Weapon Z (Up)", &state.xrWeaponOffsetZ, -0.5f, 0.5f, "%.3f m");
+            }
+
+            if (ImGui::CollapsingHeader("DLSS / Debug")) {
         changed |= CheckboxInt("DLSS matrix hook", &state.xrDLSSMatrixHook);
         changed |= SliderIntClamped("DLSS slot mode", &state.xrDLSSSlotMode, 0, 8);
         changed |= SliderIntClamped("DLSS log stride", &state.xrDLSSLogStride, 0, 3000);
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("HUD")) {
+            changed |= DrawHudControls(state);
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
     }
 
     return changed;
@@ -484,8 +962,6 @@ void OverlaySetWindow(HWND hwnd) {
 }
 
 void OverlayRender(IDXGISwapChain* swapChain) {
-    if (!g_menuVisible) return;
-    ReleaseGameMouseCapture();
     if (!EnsureImGui(swapChain)) return;
 
     DXGI_SWAP_CHAIN_DESC desc{};
@@ -511,22 +987,30 @@ void OverlayRender(IDXGISwapChain* swapChain) {
         io.DisplaySize = ImVec2(backbufferWidth, backbufferHeight);
         io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
     }
-    UpdateImGuiMouseFromCursor(desc.OutputWindow, backbufferWidth, backbufferHeight);
+    if (g_menuVisible) {
+        ReleaseGameMouseCapture();
+        UpdateImGuiMouseFromCursor(desc.OutputWindow, backbufferWidth, backbufferHeight);
+    }
 
     ImGui::NewFrame();
+
+    DrawHandLocatorOverlay();
 
     LiveControlsUiState state{};
     GetLiveControlsUiState(&state);
 
-    const ImVec2 display = ImGui::GetIO().DisplaySize;
-    const ImVec2 menuSize(std::min(1000.0f, display.x * 0.58f), std::min(1180.0f, display.y * 0.64f));
-    ImGui::SetNextWindowSize(menuSize, ImGuiCond_Appearing);
-    ImGui::SetNextWindowPos(ImVec2((display.x - menuSize.x) * 0.5f, (display.y - menuSize.y) * 0.5f), ImGuiCond_Appearing);
-    ImGui::Begin("CyberpunkVRPort Controls", &g_menuVisible, ImGuiWindowFlags_NoCollapse);
-    ImGui::TextUnformatted("F10 / Insert: toggle menu");
-    ImGui::Separator();
-    const bool changed = DrawLiveControls(state);
-    ImGui::End();
+    bool changed = false;
+    if (g_menuVisible) {
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        const ImVec2 menuSize(std::min(1000.0f, display.x * 0.58f), std::min(1180.0f, display.y * 0.64f));
+        ImGui::SetNextWindowSize(menuSize, ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(ImVec2((display.x - menuSize.x) * 0.5f, (display.y - menuSize.y) * 0.5f), ImGuiCond_Appearing);
+        ImGui::Begin("CyberpunkVRPort Controls", &g_menuVisible, ImGuiWindowFlags_NoCollapse);
+        ImGui::TextUnformatted("F10 / Insert: toggle menu");
+        ImGui::Separator();
+        changed = DrawLiveControls(state);
+        ImGui::End();
+    }
 
     if (changed) {
         SetLiveControlsUiState(&state, 1);

@@ -25,6 +25,12 @@ struct OpenXRHeadPose {
 };
 
 extern "C" int GetXrRuntimeMode();
+extern "C" float GetWeaponPitch();
+extern "C" float GetWeaponYaw();
+extern "C" float GetWeaponRoll();
+extern "C" float GetWeaponOffsetX();
+extern "C" float GetWeaponOffsetY();
+extern "C" float GetWeaponOffsetZ();
 
 class OpenXRManager {
 public:
@@ -43,9 +49,19 @@ public:
     bool IsAERSubmitEnabled() const { return m_aerSubmitEnabled.load(std::memory_order_relaxed); }
     int GetCurrentRenderEyeIndex() const { return m_renderEyeIndex.load(std::memory_order_relaxed); }
     // Record the exact OpenXR head pose a given eye's frame was rendered with
-    // (called from the camera hook). The AER submit uses this so the runtime can
-    // time-warp the older 1/2-rate eye forward to display time. See render-pose submit.
+    // Frame logic
     void StoreRenderEyePose(int eye, const OpenXRHeadPose& pose, uint32_t seq);
+
+    // Hands
+    bool GetHandPose(int handIndex, OpenXRHeadPose* out) const;
+    void SetWeaponOffsets(float pitch, float yaw, float roll, float dx, float dy, float dz);
+
+    // VR hand-tracking activation, driven from the in-headset overlay menu. The
+    // value is published into shared-memory slot [32] each present; the RED4ext
+    // plugin polls it to install/arm and set the bind mode (0 = off, 2 = pos+rot).
+    void SetVRHandTrackingMode(int mode) { m_vrHandTrackingMode.store(mode, std::memory_order_relaxed); }
+    int GetVRHandTrackingMode() const { return m_vrHandTrackingMode.load(std::memory_order_relaxed); }
+
     float GetRuntimeHorizontalFovDeg() const { return m_runtimeHorizontalFovDeg.load(std::memory_order_relaxed); }
     bool IsRuntimeSteamVR() const { return m_runtimeIsSteamVR.load(std::memory_order_relaxed); }
     float GetRuntimeVerticalFovDeg() const { return m_runtimeVerticalFovDeg.load(std::memory_order_relaxed); }
@@ -80,9 +96,24 @@ private:
     XrSession m_session = XR_NULL_HANDLE;
     XrSpace m_localSpace = XR_NULL_HANDLE;
     XrSpace m_viewSpace = XR_NULL_HANDLE;
+    XrActionSet m_actionSet = XR_NULL_HANDLE;
+    XrAction m_handPoseAction = XR_NULL_HANDLE;
+    XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
+    XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
     XrSessionState m_sessionState = XR_SESSION_STATE_UNKNOWN;
     std::vector<XrViewConfigurationView> m_viewConfigViews;
     std::vector<XrView> m_views;
+
+    // Hands
+    std::mutex m_handMutex;
+    OpenXRHeadPose m_hands[2]{};
+    float m_weaponPitch = 0.0f;
+    float m_weaponYaw = 0.0f;
+    float m_weaponRoll = 0.0f;
+    float m_weaponDx = 0.0f;
+    float m_weaponDy = 0.0f;
+    float m_weaponDz = 0.0f;
+    std::atomic<int> m_vrHandTrackingMode{0};
 
     // Graphics binding
     XrGraphicsBindingD3D12KHR m_graphicsBinding{};

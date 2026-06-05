@@ -2164,10 +2164,45 @@ void SetVRIKAnimInputTestMode(RED4ext::IScriptable* aContext, RED4ext::CStackFra
     g_animInputTestMode = mode;
 }
 
+// Plain-C++ arm helper (resolves the player's live track buffers). Shared by the
+// script-callable ArmVRAnimPosePlayer and the in-VR overlay auto-activation below.
+// Returns bitmask: 1=bufA set, 2=bufB set, -1=player not ready.
+static int VRIK_DoArmPlayer();
+
 void UpdateVRIKAnimInputs(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
     aFrame->code++;
+
+    // --- In-VR overlay activation -------------------------------------------
+    // The in-headset menu (imgui_overlay) writes a tracking-request code into
+    // shared-memory slot [32] (0 = off, 2 = position+rotation). CET calls us
+    // every frame on the game thread, so installing the hooks / arming the
+    // player here is exactly as safe as the manual "Start VR Tracking" button.
+    // Edge-triggered on g_VRBind so the CET button still works independently.
+    EnsureSharedMemory();
+    if (g_pSharedHands) {
+        static bool s_vrHooksInstalled = false;
+        static bool s_vrArmed = false;
+        static int  s_lastReq = 0;
+        int req = static_cast<int>(g_pSharedHands[32]);
+        if (req > 0) {
+            if (!s_vrHooksInstalled) {
+                InstallVRIKMinHook();
+                InstallAnimPoseHook();
+                s_vrHooksInstalled = true;
+            }
+            if (!s_vrArmed && VRIK_DoArmPlayer() > 0) {
+                s_vrArmed = true;
+            }
+            if (s_lastReq <= 0) g_VRBind = req;   // off -> on edge
+        } else {
+            if (s_lastReq > 0) g_VRBind = 0;       // on -> off edge
+            s_vrArmed = false;                     // re-arm on next activation
+        }
+        s_lastReq = req;
+    }
+    // ------------------------------------------------------------------------
 
     if (g_rootGraphFloatPersistentPreset != 0)
     {
@@ -3483,13 +3518,9 @@ void InstallVRAnimPoseHook(RED4ext::IScriptable* aContext, RED4ext::CStackFrame*
 
 // Resolves the player's live track buffers (a2[7][3] candidates) so the hook can
 // identify the player call. Returns bitmask: 1=bufA set, 2=bufB set.
-void ArmVRAnimPosePlayer(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    aFrame->code++;
-    if (aOut) *aOut = 0;
-
+static int VRIK_DoArmPlayer() {
     auto* animObj = FindPlayerAnimatedObjectByComponentName("root");
-    if (!animObj || !VRIK_IsReadable(animObj, 0x40)) { if (aOut) *aOut = -1; return; }
+    if (!animObj || !VRIK_IsReadable(animObj, 0x40)) return -1;
     uint8_t* base = reinterpret_cast<uint8_t*>(animObj);
 
     g_PlayerTrackBufA = 0;
@@ -3505,7 +3536,14 @@ void ArmVRAnimPosePlayer(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* a
     if (VRIK_IsReadable(ownerB, 0x20))
         g_PlayerTrackBufB = *reinterpret_cast<uintptr_t*>(reinterpret_cast<uint8_t*>(ownerB) + 0x18);
 
-    if (aOut) *aOut = (g_PlayerTrackBufA ? 1 : 0) | (g_PlayerTrackBufB ? 2 : 0);
+    return (g_PlayerTrackBufA ? 1 : 0) | (g_PlayerTrackBufB ? 2 : 0);
+}
+
+void ArmVRAnimPosePlayer(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    int r = VRIK_DoArmPlayer();
+    if (aOut) *aOut = r;
 }
 
 void SetVRAnimPoseDebug(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
@@ -3571,8 +3609,27 @@ void DumpPlayerBoneNames(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* a
 
 
 
-void SetVRBindMode(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+volatile float g_VRPlayerYaw = 0.0f;
+
+volatile float g_VRCamI = 0.0f;
+volatile float g_VRCamJ = 0.0f;
+volatile float g_VRCamK = 0.0f;
+volatile float g_VRCamR = 1.0f;
+
+void SetVRPlayerYaw(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
     RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    
+    float pYaw = 0.0f;
+    
+    RED4ext::GetParameter(aFrame, &pYaw);
+    aFrame->code++;
+    
+    g_VRPlayerYaw = pYaw;
+    
+    if (aOut) *aOut = 1;
+}
+
+void SetVRBindMode(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
     int32_t mode = 0;
     RED4ext::GetParameter(aFrame, &mode);
     aFrame->code++;
@@ -3882,6 +3939,11 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     rtti->RegisterFunction(f15r);
 
 
+
+    auto f15s = RED4ext::CGlobalFunction::Create("SetVRPlayerYaw", "SetVRPlayerYaw", &SetVRPlayerYaw);
+    f15s->flags = flags; f15s->SetReturnType("Int32");
+    f15s->AddParam("Float", "yaw");
+    rtti->RegisterFunction(f15s);
 
     auto f19 = RED4ext::CGlobalFunction::Create("DumpAnimVTable", "DumpAnimVTable", &DumpAnimVTable);
     f19->flags = flags; f19->SetReturnType("Int32"); rtti->RegisterFunction(f19);

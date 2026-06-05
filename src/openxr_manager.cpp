@@ -7,6 +7,29 @@
 #include <cmath>
 #include <utility>
 
+static void EulerToQuat(float pitchDeg, float yawDeg, float rollDeg, float& qx, float& qy, float& qz, float& qw) {
+    float p = pitchDeg * (3.1415926535f / 180.0f) * 0.5f;
+    float y = yawDeg * (3.1415926535f / 180.0f) * 0.5f;
+    float r = rollDeg * (3.1415926535f / 180.0f) * 0.5f;
+    
+    float cp = cosf(p), sp = sinf(p);
+    float cy = cosf(y), sy = sinf(y);
+    float cr = cosf(r), sr = sinf(r);
+    
+    qw = cr * cp * cy + sr * sp * sy;
+    qx = sr * cp * cy - cr * sp * sy;
+    qy = cr * sp * cy + sr * cp * sy;
+    qz = cr * cp * sy - sr * sp * cy;
+}
+
+static void MulQuatLoc(float ax, float ay, float az, float aw, float bx, float by, float bz, float bw,
+    float& outX, float& outY, float& outZ, float& outW) {
+    outX = ax * bw + aw * bx + ay * bz - az * by;
+    outY = ay * bw + aw * by + az * bx - ax * bz;
+    outZ = az * bw + aw * bz + ax * by - ay * bx;
+    outW = aw * bw - ax * bx - ay * by - az * bz;
+}
+
 extern void Log(const char* fmt, ...);
 extern "C" int GetDisableRoll();
 extern "C" float GetForcedFov();
@@ -1537,6 +1560,60 @@ bool OpenXRManager::Init() {
     }
 
     Log("OpenXRManager: OpenXR Initialized. SystemID=%llu\n", m_systemId);
+
+    // [HANDS] Action Set Initialization
+    {
+        XrActionSetCreateInfo actionSetInfo{XR_TYPE_ACTION_SET_CREATE_INFO};
+        strcpy_s(actionSetInfo.actionSetName, "gameplay");
+        strcpy_s(actionSetInfo.localizedActionSetName, "Gameplay");
+        xrCreateActionSet(m_instance, &actionSetInfo, &m_actionSet);
+
+        XrActionCreateInfo actionInfo{XR_TYPE_ACTION_CREATE_INFO};
+        actionInfo.actionType = XR_ACTION_TYPE_POSE_INPUT;
+        strcpy_s(actionInfo.actionName, "hand_pose");
+        strcpy_s(actionInfo.localizedActionName, "Hand Pose");
+        
+        xrStringToPath(m_instance, "/user/hand/left", &m_handPaths[0]);
+        xrStringToPath(m_instance, "/user/hand/right", &m_handPaths[1]);
+        
+        actionInfo.countSubactionPaths = 2;
+        actionInfo.subactionPaths = m_handPaths;
+        xrCreateAction(m_actionSet, &actionInfo, &m_handPoseAction);
+
+        // Bindings for Oculus Touch as an example. (More bindings should be added later).
+        XrPath oculusTouchPath, valveIndexPath, htcVivePath, msftMRPath, simplePath;
+        xrStringToPath(m_instance, "/interaction_profiles/oculus/touch_controller", &oculusTouchPath);
+        xrStringToPath(m_instance, "/interaction_profiles/valve/index_controller", &valveIndexPath);
+        xrStringToPath(m_instance, "/interaction_profiles/htc/vive_controller", &htcVivePath);
+        xrStringToPath(m_instance, "/interaction_profiles/microsoft/motion_controller", &msftMRPath);
+        xrStringToPath(m_instance, "/interaction_profiles/khr/simple_controller", &simplePath);
+
+        XrPath leftAimPath, rightAimPath;
+        xrStringToPath(m_instance, "/user/hand/left/input/grip/pose", &leftAimPath);
+        xrStringToPath(m_instance, "/user/hand/right/input/grip/pose", &rightAimPath);
+
+        XrActionSuggestedBinding bindings[2] = {
+            { m_handPoseAction, leftAimPath },
+            { m_handPoseAction, rightAimPath }
+        };
+        XrInteractionProfileSuggestedBinding suggestedBindings{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+        suggestedBindings.suggestedBindings = bindings;
+        suggestedBindings.countSuggestedBindings = 2;
+
+        XrPath profiles[] = {
+            oculusTouchPath,
+            valveIndexPath,
+            htcVivePath,
+            msftMRPath,
+            simplePath
+        };
+
+        for (XrPath profile : profiles) {
+            suggestedBindings.interactionProfile = profile;
+            xrSuggestInteractionProfileBindings(m_instance, &suggestedBindings);
+        }
+    }
+
     m_initialized = true;
     return true;
 }
@@ -1622,6 +1699,22 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
     if (XR_FAILED(res)) {
         Log("OpenXRManager: Failed to create view space (res=%d)\n", res);
         return false;
+    }
+
+    // [HANDS] Attach action sets and create spaces
+    if (m_actionSet != XR_NULL_HANDLE) {
+        XrSessionActionSetsAttachInfo attachInfo{XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
+        attachInfo.countActionSets = 1;
+        attachInfo.actionSets = &m_actionSet;
+        xrAttachSessionActionSets(m_session, &attachInfo);
+
+        for (int i = 0; i < 2; i++) {
+            XrActionSpaceCreateInfo spaceInfo{XR_TYPE_ACTION_SPACE_CREATE_INFO};
+            spaceInfo.action = m_handPoseAction;
+            spaceInfo.subactionPath = m_handPaths[i];
+            spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+            xrCreateActionSpace(m_session, &spaceInfo, &m_handSpaces[i]);
+        }
     }
 
     m_stopFrameThread.store(false, std::memory_order_relaxed);
@@ -1899,6 +1992,72 @@ DWORD OpenXRManager::FrameThreadMain() {
             m_oriZ.store(relOri.z, std::memory_order_relaxed);
             m_oriW.store(relOri.w, std::memory_order_relaxed);
             m_poseValid.store(true, std::memory_order_relaxed);
+
+            // [HANDS] Sync actions and locate hands
+            static int s_handLogCounter = 0;
+            bool doHandLog = (s_handLogCounter++ % 120 == 0);
+
+            if (m_actionSet != XR_NULL_HANDLE) {
+                XrActiveActionSet activeActionSet{};
+                activeActionSet.actionSet = m_actionSet;
+                activeActionSet.subactionPath = XR_NULL_PATH;
+
+                XrActionsSyncInfo syncInfo{XR_TYPE_ACTIONS_SYNC_INFO};
+                syncInfo.countActiveActionSets = 1;
+                syncInfo.activeActionSets = &activeActionSet;
+                XrResult syncRes = xrSyncActions(m_session, &syncInfo);
+                
+                if (doHandLog) {
+                    Log("OpenXRManager[Hands]: syncRes=%d sessionState=%d\n", syncRes, (int)m_sessionState);
+                }
+
+                std::lock_guard<std::mutex> handLock(m_handMutex);
+                for (int i = 0; i < 2; i++) {
+                    XrActionStateGetInfo getInfo{XR_TYPE_ACTION_STATE_GET_INFO};
+                    getInfo.action = m_handPoseAction;
+                    getInfo.subactionPath = m_handPaths[i];
+
+                    XrActionStatePose poseState{XR_TYPE_ACTION_STATE_POSE};
+                    XrResult poseRes = xrGetActionStatePose(m_session, &getInfo, &poseState);
+                    
+                    if (doHandLog) {
+                        Log("OpenXRManager[Hands]: eye=%d poseRes=%d isActive=%d\n", i, poseRes, poseState.isActive);
+                    }
+
+                    m_hands[i].valid = false;
+                    if (poseState.isActive) {
+                        XrSpaceLocation handLoc{XR_TYPE_SPACE_LOCATION};
+                        XrResult locRes = xrLocateSpace(m_handSpaces[i], m_localSpace, frameState.predictedDisplayTime, &handLoc);
+                        
+                        if (doHandLog) {
+                            Log("OpenXRManager[Hands]: eye=%d locRes=%d flags=0x%X\n", i, locRes, handLoc.locationFlags);
+                        }
+
+                        if (XR_SUCCEEDED(locRes)) {
+                            if ((handLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
+                                (handLoc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+                                
+                                XrQuaternionf headInv = ConjugateQuat(location.pose.orientation);
+                                XrVector3f hrelPosWorld{};
+                                hrelPosWorld.x = handLoc.pose.position.x - location.pose.position.x;
+                                hrelPosWorld.y = handLoc.pose.position.y - location.pose.position.y;
+                                hrelPosWorld.z = handLoc.pose.position.z - location.pose.position.z;
+                                XrVector3f hrelPos = RotateVector(headInv, hrelPosWorld);
+                                XrQuaternionf hrelOri = MultiplyQuat(headInv, handLoc.pose.orientation);
+
+                                m_hands[i].posX = hrelPos.x;
+                                m_hands[i].posY = hrelPos.y;
+                                m_hands[i].posZ = hrelPos.z;
+                                m_hands[i].oriX = hrelOri.x;
+                                m_hands[i].oriY = hrelOri.y;
+                                m_hands[i].oriZ = hrelOri.z;
+                                m_hands[i].oriW = hrelOri.w;
+                                m_hands[i].valid = true;
+                            }
+                        }
+                    }
+                }
+            }
 
             // Rotate the head velocity into the same base-recentered frame as the
             // pose so GetHeadPose() can forward-predict (AER pose extrapolation).
@@ -2709,6 +2868,22 @@ DWORD OpenXRManager::FrameThreadMain() {
     return 0;
 }
 
+bool OpenXRManager::GetHandPose(int handIndex, OpenXRHeadPose* out) const {
+    if (!out || handIndex < 0 || handIndex > 1) return false;
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
+    *out = m_hands[handIndex];
+    return out->valid;
+}
+
+void OpenXRManager::SetWeaponOffsets(float pitch, float yaw, float roll, float dx, float dy, float dz) {
+    m_weaponPitch = pitch;
+    m_weaponYaw = yaw;
+    m_weaponRoll = roll;
+    m_weaponDx = dx;
+    m_weaponDy = dy;
+    m_weaponDz = dz;
+}
+
 bool OpenXRManager::GetHeadPose(OpenXRHeadPose* out) const {
     if (!out) return false;
 
@@ -2803,6 +2978,62 @@ void OpenXRManager::StoreRenderEyePose(int eye, const OpenXRHeadPose& pose, uint
 }
 
 void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
+    // [HANDS] Shared Memory Output
+    static HANDLE s_hMapFile = NULL;
+    static float* s_pSharedHands = nullptr;
+    if (!s_hMapFile) {
+        s_hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 256, "CyberpunkVR_Hands_Shared");
+        if (s_hMapFile) {
+            s_pSharedHands = (float*)MapViewOfFile(s_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 256);
+        }
+    }
+    if (s_pSharedHands) {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
+        // Slot [32]: VR hand-tracking request for the RED4ext plugin (set from the overlay menu).
+        s_pSharedHands[32] = static_cast<float>(m_vrHandTrackingMode.load(std::memory_order_relaxed));
+        s_pSharedHands[0] = m_hands[0].valid ? 1.0f : 0.0f;
+        s_pSharedHands[1] = m_hands[0].posX;
+        s_pSharedHands[2] = m_hands[0].posY;
+        s_pSharedHands[3] = m_hands[0].posZ;
+        s_pSharedHands[4] = m_hands[0].oriX;
+        s_pSharedHands[5] = m_hands[0].oriY;
+        s_pSharedHands[6] = m_hands[0].oriZ;
+        s_pSharedHands[7] = m_hands[0].oriW;
+
+        float rx = m_hands[1].posX;
+        float ry = m_hands[1].posY;
+        float rz = m_hands[1].posZ;
+        float rqx = m_hands[1].oriX;
+        float rqy = m_hands[1].oriY;
+        float rqz = m_hands[1].oriZ;
+        float rqw = m_hands[1].oriW;
+
+        // Apply weapon offset from live controls
+        float offQx, offQy, offQz, offQw;
+        EulerToQuat(m_weaponPitch, m_weaponYaw, m_weaponRoll, offQx, offQy, offQz, offQw);
+        
+        float finalQx, finalQy, finalQz, finalQw;
+        MulQuatLoc(rqx, rqy, rqz, rqw, offQx, offQy, offQz, offQw, finalQx, finalQy, finalQz, finalQw);
+
+        // Position offset (in local XR controller space -> rotated to head space)
+        float tx = 2.0f * (rqy * m_weaponDz - rqz * m_weaponDy);
+        float ty = 2.0f * (rqz * m_weaponDx - rqx * m_weaponDz);
+        float tz = 2.0f * (rqx * m_weaponDy - rqy * m_weaponDx);
+        
+        float vx = m_weaponDx + rqw * tx + (rqy * tz - rqz * ty);
+        float vy = m_weaponDy + rqw * ty + (rqz * tx - rqx * tz);
+        float vz = m_weaponDz + rqw * tz + (rqx * ty - rqy * tx);
+
+        s_pSharedHands[8] = m_hands[1].valid ? 1.0f : 0.0f;
+        s_pSharedHands[9] = rx + vx;
+        s_pSharedHands[10] = ry + vy;
+        s_pSharedHands[11] = rz + vz;
+        s_pSharedHands[12] = finalQx;
+        s_pSharedHands[13] = finalQy;
+        s_pSharedHands[14] = finalQz;
+        s_pSharedHands[15] = finalQw;
+    }
+
     if (!swapChain) return;
 
     uint64_t s_presentCount = m_presentCount.fetch_add(1, std::memory_order_relaxed) + 1;
