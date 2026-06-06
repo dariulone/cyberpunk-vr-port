@@ -120,7 +120,3 @@ This is the preferred file for community bug reports.
 - GPU: NVIDIA RTX 5070 Ti
 - RAM: DDR4 32GB
 - OS: Windows 11 Pro 25H2 26200.8457
-
----
-
-See [CHANGELOG.md](CHANGELOG.md) for the full version history.
