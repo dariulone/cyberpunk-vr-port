@@ -1,0 +1,7 @@
+ src/dxgi_factory_wrapper.cpp | 1341 +++++++++++++-
+ src/dxgi_proxy.cpp           | 4175 ++++++++++++++++++++++++++++++++++++++++--
+ src/imgui_overlay.cpp        |   21 +-
+ src/openxr_manager.cpp       |  287 ++-
+ src/openxr_manager.h         |   19 +
+ src/red4ext_plugin/main.cpp  | 2221 ++++++++++++++++++++++
+ 6 files changed, 7953 insertions(+), 111 deletions(-)

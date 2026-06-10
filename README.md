@@ -7,6 +7,15 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 
 `F10` opens the in-game VR menu.
 
+## Documentation
+
+See [`docs/`](docs/) for engineering notes. In particular
+[`docs/stereo-rnd.md`](docs/stereo-rnd.md) documents the extended research into
+*genuine simultaneous stereo* (D3D12 command replay and geo-11-style shader
+injection), why it did not ship on REDengine's deferred renderer, and the
+realistic paths forward. The full experimental working tree is preserved as a
+reversible patch (`docs/stereo-rnd-experiment.patch`).
+
 ## Current State
 
 ### Stereo / Camera

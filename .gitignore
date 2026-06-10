@@ -12,7 +12,6 @@ CyberpunkVRProxy.log
 tools/
 releases/
 *.py
-docs/
 memory/
 package.json
 .opencode/*
