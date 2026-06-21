@@ -38,14 +38,16 @@ See [`docs/`](docs/) for engineering notes (e.g. the stereo R&D writeup).
 
 ## Requirements
 
-- **Cyberpunk 2077** (PC, current patch).
-- An **OpenXR runtime** — e.g. Virtual Desktop / VDXR or SteamVR — started
-  **before** the game.
-- **RED4ext** — loads the native `CyberpunkVR_Hands.dll` plugin.
-- **Cyber Engine Tweaks (CET)** — runs the `CyberpunkVRPort_*` Lua mods.
-- **redscript** — compiles the `CyberpunkVRPort_*` `.reds` scripts.
-- NVIDIA GPU recommended for the AER V2 NvOF path (otherwise the D3D12-compute
-  fallback is used).
+- Cyberpunk 2077 (PC, 2.31).
+- Cyber Engine Tweaks
+- RED4ext
+- ArchiveXL
+- TweakXL
+- redscript
+- Codeware
+- Visual Holsters (Automatic Clothes Swap)
+- Visible Bullets (Projectile Restoration)
+- Equipment-EX
 
 Install RED4ext, CET and redscript first (the usual Nexus dependencies).
 
