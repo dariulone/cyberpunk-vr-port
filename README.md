@@ -18,8 +18,8 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 - **AER V2 reprojection** — per-eye / intermediate frames synthesised from the
   game's mono output via NVIDIA Optical Flow + a depth-aware warp (unified
   producer, late IPD). Automatic D3D12-compute fallback without CUDA.
-- **Full-body VR avatar** (VRIK/FRIK) — body under the HMD, arm-length
-  calibration, leg IK, real-life squat. Hands are 1:1 with the controllers.
+- **Full-body VR avatar** (VRIK) — body under the HMD, arm-length
+  calibration, leg IK, real-life squat. Hands are with the controllers.
 - **Decoupled VR weapon aim** — bullets follow the real weapon muzzle, not the
   camera; optional barrel crosshair dot, scope-zoom aware.
 - **VR motion melee** — real swings trigger the game's native melee along the
