@@ -219,7 +219,11 @@ protected:
         NV_OF_MODE eMode = NV_OF_MODE_OPTICALFLOW,
         NV_OF_PERF_LEVEL preset = NV_OF_PERF_LEVEL_SLOW);
 public:
-    void Init(uint32_t nOutGridSize, uint32_t nHintGridSize = NV_OF_HINT_VECTOR_GRID_SIZE_UNDEFINED, bool bEnableExtHints = false, bool bEnableRoi = false);
+    void Init(uint32_t nOutGridSize,
+              uint32_t nHintGridSize = NV_OF_HINT_VECTOR_GRID_SIZE_UNDEFINED,
+              bool bEnableExtHints = false,
+              bool bEnableRoi = false,
+              bool bEnableOutputCost = false);
 
     /*
      * Check for the grid size support by hw

@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <psapi.h>
+#include <xinput.h>
 #include <cstdint>
 #include <cstddef>
 #include <cstdio>
@@ -11,6 +12,7 @@
 #include "live_controls_ui.h"
 #include "launcher_dialog.h"
 #include "openxr_manager.h"
+#include "runtime_fov_correction.h"
 
 #define CreateDXGIFactory RealDXGIHeader_CreateDXGIFactory
 #define CreateDXGIFactory1 RealDXGIHeader_CreateDXGIFactory1
@@ -101,14 +103,33 @@ struct LiveControls {
     volatile int xrAERDebugEye;
     volatile float xrMotionPredictMs;
     volatile float xrStereoScale;
+    volatile float xrWorldScale;   // uniform world scale (1.0 = default, <1 = world bigger)
+    volatile float xrIpdScale;     // eye-separation multiplier on runtime IPD
+    volatile float xrSharpness;    // CAS sharpen strength (0 = off .. 1)
+    volatile float xrSharpmix;     // CAS sharpen mix (0..1)
+    volatile int xrReuseLastFrame; // 1 = reuse last clean frame on stale AER ticks
+    volatile int xrNvofPerf;       // NvOF perf level: 0=FAST, 1=MEDIUM, 2=SLOW (Higher quality AER v2)
+    volatile int xrPairLock;       // 1 = freeze tracked pose per stereo pair (anti-tear). 0 = live pose every locate.
     volatile int xrRenderPoseSubmit;
     volatile int xrAERHalfRate;
     volatile int xrAERV2;
     volatile int xrPoseLag;
     volatile int xrRuntime;
     volatile int xrDepthSubmit;
-    volatile int xrMovementControl; // 0 = Game heading, 1 = HMD head-oriented locomotion
+    volatile int xrMovementControl; // 0 = Game heading, 1 = HMD head-oriented locomotion (legacy mirror of xrMovementSource)
     volatile int xrDisableMouseY;   // 1 = suppress mouse pitch (CET VRIK mod applies it)
+    volatile int xrXInputHook;      // 1 = merge VR controller into XInput gamepad 0
+    volatile int xrSnapTurn;        // 1 = discrete snap turn from right-stick X
+    volatile float xrSnapTurnAngleDeg; // degrees per snap pulse
+    volatile int xrMovementSource;  // 0 = Game, 1 = HMD, 2 = LeftHand, 3 = RightHand
+    volatile int xrXInputInstall;   // 1 = install the XInput entry-point detour at startup (default 1, set 0 in vrport.ini to fully bypass)
+    volatile int xrInputActions;    // 1 = create gameplay XrActions (thumbstick/trigger/buttons). 0 = pose-only legacy behaviour
+    volatile int xrMonoXQueueWait;  // 1 = mono path inserts cross-queue Wait before depth capture (legacy). 0 = skip it -- avoids CP2077 async-compute Wait cycle that froze present thread.
+    volatile int xrAerXQueueWait;   // 1 = AER path inserts cross-queue Wait + depth capture every present (safe vs save/load depth race). 0 = skip both (default, smooth) -- AER V2 warp falls back to NvOF-only.
+    volatile int xrSnapTurnPulseMs; // duration of the discrete snap turn pulse pushed into the right stick (ms)
+    volatile int xrMonoDepthCapture; // 1 = mono path runs depth capture (legacy, hangs on CP2077). 0 = skip depth capture entirely in mono mode.
+    volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
+    volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
 };
 
 static constexpr int kEnablePatchBufferTracer = 0;
@@ -155,6 +176,9 @@ static void InitRuntimePaths() {
     // Default: mouse pitch suppressed (VR uses the HMD for pitch).
     g_liveControls.xrDisableMouseY = 1;
 
+    // Default: immersive holsters ON (current behaviour -- equip by visual holster).
+    g_liveControls.xrImmersiveHolsters = 1;
+
     // Capture the recenter-request baseline NOW (before CET could write), so the
     // first OnGameAttached this session is seen as a change and triggers a recenter,
     // while a stale counter left over from a previous session does not.
@@ -199,14 +223,45 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_aer_debug_eye=0\n");
     fprintf(file, "xr_motion_predict_ms=0.0\n");
     fprintf(file, "xr_stereo_scale=1.0\n");
+    fprintf(file, "xr_world_scale=1.0\n");
+    fprintf(file, "xr_ipd_scale=1.0\n");
+    fprintf(file, "xr_sharpness=0.0\n");
+    fprintf(file, "xr_sharpmix=1.0\n");
+    fprintf(file, "xr_reuse_last_frame=0\n");
+    fprintf(file, "xr_hmd_smooth=0.35\n");
+    fprintf(file, "xr_hand_smooth=0.45\n");
+    fprintf(file, "xr_nvof_perf=0\n");
+    fprintf(file, "xr_pair_lock=0\n");
     fprintf(file, "xr_render_pose_submit=1\n");
     fprintf(file, "xr_aer_half_rate=0\n");
     fprintf(file, "xr_aer_v2=0\n");
     fprintf(file, "xr_pose_lag=1\n");
     fprintf(file, "xr_runtime=0\n");
-    fprintf(file, "xr_depth_submit=0\n");
+    fprintf(file, "xr_aer_max_extrap=1.80\n");
+    fprintf(file, "xr_aer_refine=0.00\n");
+    fprintf(file, "xr_aer_edge_sharp=1.00\n");
+    fprintf(file, "xr_aer_foveation=0.00\n");
+    // Default ON: now safe via cross-queue Signal hook (CyberpunkVRPort_
+    // WaitOnAllGameSignals) that GPU-Waits on every tracked game queue
+    // before our depth copy. Lets the compositor do depth-aware reprojection
+    // → fixes far-building shift on head turn (parallax-correct timewarp
+    // instead of orientation-only). Users on broken runtimes can set 0.
+    fprintf(file, "xr_depth_submit=1\n");
     fprintf(file, "xr_movement_control=0\n");
     fprintf(file, "xr_disable_mouse_y=1\n");
+    fprintf(file, "xr_xinput_hook=1\n");
+    fprintf(file, "xr_snap_turn=0\n");
+    fprintf(file, "xr_snap_turn_angle_deg=30\n");
+    fprintf(file, "xr_movement_source=0\n");
+    // Default OFF for the new gameplay-input pipeline so a busted runtime
+    // binding or a 14-byte XInput entry-point patch can't keep CP2077 from
+    // reaching its main menu. Opt in by editing vrport.ini after confirming
+    // the legacy path still launches cleanly.
+    fprintf(file, "xr_xinput_install=0\n");
+    fprintf(file, "xr_input_actions=0\n");
+    fprintf(file, "xr_mono_xqueue_wait=0\n");
+    fprintf(file, "xr_snap_turn_pulse_ms=30\n");
+    fprintf(file, "xr_mono_depth_capture=0\n");
     fclose(file);
 }
 
@@ -328,6 +383,15 @@ static void PollVrikRecenterRequest() {
     }
 }
 
+// AER V2 warp tuning accessors (atomics live in openxr_manager.cpp). The proxy
+// owns their ini persistence: parse -> Set* on file change, Get* -> write on Save.
+extern "C" float GetAerMaxExtrap();      extern "C" void SetAerMaxExtrap(float);
+extern "C" float GetAerRefineStrength(); extern "C" void SetAerRefineStrength(float);
+extern "C" float GetAerOcclusionSharp(); extern "C" void SetAerOcclusionSharp(float);
+extern "C" float GetAerFoveation();      extern "C" void SetAerFoveation(float);
+extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(float);
+extern "C" float GetHandTrackingSmooth(); extern "C" void SetHandTrackingSmooth(float);
+
 static void PollLiveControls() {
     InitRuntimePaths();
     PollVrikRecenterRequest();
@@ -367,14 +431,53 @@ static void PollLiveControls() {
     int xrAERWarmupFrames = 1;
     float xrMotionPredictMs = 0.0f;
     float xrStereoScale = 1.0f;
+    float xrWorldScale = 1.0f;
+    float xrIpdScale = 1.0f;
+    float xrSharpness = 0.0f;
+    float xrSharpmix = 1.0f;
+    int xrReuseLastFrame = 0;
+    int xrNvofPerf = 0;
+    int xrPairLock = 0;
     int xrRenderPoseSubmit = 1;
     int xrAERHalfRate = 0;
     int xrAERV2 = 0;
     int xrPoseLag = 1;
     int xrRuntime = 0;
-    int xrDepthSubmit = 0;
+    // Default ON: cross-queue Signal hook now serializes our depth read
+    // against the game's render writers. Compositor depth-aware reprojection
+    // fixes far-object shift on head turn. Users can still override via ini.
+    int xrDepthSubmit = 1;
     int xrMovementControl = g_liveControls.xrMovementControl;
     int xrDisableMouseY = g_liveControls.xrDisableMouseY;
+    int xrXInputHook = g_liveControls.xrXInputHook != 0 ? g_liveControls.xrXInputHook : 1;
+    int xrSnapTurn = g_liveControls.xrSnapTurn;
+    float xrHmdSmooth = GetHmdTrackingSmooth();
+    float xrHandSmooth = GetHandTrackingSmooth();
+    static const char kLegacyReuseLastFrameKey[] = {
+        'x','r','_','o','u','t','p','u','t','_','r','e','a','l','v','r',0
+    };
+    auto tryParseIntKey = [](const char* text, const char* key, int* outValue) {
+        if (!text || !key || !outValue) return false;
+        const size_t keyLen = strlen(key);
+        if (_strnicmp(text, key, keyLen) != 0) return false;
+        const char* cursor = text + keyLen;
+        while (*cursor == ' ' || *cursor == '\t') ++cursor;
+        if (*cursor != '=') return false;
+        ++cursor;
+        while (*cursor == ' ' || *cursor == '\t') ++cursor;
+        *outValue = atoi(cursor);
+        return true;
+    };
+    float xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg > 0.0f ? g_liveControls.xrSnapTurnAngleDeg : 30.0f;
+    int xrMovementSource = g_liveControls.xrMovementSource;
+    int xrXInputInstall = g_liveControls.xrXInputInstall;
+    int xrInputActions = g_liveControls.xrInputActions;
+    int xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
+    int xrAerXQueueWait = g_liveControls.xrAerXQueueWait;
+    int xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs > 0 ? g_liveControls.xrSnapTurnPulseMs : 30;
+    int xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
+    int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
+    int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -507,6 +610,56 @@ static void PollLiveControls() {
             xrStereoScale = value;
             continue;
         }
+        if (sscanf_s(line, "xr_world_scale=%f", &value) == 1 ||
+            sscanf_s(line, "xr_world_scale = %f", &value) == 1) {
+            xrWorldScale = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_ipd_scale=%f", &value) == 1 ||
+            sscanf_s(line, "xr_ipd_scale = %f", &value) == 1) {
+            xrIpdScale = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_sharpness=%f", &value) == 1 ||
+            sscanf_s(line, "xr_sharpness = %f", &value) == 1) {
+            xrSharpness = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_sharpmix=%f", &value) == 1 ||
+            sscanf_s(line, "xr_sharpmix = %f", &value) == 1) {
+            xrSharpmix = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_aer_max_extrap=%f", &value) == 1 ||
+            sscanf_s(line, "xr_aer_max_extrap = %f", &value) == 1) {
+            SetAerMaxExtrap(value);
+            continue;
+        }
+        if (sscanf_s(line, "xr_aer_refine=%f", &value) == 1 ||
+            sscanf_s(line, "xr_aer_refine = %f", &value) == 1) {
+            SetAerRefineStrength(value);
+            continue;
+        }
+        if (sscanf_s(line, "xr_aer_edge_sharp=%f", &value) == 1 ||
+            sscanf_s(line, "xr_aer_edge_sharp = %f", &value) == 1) {
+            SetAerOcclusionSharp(value);
+            continue;
+        }
+        if (sscanf_s(line, "xr_aer_foveation=%f", &value) == 1 ||
+            sscanf_s(line, "xr_aer_foveation = %f", &value) == 1) {
+            SetAerFoveation(value);
+            continue;
+        }
+        if (sscanf_s(line, "xr_hmd_smooth=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hmd_smooth = %f", &value) == 1) {
+            xrHmdSmooth = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_smooth=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hand_smooth = %f", &value) == 1) {
+            xrHandSmooth = value;
+            continue;
+        }
         if (sscanf_s(line, "xr_render_pose_submit=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_render_pose_submit = %d", &intValue) == 1) {
             xrRenderPoseSubmit = intValue;
@@ -520,6 +673,22 @@ static void PollLiveControls() {
         if (sscanf_s(line, "xr_aer_v2=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_aer_v2 = %d", &intValue) == 1) {
             xrAERV2 = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_reuse_last_frame=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_reuse_last_frame = %d", &intValue) == 1 ||
+            tryParseIntKey(line, kLegacyReuseLastFrameKey, &intValue)) {
+            xrReuseLastFrame = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_nvof_perf=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_nvof_perf = %d", &intValue) == 1) {
+            xrNvofPerf = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_pair_lock=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_pair_lock = %d", &intValue) == 1) {
+            xrPairLock = intValue;
             continue;
         }
         if (sscanf_s(line, "xr_pose_lag=%d", &intValue) == 1 ||
@@ -545,6 +714,66 @@ static void PollLiveControls() {
         if (sscanf_s(line, "xr_disable_mouse_y=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_disable_mouse_y = %d", &intValue) == 1) {
             xrDisableMouseY = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_xinput_hook=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_xinput_hook = %d", &intValue) == 1) {
+            xrXInputHook = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_snap_turn=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_snap_turn = %d", &intValue) == 1) {
+            xrSnapTurn = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_snap_turn_angle_deg=%f", &value) == 1 ||
+            sscanf_s(line, "xr_snap_turn_angle_deg = %f", &value) == 1) {
+            xrSnapTurnAngleDeg = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_movement_source=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_movement_source = %d", &intValue) == 1) {
+            xrMovementSource = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
+            xrXInputInstall = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_input_actions=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_input_actions = %d", &intValue) == 1) {
+            xrInputActions = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_mono_xqueue_wait=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_mono_xqueue_wait = %d", &intValue) == 1) {
+            xrMonoXQueueWait = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_aer_xqueue_wait=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_aer_xqueue_wait = %d", &intValue) == 1) {
+            xrAerXQueueWait = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_snap_turn_pulse_ms=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_snap_turn_pulse_ms = %d", &intValue) == 1) {
+            xrSnapTurnPulseMs = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_mono_depth_capture=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_mono_depth_capture = %d", &intValue) == 1) {
+            xrMonoDepthCapture = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_snap_turn_yaw_index=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_snap_turn_yaw_index = %d", &intValue) == 1) {
+            xrSnapTurnYawIndex = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_immersive_holsters=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_immersive_holsters = %d", &intValue) == 1) {
+            xrImmersiveHolsters = intValue;
             continue;
         }
 
@@ -573,6 +802,13 @@ static void PollLiveControls() {
         g_liveControls.xrAERDebugEye != xrAERDebugEye ||
         g_liveControls.xrMotionPredictMs != xrMotionPredictMs ||
         g_liveControls.xrStereoScale != xrStereoScale ||
+        g_liveControls.xrWorldScale != xrWorldScale ||
+        g_liveControls.xrIpdScale != xrIpdScale ||
+        g_liveControls.xrSharpness != xrSharpness ||
+        g_liveControls.xrSharpmix != xrSharpmix ||
+        g_liveControls.xrReuseLastFrame != xrReuseLastFrame ||
+        g_liveControls.xrNvofPerf != xrNvofPerf ||
+        g_liveControls.xrPairLock != xrPairLock ||
         g_liveControls.xrRenderPoseSubmit != xrRenderPoseSubmit ||
         g_liveControls.xrAERHalfRate != xrAERHalfRate ||
         g_liveControls.xrAERV2 != xrAERV2 ||
@@ -597,14 +833,40 @@ static void PollLiveControls() {
     g_liveControls.xrAERDebugEye = xrAERDebugEye;
     g_liveControls.xrMotionPredictMs = xrMotionPredictMs >= 0.0f ? xrMotionPredictMs : 0.0f;
     g_liveControls.xrStereoScale = xrStereoScale < 0.0f ? 0.0f : (xrStereoScale > 10.0f ? 10.0f : xrStereoScale);
+    g_liveControls.xrWorldScale = xrWorldScale < 0.05f ? 0.05f : (xrWorldScale > 20.0f ? 20.0f : xrWorldScale);
+    g_liveControls.xrIpdScale = xrIpdScale < 0.0f ? 0.0f : (xrIpdScale > 5.0f ? 5.0f : xrIpdScale);
+    g_liveControls.xrSharpness = xrSharpness < 0.0f ? 0.0f : (xrSharpness > 1.0f ? 1.0f : xrSharpness);
+    g_liveControls.xrSharpmix = xrSharpmix < 0.0f ? 0.0f : (xrSharpmix > 1.0f ? 1.0f : xrSharpmix);
+    g_liveControls.xrReuseLastFrame = xrReuseLastFrame != 0 ? 1 : 0;
+    g_liveControls.xrNvofPerf = xrNvofPerf < 0 ? 0 : (xrNvofPerf > 2 ? 2 : xrNvofPerf);
+    g_liveControls.xrPairLock = xrPairLock != 0 ? 1 : 0;
     g_liveControls.xrRenderPoseSubmit = xrRenderPoseSubmit != 0 ? 1 : 0;
     g_liveControls.xrAERHalfRate = xrAERHalfRate != 0 ? 1 : 0;
     g_liveControls.xrAERV2 = xrAERV2 != 0 ? 1 : 0;
     g_liveControls.xrPoseLag = xrPoseLag;
     g_liveControls.xrRuntime = ClampRuntimeMode(xrRuntime);
     g_liveControls.xrDepthSubmit = xrDepthSubmit != 0 ? 1 : 0;
-    g_liveControls.xrMovementControl = xrMovementControl != 0 ? 1 : 0;
+    // xrMovementSource is the authoritative locomotion mode (0..3); legacy
+    // xrMovementControl mirrors it for old configs (0 = Game, anything else
+    // means VR-driven so map to legacy 1).
+    if (xrMovementSource < 0 || xrMovementSource > 3) xrMovementSource = xrMovementControl != 0 ? 1 : 0;
+    g_liveControls.xrMovementSource = xrMovementSource;
+    g_liveControls.xrMovementControl = xrMovementSource != 0 ? 1 : 0;
     g_liveControls.xrDisableMouseY = xrDisableMouseY != 0 ? 1 : 0;
+    g_liveControls.xrXInputHook = xrXInputHook != 0 ? 1 : 0;
+    g_liveControls.xrSnapTurn = xrSnapTurn != 0 ? 1 : 0;
+    g_liveControls.xrSnapTurnAngleDeg = xrSnapTurnAngleDeg > 0.0f ? xrSnapTurnAngleDeg : 30.0f;
+    g_liveControls.xrXInputInstall = xrXInputInstall != 0 ? 1 : 0;
+    g_liveControls.xrInputActions = xrInputActions != 0 ? 1 : 0;
+    g_liveControls.xrMonoXQueueWait = xrMonoXQueueWait != 0 ? 1 : 0;
+    g_liveControls.xrAerXQueueWait = xrAerXQueueWait != 0 ? 1 : 0;
+    g_liveControls.xrSnapTurnPulseMs = xrSnapTurnPulseMs > 0 ? xrSnapTurnPulseMs : 30;
+    g_liveControls.xrMonoDepthCapture = xrMonoDepthCapture != 0 ? 1 : 0;
+    g_liveControls.xrSnapTurnYawIndex = (xrSnapTurnYawIndex >= 0 && xrSnapTurnYawIndex <= 3) ? xrSnapTurnYawIndex : 1;
+    g_liveControls.xrImmersiveHolsters = xrImmersiveHolsters != 0 ? 1 : 0;
+    OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
+    SetHmdTrackingSmooth(xrHmdSmooth);
+    SetHandTrackingSmooth(xrHandSmooth);
     WriteVrikSettingsFile(); // keep the CET-facing bridge file in sync with vrport.ini
     if (prevXrRecenter == 0 && xrRecenter != 0) {
         OpenXRManager::Get().RequestRecenter();
@@ -621,7 +883,7 @@ static void PollLiveControls() {
         Log("OpenXR AER submit %s. startEye=%d\n", xrAERSubmit != 0 ? "enabled" : "disabled", g_liveControls.xrAERStartEye);
     }
 
-    if (changed) {
+    if (changed && g_verboseLog) {
         Log("Live controls updated: xr_head_offset=(%.4f,%.4f,%.4f) xr_recenter=%d xr_mono_submit=%d xr_aer_submit=%d xr_force_fov=%.3f xr_menu_rect=%d xr_menu_fov=%.3f xr_3dof_movement=%d xr_dlss_matrix_hook=%d xr_dlss_slot_mode=%d xr_dlss_log_stride=%d xr_aer_pair_gate=%d xr_aer_start_eye=%d xr_aer_debug_eye=%d xr_motion_predict_ms=%.2f xr_stereo_scale=%.3f xr_render_pose_submit=%d xr_aer_half_rate=%d xr_aer_v2=%d xr_runtime=%d\n",
             g_liveControls.xrHeadOffsetX, g_liveControls.xrHeadOffsetY, g_liveControls.xrHeadOffsetZ, g_liveControls.xrRecenter, g_liveControls.xrMonoSubmit, g_liveControls.xrAERSubmit, g_liveControls.xrForceFov, g_liveControls.xrMenuRect, g_liveControls.xrMenuFov, g_liveControls.xr3DofMovement, g_liveControls.xrDLSSMatrixHook, g_liveControls.xrDLSSSlotMode, g_liveControls.xrDLSSLogStride, g_liveControls.xrAERPairGate, g_liveControls.xrAERStartEye, g_liveControls.xrAERDebugEye, g_liveControls.xrMotionPredictMs, g_liveControls.xrStereoScale, g_liveControls.xrRenderPoseSubmit, g_liveControls.xrAERHalfRate, g_liveControls.xrAERV2, g_liveControls.xrRuntime);
         if (g_liveControls.xrRuntime != 0) {
@@ -650,6 +912,13 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrAERDebugEye = g_liveControls.xrAERDebugEye;
     state.xrMotionPredictMs = g_liveControls.xrMotionPredictMs;
     state.xrStereoScale = g_liveControls.xrStereoScale;
+    state.xrWorldScale = g_liveControls.xrWorldScale;
+    state.xrIpdScale = g_liveControls.xrIpdScale;
+    state.xrSharpness = g_liveControls.xrSharpness;
+    state.xrSharpmix = g_liveControls.xrSharpmix;
+    state.xrReuseLastFrame = g_liveControls.xrReuseLastFrame;
+    state.xrNvofPerf = g_liveControls.xrNvofPerf;
+    state.xrPairLock = g_liveControls.xrPairLock;
     state.xrRenderPoseSubmit = g_liveControls.xrRenderPoseSubmit;
     state.xrAERHalfRate = g_liveControls.xrAERHalfRate;
     state.xrAERV2 = g_liveControls.xrAERV2;
@@ -657,6 +926,17 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrRuntime = g_liveControls.xrRuntime;
     state.xrMovementControl = g_liveControls.xrMovementControl;
     state.xrDisableMouseY = g_liveControls.xrDisableMouseY;
+    state.xrXInputHook = g_liveControls.xrXInputHook;
+    state.xrSnapTurn = g_liveControls.xrSnapTurn;
+    state.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg;
+    state.xrMovementSource = g_liveControls.xrMovementSource;
+    state.xrXInputInstall = g_liveControls.xrXInputInstall;
+    state.xrInputActions = g_liveControls.xrInputActions;
+    state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
+    state.xrAerXQueueWait = g_liveControls.xrAerXQueueWait;
+    state.xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
+    state.xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs;
+    state.xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
     // HUD placement isn't stored in g_liveControls; pull the last overlay-set
     // values (loaded from hud_layout.ini) into the contiguous xrHud* block.
     EnsureHudLoaded();
@@ -687,13 +967,37 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_aer_debug_eye=%d\n", state.xrAERDebugEye < 0 ? 0 : (state.xrAERDebugEye > 3 ? 3 : state.xrAERDebugEye));
     fprintf(file, "xr_motion_predict_ms=%.2f\n", state.xrMotionPredictMs);
     fprintf(file, "xr_stereo_scale=%.3f\n", state.xrStereoScale);
+    fprintf(file, "xr_world_scale=%.3f\n", state.xrWorldScale);
+    fprintf(file, "xr_ipd_scale=%.3f\n", state.xrIpdScale);
+    fprintf(file, "xr_sharpness=%.3f\n", state.xrSharpness);
+    fprintf(file, "xr_sharpmix=%.3f\n", state.xrSharpmix);
+    fprintf(file, "xr_reuse_last_frame=%d\n", state.xrReuseLastFrame != 0 ? 1 : 0);
+    fprintf(file, "xr_nvof_perf=%d\n", state.xrNvofPerf);
+    fprintf(file, "xr_pair_lock=%d\n", state.xrPairLock != 0 ? 1 : 0);
     fprintf(file, "xr_render_pose_submit=%d\n", state.xrRenderPoseSubmit != 0 ? 1 : 0);
     fprintf(file, "xr_aer_half_rate=%d\n", state.xrAERHalfRate != 0 ? 1 : 0);
     fprintf(file, "xr_aer_v2=%d\n", state.xrAERV2 != 0 ? 1 : 0);
     fprintf(file, "xr_pose_lag=%d\n", state.xrPoseLag);
     fprintf(file, "xr_runtime=%d\n", ClampRuntimeMode(state.xrRuntime));
+    fprintf(file, "xr_aer_max_extrap=%.3f\n", GetAerMaxExtrap());
+    fprintf(file, "xr_aer_refine=%.3f\n", GetAerRefineStrength());
+    fprintf(file, "xr_aer_edge_sharp=%.3f\n", GetAerOcclusionSharp());
+    fprintf(file, "xr_aer_foveation=%.3f\n", GetAerFoveation());
+    fprintf(file, "xr_hmd_smooth=%.3f\n", GetHmdTrackingSmooth());
+    fprintf(file, "xr_hand_smooth=%.3f\n", GetHandTrackingSmooth());
     fprintf(file, "xr_movement_control=%d\n", state.xrMovementControl != 0 ? 1 : 0);
     fprintf(file, "xr_disable_mouse_y=%d\n", state.xrDisableMouseY != 0 ? 1 : 0);
+    fprintf(file, "xr_xinput_hook=%d\n", state.xrXInputHook != 0 ? 1 : 0);
+    fprintf(file, "xr_snap_turn=%d\n", state.xrSnapTurn != 0 ? 1 : 0);
+    fprintf(file, "xr_snap_turn_angle_deg=%.2f\n", state.xrSnapTurnAngleDeg > 0.0f ? state.xrSnapTurnAngleDeg : 30.0f);
+    fprintf(file, "xr_movement_source=%d\n", state.xrMovementSource < 0 ? 0 : (state.xrMovementSource > 3 ? 3 : state.xrMovementSource));
+    fprintf(file, "xr_xinput_install=%d\n", state.xrXInputInstall != 0 ? 1 : 0);
+    fprintf(file, "xr_input_actions=%d\n", state.xrInputActions != 0 ? 1 : 0);
+    fprintf(file, "xr_mono_xqueue_wait=%d\n", state.xrMonoXQueueWait != 0 ? 1 : 0);
+    fprintf(file, "xr_aer_xqueue_wait=%d\n", state.xrAerXQueueWait != 0 ? 1 : 0);
+    fprintf(file, "xr_mono_depth_capture=%d\n", state.xrMonoDepthCapture != 0 ? 1 : 0);
+    fprintf(file, "xr_snap_turn_pulse_ms=%d\n", state.xrSnapTurnPulseMs > 0 ? state.xrSnapTurnPulseMs : 30);
+    fprintf(file, "xr_immersive_holsters=%d\n", state.xrImmersiveHolsters != 0 ? 1 : 0);
     fclose(file);
 
     WIN32_FILE_ATTRIBUTE_DATA fileData;
@@ -738,13 +1042,36 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrAERDebugEye = state->xrAERDebugEye < 0 ? 0 : (state->xrAERDebugEye > 3 ? 3 : state->xrAERDebugEye);
     g_liveControls.xrMotionPredictMs = state->xrMotionPredictMs >= 0.0f ? state->xrMotionPredictMs : 0.0f;
     g_liveControls.xrStereoScale = state->xrStereoScale < 0.0f ? 0.0f : (state->xrStereoScale > 10.0f ? 10.0f : state->xrStereoScale);
+    g_liveControls.xrWorldScale = state->xrWorldScale < 0.05f ? 0.05f : (state->xrWorldScale > 20.0f ? 20.0f : state->xrWorldScale);
+    g_liveControls.xrIpdScale = state->xrIpdScale < 0.0f ? 0.0f : (state->xrIpdScale > 5.0f ? 5.0f : state->xrIpdScale);
+    g_liveControls.xrSharpness = state->xrSharpness < 0.0f ? 0.0f : (state->xrSharpness > 1.0f ? 1.0f : state->xrSharpness);
+    g_liveControls.xrSharpmix = state->xrSharpmix < 0.0f ? 0.0f : (state->xrSharpmix > 1.0f ? 1.0f : state->xrSharpmix);
+    g_liveControls.xrReuseLastFrame = state->xrReuseLastFrame != 0 ? 1 : 0;
+    g_liveControls.xrNvofPerf = state->xrNvofPerf < 0 ? 0 : (state->xrNvofPerf > 2 ? 2 : state->xrNvofPerf);
+    g_liveControls.xrPairLock = state->xrPairLock != 0 ? 1 : 0;
     g_liveControls.xrRenderPoseSubmit = state->xrRenderPoseSubmit != 0 ? 1 : 0;
     g_liveControls.xrAERHalfRate = state->xrAERHalfRate != 0 ? 1 : 0;
     g_liveControls.xrAERV2 = state->xrAERV2 != 0 ? 1 : 0;
     g_liveControls.xrPoseLag = state->xrPoseLag;
     g_liveControls.xrRuntime = ClampRuntimeMode(state->xrRuntime);
-    g_liveControls.xrMovementControl = state->xrMovementControl != 0 ? 1 : 0;
+    {
+        int src = state->xrMovementSource;
+        if (src < 0 || src > 3) src = state->xrMovementControl != 0 ? 1 : 0;
+        g_liveControls.xrMovementSource = src;
+        g_liveControls.xrMovementControl = src != 0 ? 1 : 0;
+    }
     g_liveControls.xrDisableMouseY = state->xrDisableMouseY != 0 ? 1 : 0;
+    g_liveControls.xrXInputHook = state->xrXInputHook != 0 ? 1 : 0;
+    g_liveControls.xrSnapTurn = state->xrSnapTurn != 0 ? 1 : 0;
+    g_liveControls.xrSnapTurnAngleDeg = state->xrSnapTurnAngleDeg > 0.0f ? state->xrSnapTurnAngleDeg : 30.0f;
+    g_liveControls.xrXInputInstall = state->xrXInputInstall != 0 ? 1 : 0;
+    g_liveControls.xrInputActions = state->xrInputActions != 0 ? 1 : 0;
+    g_liveControls.xrMonoXQueueWait = state->xrMonoXQueueWait != 0 ? 1 : 0;
+    g_liveControls.xrAerXQueueWait = state->xrAerXQueueWait != 0 ? 1 : 0;
+    g_liveControls.xrMonoDepthCapture = state->xrMonoDepthCapture != 0 ? 1 : 0;
+    g_liveControls.xrSnapTurnPulseMs = state->xrSnapTurnPulseMs > 0 ? state->xrSnapTurnPulseMs : 30;
+    g_liveControls.xrImmersiveHolsters = state->xrImmersiveHolsters != 0 ? 1 : 0;
+    OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
     WriteVrikSettingsFile(); // publish mouse-Y flag for the CET VRIK mod
 
     if (prevMono != g_liveControls.xrMonoSubmit) {
@@ -906,7 +1233,7 @@ extern "C" int GetMenuRectMode() {
 }
 
 extern "C" int GetSyncSequential() {
-    // RealVR-style pose-pair locking. On the SteamVR runtime, latch ONE head pose
+    // alternate-eye pose-pair locking. On the SteamVR runtime, latch ONE head pose
     // per alternate-eye pair so both eyes render from (and submit with) the same
     // head viewpoint, differing only by IPD. This removes the inter-eye head-pose
     // differential (left rendered at present P, right at P+1) that SteamVR's
@@ -967,8 +1294,63 @@ extern "C" int GetAERV2Enabled() {
     return g_liveControls.xrAERV2;
 }
 
+extern "C" float GetVrSharpness() {
+    return g_liveControls.xrSharpness;
+}
+
+extern "C" float GetVrSharpmix() {
+    return g_liveControls.xrSharpmix;
+}
+
+extern "C" int GetReuseLastFrameOutput() {
+    const char* e = getenv("CPVR_REUSE_LAST_FRAME");
+    if (!(e && *e)) {
+        e = getenv("CPVR_OUTPUT_REALVR");
+    }
+    if (e && *e) return atoi(e) != 0 ? 1 : 0;
+    return g_liveControls.xrReuseLastFrame;
+}
+
+extern "C" int GetVrNvofPerf() {
+    const char* e = getenv("CPVR_NVOF_PERF");
+    if (e && *e) { int v = atoi(e); return v < 0 ? 0 : (v > 2 ? 2 : v); }
+    return g_liveControls.xrNvofPerf;
+}
+
+extern "C" int GetVrPairLock() {
+    const char* e = getenv("CPVR_PAIRLOCK");
+    if (e && *e) return atoi(e) != 0 ? 1 : 0;
+    return g_liveControls.xrPairLock;
+}
+
 extern "C" int GetXrRuntimeMode() {
     return g_liveControls.xrRuntime;
+}
+
+extern "C" int GetInputActionsEnabled() {
+    return g_liveControls.xrInputActions != 0 ? 1 : 0;
+}
+
+extern "C" int GetMonoXQueueWait() {
+    return g_liveControls.xrMonoXQueueWait != 0 ? 1 : 0;
+}
+
+extern "C" int GetAerXQueueWait() {
+    return g_liveControls.xrAerXQueueWait != 0 ? 1 : 0;
+}
+
+extern "C" int GetSnapTurnPulseMs() {
+    int v = g_liveControls.xrSnapTurnPulseMs;
+    return v > 0 ? v : 30;
+}
+
+extern "C" int GetMonoDepthCapture() {
+    return g_liveControls.xrMonoDepthCapture != 0 ? 1 : 0;
+}
+
+extern "C" int GetSnapTurnYawIndex() {
+    int v = g_liveControls.xrSnapTurnYawIndex;
+    return (v >= 0 && v <= 3) ? v : 1;
 }
 
 
@@ -1399,11 +1781,38 @@ static volatile int g_dlssMatricesEye = -1;
 static uintptr_t g_dlssMatricesHookSite = 0;
 static uintptr_t g_dlssMatricesCallTarget = 0;
 
+static float* GetShotShared();  // shared-mem accessor (defined below)
+
+// MAP PIN-DRIFT FIX. The map pins slide off the background on pan/zoom because
+// the game's UI projection assumes 16:9 but we force a 1:1 square resolution.
+// While the world
+// map is open (shared[81], set by redscript bridge SetVRMenuOpen), STOP applying
+// our square-resolution override — let the game use its real 16:9 resolution for
+// the map's UI projection so pins track the background correctly.
 static void ApplySettingsResolutionOverride(uintptr_t settingsPtr) {
     const UINT forcedWidth = GetForcedWindowWidthValue();
     const UINT forcedHeight = GetForcedWindowHeightValue();
     if (!settingsPtr || forcedWidth == 0 || forcedHeight == 0) {
         return;
+    }
+
+    // World map open? Suspend the override (test).
+    {
+        uint32_t mapFlag = 0;
+        if (float* sh = GetShotShared()) {
+            mapFlag = reinterpret_cast<volatile uint32_t*>(sh)[81];
+        }
+        static uint32_t s_lastMapFlag = 0xFFFFFFFF;
+        if (mapFlag != s_lastMapFlag) {
+            s_lastMapFlag = mapFlag;
+            if (g_verboseLog) {
+                Log("ApplySettingsResOverride: mapFlag[81]=%u -> %s\n",
+                    mapFlag, mapFlag ? "SUSPEND resolution override (map open)" : "apply square");
+            }
+        }
+        if (mapFlag != 0u) {
+            return;
+        }
     }
 
     // VR Mod tracks the settings struct around CP2077SettingsRes; +0x18/+0x1C are the
@@ -1420,8 +1829,17 @@ static void ApplyDLSSResolutionOverride(uintptr_t dlssPtr) {
         return;
     }
 
-    // VR Mod's CP2077DLSSRes hook feeds a single scalar through multiple size fields, so
-    // keep the internal render target square here as well.
+    // World map open? Suspend the override (same gate as Settings — see above).
+    {
+        uint32_t mapFlag = 0;
+        if (float* sh = GetShotShared()) {
+            mapFlag = reinterpret_cast<volatile uint32_t*>(sh)[81];
+        }
+        if (mapFlag != 0u) {
+            return;
+        }
+    }
+
     WriteU32Safe(dlssPtr + 0x04, forcedSquare);
     WriteU32Safe(dlssPtr + 0x18, forcedSquare);
     WriteU32Safe(dlssPtr + 0x1C, forcedSquare);
@@ -1472,12 +1890,22 @@ static bool ExtractOpenXRYawPitch(const OpenXRHeadPose& xrPose, float* outYaw, f
 }
 
 static float GetDesiredGameHorizontalFov() {
+    XrFovf left{}, right{};
+    if (OpenXRManager::Get().GetCurrentEyeFov(0, &left) &&
+        OpenXRManager::Get().GetCurrentEyeFov(1, &right)) {
+        const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(left, right);
+        const float fov = GetCorrectedGameHorizontalFovDeg(corr);
+        return fov > 1.0f ? fov : 0.0f;
+    }
     const float runtimeFov = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
     return runtimeFov > 1.0f ? runtimeFov : 0.0f;
 }
 
 static float GetWorldScale() {
-    return 1.0f;
+    // Uniform world scale. Multiplies both the eye separation and the head-
+    // translation gain, so lowering it makes the world appear bigger.
+    const float ws = g_liveControls.xrWorldScale;
+    return (ws > 0.0f) ? ws : 1.0f;
 }
 
 static float GetDesiredHalfIpd() {
@@ -1485,19 +1913,21 @@ static float GetDesiredHalfIpd() {
     // runtime view separation, so it already adapts to whoever is wearing the HMD.
     const float runtimeIpd = OpenXRManager::Get().GetRuntimeIpd();
     const float halfIpd = runtimeIpd > 0.001f ? runtimeIpd * 0.5f : 0.032f;
-    // Universal game-world calibration applied to the auto half-IPD so that
-    // xr_stereo_scale=1.0 gives correct (non-inverted) stereo depth. Calibrated on
-    // HW: ~1.5x the raw runtime half-IPD reads right in REDengine's first-person
-    // view. It is a game constant, NOT per-person (the IPD itself comes from
-    // runtimeIpd above), so the separation auto-adapts to any headset/person.
-    // xr_stereo_scale is an optional personal taste multiplier on top (lower it
-    // toward ~0.7 for near-true-IPD depth, raise for stronger pop).
-    constexpr float kVrStereoCalibration = 1.5f;
+    // Eye-separation = runtime half-IPD x ipdScale x worldScale x stereoScale.
+    // The neutral baseline is ipdScale=1.0 (raw runtime IPD, typically
+    // +-0.033 m). The old 1.5 value exaggerated depth
+    // and distorted perceived world scale even when the camera FOV was correct.
+    // Keep xr_stereo_scale as an optional taste multiplier, but default the core
+    // IPD path to 1:1 with the runtime.
+    float ipdScale = g_liveControls.xrIpdScale;
+    if (!(ipdScale > 0.0f)) {
+        ipdScale = 1.0f;  // guard zero-init window / bad values (honest runtime IPD)
+    }
     float stereoScale = g_liveControls.xrStereoScale;
     if (!(stereoScale > 0.0f)) {
         stereoScale = 1.0f;  // guard zero-init window / bad values
     }
-    return halfIpd > 0.0001f ? halfIpd * GetWorldScale() * kVrStereoCalibration * stereoScale : 0.0f;
+    return halfIpd > 0.0001f ? halfIpd * GetWorldScale() * ipdScale * stereoScale : 0.0f;
 }
 
 static bool IsFiniteFloat(float value) {
@@ -1627,7 +2057,13 @@ static bool IsPlausibleCameraSpan(const float* a, const float* b) {
 }
 
 static volatile int32_t g_lastLocatePosFP[3] = {};
-static volatile float g_lastLocateQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+// LATE IPD SHIFT: the per-eye stereo offset, computed (and eye-signed) in
+// LocateCamera but NOT applied to the located camera there. The located camera
+// stays at the head CENTER so the engine's IK/physics/VRIK see a stable,
+// non-jittering head. OnFinalCameraCallback adds this shift to the final render
+// camera only — post-IK, just before projection.
+static volatile int32_t g_lastIpdShiftFP[3] = {};
+volatile float g_lastLocateQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };  // located (HMD-injected) game-world cam quat; read by the overlay barrel crosshair
 static volatile uint32_t g_lastLocateSeq = 0;
 static volatile uint32_t g_renderedSeq = 0;
 static volatile uint8_t g_locateEyeBySeq[256] = {};
@@ -1668,6 +2104,26 @@ static void MulQuat(float ax, float ay, float az, float aw,
     ow = aw * bw - ax * bx - ay * by - az * bz;
 }
 
+// Shot-decouple bridge: publish the LOCATED camera pointer (rbxPtr -- the struct where
+// we inject HMD, and the one the bullet reads) + a controller-aim quaternion built in the
+// EXACT same convention as the camera quat, to the shared memory the RED4ext plugin reads.
+// The plugin's ShotSnap hook then brackets the located camera around the player shot:
+// write controllerAimQuat -> bullet flies down the controller; restore HMD -> view stays.
+// Layout (float slots in "CyberpunkVR_Hands_Shared", 128 floats; [0..19] hands, [33..48]
+// calib are taken): [50] valid-seq, [51]/[52] locatedCamPtr lo/hi, [53..56] controllerAimQuat.
+static float* g_shotShared = nullptr;
+static HANDLE g_shotSharedHandle = nullptr;
+static float* GetShotShared() {
+    if (!g_shotShared) {
+        g_shotSharedHandle = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, "CyberpunkVR_Hands_Shared");
+        if (!g_shotSharedHandle)
+            g_shotSharedHandle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 512, "CyberpunkVR_Hands_Shared");
+        if (g_shotSharedHandle)
+            g_shotShared = static_cast<float*>(MapViewOfFile(g_shotSharedHandle, FILE_MAP_ALL_ACCESS, 0, 0, 512));
+    }
+    return g_shotShared;
+}
+
 static uint64_t g_locateCameraHits = 0;
 extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val) {
     (void)xmm0_val;
@@ -1690,6 +2146,31 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     float qz = quat[2];
     float qw = quat[3];
 
+    // SKIP-HMD test (decoupled-aim experiment): the plugin publishes a shot-frame flag
+    // [57] and a master mode [58] to shared mem. mode 1 = always skip the HMD orientation
+    // overwrite (view follows the game's stick/mouse aim, no head); mode 2 = skip only on
+    // the shot frame (let the engine's native snap-to-aim through -> bullet should follow
+    // AIM not the head). When skipping, we leave the game's camera quat untouched.
+    bool skipHmdOrientation = false;
+    if (float* sh = GetShotShared()) {
+        const uint32_t mode = reinterpret_cast<volatile uint32_t*>(sh)[58];
+        const uint32_t shotFrame = reinterpret_cast<volatile uint32_t*>(sh)[57];
+        if (mode == 1u) skipHmdOrientation = true;
+        else if (mode == 2u && shotFrame != 0u) skipHmdOrientation = true;
+    }
+    // Menu stability: in a full-screen menu (e.g. the world map),
+    // do NOT drive the game camera with the HMD orientation, otherwise the menu/
+    // map SWIMS as you turn your head. Leave the game camera quat untouched so the
+    // menu view stays put. Detection: the native menu-mode hook OR the redscript
+    // world-map bridge flag (shared slot [81]) for menus the native hook misses.
+    bool menuOpen = (g_menuModeValue != 0);
+    if (!menuOpen) {
+        if (float* sh = GetShotShared()) {
+            if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpen = true;
+        }
+    }
+    if (menuOpen) skipHmdOrientation = true;
+
     const float baseQx = qx;
     const float baseQy = qy;
     const float baseQz = qz;
@@ -1703,14 +2184,44 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     const float bodyGameForwardX = 2.0f * (baseQx * baseQy - baseQz * baseQw);
     const float bodyGameForwardY = 1.0f - 2.0f * (baseQx * baseQx + baseQz * baseQz);
 
+    // POSE PAIR LOCKING: fetch the render eye FIRST, then take a pair-locked head
+    // pose — eye0 samples live + freezes, eye1 replays eye0's pose. Both eyes of
+    // the stereo pair therefore drive the camera (and below, VRIK) from ONE head
+    // pose, so the engine's IK/skeleton stops rebuilding between the ~11 ms-apart
+    // left/right renders (the body/hands jitter seen even on the flat mirror).
     OpenXRHeadPose xrPose{};
-    const bool hasXR = OpenXRManager::Get().GetHeadPose(&xrPose);
+    const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
+    // POSE PAIR LOCKING: in AER, READ the frozen snapshot the engine ALREADY built
+    // this pair's skeleton from (published in OnPresent at the pair boundary, before
+    // the animation pass). LocateCamera runs DURING render, AFTER animation, so it
+    // must NOT re-sample — the camera view must match the body the plugin already
+    // posed. In mono there is no pairing, so sample live (no added latency).
+    // CPVR_PAIRLOCK=0 disables the pose-pair-lock: sample the LIVE head pose every
+    // camera-locate instead of the per-pair frozen snapshot. Disabling it trades
+    // pair-consistent body alignment for a small per-eye skeleton tear.
+    // vrport.ini xr_pair_lock (0 = live pose every locate; env CPVR_PAIRLOCK overrides).
+    const bool pairLockOn = GetVrPairLock() != 0;
+    const bool aerActiveForPose = OpenXRManager::Get().IsAERSubmitEnabled() && pairLockOn;
+    const bool hasXR = aerActiveForPose
+        ? OpenXRManager::Get().GetPairLockedHeadPose(&xrPose)
+        : OpenXRManager::Get().GetHeadPose(&xrPose);
     if (hasXR) {
         uint32_t currentSeq = g_lastLocateSeq + 1;
-        const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
         g_locateEyeBySeq[currentSeq % 256] = static_cast<uint8_t>(renderEye & 1);
+        if (float* sh = GetShotShared()) {
+            // [94] current render eye for CET/Lua, [95] desired half IPD.
+            sh[94] = static_cast<float>(renderEye);
+            sh[95] = GetDesiredHalfIpd();
+        }
         OpenXRManager::Get().StoreRenderEyePose(0, xrPose, currentSeq);
         OpenXRManager::Get().StoreRenderEyePose(1, xrPose, currentSeq);
+
+        // NOTE: shared-memory hands/head ([0..19],[89],[90]) are NO LONGER flushed
+        // here. The VRIK plugin reads them during the engine's ANIMATION pass, which
+        // runs BEFORE this render hook — flushing here landed one stage too late and
+        // tore the skeleton across the eye pair. They are now published in OnPresent
+        // at the pair boundary (UpdatePairLock + FlushHandsToShared), before the next
+        // pair's animation.
 
         // Keep mouse/controller yaw as the body heading, but do not add mouse-Y pitch
         // on top of HMD pitch. The headset supplies vertical look in VR.
@@ -1732,6 +2243,38 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         float outY = tmpY;
         float outZ = tmpZ;
         float outW = tmpW;
+
+        // Runtime-frustum asymmetry compensation.
+        // The game camera path is scalar-FOV based, while runtimes often report
+        // slightly asymmetric per-eye frusta. Recenter those frusta with a
+        // quarter-angle correction and apply matching pitch/yaw quaternions so the
+        // visible image stays 1:1 with the runtime.
+        XrFovf leftFov{}, rightFov{};
+        if (OpenXRManager::Get().GetCurrentEyeFov(0, &leftFov) &&
+            OpenXRManager::Get().GetCurrentEyeFov(1, &rightFov)) {
+            const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(leftFov, rightFov);
+            if (corr.pitchEnabled || corr.yawEnabled) {
+                float cX = outX, cY = outY, cZ = outZ, cW = outW;
+                if (corr.pitchEnabled) {
+                    const float hp = corr.pitchDeltaRad * 0.5f;
+                    float tX, tY, tZ, tW;
+                    MulQuat(cX, cY, cZ, cW,
+                            sinf(hp), 0.0f, 0.0f, cosf(hp),
+                            tX, tY, tZ, tW);
+                    cX = tX; cY = tY; cZ = tZ; cW = tW;
+                }
+                if (corr.yawEnabled) {
+                    const float yaw = (renderEye == 0) ? corr.yawDeltaRad : -corr.yawDeltaRad;
+                    const float hy = yaw * 0.5f;
+                    float tX, tY, tZ, tW;
+                    MulQuat(cX, cY, cZ, cW,
+                            0.0f, 0.0f, sinf(hy), cosf(hy),
+                            tX, tY, tZ, tW);
+                    cX = tX; cY = tY; cZ = tZ; cW = tW;
+                }
+                outX = cX; outY = cY; outZ = cZ; outW = cW;
+            }
+        }
 
         if (false) {
             // Extract total Yaw and Pitch, discarding Roll
@@ -1758,25 +2301,37 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         qy = outY;
         qz = outZ;
         qw = outW;
-        quat[0] = qx;
-        quat[1] = qy;
-        quat[2] = qz;
-        quat[3] = qw;
+        // Skip the HMD orientation write on the shot frame (or always, mode 1) so the game's
+        // native aim/snap drives the camera -> the bullet follows the controller/stick aim.
+        if (!skipHmdOrientation) {
+            quat[0] = qx;
+            quat[1] = qy;
+            quat[2] = qz;
+            quat[3] = qw;
+        }
     }
 
-    if (hasXR) {
+    // In a menu, also skip the HMD POSITION injection (not just orientation): the
+    // map/menu must be a flat, static 2D panel. Moving the camera position with the
+    // head shifts the rendered map background while its pins are projected for a
+    // fixed position -> pins drift off the map.
+    if (hasXR && !menuOpen) {
         const bool allowGameCameraTranslation = g_liveControls.xr3DofMovement == 0;
         const float posScale = allowGameCameraTranslation ? 1.0f * GetWorldScale() : 0.0f;
 
         // Map OpenXR local position into game-local camera space first:
         // XR: X=right, Y=up, -Z=forward
         // Game local here: X=right, Y=forward, Z=up
+        // The BAKED camera->head offset (auto-measured by the plugin, persisted) shifts the view
+        // back onto the avatar's head; the Head sliders are added ON TOP (they stay 0 after baking).
+        float camBake[3] = { 0.0f, 0.0f, 0.0f };
+        if (allowGameCameraTranslation) OpenXRManager::Get().GetCameraOffset(camBake);
         const float localRight = xrPose.posX * posScale +
-            (allowGameCameraTranslation ? g_liveControls.xrHeadOffsetX : 0.0f);
+            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetX + camBake[0]) : 0.0f);
         const float localForward = -xrPose.posZ * posScale +
-            (allowGameCameraTranslation ? g_liveControls.xrHeadOffsetY : 0.0f);
+            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetY + camBake[1]) : 0.0f);
         const float localUp = xrPose.posY * posScale +
-            (allowGameCameraTranslation ? g_liveControls.xrHeadOffsetZ : 0.0f);
+            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetZ + camBake[2]) : 0.0f);
 
         // Use a perfectly level heading matrix for translation to avoid sliding into the floor if pitched
         const float flatYaw = atan2f(-bodyGameForwardX, bodyGameForwardY);
@@ -1803,7 +2358,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         posFP[1] += static_cast<int32_t>(worldDeltaY * 65536.0f);
         posFP[2] += static_cast<int32_t>(worldDeltaZ * 65536.0f);
 
-        if ((g_locateCameraHits % 600) == 1) {
+        if (g_verboseLog && (g_locateCameraHits % 600) == 1) {
             Log("LocateCamera translation: allow=%d posScale=%.4f local=(%.4f, %.4f, %.4f) skippedHead=(%.4f, %.4f, %.4f)\n",
                 allowGameCameraTranslation ? 1 : 0,
                 posScale,
@@ -1816,44 +2371,152 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         }
     }
 
-    // Per-eye stereo separation for AER. Injected HERE — the camera path that
-    // provably reaches the render (head orientation above works) — rather than
-    // the separate PatchCamera struct, which observation showed does not drive
-    // the final view (13.5 m spans / FLT_MAX). Applies in both 3DoF and 6DoF,
-    // along the head's right vector, sign by current eye. GetDesiredHalfIpd()
-    // already folds in xr_stereo_scale.
+    // Per-eye stereo separation for AER uses the runtime's
+    // ACTUAL per-eye eye-pose translations, not a synthetic +/-halfIpd scalar.
+    // We therefore prefer the current runtime eye-center offset from
+    // OpenXRManager (eye pose minus center-eye), scaled by WorldScale/IPDScale/
+    // StereoScale, then rotate that full local offset into world using the
+    // located camera basis. This preserves asymmetric runtime frusta / tiny
+    // non-X offsets with the runtime's own IPD. Fallback to the
+    // old right*halfIpd path only if the runtime eye offsets are unavailable.
+    // NOTE: IPD shift is applied REGARDLESS of menuOpen. The shared[63] collision
+    // (delta-quaternion float bits) makes menuOpen accidentally true on most frames,
+    // which previously prevented eye alternation entirely (game rendered only one
+    // eye). Applying IPD always ensures AER eye alternation works even while the
+    // collision exists. The actual menu/map path (shared[70]) suspends resolution
+    // overrides separately and does not need IPD suppression here.
+    // LATE IPD SHIFT: compute the per-eye stereo offset here but DO NOT move the
+    // located camera. posFP feeds the engine's IK/physics/gameplay head; shifting
+    // it ±halfIPD every frame is what makes VRIK thrash. We store the (eye-signed)
+    // shift and let OnFinalCameraCallback add it to the FINAL render camera only,
+    // post-IK, just before projection. Render output is
+    // unchanged (the final camera ends up at the same place); only the IK/physics
+    // head now stays at the stable center.
+    int32_t ipdShiftFP[3] = {0, 0, 0};
     if (hasXR && OpenXRManager::Get().IsAERSubmitEnabled()) {
-        float right[3] = {};
-        ComputeRightVectorFromQuaternion(quat, right);
-        if (IsPlausibleUnitVector3(right)) {
-            const float halfIpd = GetDesiredHalfIpd();
-            // eye 0 -> -right, eye 1 -> +right.
-            // After fixing the rendered-eye tagging (frames now land in the slot of
-            // the eye that ACTUALLY rendered them), the old flipped sign became
-            // pseudoscopic: the left eye was rendered from the right viewpoint and
-            // vice versa. Using the natural convention restores orthoscopic depth.
-            const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
-            const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
-            const float ipdShift = halfIpd * eyeSign;
-            posFP[0] += static_cast<int32_t>(right[0] * ipdShift * 65536.0f);
-            posFP[1] += static_cast<int32_t>(right[1] * ipdShift * 65536.0f);
-            posFP[2] += static_cast<int32_t>(right[2] * ipdShift * 65536.0f);
-            if ((g_locateCameraHits % 600) == 1) {
-                Log("LocateCamera IPD: eye=%d halfIpd=%.4f right=(%.3f, %.3f, %.3f) shift=%.4f\n",
+        const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
+        XrVector3f eyeLocalXR{};
+        bool usedRuntimeEyeOffset = false;
+        if (OpenXRManager::Get().GetCurrentEyeCenterOffset(renderEye, &eyeLocalXR)) {
+            float ipdScale = g_liveControls.xrIpdScale;
+            if (!(ipdScale > 0.0f)) ipdScale = 1.0f;
+            float stereoScale = g_liveControls.xrStereoScale;
+            if (!(stereoScale > 0.0f)) stereoScale = 1.0f;
+            const float eyeScale = GetWorldScale() * ipdScale * stereoScale;
+            const float localRight = eyeLocalXR.x * eyeScale;
+            const float localForward = -eyeLocalXR.z * eyeScale;
+            const float localUp = eyeLocalXR.y * eyeScale;
+            float basis[12] = {};
+            BuildGameViewRowsFromQuaternion(quat, basis);
+            const float worldDeltaX = basis[0] * localRight + basis[8] * localForward + basis[4] * localUp;
+            const float worldDeltaY = basis[1] * localRight + basis[9] * localForward + basis[5] * localUp;
+            const float worldDeltaZ = basis[2] * localRight + basis[10] * localForward + basis[6] * localUp;
+            ipdShiftFP[0] = static_cast<int32_t>(worldDeltaX * 65536.0f);
+            ipdShiftFP[1] = static_cast<int32_t>(worldDeltaY * 65536.0f);
+            ipdShiftFP[2] = static_cast<int32_t>(worldDeltaZ * 65536.0f);
+            usedRuntimeEyeOffset = true;
+            if (g_verboseLog && (g_locateCameraHits % 600) == 1) {
+                Log("LocateCamera IPD (runtime-eye-offset): eye=%d localXR=(%.4f, %.4f, %.4f) scale=%.4f world=(%.4f, %.4f, %.4f)\n",
                     renderEye,
-                    halfIpd, right[0], right[1], right[2], ipdShift);
+                    eyeLocalXR.x, eyeLocalXR.y, eyeLocalXR.z,
+                    eyeScale,
+                    worldDeltaX, worldDeltaY, worldDeltaZ);
+            }
+        }
+        if (!usedRuntimeEyeOffset) {
+            float right[3] = {};
+            ComputeRightVectorFromQuaternion(quat, right);
+            if (IsPlausibleUnitVector3(right)) {
+                const float halfIpd = GetDesiredHalfIpd();
+                const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
+                const float ipdShift = halfIpd * eyeSign;
+                ipdShiftFP[0] = static_cast<int32_t>(right[0] * ipdShift * 65536.0f);
+                ipdShiftFP[1] = static_cast<int32_t>(right[1] * ipdShift * 65536.0f);
+                ipdShiftFP[2] = static_cast<int32_t>(right[2] * ipdShift * 65536.0f);
+                if (g_verboseLog && (g_locateCameraHits % 600) == 1) {
+                    Log("LocateCamera IPD (fallback right*halfIpd): eye=%d halfIpd=%.4f right=(%.3f, %.3f, %.3f) shift=%.4f\n",
+                        renderEye,
+                        halfIpd, right[0], right[1], right[2], ipdShift);
+                }
             }
         }
     }
 
+    // Located camera = head CENTER (no IPD). IK/physics/VRIK read this.
     g_lastLocatePosFP[0] = posFP[0];
     g_lastLocatePosFP[1] = posFP[1];
     g_lastLocatePosFP[2] = posFP[2];
+    // Per-eye shift carried to OnFinalCameraCallback for late application.
+    g_lastIpdShiftFP[0] = ipdShiftFP[0];
+    g_lastIpdShiftFP[1] = ipdShiftFP[1];
+    g_lastIpdShiftFP[2] = ipdShiftFP[2];
     g_lastLocateQuat[0] = quat[0];
     g_lastLocateQuat[1] = quat[1];
     g_lastLocateQuat[2] = quat[2];
     g_lastLocateQuat[3] = quat[3];
     ++g_lastLocateSeq;
+
+    // Publish the located camera + a controller-aim quaternion for the plugin's ShotSnap.
+    // controllerAim = bodyYaw (X) controllerGame, built EXACTLY like the camera quat above
+    // (same x,-z,y axis map + the same gameYaw), so the bullet, when this quat is bracketed
+    // into the located camera during a shot, flies down the controller while the view (which
+    // reads the HMD quat we just wrote) stays on the head.
+    if (hasXR) {
+        if (float* sh = GetShotShared()) {
+            OpenXRHeadPose handPose{};
+            const bool hasHand = OpenXRManager::Get().GetHandPose(1, &handPose) && handPose.valid;
+            if (hasHand) {
+                const float gameYaw2 = atan2f(-bodyGameForwardX, bodyGameForwardY);
+                const float cy2 = cosf(gameYaw2 * 0.5f);
+                const float sy2 = sinf(gameYaw2 * 0.5f);
+                const float cgX = handPose.oriX;
+                const float cgY = -handPose.oriZ;
+                const float cgZ = handPose.oriY;
+                const float cgW = handPose.oriW;
+                float aX, aY, aZ, aW;
+                MulQuat(0.0f, 0.0f, sy2, cy2, cgX, cgY, cgZ, cgW, aX, aY, aZ, aW);
+                NormalizeQuat(aX, aY, aZ, aW);
+                const uintptr_t camAddr = reinterpret_cast<uintptr_t>(rbxPtr);
+                uint32_t lo = static_cast<uint32_t>(camAddr & 0xFFFFFFFFu);
+                uint32_t hi = static_cast<uint32_t>(camAddr >> 32);
+                memcpy(&sh[51], &lo, 4);
+                memcpy(&sh[52], &hi, 4);
+                sh[53] = aX; sh[54] = aY; sh[55] = aZ; sh[56] = aW;
+                // Controller FORWARD as a WORLD direction vector for the fire-shot hook:
+                // rotate game-forward (0,1,0) by the aim quat.
+                // v = q * (0,1,0) * q^-1, expanded:
+                const float fwX = 2.0f * (aX * aY - aZ * aW);
+                const float fwY = 1.0f - 2.0f * (aX * aX + aZ * aZ);
+                const float fwZ = 2.0f * (aY * aZ + aX * aW);
+                sh[60] = fwX; sh[61] = fwY; sh[62] = fwZ;
+                // DELTA quat = inv(hmd_game) * controller_game  (both remapped x,-z,y,w to game axes).
+                // The plugin multiplies the provider's ORIGINAL camera quat by this:
+                //   qNew = camera * delta = (bodyYaw*hmd) * (inv(hmd)*controller) = bodyYaw*controller
+                // -> bullet flies down the controller, in correct game-world space (pivots off the
+                //    known-correct camera orientation instead of rebuilding world from scratch).
+                {
+                    // PROPER OpenXR->game for a RELATIVE rotation. The component swap (x,-z,y,w) used
+                    // elsewhere is only valid for absolute look quats, NOT for a rotation delta (that
+                    // needs a similarity transform P*q*P^-1). So: compute the delta in RAW XR space,
+                    // then conjugate it into game space by P = rotX(+90deg) (xr->game axis map).
+                    // delta_xr = inv(head_xr) * hand_xr   (controller relative to head, headset space)
+                    float dxrX, dxrY, dxrZ, dxrW;
+                    MulQuat(-xrPose.oriX, -xrPose.oriY, -xrPose.oriZ, xrPose.oriW,   // inv(head_xr)
+                            handPose.oriX, handPose.oriY, handPose.oriZ, handPose.oriW,
+                            dxrX, dxrY, dxrZ, dxrW);
+                    // delta_game = P * delta_xr * P^-1 ; P=(0.70710678,0,0,0.70710678)
+                    const float pX = 0.70710678f, pW = 0.70710678f;
+                    float t1X, t1Y, t1Z, t1W;
+                    MulQuat(pX, 0.0f, 0.0f, pW, dxrX, dxrY, dxrZ, dxrW, t1X, t1Y, t1Z, t1W);   // P * delta
+                    float dX, dY, dZ, dW;
+                    MulQuat(t1X, t1Y, t1Z, t1W, -pX, 0.0f, 0.0f, pW, dX, dY, dZ, dW);            // * P^-1
+                    NormalizeQuat(dX, dY, dZ, dW);
+                    sh[63] = dX; sh[64] = dY; sh[65] = dZ; sh[66] = dW;
+                }
+                sh[50] = static_cast<float>(g_lastLocateSeq & 0xFFFFFF); // valid/heartbeat
+            }
+        }
+    }
 }
 
 bool InstallLocateCameraHook() {
@@ -2124,17 +2787,21 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
         g_lastLocateQuat[3]
     };
     if (locateSeq != 0) {
+        // LATE IPD SHIFT: the located camera is the head CENTER; add the per-eye
+        // stereo offset HERE, on the final render camera only (post-IK, pre-
+        // projection). VRIK/physics
+        // never saw the shifted head, yet stereo is fully preserved in the render.
         int32_t* finalPosFP = reinterpret_cast<int32_t*>(rsiPtr);
-        finalPosFP[0] = g_lastLocatePosFP[0];
-        finalPosFP[1] = g_lastLocatePosFP[1];
-        finalPosFP[2] = g_lastLocatePosFP[2];
+        finalPosFP[0] = g_lastLocatePosFP[0] + g_lastIpdShiftFP[0];
+        finalPosFP[1] = g_lastLocatePosFP[1] + g_lastIpdShiftFP[1];
+        finalPosFP[2] = g_lastLocatePosFP[2] + g_lastIpdShiftFP[2];
 
         if (IsPlausibleUnitQuaternion(locateQuat)) {
             ApplyFinalCameraOrientationFromQuat(rsiPtr, locateQuat);
         }
     }
 
-    if ((g_finalCameraHits % 600) != 1) return;
+    if (!g_verboseLog || (g_finalCameraHits % 600) != 1) return;
 
     float values[24] = {};
     float cameraMtx[16] = {};
@@ -2277,7 +2944,7 @@ extern "C" void __fastcall OnPitchHookCallback(void* pitchState, float originalP
 
     g_pitchOverrideValue = desiredPitch;
 
-    if ((g_pitchHookHits % 600) == 1) {
+    if (g_verboseLog && (g_pitchHookHits % 600) == 1) {
         float minPitch = 0.0f;
         float maxPitch = 0.0f;
         ReadFloatSafe(reinterpret_cast<uintptr_t>(pitchState) + 0x14, &minPitch);
@@ -2380,12 +3047,19 @@ extern "C" void __fastcall OnNormalFovHookCallback(void* cameraState, float orig
     // LOD/streaming a wider cone so edge and floor geometry does not pop out.
     g_lodFovOverride = g_normalFovOverrideValue + 30.0f;
 
-    if (cameraState && desiredFov > 1.0f) {
-        const uintptr_t stateAddr = reinterpret_cast<uintptr_t>(cameraState);
-        WriteFloatSafe(stateAddr + 0x414, g_normalFovOverrideValue);
-    }
+    // The camera FOV hook writes the FOV ONLY to camera
+    // +0x410 -- which our trampoline already forces via the patched xmm3 -- and never
+    // touches +0x414. We used to also write +0x414; that slot is NOT the horizontal
+    // FOV, and overwriting it distorted the projection ("world too big", visible in
+    // BOTH Mono and AER => a monocular/FOV artifact, not IPD). Leave
+    // +0x414 alone.
+    //
+    // if (cameraState && desiredFov > 1.0f) {
+    //     const uintptr_t stateAddr = reinterpret_cast<uintptr_t>(cameraState);
+    //     WriteFloatSafe(stateAddr + 0x414, g_normalFovOverrideValue);
+    // }
 
-    if ((g_normalFovHookHits % 600) == 1) {
+    if (g_verboseLog && (g_normalFovHookHits % 600) == 1) {
         float currentHFov = 0.0f;
         float currentVFov = 0.0f;
         const uintptr_t stateAddr = reinterpret_cast<uintptr_t>(cameraState);
@@ -2714,9 +3388,27 @@ bool InstallForceHeadingUpdateHook() {
     return true;
 }
 
+// Snap-turn yaw delta (degrees) pushed by the XInput hook when the user flicks
+// the right stick. Applied here in one frame to give a true instant snap (no
+// stick-driven smooth rotation). Atomic 32-bit float via bit-cast through int.
+static volatile LONG g_pendingSnapYawDeltaBits = 0;
+
+// Index of the yaw float inside the delta buffer (default 1). Overridable via
+// xr_snap_turn_yaw_index in vrport.ini for quick experimentation if [1] is wrong.
+extern "C" int GetSnapTurnYawIndex();
+
 extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
-    // Delta head contains pitch and yaw deltas
-    // We can zero them out to decouple head from body!
+    if (!deltaHead) return;
+    const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
+    if (bits == 0) return;
+    float snap = 0.0f;
+    memcpy(&snap, &bits, sizeof(snap));
+    if (snap == 0.0f) return;
+
+    int idx = GetSnapTurnYawIndex();
+    if (idx < 0) idx = 0;
+    if (idx > 3) idx = 3;
+    deltaHead[idx] += snap;
 }
 
 bool InstallOnFootDeltaHeadHook() {
@@ -3385,14 +4077,21 @@ bool InstallFreeDeltaHeadHook() {
 // (forward). Only active in HMD movement mode and outside menus; the vehicle path
 // never hits OnFootMoveXY so driving is untouched.
 extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
-    if (g_liveControls.xrMovementControl != 1) return;
+    const int src = g_liveControls.xrMovementSource;
+    if (src <= 0) return; // 0 = Game (no rotation)
     if (g_menuModeValue != 0) return;
     if (!moveStruct) return;
     float* p = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(moveStruct) + 0x90);
     float x = p[0];
     float y = p[1];
     if (x == 0.0f && y == 0.0f) return;
-    float yaw = OpenXRManager::Get().GetHmdYawRelToBody();
+    float yaw = 0.0f;
+    switch (src) {
+        case 1: yaw = OpenXRManager::Get().GetHmdYawRelToBody(); break;
+        case 2: yaw = OpenXRManager::Get().GetHandYawRelToBody(0); break;
+        case 3: yaw = OpenXRManager::Get().GetHandYawRelToBody(1); break;
+        default: return;
+    }
     float c = cosf(yaw);
     float s = sinf(yaw);
     p[0] = x * c - y * s;
@@ -3603,10 +4302,226 @@ bool InstallNativeSetterClearHook() {
     return true;
 }
 
+// ===========================================================================
+// XInput merge: hook XInputGetState in the loaded XInput1_*.dll and OR the VR
+// controller snapshot from OpenXRManager into the gamepad state the game reads
+// every frame. CP2077 already has full native gamepad bindings so movement,
+// jump, dodge, fire/aim, weapon switch, reload, etc. all "just work" once the
+// VR state lands in XINPUT_GAMEPAD.
+// ===========================================================================
+
+using XInputGetState_t = DWORD (WINAPI*)(DWORD, XINPUT_STATE*);
+
+static XInputGetState_t g_realXInputGetState = nullptr;
+static uint8_t  g_xinputOrig[16] = {};
+static uint8_t* g_xinputHookAt = nullptr;
+static bool     g_xinputHooked = false;
+static int      g_xinputSnapArmedDir = 0;       // currently latched stick direction so we don't fire while held
+static DWORD    g_xinputSnapPulseStartMs = 0;   // when the current pulse began
+static int      g_xinputSnapPulseDir = 0;       // direction of the active pulse (0 = idle)
+
+extern "C" int GetSnapTurnPulseMs();
+
+static SHORT FloatToSHORT(float v) {
+    if (v > 1.0f) v = 1.0f;
+    if (v < -1.0f) v = -1.0f;
+    return (v >= 0.0f) ? static_cast<SHORT>(v * 32767.0f) : static_cast<SHORT>(v * 32768.0f);
+}
+static BYTE FloatToBYTE(float v) {
+    if (v < 0.0f) v = 0.0f;
+    if (v > 1.0f) v = 1.0f;
+    return static_cast<BYTE>(v * 255.0f);
+}
+static float ApplyStickDeadzone(float v, float dz) {
+    float a = v < 0.0f ? -v : v;
+    if (a < dz) return 0.0f;
+    float s = v < 0.0f ? -1.0f : 1.0f;
+    return s * (a - dz) / (1.0f - dz);
+}
+
+static DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
+    DWORD r = ERROR_DEVICE_NOT_CONNECTED;
+    if (g_realXInputGetState) r = g_realXInputGetState(dwUserIndex, pState);
+
+    if (!pState) return r;
+    if (dwUserIndex != 0) return r;
+    if (g_liveControls.xrXInputHook == 0) return r;
+
+    VRControllerState vr{};
+    if (!OpenXRManager::Get().GetControllerState(&vr)) return r;
+
+    if (r != ERROR_SUCCESS) {
+        memset(pState, 0, sizeof(*pState));
+        r = ERROR_SUCCESS;
+    }
+
+    // Buttons: OR (so a physical pad can still augment, and vice versa).
+    pState->Gamepad.wButtons |= vr.buttons;
+
+    // Triggers: take the max so a physical squeeze isn't lost.
+    BYTE lt = FloatToBYTE(vr.leftTrigger);
+    BYTE rt = FloatToBYTE(vr.rightTrigger);
+    if (lt > pState->Gamepad.bLeftTrigger)  pState->Gamepad.bLeftTrigger  = lt;
+
+    // Publish whether the VR right trigger is held (shared[30]) so the CET melee mod can use it as the
+    // power/strong modifier (hold = strong attack).
+    OpenXRManager::Get().SetSharedSlot(30, (vr.rightTrigger > 0.5f) ? 1.0f : 0.0f);
+    // Right grip is published as a BINARY pressed/not-pressed flag in shared[49] (a previously free
+    // slot — [50]/[51]/[52] are owned by the camera-trace producer and we were stomping on them).
+    // The CET hand-to-holster mod reads this + the IN-GAME wrist-to-hip distances the plugin
+    // publishes from the live FK pose to decide whether reaching for a visual holster + a grip
+    // press should equip / unequip the corresponding weapon.
+    OpenXRManager::Get().SetSharedSlot(49, vr.rightGrip > 0.5f ? 1.0f : 0.0f);
+    // Melee RT IMPULSE (shared[29] = a frame countdown the CET mod raises on a detected VR swing): tap RT
+    // so the game enters its NATIVE melee-attack state (full native damage/combo/numbers/markers), then
+    // count it down. Otherwise merge the physical trigger into RT normally (guns shooting / held attack).
+    float meleeImpulse = OpenXRManager::Get().GetSharedSlot(29);
+    if (meleeImpulse > 0.5f) {
+        pState->Gamepad.bRightTrigger = 255;
+        OpenXRManager::Get().SetSharedSlot(29, meleeImpulse - 1.0f);
+    } else {
+        if (rt > pState->Gamepad.bRightTrigger) pState->Gamepad.bRightTrigger = rt;
+    }
+
+    // Left stick = locomotion (always merged when magnitude exceeds the
+    // physical pad's so the game uses our values).
+    float lx = ApplyStickDeadzone(vr.leftThumbX, 0.12f);
+    float ly = ApplyStickDeadzone(vr.leftThumbY, 0.12f);
+    if (fabsf(lx) > fabsf(pState->Gamepad.sThumbLX / 32767.0f)) pState->Gamepad.sThumbLX = FloatToSHORT(lx);
+    if (fabsf(ly) > fabsf(pState->Gamepad.sThumbLY / 32767.0f)) pState->Gamepad.sThumbLY = FloatToSHORT(ly);
+
+    // Left stick pushed near FULL forward => SPRINT. A partial push is left as the
+    // game's normal jog; only "to the stop" sprints. CP2077 sprint is the left-stick
+    // click (L3), so we just assert L3 while the stick is forward past the threshold
+    // -- no more clicking the stick. Level-triggered (held while past the threshold)
+    // mirrors physically holding L3: correct for hold-to-sprint, and toggle-sprint
+    // auto-cancels on slow-down so it stays in sync as well.
+    const bool wantSprint = (ly > 0.90f);
+
+    // Right stick = camera turn / pitch.
+    float rx = ApplyStickDeadzone(vr.rightThumbX, 0.18f);
+    float ry = ApplyStickDeadzone(vr.rightThumbY, 0.18f);
+
+    // Right stick pushed near FULL down => CROUCH. Same bind as the right-stick click
+    // (R3) used today; we assert R3 while the stick is held fully down and consume the
+    // downward Y so it doesn't also drive camera pitch. Detected here, before the snap
+    // turn block may zero ry, so it works regardless of the turn mode.
+    const bool wantCrouch = (ry < -0.90f);
+    if (wantCrouch) ry = 0.0f;
+
+    // Suppress pitch from the stick if the user wants HMD-only pitch.
+    if (g_liveControls.xrDisableMouseY != 0) ry = 0.0f;
+
+    if (g_liveControls.xrSnapTurn != 0) {
+        // True instant snap turn: route the right-stick flick directly into a
+        // yaw delta the game applies in ONE frame via the OnFootDeltaHead hook.
+        // Stick X is consumed (zeroed) so the game never sees stick-driven
+        // smooth rotation. Stick must recenter (|rx|<0.15) before another snap
+        // can fire -- held stick produces exactly one snap.
+        int wantDir = 0;
+        if (rx > 0.5f) wantDir = +1;
+        else if (rx < -0.5f) wantDir = -1;
+
+        if (fabsf(rx) < 0.15f) g_xinputSnapArmedDir = 0;
+
+        if (wantDir != 0 && wantDir != g_xinputSnapArmedDir) {
+            g_xinputSnapArmedDir = wantDir;
+            const float angleDeg = g_liveControls.xrSnapTurnAngleDeg > 0.0f
+                ? g_liveControls.xrSnapTurnAngleDeg : 30.0f;
+            // In CP2077 the on-foot yaw delta is signed such that positive =
+            // turn LEFT, so we negate wantDir to make stick-right -> turn right.
+            const float deltaDeg = -(float)wantDir * angleDeg;
+            LONG bits;
+            memcpy(&bits, &deltaDeg, sizeof(bits));
+            InterlockedExchange(&g_pendingSnapYawDeltaBits, bits);
+        }
+        // Stick X is consumed by the snap turn, so do not pass it to the game.
+        rx = 0.0f;
+        ry = 0.0f;
+    }
+
+    if (fabsf(rx) > fabsf(pState->Gamepad.sThumbRX / 32767.0f)) pState->Gamepad.sThumbRX = FloatToSHORT(rx);
+    if (fabsf(ry) > fabsf(pState->Gamepad.sThumbRY / 32767.0f)) pState->Gamepad.sThumbRY = FloatToSHORT(ry);
+
+    // Stick-gesture buttons: full-forward left stick => sprint (L3), full-down right
+    // stick => crouch (R3). OR'd in on top of any physical / VR button press.
+    uint16_t synthButtons = 0;
+    if (wantSprint) synthButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
+    if (wantCrouch) synthButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
+    pState->Gamepad.wButtons |= synthButtons;
+
+    // Bump packet number on any change so XInput consumers latch it.
+    static uint16_t s_lastButtons = 0;
+    static uint16_t s_lastSynth = 0;
+    static BYTE s_lastLT = 0, s_lastRT = 0;
+    if (vr.buttons != s_lastButtons || synthButtons != s_lastSynth || lt != s_lastLT || rt != s_lastRT) {
+        pState->dwPacketNumber++;
+        s_lastButtons = vr.buttons;
+        s_lastSynth = synthButtons;
+        s_lastLT = lt;
+        s_lastRT = rt;
+    }
+    return r;
+}
+
+bool InstallXInputHook() {
+    HMODULE m = LoadLibraryA("XInput1_4.dll");
+    if (!m) m = LoadLibraryA("XInput1_3.dll");
+    if (!m) m = LoadLibraryA("xinput9_1_0.dll");
+    if (!m) {
+        Log("XInput: no XInput DLL found\n");
+        return false;
+    }
+    void* fn = GetProcAddress(m, "XInputGetState");
+    if (!fn) {
+        // Some builds export ordinal-only "XInputGetStateEx" (#100). For our needs
+        // XInputGetState is fine; skip if absent.
+        Log("XInput: GetProcAddress(XInputGetState) failed\n");
+        return false;
+    }
+
+    // 14-byte detour stub: load 64-bit absolute into rax, jmp rax. Save the
+    // original 14 bytes so we can call the real function from a trampoline.
+    g_xinputHookAt = static_cast<uint8_t*>(fn);
+    memcpy(g_xinputOrig, g_xinputHookAt, sizeof(g_xinputOrig));
+
+    // Trampoline = original 14 bytes + jmp back to (hookAt + 14).
+    void* tramp = AllocateTrampoline(g_xinputHookAt, 64);
+    if (!tramp) {
+        Log("XInput: AllocateTrampoline failed\n");
+        return false;
+    }
+    uint8_t* tcode = static_cast<uint8_t*>(tramp);
+    int tpos = 0;
+    memcpy(tcode + tpos, g_xinputOrig, 14); tpos += 14;
+    tcode[tpos++] = 0xFF; tcode[tpos++] = 0x25; // jmp [rip+0]
+    *reinterpret_cast<int32_t*>(tcode + tpos) = 0; tpos += 4;
+    *reinterpret_cast<uint64_t*>(tcode + tpos) = reinterpret_cast<uint64_t>(g_xinputHookAt + 14);
+    tpos += 8;
+    g_realXInputGetState = reinterpret_cast<XInputGetState_t>(tcode);
+
+    // Patch the real entry point with: movabs rax, &Hooked; jmp rax (12 bytes).
+    DWORD oldProtect = 0;
+    if (!VirtualProtect(g_xinputHookAt, 14, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+        Log("XInput: VirtualProtect failed\n");
+        return false;
+    }
+    uint8_t* p = g_xinputHookAt;
+    p[0] = 0x48; p[1] = 0xB8; // mov rax, imm64
+    *reinterpret_cast<uint64_t*>(p + 2) = reinterpret_cast<uint64_t>(&HookedXInputGetState);
+    p[10] = 0xFF; p[11] = 0xE0; // jmp rax
+    p[12] = 0x90; p[13] = 0x90;
+    VirtualProtect(g_xinputHookAt, 14, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), g_xinputHookAt, 14);
+    g_xinputHooked = true;
+    Log("XInput: hook installed at %p (trampoline=%p)\n", g_xinputHookAt, tcode);
+    return true;
+}
+
 DWORD WINAPI WorkerThread(LPVOID) {
-    Log("Worker thread started, waiting 8 seconds...\n");
+    if (g_verboseLog) Log("Worker thread started, waiting 8 seconds...\n");
     if (g_backendModulePath[0] != '\0') {
-        Log("Backend module loaded from: %s\n", g_backendModulePath);
+        if (g_verboseLog) Log("Backend module loaded from: %s\n", g_backendModulePath);
     }
     Sleep(8000);
 
@@ -3621,87 +4536,70 @@ DWORD WINAPI WorkerThread(LPVOID) {
     g_setterTrace = static_cast<SetterTraceData*>(VirtualAlloc(nullptr, sizeof(SetterTraceData), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
     ZeroMemory(g_setterTrace, sizeof(SetterTraceData));
 
-    Log("Starting LocateCamera probe hook installation...\n");
     bool h1 = InstallLocateCameraHook();
-    Log("LocateCamera hook result: %s\n", h1 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h1) Log("LocateCamera hook result: %s\n", h1 ? "SUCCESS" : "FAILED");
 
-    Log("Starting PatchCamera probe hook installation...\n");
     bool h2 = InstallPatchCameraHook();
-    Log("PatchCamera hook result: %s\n", h2 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h2) Log("PatchCamera hook result: %s\n", h2 ? "SUCCESS" : "FAILED");
 
-    Log("Starting FinalCamera probe hook installation...\n");
     bool h3 = InstallFinalCameraHook();
-    Log("FinalCamera hook result: %s\n", h3 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h3) Log("FinalCamera hook result: %s\n", h3 ? "SUCCESS" : "FAILED");
 
-    Log("Starting Pitch hook installation...\n");
     bool h_pitch = InstallPitchHook();
     g_pitchHookInstalled = h_pitch;
-    Log("Pitch hook result: %s\n", h_pitch ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h_pitch) Log("Pitch hook result: %s\n", h_pitch ? "SUCCESS" : "FAILED");
 
-    Log("Starting NormalFOV hook installation...\n");
     bool h_fov = InstallNormalFovHook();
     g_normalFovHookInstalled = h_fov;
-    Log("NormalFOV hook result: %s\n", h_fov ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h_fov) Log("NormalFOV hook result: %s\n", h_fov ? "SUCCESS" : "FAILED");
 
-    Log("Starting FixLoD hook installation...\n");
     bool h_lod = InstallFixLoDHook();
-    Log("FixLoD hook result: %s\n", h_lod ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h_lod) Log("FixLoD hook result: %s\n", h_lod ? "SUCCESS" : "FAILED");
 
-    Log("Starting MenuMode hook installation...\n");
     bool h_menu = InstallMenuModeHook();
-    Log("MenuMode hook result: %s\n", h_menu ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h_menu) Log("MenuMode hook result: %s\n", h_menu ? "SUCCESS" : "FAILED");
 
-    Log("Starting ForceHeadingUpdate hook installation...\n");
     bool h_heading_force = InstallForceHeadingUpdateHook();
     g_forceHeadingUpdateHookInstalled = h_heading_force;
-    Log("ForceHeadingUpdate hook result: %s\n", h_heading_force ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h_heading_force) Log("ForceHeadingUpdate hook result: %s\n", h_heading_force ? "SUCCESS" : "FAILED");
 
-    Log("Starting OnFootDeltaHead probe hook installation...\n");
     bool h4 = InstallOnFootDeltaHeadHook();
-    Log("OnFootDeltaHead hook result: %s\n", h4 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h4) Log("OnFootDeltaHead hook result: %s\n", h4 ? "SUCCESS" : "FAILED");
 
-    Log("Starting OnFootMoveXY probe hook installation...\n");
     bool h5 = InstallOnFootMoveXYHook();
-    Log("OnFootMoveXY hook result: %s\n", h5 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h5) Log("OnFootMoveXY hook result: %s\n", h5 ? "SUCCESS" : "FAILED");
 
-    Log("Starting FreeDeltaHead probe hook installation...\n");
-    bool h6 = InstallFreeDeltaHeadHook();
-    Log("FreeDeltaHead hook result: %s\n", h6 ? "SUCCESS" : "FAILED");
-
-    if (kEnablePatchBufferTracer != 0) {
-        Log("Starting PatchBuffer tracer hook installation...\n");
-        bool h_pb = InstallPatchBufferHook();
-        Log("PatchBuffer hook result: %s\n", h_pb ? "SUCCESS" : "FAILED");
-    } else {
-        Log("PatchBuffer tracer hook disabled in production build.\n");
+    if (g_liveControls.xrXInputInstall != 0) {
+        bool h_xinput = InstallXInputHook();
+        if (g_verboseLog || !h_xinput) Log("XInput hook result: %s\n", h_xinput ? "SUCCESS" : "FAILED");
     }
 
-    Log("Starting SettingsRes hook installation...\n");
+    bool h6 = InstallFreeDeltaHeadHook();
+    if (g_verboseLog || !h6) Log("FreeDeltaHead hook result: %s\n", h6 ? "SUCCESS" : "FAILED");
+
+    if (kEnablePatchBufferTracer != 0) {
+        bool h_pb = InstallPatchBufferHook();
+        if (g_verboseLog || !h_pb) Log("PatchBuffer hook result: %s\n", h_pb ? "SUCCESS" : "FAILED");
+    }
+
     bool h10 = InstallSettingsResHook();
-    Log("SettingsRes hook result: %s\n", h10 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h10) Log("SettingsRes hook result: %s\n", h10 ? "SUCCESS" : "FAILED");
 
-    Log("Starting DLSSRes hook installation...\n");
     bool h11 = InstallDLSSResHook();
-    Log("DLSSRes hook result: %s\n", h11 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h11) Log("DLSSRes hook result: %s\n", h11 ? "SUCCESS" : "FAILED");
 
-    Log("Starting DLSSMatrices telemetry hook installation...\n");
     bool h12 = InstallDLSSMatricesHook();
-    Log("DLSSMatrices hook result: %s\n", h12 ? "SUCCESS" : "FAILED");
+    if (g_verboseLog || !h12) Log("DLSSMatrices hook result: %s\n", h12 ? "SUCCESS" : "FAILED");
 
     if (kEnableNativeSetterTracers != 0) {
-        Log("Starting NativeSetterMetaWrite tracer hook installation...\n");
         bool h7 = InstallNativeSetterMetaWriteHook();
-        Log("NativeSetterMetaWrite hook result: %s\n", h7 ? "SUCCESS" : "FAILED");
+        if (g_verboseLog || !h7) Log("NativeSetterMetaWrite hook result: %s\n", h7 ? "SUCCESS" : "FAILED");
 
-        Log("Starting NativeSetterMetaConsume tracer hook installation...\n");
         bool h8 = InstallNativeSetterMetaConsumeHook();
-        Log("NativeSetterMetaConsume hook result: %s\n", h8 ? "SUCCESS" : "FAILED");
+        if (g_verboseLog || !h8) Log("NativeSetterMetaConsume hook result: %s\n", h8 ? "SUCCESS" : "FAILED");
 
-        Log("Starting NativeSetterClear tracer hook installation...\n");
         bool h9 = InstallNativeSetterClearHook();
-        Log("NativeSetterClear hook result: %s\n", h9 ? "SUCCESS" : "FAILED");
-    } else {
-        Log("NativeSetter tracer hooks disabled in production build.\n");
+        if (g_verboseLog || !h9) Log("NativeSetterClear hook result: %s\n", h9 ? "SUCCESS" : "FAILED");
     }
 
     uint32_t prevLocateHits = 0;
@@ -3952,7 +4850,12 @@ using PFN_DXGIDisableVBlankVirtualization_Proxy = HRESULT(WINAPI*)();
 using PFN_DXGIGetDebugInterface1_Proxy = HRESULT(WINAPI*)(UINT, REFIID, void**);
 using PFN_DXGIReportAdapterConfiguration_Proxy = HRESULT(WINAPI*)(DWORD);
 
+// Enable DRED auto-breadcrumbs + page-fault reporting before any D3D12 device
+// is created. Implemented in dxgi_factory_wrapper.cpp.
+extern "C" void CyberpunkVRPort_EnableDredOnce();
+
 extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory(REFIID riid, void** ppFactory) {
+    CyberpunkVRPort_EnableDredOnce();
     PrepareStartupLiveControls();
     InitOpenXREarly();
     auto p = reinterpret_cast<PFN_CreateDXGIFactory_Proxy>(GetRealProc("CreateDXGIFactory"));
@@ -3968,6 +4871,7 @@ extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory(REFIID riid, v
 }
 
 extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory1(REFIID riid, void** ppFactory) {
+    CyberpunkVRPort_EnableDredOnce();
     PrepareStartupLiveControls();
     InitOpenXREarly();
     auto p = reinterpret_cast<PFN_CreateDXGIFactory_Proxy>(GetRealProc("CreateDXGIFactory1"));
@@ -3983,6 +4887,7 @@ extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory1(REFIID riid, 
 }
 
 extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory2(UINT Flags, REFIID riid, void** ppFactory) {
+    CyberpunkVRPort_EnableDredOnce();
     PrepareStartupLiveControls();
     InitOpenXREarly();
     auto p = reinterpret_cast<PFN_CreateDXGIFactory2_Proxy>(GetRealProc("CreateDXGIFactory2"));

@@ -340,13 +340,14 @@ end
 
 -- Recenter when the player attaches to the world (save load / spawn). OnGameAttached
 -- fires during the load/fade, before the HMD pose settles, so queue the recenter a
--- short delay later instead of firing immediately.
+-- short delay later instead of firing immediately. 3.5s = enough for the loading fade
+-- and the first gameplay frames to settle so the HMD pose used as the base is stable.
 local function ensureObservers()
     if observersRegistered then return end
     observersRegistered = true
     pcall(function()
         Observe('PlayerPuppet', 'OnGameAttached', function()
-            recenterPending = 1.5
+            recenterPending = 3.5
         end)
     end)
 end
@@ -442,12 +443,35 @@ registerForEvent('onUpdate', function(dt)
     end
 
     if type(SetVRPlayerYaw) == 'function' then
-        local ok2, playerOri = pcall(function() return player:GetWorldOrientation() end)
-        local yaw = 0.0
-        if ok2 and playerOri and type(playerOri.yaw) == 'number' then
-            yaw = playerOri.yaw
+        -- Entity world ORIENTATION as a quaternion. The plugin needs the EXACT world->model
+        -- rotation (the conjugate of this) to convert the gizmo's WORLD-space hand target into
+        -- the bone buffer's MODEL space, so the hand lands exactly on the gizmo. NOTE:
+        -- GetWorldOrientation() returns a Quaternion (fields i,j,k,r) -- its .yaw is nil, so the
+        -- old code silently used yaw=0, which left the hand offset in world orientation (hands
+        -- pointed the wrong way). Build from GetWorldYaw() only as a fallback.
+        local eqi, eqj, eqk, eqr = 0.0, 0.0, 0.0, 1.0
+        local haveQuat = false
+        local oko, ori = pcall(function() return player:GetWorldOrientation() end)
+        if oko and ori and type(ori.i) == 'number' then
+            eqi, eqj, eqk, eqr = ori.i, ori.j, ori.k, ori.r
+            haveQuat = true
         end
-        pcall(function() SetVRPlayerYaw(yaw, camQuat.i, camQuat.j, camQuat.k, camQuat.r) end)
+        local yaw = 0.0
+        local oky, wy = pcall(function() return player:GetWorldYaw() end)
+        if oky and type(wy) == 'number' then yaw = wy end
+        if not haveQuat then
+            local h = math.rad(yaw) * 0.5
+            eqk, eqr = math.sin(h), math.cos(h)   -- Rz(yaw)
+        end
+        -- camPos is the FPP camera (= HMD) world position; entityPos is the player world origin.
+        local ex, ey, ez = 0.0, 0.0, 0.0
+        local okp, ppos = pcall(function() return player:GetWorldPosition() end)
+        if okp and ppos then ex, ey, ez = ppos.x, ppos.y, ppos.z end
+        pcall(function()
+            SetVRPlayerYaw(yaw, camQuat.i, camQuat.j, camQuat.k, camQuat.r,
+                           camPos.x, camPos.y, camPos.z, ex, ey, ez,
+                           eqi, eqj, eqk, eqr)
+        end)
         status.debugYaw = string.format("Yaw: %.2f", yaw)
     end
 

@@ -103,7 +103,7 @@ bool NvOF::GetNextMinGridSize(uint32_t nOutGridSize, uint32_t& nextMinOutGridSiz
     return (nextMinOutGridSize >= NV_OF_OUTPUT_VECTOR_GRID_SIZE_MAX) ? false : true;
 }
 
-void NvOF::Init(uint32_t nOutGridSize, uint32_t nHintGridSize, bool bEnableHints, bool bEnableRoi)
+void NvOF::Init(uint32_t nOutGridSize, uint32_t nHintGridSize, bool bEnableHints, bool bEnableRoi, bool bEnableOutputCost)
 {
     m_nOutGridSize = nOutGridSize;
     m_bEnableRoi = (NV_OF_BOOL)bEnableRoi;
@@ -159,7 +159,7 @@ void NvOF::Init(uint32_t nOutGridSize, uint32_t nHintGridSize, bool bEnableHints
     m_initParams.height = m_BufferDesc[NV_OF_BUFFER_USAGE_INPUT].height;
 
     m_initParams.enableExternalHints = bEnableHints ? NV_OF_TRUE : NV_OF_FALSE;
-    m_initParams.enableOutputCost = NV_OF_FALSE;
+    m_initParams.enableOutputCost = bEnableOutputCost ? NV_OF_TRUE : NV_OF_FALSE;
     m_initParams.hintGridSize = (NV_OF_HINT_VECTOR_GRID_SIZE) m_nHintGridSize;
     m_initParams.outGridSize = (NV_OF_OUTPUT_VECTOR_GRID_SIZE)m_nOutGridSize;
     m_initParams.mode = m_ofMode;

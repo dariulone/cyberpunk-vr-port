@@ -54,6 +54,21 @@ bool WaitForQueueIdleLocal(ID3D12CommandQueue* queue, ID3D12Fence* fence, HANDLE
     return true;
 }
 
+// On DEVICE_REMOVED the fence may still signal but every subsequent D3D12
+// call (Reset / Map / CreateView) will fail with the same removed-reason and
+// the synth pass corrupts state. Detect immediately, log a single line with
+// stage context + reason, and let DRED dump on Present catch the breadcrumb.
+bool CheckDeviceRemovedAfterWork(ID3D12Device* device, const char* stage, int eyeIndex) {
+    if (!device) return false;
+    const HRESULT removed = device->GetDeviceRemovedReason();
+    if (removed == S_OK) return false;
+    Log("OpticalFlowD3D12: DEVICE_REMOVED detected after %s eye=%d reason=0x%08X\n",
+        stage,
+        eyeIndex,
+        static_cast<unsigned>(removed));
+    return true;
+}
+
 bool WaitForFencePoint(ID3D12Fence* fence, uint64_t value, HANDLE eventHandle) {
     if (!fence || !eventHandle) {
         return false;
@@ -171,7 +186,8 @@ struct VSOut {
 };
 
 float4 PSMain(VSOut input) : SV_Target {
-    return g_source.SampleLevel(g_sampler, input.uv, 0.0);
+    float4 c = g_source.SampleLevel(g_sampler, input.uv, 0.0);
+    return float4(c.rgb, 1.0);
 }
 )";
 
@@ -206,6 +222,63 @@ float4 PSMain(VSOut input) : SV_Target {
 }
 )";
 
+// CAS (Contrast Adaptive Sharpening) shader
+// #08 (DXBC, decompiled): 3x3 neighborhood, sharpness peak = -1/(8 - 3*x), final
+// lerp(center, sharpened, mix). filterParam.x = FilterSharpness, .y = FilterSharpmix.
+constexpr char kSharpenPsSource[] = R"(
+cbuffer FilterCB : register(b0) {
+    float4 filterParam; // x=sharpness(0..1), y=mix(0..1), z,w=unused
+}
+Texture2D<float4> g_source : register(t0);
+SamplerState g_sampler : register(s0);
+
+struct VSOut {
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+};
+
+float3 tap(float2 uv, float2 off) {
+    return g_source.SampleLevel(g_sampler, uv + off, 0.0).rgb;
+}
+
+float4 PSMain(VSOut input) : SV_Target {
+    float w, h;
+    g_source.GetDimensions(w, h);
+    float2 inv = float2(1.0 / w, 1.0 / h);
+    float2 uv = input.uv;
+
+    // 3x3 neighborhood (a b c / d e f / g h i), e = center.
+    float3 a = tap(uv, float2(-inv.x, -inv.y));
+    float3 b = tap(uv, float2(    0.0, -inv.y));
+    float3 c = tap(uv, float2( inv.x, -inv.y));
+    float3 d = tap(uv, float2(-inv.x,    0.0));
+    float3 e = tap(uv, float2(    0.0,    0.0));
+    float3 f = tap(uv, float2( inv.x,    0.0));
+    float3 g = tap(uv, float2(-inv.x,  inv.y));
+    float3 hh= tap(uv, float2(    0.0,  inv.y));
+    float3 i = tap(uv, float2( inv.x,  inv.y));
+
+    // CAS: min/max over the cross + the corners (the "+=" ring accumulation).
+    float3 mn = min(min(min(d, e), min(f, b)), hh);
+    mn += min(mn, min(min(a, c), min(g, i)));
+    float3 mx = max(max(max(d, e), max(f, b)), hh);
+    mx += max(mx, max(max(a, c), max(g, i)));
+
+    float3 rcpMx = rcp(max(mx, 1e-5));
+    float3 amp = saturate(min(mn, 2.0 - mx) * rcpMx);
+    amp = sqrt(amp);
+
+    // sharpness peak: -1/(8 - 3*sharpness).
+    float peak = -1.0 / (8.0 - 3.0 * saturate(filterParam.x));
+    float3 wt = amp * peak;
+    float3 rcpW = rcp(1.0 + 4.0 * wt);
+    float3 sharp = saturate((b * wt + d * wt + f * wt + hh * wt + e) * rcpW);
+
+    float3 outc = lerp(e, sharp, saturate(filterParam.y));
+    return float4(outc, 1.0);
+}
+)";
+
 }  // namespace
 
 struct OpticalFlowD3D12::Impl {
@@ -236,11 +309,19 @@ struct OpticalFlowD3D12::Impl {
     ComPtr<ID3D12RootSignature> interpRootSignature;
     ComPtr<ID3D12PipelineState> interpPipeline;
     ComPtr<ID3D12Resource> interpConstantBuffer;
+    // CAS sharpen pass (shares interpRootSignature: CBV b0 + SRV table; only t0 used).
+    ComPtr<ID3D12PipelineState> sharpenPipeline;
+    ComPtr<ID3D12Resource> sharpenConstantBuffer;
     ComPtr<ID3D12Resource> interpolatedTextures[2];
     bool interpolatedValid[2] = {false, false};
     std::unordered_map<ID3D12Resource*, NvOFBufferObj> registeredInputs;
     std::vector<ComPtr<ID3D12Resource>> outputResources;
     std::vector<NvOFBufferObj> outputBuffers;
+    // Set once any D3D12 work in this OF pipeline triggers DEVICE_REMOVED.
+    // All subsequent ExecuteFlow/SynthesizeMidpoint calls fast-bail so we
+    // don't pile additional Reset/Map failures on top of the original crash;
+    // the FIRST crash is what DRED has captured.
+    bool deviceLost = false;
 };
 
 OpticalFlowD3D12::OpticalFlowD3D12() = default;
@@ -498,6 +579,28 @@ bool OpticalFlowD3D12::EnsureInitialized(ID3D12Device* device, uint32_t width, u
     }
     SetD3DName(interpPipeline.Get(), L"AERV2_OF_interp_pipeline");
 
+    // CAS sharpen pipeline: same root signature (CBV b0 + SRV table; shader uses t0
+    // only), same fullscreen VS, sharpen PS, RT format = eye format.
+    ComPtr<ID3D12PipelineState> sharpenPipeline;
+    {
+        ComPtr<ID3DBlob> sharpenPsBlob;
+        if (!CompileShader(kSharpenPsSource, "PSMain", "ps_5_0", &sharpenPsBlob)) {
+            CloseHandle(convertFenceEvent);
+            Log("OpticalFlowD3D12: Failed to compile CAS sharpen pixel shader.\n");
+            m_lastAttemptFailed = true;
+            return false;
+        }
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC sharpenPsoDesc = interpPsoDesc;
+        sharpenPsoDesc.PS = {sharpenPsBlob->GetBufferPointer(), sharpenPsBlob->GetBufferSize()};
+        if (FAILED(device->CreateGraphicsPipelineState(&sharpenPsoDesc, IID_PPV_ARGS(&sharpenPipeline)))) {
+            CloseHandle(convertFenceEvent);
+            Log("OpticalFlowD3D12: Failed to create CAS sharpen graphics pipeline.\n");
+            m_lastAttemptFailed = true;
+            return false;
+        }
+        SetD3DName(sharpenPipeline.Get(), L"AERV2_OF_sharpen_pipeline");
+    }
+
     ComPtr<ID3D12Resource> convertTarget;
     if (convertedFormat != format) {
         D3D12_HEAP_PROPERTIES targetHeapProps{};
@@ -547,6 +650,15 @@ bool OpticalFlowD3D12::EnsureInitialized(ID3D12Device* device, uint32_t width, u
         return false;
     }
     SetD3DName(interpConstantBuffer.Get(), L"AERV2_OF_interp_constant_buffer");
+
+    ComPtr<ID3D12Resource> sharpenConstantBuffer;
+    if (FAILED(device->CreateCommittedResource(&cbHeapProps, D3D12_HEAP_FLAG_NONE, &cbDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&sharpenConstantBuffer)))) {
+        CloseHandle(convertFenceEvent);
+        Log("OpticalFlowD3D12: Failed to create CAS sharpen constant buffer.\n");
+        m_lastAttemptFailed = true;
+        return false;
+    }
+    SetD3DName(sharpenConstantBuffer.Get(), L"AERV2_OF_sharpen_constant_buffer");
 
     try {
         NvOFObj flow = NvOFD3D12::Create(device, width, height, inputFormat, NV_OF_MODE_OPTICALFLOW, NV_OF_PERF_LEVEL_SLOW);
@@ -714,6 +826,8 @@ bool OpticalFlowD3D12::EnsureInitialized(ID3D12Device* device, uint32_t width, u
         impl->interpRootSignature = std::move(interpRootSignature);
         impl->interpPipeline = std::move(interpPipeline);
         impl->interpConstantBuffer = std::move(interpConstantBuffer);
+        impl->sharpenPipeline = std::move(sharpenPipeline);
+        impl->sharpenConstantBuffer = std::move(sharpenConstantBuffer);
         impl->interpolatedTextures[0] = std::move(interpolatedTextures[0]);
         impl->interpolatedTextures[1] = std::move(interpolatedTextures[1]);
         impl->outputResources = std::move(outputResources);
@@ -740,9 +854,14 @@ bool OpticalFlowD3D12::EnsureInitialized(ID3D12Device* device, uint32_t width, u
     return false;
 }
 
-bool OpticalFlowD3D12::ConvertToInputTexture(ID3D12Resource* source, ID3D12Resource* converted) {
+bool OpticalFlowD3D12::ConvertToInputTexture(ID3D12Resource* source, ID3D12Resource* converted,
+                                             ID3D12Fence* waitFence, uint64_t waitValue,
+                                             uint64_t* outSignalValue) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_impl || !source || !converted) {
+        return false;
+    }
+    if (m_impl->deviceLost) {
         return false;
     }
 
@@ -763,9 +882,28 @@ bool OpticalFlowD3D12::ConvertToInputTexture(ID3D12Resource* source, ID3D12Resou
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
         m_impl->convertList->ResourceBarrier(1, &barrier);
         m_impl->convertList->Close();
+        // GPU-side ordering against the external producer (AER capture copy) so we
+        // never read `source` before its copy lands — no CPU stall here.
+        if (waitFence) {
+            m_impl->convertQueue->Wait(waitFence, waitValue);
+        }
         ID3D12CommandList* cmdLists[] = {m_impl->convertList.Get()};
         m_impl->convertQueue->ExecuteCommandLists(1, cmdLists);
-        return WaitForQueueIdleLocal(m_impl->convertQueue.Get(), m_impl->convertFence.Get(), m_impl->convertFenceEvent, m_impl->convertFenceValue);
+        if (outSignalValue) {
+            // Fire-and-forget: signal the convert fence and return immediately. The
+            // consumer GPU-Waits on this value before reading `converted`. No CPU
+            // stall here — safe on the game/present thread.
+            ++m_impl->convertFenceValue;
+            m_impl->convertQueue->Signal(m_impl->convertFence.Get(), m_impl->convertFenceValue);
+            *outSignalValue = m_impl->convertFenceValue;
+            return true;
+        }
+        const bool waitOk = WaitForQueueIdleLocal(m_impl->convertQueue.Get(), m_impl->convertFence.Get(), m_impl->convertFenceEvent, m_impl->convertFenceValue);
+        if (CheckDeviceRemovedAfterWork(m_impl->device.Get(), "ConvertToInputTexture(direct copy)", -1)) {
+            m_impl->deviceLost = true;
+            return false;
+        }
+        return waitOk;
     }
 
     if (m_impl->sourceFormat != DXGI_FORMAT_R8G8B8A8_UNORM || m_impl->inputFormat != DXGI_FORMAT_B8G8R8A8_UNORM || !m_impl->convertTarget) {
@@ -850,18 +988,44 @@ bool OpticalFlowD3D12::ConvertToInputTexture(ID3D12Resource* source, ID3D12Resou
     m_impl->convertList->ResourceBarrier(1, &afterCopy);
 
     m_impl->convertList->Close();
+    // GPU-side ordering against the external producer (AER capture copy) so we
+    // never read `source` before its copy lands — no CPU stall here.
+    if (waitFence) {
+        m_impl->convertQueue->Wait(waitFence, waitValue);
+    }
     ID3D12CommandList* cmdLists[] = {m_impl->convertList.Get()};
     m_impl->convertQueue->ExecuteCommandLists(1, cmdLists);
+    // The recorded list leaves convertTarget in COPY_SOURCE regardless of when the
+    // GPU drains, so update the tracked state now (both sync and async modes).
+    m_impl->convertTargetState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    if (outSignalValue) {
+        // Fire-and-forget: signal the convert fence and return immediately. The
+        // consumer GPU-Waits on this value before reading `converted`. No CPU
+        // stall here — safe on the game/present thread.
+        ++m_impl->convertFenceValue;
+        m_impl->convertQueue->Signal(m_impl->convertFence.Get(), m_impl->convertFenceValue);
+        *outSignalValue = m_impl->convertFenceValue;
+        return true;
+    }
     const bool ok = WaitForQueueIdleLocal(m_impl->convertQueue.Get(), m_impl->convertFence.Get(), m_impl->convertFenceEvent, m_impl->convertFenceValue);
-    if (ok) {
-        m_impl->convertTargetState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    if (CheckDeviceRemovedAfterWork(m_impl->device.Get(), "ConvertToInputTexture(BGRA convert)", -1)) {
+        m_impl->deviceLost = true;
+        return false;
     }
     return ok;
+}
+
+ID3D12Fence* OpticalFlowD3D12::GetConvertFence() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_impl ? m_impl->convertFence.Get() : nullptr;
 }
 
 bool OpticalFlowD3D12::ExecuteFlow(ID3D12Resource* previous, ID3D12Resource* current, int eyeIndex) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_impl || !previous || !current || eyeIndex < 0 || eyeIndex >= static_cast<int>(m_impl->outputBuffers.size())) {
+        return false;
+    }
+    if (m_impl->deviceLost) {
         return false;
     }
 
@@ -912,7 +1076,12 @@ bool OpticalFlowD3D12::ExecuteFlow(ID3D12Resource* previous, ID3D12Resource* cur
             1,
             &m_impl->executeFence,
             disableTemporalHints);
-        return WaitForFencePoint(m_impl->executeFence.fence, m_impl->executeFence.value, m_impl->executeFenceEvent);
+        const bool waitOk = WaitForFencePoint(m_impl->executeFence.fence, m_impl->executeFence.value, m_impl->executeFenceEvent);
+        if (CheckDeviceRemovedAfterWork(m_impl->device.Get(), "NvOF Execute", eyeIndex)) {
+            m_impl->deviceLost = true;
+            return false;
+        }
+        return waitOk;
     } catch (const NvOFException& e) {
         Log("OpticalFlowD3D12: ExecuteFlow failed eye=%d: %s\n", eyeIndex, e.what());
     } catch (const std::exception& e) {
@@ -924,6 +1093,9 @@ bool OpticalFlowD3D12::ExecuteFlow(ID3D12Resource* previous, ID3D12Resource* cur
 bool OpticalFlowD3D12::SynthesizeMidpoint(ID3D12Resource* previous, ID3D12Resource* current, int eyeIndex) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_impl || !previous || !current || eyeIndex < 0 || eyeIndex >= 2 || !m_impl->interpolatedTextures[eyeIndex]) {
+        return false;
+    }
+    if (m_impl->deviceLost) {
         return false;
     }
 
@@ -1042,8 +1214,102 @@ bool OpticalFlowD3D12::SynthesizeMidpoint(ID3D12Resource* previous, ID3D12Resour
     ID3D12CommandList* cmdLists[] = {m_impl->convertList.Get()};
     m_impl->convertQueue->ExecuteCommandLists(1, cmdLists);
     const bool ok = WaitForQueueIdleLocal(m_impl->convertQueue.Get(), m_impl->convertFence.Get(), m_impl->convertFenceEvent, m_impl->convertFenceValue);
+    if (CheckDeviceRemovedAfterWork(m_impl->device.Get(), "SynthesizeMidpoint", eyeIndex)) {
+        m_impl->deviceLost = true;
+        return false;
+    }
     if (ok) {
         m_impl->interpolatedValid[eyeIndex] = true;
+    }
+    return ok;
+}
+
+bool OpticalFlowD3D12::ApplySharpen(ID3D12Resource* source, ID3D12Resource* dest,
+                                    float sharpness, float mix) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_impl || !source || !dest || !m_impl->sharpenPipeline) {
+        return false;
+    }
+    if (m_impl->deviceLost) {
+        return false;
+    }
+    if (FAILED(m_impl->convertAllocator->Reset()) ||
+        FAILED(m_impl->convertList->Reset(m_impl->convertAllocator.Get(), m_impl->sharpenPipeline.Get()))) {
+        Log("OpticalFlowD3D12: Failed to reset sharpen command list.\n");
+        return false;
+    }
+
+    // One SRV (source @ t0) into the shared srv heap.
+    const D3D12_CPU_DESCRIPTOR_HANDLE srvCpu = m_impl->srvHeap->GetCPUDescriptorHandleForHeapStart();
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format = m_impl->inputFormat;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1;
+    m_impl->device->CreateShaderResourceView(source, &srv, srvCpu);
+
+    const D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_impl->rtvHeap->GetCPUDescriptorHandleForHeapStart();
+    m_impl->device->CreateRenderTargetView(dest, nullptr, rtvHandle);
+
+    struct FilterConstants {
+        float filterParam[4];
+    } constants{};
+    constants.filterParam[0] = sharpness;
+    constants.filterParam[1] = mix;
+    void* mapped = nullptr;
+    if (FAILED(m_impl->sharpenConstantBuffer->Map(0, nullptr, &mapped))) {
+        Log("OpticalFlowD3D12: Failed to map sharpen constant buffer.\n");
+        return false;
+    }
+    memcpy(mapped, &constants, sizeof(constants));
+    m_impl->sharpenConstantBuffer->Unmap(0, nullptr);
+
+    D3D12_RESOURCE_BARRIER barriers[2] = {};
+    barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[0].Transition.pResource = source;
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[1].Transition.pResource = dest;
+    barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    m_impl->convertList->ResourceBarrier(2, barriers);
+
+    D3D12_VIEWPORT viewport{};
+    viewport.Width = static_cast<float>(m_impl->width);
+    viewport.Height = static_cast<float>(m_impl->height);
+    viewport.MaxDepth = 1.0f;
+    D3D12_RECT scissor{0, 0, static_cast<LONG>(m_impl->width), static_cast<LONG>(m_impl->height)};
+    m_impl->convertList->RSSetViewports(1, &viewport);
+    m_impl->convertList->RSSetScissorRects(1, &scissor);
+    m_impl->convertList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+    ID3D12DescriptorHeap* heaps[] = {m_impl->srvHeap.Get()};
+    m_impl->convertList->SetDescriptorHeaps(1, heaps);
+    m_impl->convertList->SetGraphicsRootSignature(m_impl->interpRootSignature.Get());
+    m_impl->convertList->SetGraphicsRootConstantBufferView(0, m_impl->sharpenConstantBuffer->GetGPUVirtualAddress());
+    m_impl->convertList->SetGraphicsRootDescriptorTable(1, m_impl->srvHeap->GetGPUDescriptorHandleForHeapStart());
+    m_impl->convertList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    m_impl->convertList->DrawInstanced(4, 1, 0, 0);
+
+    barriers[0].Transition.pResource = source;
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    barriers[1].Transition.pResource = dest;
+    barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+    m_impl->convertList->ResourceBarrier(2, barriers);
+
+    m_impl->convertList->Close();
+    ID3D12CommandList* cmdLists[] = {m_impl->convertList.Get()};
+    m_impl->convertQueue->ExecuteCommandLists(1, cmdLists);
+    const bool ok = WaitForQueueIdleLocal(m_impl->convertQueue.Get(), m_impl->convertFence.Get(),
+                                          m_impl->convertFenceEvent, m_impl->convertFenceValue);
+    if (CheckDeviceRemovedAfterWork(m_impl->device.Get(), "ApplySharpen", 0)) {
+        m_impl->deviceLost = true;
+        return false;
     }
     return ok;
 }

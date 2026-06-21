@@ -1,6 +1,9 @@
 #include "openxr_manager.h"
+#include "ngx_hook.h"
+#include "runtime_fov_correction.h"
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 #include <dxgi1_4.h>
 #include <cstring>
@@ -39,6 +42,10 @@ extern "C" int GetMenuRectMode();
 extern "C" int GetMenuMode();
 extern "C" int GetSyncSequential();
 extern "C" int Get3DofMovement();
+extern "C" float GetVrSharpness();
+extern "C" float GetVrSharpmix();
+extern "C" int GetReuseLastFrameOutput();
+extern "C" int GetVrPairLock();
 extern "C" int GetAERPairGate();
 extern "C" int GetAERStartEye();
 extern "C" int GetAERDebugEye();
@@ -52,6 +59,68 @@ extern "C" uint32_t GetRenderedCameraSeq();
 extern "C" int GetAERHalfRate();
 extern "C" int GetAERV2Enabled();
 extern "C" int GetXrRuntimeMode();
+
+// ── AER V2 warp tuning knobs (runtime-adjustable from the F10 overlay) ──
+// Lightweight atomics (g_verboseLog pattern). PERSISTED to vrport.ini by the
+// dxgi proxy (it reads the Get* accessors on Save and pushes parsed values back
+// via Set* on load). The overlay reads/writes them via Get/Set; the frame thread
+// + warp kernel read them each frame.
+static std::atomic<float> g_aerMaxExtrap{1.8f};   // forward-extrapolation cap (smear↔frozen on turns)
+// Idea #4 — quality boost defaults. The kernel's agreement-gates on MV + pose
+// flow make a MODERATE refine factor stable enough on CP2077 while noticeably
+// sharpening the stale eye vs raw NvOF-only. Keep it conservative: the user can
+// still dial it down to 0 in the overlay/ini if a scene exposes artifacts.
+static std::atomic<float> g_aerRefineStrength{0.35f}; // 0..1 MV+pose refine
+static std::atomic<float> g_aerOcclusionSharp{1.15f}; // >1 slightly crisps occlusion edges
+// Fixed-foveation (no eye-tracking): fraction of the lens-edge radius that uses
+// a CHEAP warp (deep periphery = raw nearest frame, no bidirectional/refine).
+// 0 = off (full-quality everywhere). 0.4 = outer 40% of the radius simplified.
+static std::atomic<float> g_aerFoveation{0.0f};
+// Idea #2 — synced-pose freshness. syncSequential(default on) freezes the head
+// pose per stereo pair so both eyes render coherently (no per-eye tear), but
+// that adds up to ~1 pair (2 vsyncs) of pose lag on head turns. g_poseBlend is
+// a per-present low-pass nudge of the synced pose toward the live pose: 0.0 =
+// fully frozen (current behavior, max coherence), 1.0 = tracks live every
+// present (min lag, ~mono smoothness, slight per-eye delta). ~0.35 is a good
+// middle ground: cuts head-turn pose lag noticeably while keeping stereo
+// coherence. Applied EVERY present (the full snap at the pair boundary still
+// runs as the hard reset).
+static std::atomic<float> g_poseBlend{0.35f};
+// Idea #3 — NvOF flow temporal smoothing. Stale-eye warp quality on motion is
+// limited by per-frame NvOF flow noise. g_flowSmooth EMA-blends each eye's flow
+// toward its previous-frame flow: 0.0 = off (raw NvOF every frame), up to ~0.6
+// (heavier smoothing, stabler but can trail on fast cuts). Reduces the
+// stale-eye "shimmer" on textured/animated surfaces.
+static std::atomic<float> g_flowSmooth{0.35f};
+static std::atomic<float> g_hmdTrackingSmooth{0.35f};
+static std::atomic<float> g_handTrackingSmooth{0.45f};
+extern "C" float GetAerMaxExtrap()        { return g_aerMaxExtrap.load(std::memory_order_relaxed); }
+extern "C" void  SetAerMaxExtrap(float v) { g_aerMaxExtrap.store(v, std::memory_order_relaxed); }
+extern "C" float GetAerRefineStrength()        { return g_aerRefineStrength.load(std::memory_order_relaxed); }
+extern "C" void  SetAerRefineStrength(float v) { g_aerRefineStrength.store(v, std::memory_order_relaxed); }
+extern "C" float GetAerOcclusionSharp()        { return g_aerOcclusionSharp.load(std::memory_order_relaxed); }
+extern "C" void  SetAerOcclusionSharp(float v) { g_aerOcclusionSharp.store(v, std::memory_order_relaxed); }
+extern "C" float GetAerFoveation()        { return g_aerFoveation.load(std::memory_order_relaxed); }
+extern "C" void  SetAerFoveation(float v) { g_aerFoveation.store(v, std::memory_order_relaxed); }
+extern "C" float GetPoseBlend()        { return g_poseBlend.load(std::memory_order_relaxed); }
+extern "C" void  SetPoseBlend(float v) { g_poseBlend.store(v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v), std::memory_order_relaxed); }
+extern "C" float GetFlowSmooth()        { return g_flowSmooth.load(std::memory_order_relaxed); }
+extern "C" void  SetFlowSmooth(float v) { g_flowSmooth.store(v < 0.0f ? 0.0f : (v > 0.9f ? 0.9f : v), std::memory_order_relaxed); }
+extern "C" float GetHmdTrackingSmooth()        { return g_hmdTrackingSmooth.load(std::memory_order_relaxed); }
+extern "C" void  SetHmdTrackingSmooth(float v) { g_hmdTrackingSmooth.store(v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v), std::memory_order_relaxed); }
+extern "C" float GetHandTrackingSmooth()         { return g_handTrackingSmooth.load(std::memory_order_relaxed); }
+extern "C" void  SetHandTrackingSmooth(float v)  { g_handTrackingSmooth.store(v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v), std::memory_order_relaxed); }
+extern "C" int GetInputActionsEnabled(); // 0 = pose-only legacy behaviour, 1 = full gameplay action set
+extern "C" int GetMonoXQueueWait();      // 0 = mono path skips cross-queue Wait (kills hang); 1 = legacy depth-safe behaviour
+extern "C" int GetMonoDepthCapture();    // 0 = mono path skips depth capture entirely (kills CP2077 mono hang); 1 = legacy depth-aware reprojection
+extern "C" int GetAerXQueueWait();       // 0 = AER path skips cross-queue Wait + depth capture (smooth, NvOF-only warp); 1 = legacy depth-safe behaviour
+extern "C" float GetHmdTrackingSmooth();
+extern "C" float GetHandTrackingSmooth();
+// Implemented in dxgi_factory_wrapper.cpp. Issues GPU-side ID3D12CommandQueue::
+// Wait() on the consumer queue for every tracked game queue's latest Signal —
+// so a subsequent CopyResource on that consumer queue cannot race the game's
+// render-side writer. No CPU stall. See xr_depth_submit cross-queue notes.
+extern "C" void CyberpunkVRPort_WaitOnAllGameSignals(ID3D12CommandQueue* consumerQueue);
 
 static constexpr uint64_t kAERV2FlowWarmupPairId = 300;
 static constexpr float kAERV2FrameGenPoseT = 0.5f;
@@ -371,7 +440,26 @@ static bool ContainsSwapchainFormat(const std::vector<int64_t>& formats, int64_t
     return false;
 }
 
-static int64_t PickMonoSwapchainFormat(const std::vector<int64_t>& runtimeFormats, int64_t gameFormat) {
+static int64_t PickMonoSwapchainFormat(const std::vector<int64_t>& runtimeFormats, int64_t gameFormat, bool preferSrgbForVD) {
+    // VirtualDesktopXR honors the swapchain format strictly: a UNORM swapchain
+    // is treated as linear data, so the compositor applies an extra sRGB
+    // encode → washed-out / overbright look that the user reported. SteamVR
+    // historically treats UNORM as already-sRGB display data and doesn't apply
+    // the extra encode, which is why colors look "normal" there. CP2077's
+    // backbuffer is already tonemapped sRGB-encoded bytes despite being typed
+    // R8G8B8A8_UNORM, so a UNORM_SRGB swapchain views the same bits as sRGB
+    // and the runtime skips the redundant encode. Direction confirmed by an
+    // external VR modder consulted by the user.
+    if (preferSrgbForVD) {
+        if (gameFormat == static_cast<int64_t>(DXGI_FORMAT_R8G8B8A8_UNORM) &&
+            ContainsSwapchainFormat(runtimeFormats, static_cast<int64_t>(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB))) {
+            return static_cast<int64_t>(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+        }
+        if (gameFormat == static_cast<int64_t>(DXGI_FORMAT_B8G8R8A8_UNORM) &&
+            ContainsSwapchainFormat(runtimeFormats, static_cast<int64_t>(DXGI_FORMAT_B8G8R8A8_UNORM_SRGB))) {
+            return static_cast<int64_t>(DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+        }
+    }
     if (ContainsSwapchainFormat(runtimeFormats, gameFormat)) {
         return gameFormat;
     }
@@ -406,16 +494,31 @@ static int64_t PickMonoSwapchainFormat(const std::vector<int64_t>& runtimeFormat
     return runtimeFormats.empty() ? gameFormat : runtimeFormats[0];
 }
 
-static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, float width, float height) {
+static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, const XrFovf* pairFovs, int eyeIndex, float width, float height) {
     float forceFov = GetForcedFov();
     if (forceFov <= 1.0f || forceFov >= 170.0f) {
-        forceFov = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
-    }
-    if (forceFov <= 1.0f || forceFov >= 170.0f) {
+        // Default path = keep the runtime frusta, with quarter-angle asymmetry
+        // compensation when both eyes are available.
+        if (pairFovs && eyeIndex >= 0 && eyeIndex <= 1) {
+            const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(pairFovs[0], pairFovs[1]);
+            return corr.eye[eyeIndex];
+        }
         return sourceFov;
     }
 
-    const float aspect = 1.0f; //tells OpenXR vertical FOV matches horizontal. Prevends vertical camera stretching.
+    // Custom user override (xr_force_fov): keep the historical "forced symmetric
+    // projection" behavior, but derive vertical FOV from the ACTUAL render aspect,
+    // not a broken hardcoded 1.0. This matches the UI text: it changes only the
+    // OpenXR projection layer FOV, not the CP2077 camera FOV.
+    float aspect = (height > 1.0f) ? (width / height) : 0.0f;
+    if (!(aspect > 0.01f && aspect < 10.0f)) {
+        const float tanLeft = std::tanf(-sourceFov.angleLeft);
+        const float tanRight = std::tanf(sourceFov.angleRight);
+        const float tanDown = std::tanf(-sourceFov.angleDown);
+        const float tanUp = std::tanf(sourceFov.angleUp);
+        const float v = tanUp + tanDown;
+        aspect = (v > 1.0e-5f) ? ((tanLeft + tanRight) / v) : 1.0f;
+    }
 
     const float halfFovH = (forceFov * 3.1415926535f / 180.0f) * 0.5f;
     const float halfFovV = atanf(tanf(halfFovH) / aspect);
@@ -425,6 +528,12 @@ static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, float width, flo
     fov.angleDown = -halfFovV;
     fov.angleUp = halfFovV;
     return fov;
+}
+
+// Reuse-last-frame output path. When enabled, the AER submit path re-submits the
+// last clean eye on stale ticks instead of warping stale content again.
+static bool ReuseLastFrameOutputEnabled() {
+    return GetReuseLastFrameOutput() != 0;
 }
 
 DWORD WINAPI OpenXRManager::FrameThreadThunk(LPVOID param) {
@@ -438,6 +547,363 @@ OpenXRManager& OpenXRManager::Get() {
 
 void OpenXRManager::RequestRecenter() {
     m_recenterRequested.store(true, std::memory_order_relaxed);
+}
+
+// ==== AUTO-CALIBRATION ====
+//
+// Procedure (matches standard VR title flow):
+//   1. User clicks Start; HUD shows "Stretch arms out to the SIDES and stand straight. 3..2..1".
+//   2. While sampling we read live HMD + both controller HMD-local gizmo positions, keep max armSpan.
+//   3. After secs seconds we derive anatomical numbers and publish them via SetVRHandCalib +
+//      SetShoulderAnatomical, then save to file.
+//
+// Body proportions used:
+//   * armSpan ~= height (Da Vinci) -> we use armSpan as the calibration baseline.
+//   * shoulder half-width  ~= 0.135 * armSpan  (from human anthropometry tables)
+//   * HMD -> shoulder backward depth ~= 0.04 * armSpan (eyes are ahead of neck)
+//   * arm length is measured directly from calibrated shoulder to controller/gizmo wrist
+void OpenXRManager::StartAutoCalibration(float secs) {
+    m_calibSeconds.store(secs, std::memory_order_relaxed);
+    m_calibProgress.store(0.0f, std::memory_order_relaxed);
+    m_calibArmSpanMax = 0.0f;
+    m_calibHmdHeightSum = 0.0f;
+    m_calibSampleCount = 0;
+    m_calibCtrlPosSumR[0]=m_calibCtrlPosSumR[1]=m_calibCtrlPosSumR[2]=0.0f;
+    m_calibCtrlPosSumL[0]=m_calibCtrlPosSumL[1]=m_calibCtrlPosSumL[2]=0.0f;
+    m_calibStart = 0.0;
+    // INITIALIZE wrist defaults if they've never been set. Without this, finalisation reads zero
+    // values from m_calib[] (atomic float default = 0), publishes identity wrist quats, and the
+    // hand orientation breaks (palm faces wrong way). These match the plugin's baked-in defaults
+    // (g_VRWristR_* and g_VRWristL_*) so the user sees the same wrist behaviour as before auto-cal.
+    if (m_calib[0].load(std::memory_order_relaxed) == 0.0f
+        && m_calib[1].load(std::memory_order_relaxed) == 0.0f
+        && m_calib[9].load(std::memory_order_relaxed) == 0.0f) {
+        m_calib[0].store(1.05f, std::memory_order_relaxed);   // scaleR
+        m_calib[1].store(1.06f, std::memory_order_relaxed);   // scaleL
+        m_calib[2].store(0.0f,  std::memory_order_relaxed);   // heightR
+        m_calib[3].store(0.0f,  std::memory_order_relaxed);   // heightL
+        m_calib[4].store(1.0f,  std::memory_order_relaxed);   // swingR
+        m_calib[5].store(1.0f,  std::memory_order_relaxed);   // swingL
+        m_calib[6].store(0.0f,  std::memory_order_relaxed);   // poleR
+        m_calib[7].store(0.0f,  std::memory_order_relaxed);   // poleL
+        m_calib[8].store(0.0f,    std::memory_order_relaxed); // wRp
+        m_calib[9].store(-90.0f,  std::memory_order_relaxed); // wRy
+        m_calib[10].store(0.0f,   std::memory_order_relaxed); // wRr
+        m_calib[11].store(-180.0f,std::memory_order_relaxed); // wLp
+        m_calib[12].store(-90.0f, std::memory_order_relaxed); // wLy
+        m_calib[13].store(0.0f,   std::memory_order_relaxed); // wLr
+        Log("Auto-calibration: initialised wrist/elbow defaults (R yaw=-90, L pitch=-180 yaw=-90).\n");
+    }
+    m_calibState.store(1, std::memory_order_relaxed);
+    Log("Auto-calibration: started (%.1fs T-pose sample). Stretch arms STRAIGHT OUT to the sides.\n", secs);
+}
+
+void OpenXRManager::TickAutoCalibration() {
+    if (m_calibState.load(std::memory_order_relaxed) != 1) return;
+
+    // Sim time in seconds (use QueryPerformanceCounter for steady clock; the frame loop runs
+    // continuously while VR is active so this is monotonic).
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    double t = static_cast<double>(now.QuadPart) / static_cast<double>(freq.QuadPart);
+    if (m_calibStart == 0.0) m_calibStart = t;
+    float elapsed = static_cast<float>(t - m_calibStart);
+    float total = m_calibSeconds.load(std::memory_order_relaxed);
+    float prog = (total > 0.0f) ? (elapsed / total) : 1.0f;
+    if (prog > 1.0f) prog = 1.0f;
+    m_calibProgress.store(prog, std::memory_order_relaxed);
+
+    // Sample current frame (under hand-mutex for atomicity with the frame loop writer).
+    {
+        std::lock_guard<std::mutex> lock(m_handMutex);
+        if (m_hands[0].valid && m_hands[1].valid) {
+            float dx = m_hands[1].posX - m_hands[0].posX;
+            float dy = m_hands[1].posY - m_hands[0].posY;
+            float dz = m_hands[1].posZ - m_hands[0].posZ;
+            float span = std::sqrt(dx*dx + dy*dy + dz*dz);
+            if (span > m_calibArmSpanMax) m_calibArmSpanMax = span;
+            // Accumulate HMD-local controller positions so we know where each hand actually sits
+            // (so X-sign tells us which is left/right -> calibration auto-detects swapped sticks).
+            m_calibCtrlPosSumR[0] += m_hands[1].posX;
+            m_calibCtrlPosSumR[1] += m_hands[1].posY;
+            m_calibCtrlPosSumR[2] += m_hands[1].posZ;
+            m_calibCtrlPosSumL[0] += m_hands[0].posX;
+            m_calibCtrlPosSumL[1] += m_hands[0].posY;
+            m_calibCtrlPosSumL[2] += m_hands[0].posZ;
+            m_calibHmdHeightSum += m_posY.load(std::memory_order_relaxed);
+            m_calibSampleCount++;
+        }
+    }
+
+    if (elapsed >= total) {
+        // Finalise.
+        float armSpan = m_calibArmSpanMax;
+        if (armSpan < 0.5f || armSpan > 2.5f || m_calibSampleCount == 0) {
+            Log("Auto-calibration: armSpan %.3fm out of plausible range — aborting.\n", armSpan);
+            m_calibState.store(0, std::memory_order_relaxed);
+            return;
+        }
+        float invN = 1.0f / static_cast<float>(m_calibSampleCount);
+        float avgR[3] = { m_calibCtrlPosSumR[0]*invN, m_calibCtrlPosSumR[1]*invN, m_calibCtrlPosSumR[2]*invN };
+        float avgL[3] = { m_calibCtrlPosSumL[0]*invN, m_calibCtrlPosSumL[1]*invN, m_calibCtrlPosSumL[2]*invN };
+
+        // SHOULDER ANATOMICAL OFFSETS. These are body-frame OpenXR axes (X right, Y up,
+        // Z back), sampled from the same gizmo/controller coordinates used for hand drawing.
+        const float kShoulderHalfWidth = 0.105f;     // X | wrist-span to shoulder half-width; keep torso narrow
+        const float kShoulderBackFromHmd = 0.05f;    // Z | eyes sit slightly in front of shoulders
+        float shoulderHalf = kShoulderHalfWidth * armSpan;
+        if (shoulderHalf < 0.10f) shoulderHalf = 0.10f;
+        if (shoulderHalf > 0.20f) shoulderHalf = 0.20f;
+        float rightSign = (avgR[0] >= avgL[0]) ? 1.0f : -1.0f;
+        float rx = shoulderHalf * rightSign;
+        float lx = -shoulderHalf * rightSign;
+        // Y: both shoulders should share one height. Use the higher T-pose hand as the shoulder
+        // level so a tired/lowered arm does not pull that shoulder down and shorten reach.
+        float shoulderY = (avgR[1] > avgL[1]) ? avgR[1] : avgL[1];
+        if (shoulderY > -0.12f) shoulderY = -0.12f;
+        if (shoulderY < -0.30f) shoulderY = -0.30f;
+        float ry = shoulderY;
+        float lyv = shoulderY;
+        float rz  = kShoulderBackFromHmd;
+        float lzv = kShoulderBackFromHmd;
+        SetShoulderAnatomical(rx, ry, rz, lx, lyv, lzv);
+
+        // Arm-scale: realArmLen / modelArmLen. Real arm length is measured from the calibrated
+        // shoulder pivot to the visible controller/gizmo wrist in the T-pose.
+        auto len3 = [](float ax, float ay, float az, float bx, float by, float bz) -> float {
+            float dx = ax - bx, dy = ay - by, dz = az - bz;
+            return std::sqrt(dx*dx + dy*dy + dz*dz);
+        };
+        // Arm length from the ARM SPAN (max controller-to-controller distance over the T-pose),
+        // not the per-frame AVERAGE controller position. The average is blurred by non-T-pose
+        // frames and systematically UNDER-reads (diag showed 0.37 m for a ~0.55 m arm); the span
+        // max captures the best fully-extended frame. armLen = (span - shoulderWidth) / 2.
+        float spanArm = (armSpan - 2.0f * shoulderHalf) * 0.5f;
+        if (spanArm < 0.40f) spanArm = 0.40f; if (spanArm > 0.85f) spanArm = 0.85f;
+        // SYMMETRIC: real arms are the same length. The old per-hand normalisation from the blurred
+        // averages produced a fake asymmetry (e.g. 0.62 vs 0.51), which made one hand under-reach
+        // (the short side ended up "in the belt textures"). Use the span length for both.
+        (void)len3;
+        float realArmLenR = spanArm;
+        float realArmLenL = spanArm;
+        float realArmLen = spanArm;
+        // The controller/gizmo coordinates are already in the same meter-like space consumed by
+        // the solver. Keep the global scale near the proven defaults and only use T-pose length
+        // asymmetry for small per-hand correction; dividing by an approximate model arm length
+        // over-shrank targets and caused relaxed arms to keep an elbow bend.
+        // Position-scale is GONE. With the gizmo-exact 1:1 hand target the hand sits on the
+        // real controller position; avatar proportions are matched by scaling the arm BONES to
+        // the measured arm length (plugin VRIK_ArmScale), not by stretching the target. Publish
+        // the measured anatomy (arm length per hand + eye height) into [77..80] instead.
+        float eyeHeight = (m_calibSampleCount > 0) ? (m_calibHmdHeightSum / static_cast<float>(m_calibSampleCount)) : 0.0f;
+        m_userArmLenR.store(realArmLenR, std::memory_order_relaxed);
+        m_userArmLenL.store(realArmLenL, std::memory_order_relaxed);
+        m_userEyeHeight.store(eyeHeight, std::memory_order_relaxed);
+        m_measureValid.store(1, std::memory_order_relaxed);
+        // Legacy modes (1..3) + the head-relative fallback still read a reach scale; keep it
+        // neutral (1.0) so they are unaffected by the new measured-length path.
+        float scaleR = 1.0f;
+        float scaleL = 1.0f;
+        (void)realArmLen;
+
+        // PRESERVE all user-tunable values: swing, pole, wrist orientation. Auto-cal only
+        // overwrites the anatomy (scale + shoulder offsets) — elbow/wrist tweaks stay.
+        float swingR = m_calib[4].load(std::memory_order_relaxed);
+        float swingL = m_calib[5].load(std::memory_order_relaxed);
+        float poleR  = m_calib[6].load(std::memory_order_relaxed);
+        float poleL  = m_calib[7].load(std::memory_order_relaxed);
+        float wRp = m_calib[8].load(std::memory_order_relaxed);
+        float wRy = m_calib[9].load(std::memory_order_relaxed);
+        float wRr = m_calib[10].load(std::memory_order_relaxed);
+        float wLp = m_calib[11].load(std::memory_order_relaxed);
+        float wLy = m_calib[12].load(std::memory_order_relaxed);
+        float wLr = m_calib[13].load(std::memory_order_relaxed);
+        // Re-apply current swing/pole/wrist with new scale.
+        if (swingR == 0.0f && swingL == 0.0f) { swingR = 1.0f; swingL = 1.0f; }
+        SetVRHandCalib(scaleR, scaleL, 0.0f, 0.0f,
+                       swingR, swingL, poleR, poleL,
+                       wRp, wRy, wRr, wLp, wLy, wLr);
+
+        SaveCalibrationToFile();
+        Log("Auto-calibration DONE.\n");
+        Log("  armSpan = %.3fm  armLenR/L = %.3f/%.3fm  eyeHeight = %.3fm\n", armSpan, realArmLenR, realArmLenL, eyeHeight);
+        Log("  ctrl R world-local avg = (%.3f, %.3f, %.3f)\n", avgR[0], avgR[1], avgR[2]);
+        Log("  ctrl L world-local avg = (%.3f, %.3f, %.3f)\n", avgL[0], avgL[1], avgL[2]);
+        Log("  shoulder R = (%.3f, %.3f, %.3f)\n", rx, ry, rz);
+        Log("  shoulder L = (%.3f, %.3f, %.3f)\n", lx, lyv, lzv);
+
+        // Auto-apply the camera->head bake (no separate button needed): the user stood straight
+        // in the T-pose, so the published head-vs-camera offset is exactly what we want to bake.
+        BakeCameraOffset();
+
+        // Auto-recenter at the end of calibration so the player's body forward direction matches
+        // the OpenXR forward they just used during the T-pose. Without this the just-measured
+        // shoulder anatomy is in the calibration frame but the runtime's tracking frame
+        // may have drifted slightly.
+        RequestRecenter();
+
+        m_calibState.store(2, std::memory_order_relaxed);
+        m_calibProgress.store(1.0f, std::memory_order_relaxed);
+    }
+}
+
+// Path is next to dxgi.dll (same dir as the OpenXR config).
+static void GetCalibFilePath(char* out, size_t outSize) {
+    HMODULE self = nullptr;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCSTR>(&GetCalibFilePath), &self);
+    char dir[MAX_PATH] = {0};
+    if (self) {
+        GetModuleFileNameA(self, dir, MAX_PATH);
+        char* slash = strrchr(dir, '\\');
+        if (slash) *slash = 0;
+    }
+    if (dir[0] == 0) strcpy_s(dir, MAX_PATH, ".");
+    _snprintf_s(out, outSize, _TRUNCATE, "%s\\vrik_calibration.ini", dir);
+}
+
+void OpenXRManager::BakeCameraOffset() {
+    // The plugin publishes the (head bone - camera) offset into shared [85..87] (game-local
+    // right/forward/up) with [88]=valid. Capture it as the baked camera offset so LocateCamera
+    // shifts the FPP view back onto the avatar's head. SET semantics (not accumulate): the FPP
+    // camera component the plugin samples does NOT include this LocateCamera offset, so the
+    // published value stays the true mount and re-baking is idempotent.
+    float* sh = m_sharedHandsPtr;
+    if (!sh) return;
+    if (sh[88] == 0.0f) {
+        Log("BakeCameraOffset: no published offset yet (start VR tracking + calibrate first).\n");
+        return;
+    }
+    float x = sh[85], y = sh[86], z = sh[87];
+    // Clamp to a sane range so a bad frame can't fling the camera.
+    auto clamp = [](float v) { return v < -0.8f ? -0.8f : (v > 0.8f ? 0.8f : v); };
+    m_camBakeOffset[0].store(clamp(x), std::memory_order_relaxed);
+    m_camBakeOffset[1].store(clamp(y), std::memory_order_relaxed);
+    m_camBakeOffset[2].store(clamp(z), std::memory_order_relaxed);
+    Log("BakeCameraOffset: baked (%.3f, %.3f, %.3f) right/fwd/up.\n", clamp(x), clamp(y), clamp(z));
+    SaveCalibrationToFile();
+}
+
+bool OpenXRManager::SaveCalibrationToFile() {
+    char path[MAX_PATH];
+    GetCalibFilePath(path, MAX_PATH);
+    FILE* f = nullptr;
+    if (fopen_s(&f, path, "w") != 0 || !f) {
+        Log("SaveCalibration: failed to open %s\n", path);
+        return false;
+    }
+    fprintf(f, "# CyberpunkVRPort VRIK auto-calibration\n");
+    fprintf(f, "version=3\n");
+    fprintf(f, "scaleR=%.4f\nscaleL=%.4f\n",
+            m_calib[0].load(std::memory_order_relaxed),
+            m_calib[1].load(std::memory_order_relaxed));
+    fprintf(f, "heightR=%.4f\nheightL=%.4f\n",
+            m_calib[2].load(std::memory_order_relaxed),
+            m_calib[3].load(std::memory_order_relaxed));
+    fprintf(f, "swingR=%.4f\nswingL=%.4f\n",
+            m_calib[4].load(std::memory_order_relaxed),
+            m_calib[5].load(std::memory_order_relaxed));
+    fprintf(f, "poleR=%.4f\npoleL=%.4f\n",
+            m_calib[6].load(std::memory_order_relaxed),
+            m_calib[7].load(std::memory_order_relaxed));
+    fprintf(f, "wRp=%.4f\nwRy=%.4f\nwRr=%.4f\n",
+            m_calib[8].load(std::memory_order_relaxed),
+            m_calib[9].load(std::memory_order_relaxed),
+            m_calib[10].load(std::memory_order_relaxed));
+    fprintf(f, "wLp=%.4f\nwLy=%.4f\nwLr=%.4f\n",
+            m_calib[11].load(std::memory_order_relaxed),
+            m_calib[12].load(std::memory_order_relaxed),
+            m_calib[13].load(std::memory_order_relaxed));
+    fprintf(f, "shoulderRX=%.4f\nshoulderRY=%.4f\nshoulderRZ=%.4f\n",
+            m_calibExt[0].load(std::memory_order_relaxed),
+            m_calibExt[1].load(std::memory_order_relaxed),
+            m_calibExt[2].load(std::memory_order_relaxed));
+    fprintf(f, "shoulderLX=%.4f\nshoulderLY=%.4f\nshoulderLZ=%.4f\n",
+            m_calibExt[3].load(std::memory_order_relaxed),
+            m_calibExt[4].load(std::memory_order_relaxed),
+            m_calibExt[5].load(std::memory_order_relaxed));
+    fprintf(f, "camBakeX=%.4f\ncamBakeY=%.4f\ncamBakeZ=%.4f\n",
+            m_camBakeOffset[0].load(std::memory_order_relaxed),
+            m_camBakeOffset[1].load(std::memory_order_relaxed),
+            m_camBakeOffset[2].load(std::memory_order_relaxed));
+    fclose(f);
+    Log("Calibration saved -> %s\n", path);
+    return true;
+}
+
+bool OpenXRManager::LoadCalibrationFromFile() {
+    char path[MAX_PATH];
+    GetCalibFilePath(path, MAX_PATH);
+    FILE* f = nullptr;
+    if (fopen_s(&f, path, "r") != 0 || !f) return false;
+    float v[14] = {
+        m_calib[0].load(std::memory_order_relaxed),
+        m_calib[1].load(std::memory_order_relaxed),
+        m_calib[2].load(std::memory_order_relaxed),
+        m_calib[3].load(std::memory_order_relaxed),
+        m_calib[4].load(std::memory_order_relaxed),
+        m_calib[5].load(std::memory_order_relaxed),
+        m_calib[6].load(std::memory_order_relaxed),
+        m_calib[7].load(std::memory_order_relaxed),
+        m_calib[8].load(std::memory_order_relaxed),
+        m_calib[9].load(std::memory_order_relaxed),
+        m_calib[10].load(std::memory_order_relaxed),
+        m_calib[11].load(std::memory_order_relaxed),
+        m_calib[12].load(std::memory_order_relaxed),
+        m_calib[13].load(std::memory_order_relaxed),
+    };
+    float e[6] = {
+        m_calibExt[0].load(std::memory_order_relaxed),
+        m_calibExt[1].load(std::memory_order_relaxed),
+        m_calibExt[2].load(std::memory_order_relaxed),
+        m_calibExt[3].load(std::memory_order_relaxed),
+        m_calibExt[4].load(std::memory_order_relaxed),
+        m_calibExt[5].load(std::memory_order_relaxed),
+    };
+    float cb[3] = {
+        m_camBakeOffset[0].load(std::memory_order_relaxed),
+        m_camBakeOffset[1].load(std::memory_order_relaxed),
+        m_camBakeOffset[2].load(std::memory_order_relaxed),
+    };
+    int version = 0;
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        char key[32]; float val;
+        if (sscanf_s(line, "%31[^=]=%f", key, (unsigned)_countof(key), &val) != 2) continue;
+        if (strcmp(key, "version") == 0) version = static_cast<int>(val);
+        #define M(name, idx) if (strcmp(key, name) == 0) v[idx] = val;
+        #define E(name, idx) if (strcmp(key, name) == 0) e[idx] = val;
+        #define C(name, idx) if (strcmp(key, name) == 0) cb[idx] = val;
+        M("scaleR",0) M("scaleL",1) M("heightR",2) M("heightL",3)
+        M("swingR",4) M("swingL",5) M("poleR",6) M("poleL",7)
+        M("wRp",8) M("wRy",9) M("wRr",10) M("wLp",11) M("wLy",12) M("wLr",13)
+        E("shoulderRX",0) E("shoulderRY",1) E("shoulderRZ",2)
+        E("shoulderLX",3) E("shoulderLY",4) E("shoulderLZ",5)
+        C("camBakeX",0) C("camBakeY",1) C("camBakeZ",2)
+        #undef M
+        #undef E
+        #undef C
+    }
+    fclose(f);
+    if (version < 2) {
+        v[2] = 0.0f;
+        v[3] = 0.0f;
+    }
+    if (version < 3) {
+        if (v[0] < 0.90f || v[0] > 1.25f) v[0] = 1.05f;
+        if (v[1] < 0.90f || v[1] > 1.25f) v[1] = 1.06f;
+        float shoulderY = (e[1] > e[4]) ? e[1] : e[4];
+        if (shoulderY > -0.12f) shoulderY = -0.12f;
+        if (shoulderY < -0.30f) shoulderY = -0.30f;
+        e[1] = shoulderY;
+        e[4] = shoulderY;
+    }
+    SetVRHandCalib(v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11],v[12],v[13]);
+    SetShoulderAnatomical(e[0],e[1],e[2],e[3],e[4],e[5]);
+    SetCameraOffset(cb[0], cb[1], cb[2]);
+    Log("Calibration loaded <- %s\n", path);
+    return true;
 }
 
 void OpenXRManager::SetMonoSubmitEnabled(bool enabled) {
@@ -465,20 +931,30 @@ void OpenXRManager::SetAERSubmitEnabled(bool enabled) {
     for (CapturedEyeFrame& frame : m_capturedEyeFrames) {
         frame.serial = 0;
         frame.pairId = 0;
+        frame.depthSerial = 0;
         frame.hasView = false;
     }
     for (CapturedEyeFrame& frame : m_previousCapturedEyeFrames) {
         frame.serial = 0;
         frame.pairId = 0;
+        frame.depthSerial = 0;
         frame.hasView = false;
     }
     for (CapturedEyeFrame& frame : m_pendingEyeFrames) {
         frame.serial = 0;
         frame.pairId = 0;
+        frame.depthSerial = 0;
         frame.hasView = false;
     }
     m_lastSubmittedPairId = 0;
     m_interpolatedPairId = 0;
+    m_interpolatedSynthSlot = 0;
+    m_interpolatedSyntheticEye = -1;
+    for (int eye = 0; eye < 2; ++eye) {
+        for (int slot = 0; slot < 2; ++slot) {
+            m_aerV2SubmitEyeReady[eye][slot] = false;
+        }
+    }
     m_interpolatedEyeViewsValid[0] = false;
     m_interpolatedEyeViewsValid[1] = false;
 }
@@ -597,7 +1073,7 @@ bool OpenXRManager::EnsureDepthSnapshot(ID3D12Resource* gameDepth) {
     // simultaneously writing DepthPrepass/GBuffer and reallocating render targets on
     // load/spawn). That cross-queue access caused GPU device-hung (0x887a0006) under
     // VDXR, where the scene depth is an R32-family format the snapshot path accepts.
-    // depth gave no confirmed benefit (the left-eye fix was the RealVR-style pose-pair
+    // depth gave no confirmed benefit (the left-eye fix was the alternate-eye pose-pair
     // lock, not depth), so keep it gated unless explicitly re-enabled for experiments.
     if (GetDepthSubmit() == 0) {
         if (m_depthLayerSupported) {
@@ -609,9 +1085,22 @@ bool OpenXRManager::EnsureDepthSnapshot(ID3D12Resource* gameDepth) {
         return false;
     }
     const D3D12_RESOURCE_DESC desc = gameDepth->GetDesc();
-    if (desc.Format != DXGI_FORMAT_R32_TYPELESS &&
-        desc.Format != DXGI_FORMAT_D32_FLOAT &&
-        desc.Format != DXGI_FORMAT_R32_FLOAT) {
+    // Accept both R32 (32bpp) and R32G8X24 (64bpp) source families. The 64bpp
+    // path uses DepthResolve shader to extract plane 0 (the float depth) into
+    // a 32bpp D32_FLOAT snapshot which is bit-compatible with the standard
+    // depth swapchain — no more DEVICE_HUNG, no more sceneindentation depth=0
+    // in submit logs. Old comment about "TYPELESS snapshot required" is
+    // obsolete: now the snapshot is typed D32_FLOAT, populated by shader.
+    const bool acceptable32 =
+        desc.Format == DXGI_FORMAT_R32_TYPELESS ||
+        desc.Format == DXGI_FORMAT_D32_FLOAT ||
+        desc.Format == DXGI_FORMAT_R32_FLOAT;
+    const bool acceptable64 =
+        desc.Format == DXGI_FORMAT_R32G8X24_TYPELESS ||
+        desc.Format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT ||
+        desc.Format == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS ||
+        desc.Format == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT;
+    if (!acceptable32 && !acceptable64) {
         if (m_depthLayerSupported) {
             Log("OpenXRManager: [DEPTH] disabling depth layer for unsupported source format=%u\n",
                 static_cast<unsigned>(desc.Format));
@@ -621,13 +1110,42 @@ bool OpenXRManager::EnsureDepthSnapshot(ID3D12Resource* gameDepth) {
         m_depthSnapshotSerial = 0;
         return false;
     }
-    DXGI_FORMAT targetFormat = desc.Format;
-    if (m_depthSwapchainFormat != 0) {
-        targetFormat = static_cast<DXGI_FORMAT>(m_depthSwapchainFormat);
-    }
+    // Snapshot always D32_FLOAT 32bpp now. For R32-family sources the capture
+    // path uses CopyTextureRegion (bit-compat). For 64bpp sources the capture
+    // path uses DepthResolve shader (plane 0 extract). Either way, downstream
+    // depth swapchain copy works with a single typed format.
+    const DXGI_FORMAT snapshotFormat = DXGI_FORMAT_D32_FLOAT;
+    // Ensure the CUDA-importable R32 depth exists whenever AER V2 is on, even when
+    // the D32 snapshot already exists (otherwise the early-return below skipped its
+    // creation and depth-aware silently fell back to depth-free).
+    auto ensureR32 = [&](const D3D12_RESOURCE_DESC& d) {
+        if (GetAERV2Enabled() == 0) return;
+        if (m_depthSnapshotR32) {
+            const auto cur = m_depthSnapshotR32->GetDesc();
+            if (cur.Width == d.Width && cur.Height == d.Height) return;
+            m_depthSnapshotR32->Release();
+            m_depthSnapshotR32 = nullptr;
+            m_depthSnapshotR32Serial = 0;
+        }
+        D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC rd = d;
+        rd.Format = DXGI_FORMAT_R32_FLOAT;
+        rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        D3D12_CLEAR_VALUE cv{}; cv.Format = DXGI_FORMAT_R32_FLOAT;
+        if (FAILED(m_d3dDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_SHARED, &rd,
+                D3D12_RESOURCE_STATE_COMMON, &cv, IID_PPV_ARGS(&m_depthSnapshotR32)))) {
+            Log("OpenXRManager: [DEPTH-AERV2] R32 snapshot create failed (depth-aware off)\n");
+            m_depthSnapshotR32 = nullptr;
+        } else {
+            SetD3DName(m_depthSnapshotR32, L"AERV2_scene_depth_R32_cuda");
+            Log("OpenXRManager: [DEPTH-AERV2] R32 depth snapshot created %llux%u\n",
+                static_cast<unsigned long long>(d.Width), d.Height);
+        }
+    };
     if (m_depthSnapshot) {
         const D3D12_RESOURCE_DESC cur = m_depthSnapshot->GetDesc();
-        if (cur.Width == desc.Width && cur.Height == desc.Height && cur.Format == targetFormat) {
+        if (cur.Width == desc.Width && cur.Height == desc.Height && cur.Format == snapshotFormat) {
+            ensureR32(desc);
             return true;
         }
         m_depthSnapshot->Release();
@@ -637,11 +1155,15 @@ bool OpenXRManager::EnsureDepthSnapshot(ID3D12Resource* gameDepth) {
     D3D12_HEAP_PROPERTIES heap{};
     heap.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC sd = desc;
-    // A depth format requires ALLOW_DEPTH_STENCIL; drop any unrelated source flags.
-    sd.Format = targetFormat;
+    sd.Format = snapshotFormat;
     sd.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
-    const HRESULT hr = m_d3dDevice->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &sd,
-        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_depthSnapshot));
+    // Typed depth resources with ALLOW_DEPTH_STENCIL require a clear value.
+    D3D12_CLEAR_VALUE clearVal{};
+    clearVal.Format = snapshotFormat;
+    clearVal.DepthStencil.Depth = 1.0f;
+    clearVal.DepthStencil.Stencil = 0;
+    const HRESULT hr = m_d3dDevice->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_SHARED, &sd,
+        D3D12_RESOURCE_STATE_COPY_DEST, &clearVal, IID_PPV_ARGS(&m_depthSnapshot));
     if (FAILED(hr)) {
         Log("OpenXRManager: [DEPTH] CreateCommittedResource(depthSnapshot) failed hr=0x%08X\n", hr);
         m_depthSnapshot = nullptr;
@@ -653,8 +1175,147 @@ bool OpenXRManager::EnsureDepthSnapshot(ID3D12Resource* gameDepth) {
     SetD3DName(m_depthSnapshot, L"OpenXR_scene_depth_snapshot");
     Log("OpenXRManager: [DEPTH] snapshot created %llux%u srcFmt=%u snapFmt=%u\n",
         static_cast<unsigned long long>(desc.Width), desc.Height,
-        static_cast<unsigned>(desc.Format), static_cast<unsigned>(targetFormat));
+        static_cast<unsigned>(desc.Format), static_cast<unsigned>(snapshotFormat));
+
+    // [DEPTH-AERV2] Parallel R32_FLOAT COLOR snapshot (CUDA-importable). Only the
+    // AER V2 warp uses it; failure is non-fatal (warp falls back to depth-free).
+    ensureR32(desc);
     return true;
+}
+
+bool OpenXRManager::RecordDepthCapture(ID3D12GraphicsCommandList* cmdList,
+                                       ID3D12Resource* gameDepth,
+                                       D3D12_RESOURCE_STATES gameDepthState) {
+    if (!cmdList || !gameDepth || !m_depthSnapshot) return false;
+    const DXGI_FORMAT srcFmt = gameDepth->GetDesc().Format;
+    const bool is64bpp =
+        srcFmt == DXGI_FORMAT_R32G8X24_TYPELESS ||
+        srcFmt == DXGI_FORMAT_D32_FLOAT_S8X24_UINT ||
+        srcFmt == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS ||
+        srcFmt == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT;
+
+    if (!is64bpp) {
+        // 32bpp path: simple CopyTextureRegion (bit-compat between R32/D32).
+        D3D12_RESOURCE_BARRIER pre[2] = {};
+        UINT preCount = 0;
+        if (gameDepthState != D3D12_RESOURCE_STATE_COPY_SOURCE) {
+            pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            pre[preCount].Transition.pResource = gameDepth;
+            pre[preCount].Transition.StateBefore = gameDepthState;
+            pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            ++preCount;
+        }
+        if (m_depthSnapshotSerial != 0) {
+            pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            pre[preCount].Transition.pResource = m_depthSnapshot;
+            pre[preCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+            pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            ++preCount;
+        }
+        if (preCount > 0) cmdList->ResourceBarrier(preCount, pre);
+        D3D12_TEXTURE_COPY_LOCATION dst{};
+        dst.pResource = m_depthSnapshot;
+        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dst.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION src{};
+        src.pResource = gameDepth;
+        src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        src.SubresourceIndex = 0;
+        cmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        D3D12_RESOURCE_BARRIER post[2] = {};
+        UINT postCount = 0;
+        post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        post[postCount].Transition.pResource = m_depthSnapshot;
+        post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        post[postCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        ++postCount;
+        if (gameDepthState != D3D12_RESOURCE_STATE_COPY_SOURCE) {
+            post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            post[postCount].Transition.pResource = gameDepth;
+            post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            post[postCount].Transition.StateAfter = gameDepthState;
+            post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            ++postCount;
+        }
+        cmdList->ResourceBarrier(postCount, post);
+        return true;
+    }
+
+    // 64bpp path: shader resolve plane 0 → D32_FLOAT DSV.
+    if (!m_depthResolve) m_depthResolve = std::make_unique<DepthResolve>();
+    if (!m_depthResolve->EnsureInitialized(m_d3dDevice, DXGI_FORMAT_D32_FLOAT,
+            m_depthSnapshotW, m_depthSnapshotH)) {
+        return false;
+    }
+
+    D3D12_RESOURCE_BARRIER pre[2] = {};
+    UINT preCount = 0;
+    if (gameDepthState != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
+        pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        pre[preCount].Transition.pResource = gameDepth;
+        pre[preCount].Transition.StateBefore = gameDepthState;
+        pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        ++preCount;
+    }
+    // Snapshot was last left in COPY_SOURCE if we've written before; first
+    // time it's in COPY_DEST (created with that state). Either way go to
+    // DEPTH_WRITE for the resolve draw.
+    pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    pre[preCount].Transition.pResource = m_depthSnapshot;
+    pre[preCount].Transition.StateBefore = (m_depthSnapshotSerial != 0)
+        ? D3D12_RESOURCE_STATE_COPY_SOURCE
+        : D3D12_RESOURCE_STATE_COPY_DEST;
+    pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    ++preCount;
+    cmdList->ResourceBarrier(preCount, pre);
+
+    const bool ok = m_depthResolve->RecordResolve(cmdList, gameDepth, m_depthSnapshot);
+
+    // [DEPTH-AERV2] Second resolve of the SAME gameDepth SRV (still in
+    // PIXEL_SHADER_RESOURCE) into the plain R32_FLOAT color snapshot that CUDA can
+    // import. Self-contained barriers on m_depthSnapshotR32 only; does not touch
+    // the depth-output path above. Non-fatal.
+    if (m_depthSnapshotR32) {
+        D3D12_RESOURCE_BARRIER rtBar{};
+        rtBar.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        rtBar.Transition.pResource = m_depthSnapshotR32;
+        rtBar.Transition.StateBefore = (m_depthSnapshotR32Serial != 0)
+            ? D3D12_RESOURCE_STATE_COPY_SOURCE : D3D12_RESOURCE_STATE_COMMON;
+        rtBar.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        rtBar.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        cmdList->ResourceBarrier(1, &rtBar);
+
+        m_depthResolve->RecordResolveColor(cmdList, gameDepth, m_depthSnapshotR32);
+
+        rtBar.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        rtBar.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        cmdList->ResourceBarrier(1, &rtBar);
+        m_depthSnapshotR32Serial = 1;  // marked produced; serial set on publish below
+    }
+
+    D3D12_RESOURCE_BARRIER post[2] = {};
+    UINT postCount = 0;
+    post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    post[postCount].Transition.pResource = m_depthSnapshot;
+    post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+    post[postCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+    post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+    ++postCount;
+    if (gameDepthState != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) {
+        post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        post[postCount].Transition.pResource = gameDepth;
+        post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        post[postCount].Transition.StateAfter = gameDepthState;
+        post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        ++postCount;
+    }
+    cmdList->ResourceBarrier(postCount, post);
+    return ok;
 }
 
 bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const D3D12_RESOURCE_DESC& sourceDesc, uint64_t serial,
@@ -737,64 +1398,41 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // capture list. We transition with the OBSERVED current state (never a guess);
     // if no explicit transition has been seen yet (state==0), we skip to avoid a
     // bad barrier (the classic device-removed cause).
+    //
+    // *** Mono path: depth capture is OFF by default ***
+    // CaptureMonoPresentedFrame runs EVERY present, transitioning the game's
+    // scene-depth resource state on the swapchain queue. The game's render
+    // queue is simultaneously writing that same resource (DepthPrepass + late
+    // DLSS history). Without a cross-queue Wait this races -> can leave
+    // m_captureFence un-signaled -> WaitForSingleObject(INFINITE) on next
+    // present locks the game. With a cross-queue Wait, async-compute fence
+    // dependencies form a cycle -> same hang. Net result: mono depth submit
+    // is currently incompatible with CP2077's render queue layout, so we skip
+    // it entirely unless the user opts in with xr_mono_depth_capture=1.
     ID3D12Resource* gameDepth = OmoGetSceneDepthResource();
     const D3D12_RESOURCE_STATES gameDepthState = static_cast<D3D12_RESOURCE_STATES>(OmoGetSceneDepthState());
     bool depthCaptured = false;
-    if (gameDepth && OmoGetSceneDepthState() != 0 && EnsureDepthSnapshot(gameDepth)) {
-        D3D12_RESOURCE_BARRIER pre[2] = {};
-        UINT preCount = 0;
-        if (gameDepthState != D3D12_RESOURCE_STATE_COPY_SOURCE) {
-            pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            pre[preCount].Transition.pResource = gameDepth;
-            pre[preCount].Transition.StateBefore = gameDepthState;
-            pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-            pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            ++preCount;
-        }
-        if (m_depthSnapshotSerial != 0) {
-            pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            pre[preCount].Transition.pResource = m_depthSnapshot;
-            pre[preCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-            pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-            pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            ++preCount;
-        }
-        if (preCount > 0) {
-            m_captureCmdList->ResourceBarrier(preCount, pre);
-        }
-        D3D12_TEXTURE_COPY_LOCATION depthDst{};
-        depthDst.pResource = m_depthSnapshot;
-        depthDst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        depthDst.SubresourceIndex = 0;
-        D3D12_TEXTURE_COPY_LOCATION depthSrc{};
-        depthSrc.pResource = gameDepth;
-        depthSrc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        depthSrc.SubresourceIndex = 0;
-        m_captureCmdList->CopyTextureRegion(&depthDst, 0, 0, 0, &depthSrc, nullptr);
-        D3D12_RESOURCE_BARRIER post[2] = {};
-        UINT postCount = 0;
-        post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        post[postCount].Transition.pResource = m_depthSnapshot;
-        post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-        post[postCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        ++postCount;
-        if (gameDepthState != D3D12_RESOURCE_STATE_COPY_SOURCE) {
-            post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            post[postCount].Transition.pResource = gameDepth;
-            post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-            post[postCount].Transition.StateAfter = gameDepthState;
-            post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            ++postCount;
-        }
-        m_captureCmdList->ResourceBarrier(postCount, post);
-        depthCaptured = true;
+    if (GetMonoDepthCapture() != 0 &&
+        gameDepth && OmoGetSceneDepthState() != 0 && EnsureDepthSnapshot(gameDepth)) {
+        depthCaptured = RecordDepthCapture(m_captureCmdList, gameDepth, gameDepthState);
     }
 
     m_captureCmdList->Close();
+    // Cross-queue safety for depth read: game writes scene depth from its render
+    // queue while we copy it on the swapchain queue. Insert GPU-side Waits on
+    // every tracked game queue's latest Signal value before our
+    // ExecuteCommandLists. SKIPPED in mono mode by default -- mono captures EVERY
+    // present and the cross-queue Wait on CP2077's async-compute fences was
+    // creating a Wait cycle that froze the present thread on
+    // m_captureFenceEvent INFINITE. The race window without it is small
+    // (depth might be one frame stale) compared to a full freeze. Re-enable
+    // by setting xr_mono_xqueue_wait=1 in vrport.ini.
+    if (depthCaptured && GetMonoXQueueWait() != 0) {
+        CyberpunkVRPort_WaitOnAllGameSignals(m_d3dQueue);
+    }
     ID3D12CommandList* cmdLists[] = {m_captureCmdList};
     m_d3dQueue->ExecuteCommandLists(1, cmdLists);
-    
+
     ++m_captureFenceValue;
     m_d3dQueue->Signal(m_captureFence, m_captureFenceValue);
 
@@ -818,96 +1456,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         SetEvent(m_monoPresentEvent);
     }
 
-    // [TEAR-DIAG] One-shot readback dumps of the captured mono snapshot, to check
-    // whether the source pixels are torn BEFORE any VR reprojection/submit. Guarded
-    // by m_captureMutex (held on entry), so a plain static counter is safe.
-    {
-        static int s_dumpCount = 0;
-        static bool s_prevDumpKey = false;
-        // Manual trigger: press Home in-game exactly when tearing is visible.
-        // Rising edge only, so one dump per keypress.
-        const bool dumpKeyDown = (GetAsyncKeyState(VK_HOME) & 0x8000) != 0;
-        const bool wantDump = dumpKeyDown && !s_prevDumpKey;
-        s_prevDumpKey = dumpKeyDown;
-        if (wantDump && s_dumpCount < 12) {
-            const D3D12_RESOURCE_DESC snapDesc = snapshot->GetDesc();
-            D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
-            UINT numRows = 0;
-            UINT64 rowBytes = 0;
-            UINT64 totalBytes = 0;
-            m_d3dDevice->GetCopyableFootprints(&snapDesc, 0, 1, 0, &footprint, &numRows, &rowBytes, &totalBytes);
-
-            D3D12_HEAP_PROPERTIES rbHeap{};
-            rbHeap.Type = D3D12_HEAP_TYPE_READBACK;
-            D3D12_RESOURCE_DESC rbDesc{};
-            rbDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-            rbDesc.Width = totalBytes;
-            rbDesc.Height = 1;
-            rbDesc.DepthOrArraySize = 1;
-            rbDesc.MipLevels = 1;
-            rbDesc.Format = DXGI_FORMAT_UNKNOWN;
-            rbDesc.SampleDesc.Count = 1;
-            rbDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-            ID3D12Resource* readback = nullptr;
-            if (SUCCEEDED(m_d3dDevice->CreateCommittedResource(&rbHeap, D3D12_HEAP_FLAG_NONE, &rbDesc,
-                    D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback)))) {
-                if (SUCCEEDED(currentAllocator->Reset()) &&
-                    SUCCEEDED(m_captureCmdList->Reset(currentAllocator, nullptr))) {
-                    D3D12_TEXTURE_COPY_LOCATION dst{};
-                    dst.pResource = readback;
-                    dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-                    dst.PlacedFootprint = footprint;
-                    D3D12_TEXTURE_COPY_LOCATION src{};
-                    src.pResource = snapshot;
-                    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                    src.SubresourceIndex = 0;
-                    m_captureCmdList->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-                    m_captureCmdList->Close();
-                    ID3D12CommandList* lists[] = {m_captureCmdList};
-                    m_d3dQueue->ExecuteCommandLists(1, lists);
-                    if (WaitForQueueIdle(m_d3dQueue, m_captureFence, m_captureFenceEvent, m_captureFenceValue)) {
-                        void* mapped = nullptr;
-                        D3D12_RANGE readRange{0, static_cast<SIZE_T>(totalBytes)};
-                        if (SUCCEEDED(readback->Map(0, &readRange, &mapped)) && mapped) {
-                            char path[512];
-                            snprintf(path, sizeof(path),
-                                "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Cyberpunk 2077\\bin\\x64\\mono_snap_%llu.bin",
-                                static_cast<unsigned long long>(serial));
-                            FILE* fp = nullptr;
-                            fopen_s(&fp, path, "wb");
-                            if (fp) {
-                                const uint32_t hdr[6] = {
-                                    0x52414554u,
-                                    static_cast<uint32_t>(snapDesc.Width),
-                                    static_cast<uint32_t>(snapDesc.Height),
-                                    static_cast<uint32_t>(snapDesc.Format),
-                                    static_cast<uint32_t>(footprint.Footprint.RowPitch),
-                                    static_cast<uint32_t>(numRows)};
-                                fwrite(hdr, sizeof(hdr), 1, fp);
-                                fwrite(mapped, 1, static_cast<size_t>(totalBytes), fp);
-                                fclose(fp);
-                                ++s_dumpCount;
-                                Log("[TEAR-DIAG] dumped snapshot serial=%llu %ux%u fmt=%u rowPitch=%u rows=%u -> %s\n",
-                                    static_cast<unsigned long long>(serial),
-                                    static_cast<unsigned>(snapDesc.Width),
-                                    static_cast<unsigned>(snapDesc.Height),
-                                    static_cast<unsigned>(snapDesc.Format),
-                                    static_cast<unsigned>(footprint.Footprint.RowPitch),
-                                    static_cast<unsigned>(numRows), path);
-                            }
-                            const D3D12_RANGE noWrite{0, 0};
-                            readback->Unmap(0, &noWrite);
-                        }
-                    }
-                }
-                readback->Release();
-            }
-        }
-    }
-
     snapshot->Release();
-    if ((serial % 300) == 1) {
+    if (g_verboseLog && (serial % 300) == 1) {
         Log("OpenXRManager: Mono frame captured. serial=%llu\n",
             static_cast<unsigned long long>(serial));
     }
@@ -960,17 +1510,20 @@ bool OpenXRManager::EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceD
         }
     }
 
+    const bool aerV2Enabled = GetAERV2Enabled() != 0;
     const DXGI_FORMAT opticalFlowFormat = GetAERV2OpticalFlowFormat(sourceDesc.Format);
-    auto framesMatch = [width, height, format](const CapturedEyeFrame* frames) {
+    auto framesMatch = [width, height, format, aerV2Enabled](const CapturedEyeFrame* frames) {
         for (int eye = 0; eye < 2; ++eye) {
             const CapturedEyeFrame& frame = frames[eye];
             if (!frame.texture || frame.width != width || frame.height != height || frame.format != format) {
                 return false;
             }
+            if (aerV2Enabled && !frame.textureShareable) {
+                return false;
+            }
         }
         return true;
     };
-    const bool aerV2Enabled = GetAERV2Enabled() != 0;
     auto opticalFlowFramesMatch = [aerV2Enabled, opticalFlowFormat](const CapturedEyeFrame* frames) {
         if (!aerV2Enabled) {
             return true;
@@ -1010,11 +1563,26 @@ bool OpenXRManager::EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceD
                     frame.opticalFlowTexture->Release();
                     frame.opticalFlowTexture = nullptr;
                 }
+                if (frame.depthTexture) {
+                    frame.depthTexture->Release();
+                    frame.depthTexture = nullptr;
+                }
                 frame.width = 0;
                 frame.height = 0;
                 frame.format = 0;
+                frame.textureShareable = false;
+                frame.depthWidth = 0;
+                frame.depthHeight = 0;
+                frame.depthFormat = 0;
                 frame.serial = 0;
                 frame.pairId = 0;
+                frame.depthSerial = 0;
+                // Reset the convert-fence value: the optical-flow module (and thus its
+                // convert fence) is rebuilt on resolution change, so a stale value here
+                // would make the frame thread's GPU-Wait block forever on a fence that
+                // never reaches it.
+                frame.opticalFlowConvertValue = 0;
+                frame.depthInCopySource = false;
                 frame.pose = {};
                 frame.pose.orientation.w = 1.0f;
                 frame.fov = {};
@@ -1028,6 +1596,7 @@ bool OpenXRManager::EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceD
 
     D3D12_HEAP_PROPERTIES heapProps{};
     heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+    const D3D12_HEAP_FLAGS sharedHeapFlags = aerV2Enabled ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE;
     D3D12_RESOURCE_DESC opticalFlowDesc{};
     opticalFlowDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     opticalFlowDesc.Width = width;
@@ -1043,7 +1612,7 @@ bool OpenXRManager::EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceD
             CapturedEyeFrame& frame = frames[eye];
             if (FAILED(m_d3dDevice->CreateCommittedResource(
                     &heapProps,
-                    D3D12_HEAP_FLAG_NONE,
+                    sharedHeapFlags,
                     &sourceDesc,
                     D3D12_RESOURCE_STATE_COPY_DEST,
                     nullptr,
@@ -1052,10 +1621,11 @@ bool OpenXRManager::EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceD
                 return false;
             }
             SetD3DNamef(frame.texture, L"AERV2_%ls_eye%d_color", nameLabel, eye);
+            frame.textureShareable = aerV2Enabled;
             if (aerV2Enabled) {
                 if (FAILED(m_d3dDevice->CreateCommittedResource(
                         &heapProps,
-                        D3D12_HEAP_FLAG_NONE,
+                        sharedHeapFlags,
                         &opticalFlowDesc,
                         D3D12_RESOURCE_STATE_COMMON,
                         nullptr,
@@ -1069,8 +1639,13 @@ bool OpenXRManager::EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceD
             frame.width = width;
             frame.height = height;
             frame.format = format;
+            frame.depthWidth = 0;
+            frame.depthHeight = 0;
+            frame.depthFormat = 0;
             frame.serial = 0;
             frame.pairId = 0;
+            frame.depthSerial = 0;
+            frame.depthInCopySource = false;
             frame.pose = {};
             frame.pose.orientation.w = 1.0f;
             frame.fov = {};
@@ -1083,6 +1658,157 @@ bool OpenXRManager::EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceD
         !createFrames(m_previousCapturedEyeFrames, "previous", L"previous") ||
         !createFrames(m_pendingEyeFrames, "pending", L"pending")) {
         return false;
+    }
+
+    // Phase 3: scratch RT for depth-based stereo reprojection. Always created
+    // for AER (independent of V2 NvOF synth flag) because the reprojection
+    // path is the FPS-per-eye fix and runs unconditionally on AER submit.
+    {
+        D3D12_RESOURCE_DESC stereoDesc = sourceDesc;
+        stereoDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        D3D12_CLEAR_VALUE stereoClear{};
+        stereoClear.Format = sourceDesc.Format;
+        bool recreate = true;
+        if (m_stereoSynthEye) {
+            auto cur = m_stereoSynthEye->GetDesc();
+            if (cur.Width == stereoDesc.Width && cur.Height == stereoDesc.Height &&
+                cur.Format == stereoDesc.Format) {
+                recreate = false;
+            } else {
+                m_stereoSynthEye.Reset();
+            }
+        }
+        if (recreate) {
+            if (FAILED(m_d3dDevice->CreateCommittedResource(
+                    &heapProps, D3D12_HEAP_FLAG_NONE,
+                    &stereoDesc, D3D12_RESOURCE_STATE_COMMON,
+                    &stereoClear, IID_PPV_ARGS(&m_stereoSynthEye)))) {
+                Log("OpenXRManager: Failed to create stereo-synth scratch\n");
+                return false;
+            }
+            SetD3DName(m_stereoSynthEye.Get(), L"AER_stereo_synth_scratch");
+        }
+    }
+
+    // Phase 2b output target: scratch RT for the MV-warp pass. Only created
+    // when AER V2 is enabled (the warp consumes engine MV captured via NGX
+    // hook, which only matters for V2 frame-gen).
+    if (aerV2Enabled) {
+        // alternate-eye NvOF midpoint outputs. These are imported into CUDA as
+        // writable surfaces, then copied into the XR eye swapchain on submit.
+        // Kept in logical COPY_SOURCE state so submit can CopyResource without
+        // extra barriers after CUDA signals the shared fence.
+        D3D12_RESOURCE_DESC synthDesc = sourceDesc;
+        synthDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        for (int eye = 0; eye < 2; ++eye) {
+            for (int slot = 0; slot < 2; ++slot) {
+                if (m_aerV2SynthEye[eye][slot]) {
+                    auto cur = m_aerV2SynthEye[eye][slot]->GetDesc();
+                    if (cur.Width == synthDesc.Width && cur.Height == synthDesc.Height && cur.Format == synthDesc.Format) {
+                        continue;
+                    }
+                    m_aerV2SynthEye[eye][slot].Reset();
+                }
+                if (FAILED(m_d3dDevice->CreateCommittedResource(
+                        &heapProps,
+                        sharedHeapFlags,
+                        &synthDesc,
+                        D3D12_RESOURCE_STATE_COPY_SOURCE,
+                        nullptr,
+                        IID_PPV_ARGS(&m_aerV2SynthEye[eye][slot])))) {
+                    Log("OpenXRManager: Failed to create AER V2 NvOF synth eye=%d slot=%d\n", eye, slot);
+                    return false;
+                }
+                SetD3DNamef(m_aerV2SynthEye[eye][slot].Get(), L"AERV2_nvof_synth_eye%d_slot%d", eye, slot);
+
+                if (m_aerV2SubmitEye[eye][slot]) {
+                    auto cur = m_aerV2SubmitEye[eye][slot]->GetDesc();
+                    if (!(cur.Width == synthDesc.Width && cur.Height == synthDesc.Height && cur.Format == synthDesc.Format)) {
+                        m_aerV2SubmitEye[eye][slot].Reset();
+                    }
+                }
+                if (!m_aerV2SubmitEye[eye][slot]) {
+                    if (FAILED(m_d3dDevice->CreateCommittedResource(
+                            &heapProps,
+                            D3D12_HEAP_FLAG_NONE,
+                            &synthDesc,
+                            D3D12_RESOURCE_STATE_COMMON,
+                            nullptr,
+                            IID_PPV_ARGS(&m_aerV2SubmitEye[eye][slot])))) {
+                        Log("OpenXRManager: Failed to create AER V2 submit eye=%d slot=%d\n", eye, slot);
+                        return false;
+                    }
+                    SetD3DNamef(m_aerV2SubmitEye[eye][slot].Get(), L"AERV2_submit_synth_eye%d_slot%d", eye, slot);
+                    m_aerV2SubmitEyeReady[eye][slot] = false;
+                }
+
+                // Half-rate in-between frame for both eyes: identical desc to the
+                // synth eye. CUDA writes m_aerV2InBetween (COPY_SOURCE);
+                // submit copies via m_aerV2InBetweenSubmit so submit and CUDA
+                // never touch the same resource concurrently.
+                if (m_aerV2InBetween[eye][slot]) {
+                    auto cur = m_aerV2InBetween[eye][slot]->GetDesc();
+                    if (!(cur.Width == synthDesc.Width && cur.Height == synthDesc.Height && cur.Format == synthDesc.Format)) {
+                        m_aerV2InBetween[eye][slot].Reset();
+                    }
+                }
+                if (!m_aerV2InBetween[eye][slot]) {
+                    if (FAILED(m_d3dDevice->CreateCommittedResource(
+                            &heapProps,
+                            sharedHeapFlags,
+                            &synthDesc,
+                            D3D12_RESOURCE_STATE_COPY_SOURCE,
+                            nullptr,
+                            IID_PPV_ARGS(&m_aerV2InBetween[eye][slot])))) {
+                        Log("OpenXRManager: Failed to create AER V2 in-between eye=%d slot=%d\n", eye, slot);
+                        return false;
+                    }
+                    SetD3DNamef(m_aerV2InBetween[eye][slot].Get(), L"AERV2_nvof_inbetween_eye%d_slot%d", eye, slot);
+                }
+                if (m_aerV2InBetweenSubmit[eye][slot]) {
+                    auto cur = m_aerV2InBetweenSubmit[eye][slot]->GetDesc();
+                    if (!(cur.Width == synthDesc.Width && cur.Height == synthDesc.Height && cur.Format == synthDesc.Format)) {
+                        m_aerV2InBetweenSubmit[eye][slot].Reset();
+                    }
+                }
+                if (!m_aerV2InBetweenSubmit[eye][slot]) {
+                    if (FAILED(m_d3dDevice->CreateCommittedResource(
+                            &heapProps,
+                            D3D12_HEAP_FLAG_NONE,
+                            &synthDesc,
+                            D3D12_RESOURCE_STATE_COMMON,
+                            nullptr,
+                            IID_PPV_ARGS(&m_aerV2InBetweenSubmit[eye][slot])))) {
+                        Log("OpenXRManager: Failed to create AER V2 in-between submit eye=%d slot=%d\n", eye, slot);
+                        return false;
+                    }
+                    SetD3DNamef(m_aerV2InBetweenSubmit[eye][slot].Get(), L"AERV2_submit_inbetween_eye%d_slot%d", eye, slot);
+                    m_aerV2InBetweenSubmitReady[eye][slot] = false;
+                }
+            }
+        }
+
+        D3D12_RESOURCE_DESC warpDesc = sourceDesc;
+        warpDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        D3D12_CLEAR_VALUE warpClear{};
+        warpClear.Format = sourceDesc.Format;
+        for (int eye = 0; eye < 2; ++eye) {
+            if (m_mvWarpedEye[eye]) {
+                auto cur = m_mvWarpedEye[eye]->GetDesc();
+                if (cur.Width == warpDesc.Width && cur.Height == warpDesc.Height && cur.Format == warpDesc.Format) {
+                    continue;
+                }
+                m_mvWarpedEye[eye].Reset();
+            }
+            if (FAILED(m_d3dDevice->CreateCommittedResource(
+                    &heapProps, D3D12_HEAP_FLAG_NONE,
+                    &warpDesc, D3D12_RESOURCE_STATE_COMMON,
+                    &warpClear, IID_PPV_ARGS(&m_mvWarpedEye[eye])))) {
+                Log("OpenXRManager: Failed to create MV-warp scratch eye=%d\n", eye);
+                return false;
+            }
+            SetD3DNamef(m_mvWarpedEye[eye].Get(), L"AERV2_mvwarped_eye%d", eye);
+        }
     }
 
     Log("OpenXRManager: AER capture resources ready. size=%ux%u format=%u tripleBuffered=1\n", width, height, format);
@@ -1159,77 +1885,146 @@ bool OpenXRManager::CapturePresentedFrame(ID3D12Resource* backBuffer, const D3D1
     // [DEPTH] Snapshot the game's scene depth into m_depthSnapshot on the SAME AER
     // capture list, mirroring the mono path (CaptureMonoPresentedFrame). This gives
     // the AER submit a depth buffer to chain as XR_KHR_composition_layer_depth so the
-    // runtime can do DEPTH-AWARE (positional) reprojection of the half-rate stale eye,
-    // matching RealVR. Observed-state barriers only (never a guessed StateBefore).
+    // runtime can do DEPTH-AWARE (positional) reprojection of the half-rate stale eye.
+    // Observed-state barriers only (never a guessed StateBefore).
+    //
+    // Gated on GetAerXQueueWait() (default 0). Depth capture forces a cross-queue GPU
+    // wait (CyberpunkVRPort_WaitOnAllGameSignals) that serializes the present queue
+    // behind CP2077's async-compute -> depressed sim rate (NPC/animation stutter while
+    // shader-time things stay smooth). With it OFF (the mono default) the AER V2 warp
+    // falls back to NvOF-only flow (its depth-reprojection path is agreement-gated and
+    // self-disables), which is smooth at the cost of positional reprojection quality.
     bool depthCaptured = false;
+    bool frameDepthCaptured = false;
+    const bool aerDepthEnabled = (GetAerXQueueWait() != 0);
     {
-        ID3D12Resource* gameDepth = OmoGetSceneDepthResource();
+        ID3D12Resource* gameDepth = aerDepthEnabled ? OmoGetSceneDepthResource() : nullptr;
         const D3D12_RESOURCE_STATES gameDepthState = static_cast<D3D12_RESOURCE_STATES>(OmoGetSceneDepthState());
         if (gameDepth && OmoGetSceneDepthState() != 0 && EnsureDepthSnapshot(gameDepth)) {
-            D3D12_RESOURCE_BARRIER pre[2] = {};
-            UINT preCount = 0;
-            if (gameDepthState != D3D12_RESOURCE_STATE_COPY_SOURCE) {
-                pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                pre[preCount].Transition.pResource = gameDepth;
-                pre[preCount].Transition.StateBefore = gameDepthState;
-                pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-                pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                ++preCount;
+            depthCaptured = RecordDepthCapture(m_captureCmdList, gameDepth, gameDepthState);
+            if (depthCaptured && GetAERV2Enabled() != 0 && m_depthSnapshot) {
+                const D3D12_RESOURCE_DESC depthDesc = m_depthSnapshot->GetDesc();
+                bool recreateFrameDepth = true;
+                if (frame->depthTexture) {
+                    const D3D12_RESOURCE_DESC cur = frame->depthTexture->GetDesc();
+                    if (cur.Width == depthDesc.Width && cur.Height == depthDesc.Height && cur.Format == depthDesc.Format) {
+                        recreateFrameDepth = false;
+                    } else {
+                        frame->depthTexture->Release();
+                        frame->depthTexture = nullptr;
+                        frame->depthSerial = 0;
+                        frame->depthInCopySource = false;
+                    }
+                }
+                if (recreateFrameDepth) {
+                    D3D12_HEAP_PROPERTIES hp{};
+                    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+                    D3D12_CLEAR_VALUE clearVal{};
+                    clearVal.Format = depthDesc.Format;
+                    clearVal.DepthStencil.Depth = 1.0f;
+                    clearVal.DepthStencil.Stencil = 0;
+                    if (FAILED(m_d3dDevice->CreateCommittedResource(
+                            &hp,
+                            D3D12_HEAP_FLAG_SHARED,
+                            &depthDesc,
+                            D3D12_RESOURCE_STATE_COPY_DEST,
+                            &clearVal,
+                            IID_PPV_ARGS(&frame->depthTexture)))) {
+                        Log("OpenXRManager: Failed to create AER V2 frame depth texture eye=%d\n", eyeIndex);
+                        frame->depthTexture = nullptr;
+                        frame->depthSerial = 0;
+                        frame->depthInCopySource = false;
+                    } else {
+                        frame->depthWidth = static_cast<uint32_t>(depthDesc.Width);
+                        frame->depthHeight = depthDesc.Height;
+                        frame->depthFormat = static_cast<uint32_t>(depthDesc.Format);
+                        frame->depthSerial = 0;
+                        frame->depthInCopySource = false;
+                        SetD3DNamef(frame->depthTexture, L"AERV2_pending_eye%d_depth", eyeIndex);
+                    }
+                }
+                if (frame->depthTexture) {
+                    D3D12_RESOURCE_BARRIER bars[2] = {};
+                    UINT bc = 0;
+                    if (frame->depthInCopySource) {
+                        bars[bc].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                        bars[bc].Transition.pResource = frame->depthTexture;
+                        bars[bc].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                        bars[bc].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+                        bars[bc].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                        ++bc;
+                    }
+                    if (bc > 0) m_captureCmdList->ResourceBarrier(bc, bars);
+                    m_captureCmdList->CopyResource(frame->depthTexture, m_depthSnapshot);
+                    bars[0] = {};
+                    bars[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                    bars[0].Transition.pResource = frame->depthTexture;
+                    bars[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                    bars[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                    bars[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                    m_captureCmdList->ResourceBarrier(1, bars);
+                    frameDepthCaptured = true;
+                }
             }
-            if (m_depthSnapshotSerial != 0) {
-                pre[preCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                pre[preCount].Transition.pResource = m_depthSnapshot;
-                pre[preCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-                pre[preCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-                pre[preCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                ++preCount;
-            }
-            if (preCount > 0) {
-                m_captureCmdList->ResourceBarrier(preCount, pre);
-            }
-            D3D12_TEXTURE_COPY_LOCATION depthDst{};
-            depthDst.pResource = m_depthSnapshot;
-            depthDst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            depthDst.SubresourceIndex = 0;
-            D3D12_TEXTURE_COPY_LOCATION depthSrc{};
-            depthSrc.pResource = gameDepth;
-            depthSrc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            depthSrc.SubresourceIndex = 0;
-            m_captureCmdList->CopyTextureRegion(&depthDst, 0, 0, 0, &depthSrc, nullptr);
-            D3D12_RESOURCE_BARRIER post[2] = {};
-            UINT postCount = 0;
-            post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            post[postCount].Transition.pResource = m_depthSnapshot;
-            post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-            post[postCount].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-            post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            ++postCount;
-            if (gameDepthState != D3D12_RESOURCE_STATE_COPY_SOURCE) {
-                post[postCount].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                post[postCount].Transition.pResource = gameDepth;
-                post[postCount].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-                post[postCount].Transition.StateAfter = gameDepthState;
-                post[postCount].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                ++postCount;
-            }
-            m_captureCmdList->ResourceBarrier(postCount, post);
-            depthCaptured = true;
         }
     }
 
     m_captureCmdList->Close();
+    // Cross-queue safety for depth read (AER capture path). Mirrors the mono
+    // path's guard in CaptureMonoPresentedFrame so VDXR depth submit no longer
+    // races the game's render queue → no more DEVICE_HUNG on save/load when
+    // the depth resource is being recycled.
+    if (depthCaptured) {
+        CyberpunkVRPort_WaitOnAllGameSignals(m_d3dQueue);
+    }
     ID3D12CommandList* cmdLists[] = {m_captureCmdList};
     m_d3dQueue->ExecuteCommandLists(1, cmdLists);
-    
+
     ++m_captureFenceValue;
     m_d3dQueue->Signal(m_captureFence, m_captureFenceValue);
 
+    // [AER V2 unified producer] Convert this eye's freshly captured color into its
+    // NvOF input texture ONCE per capture (R8G8B8A8 -> BGRA swizzle). Ordered AFTER
+    // the capture copy above via a GPU-side Wait on m_captureFence (no race), and
+    // run HERE on the free-running present thread so the 90 Hz frame thread's warp/
+    // submit hot path never stalls on it. FrameThreadMain later imports this
+    // opticalFlowTexture into CUDA for the temporal warp. No-op unless V2 is on and
+    // the flow-input texture exists.
+    uint64_t flowConvertValue = 0;
+    if (GetAERV2Enabled() != 0 && m_opticalFlow && frame->opticalFlowTexture && frame->texture) {
+        const uint32_t cw = sourceDesc.Width != 0 ? static_cast<uint32_t>(sourceDesc.Width) : frame->width;
+        const uint32_t ch = sourceDesc.Height != 0 ? sourceDesc.Height : frame->height;
+        if (m_opticalFlow->EnsureInitialized(m_d3dDevice, cw, ch, sourceDesc.Format)) {
+            // Fire-and-forget: ordered after the capture copy via m_captureFence,
+            // signals the convert fence to flowConvertValue, returns immediately (no
+            // CPU stall on this present thread). The frame thread GPU-Waits on it.
+            if (!m_opticalFlow->ConvertToInputTexture(frame->texture, frame->opticalFlowTexture,
+                                                      m_captureFence, m_captureFenceValue,
+                                                      &flowConvertValue) &&
+                (serial % 600) == 1) {
+                Log("OpenXRManager: [AER V2] flow-input conversion failed eye=%d serial=%llu\n",
+                    eyeIndex, static_cast<unsigned long long>(serial));
+            }
+        }
+    }
+
     {
+        LARGE_INTEGER captureQpc{};
+        QueryPerformanceCounter(&captureQpc);
         std::lock_guard<std::mutex> lock(m_presentMutex);
         frame->serial = serial;
         frame->pairId = pairId;
+        frame->captureQpc = static_cast<uint64_t>(captureQpc.QuadPart);
+        frame->opticalFlowConvertValue = flowConvertValue;
         if (depthCaptured) {
             m_depthSnapshotSerial = serial;
+            if (m_depthSnapshotR32) m_depthSnapshotR32Serial = serial;
+        }
+        if (frameDepthCaptured) {
+            frame->depthSerial = serial;
+            frame->depthInCopySource = true;
+        } else {
+            frame->depthSerial = 0;
         }
         SetD3DNamef(frame->texture, L"AERV2_pending_eye%d_color_pair%llu_serial%llu", eyeIndex,
             static_cast<unsigned long long>(pairId),
@@ -1237,9 +2032,14 @@ bool OpenXRManager::CapturePresentedFrame(ID3D12Resource* backBuffer, const D3D1
         SetD3DNamef(frame->opticalFlowTexture, L"AERV2_pending_eye%d_ofinput_pair%llu_serial%llu", eyeIndex,
             static_cast<unsigned long long>(pairId),
             static_cast<unsigned long long>(serial));
+        if (frameDepthCaptured) {
+            SetD3DNamef(frame->depthTexture, L"AERV2_pending_eye%d_depth_pair%llu_serial%llu", eyeIndex,
+                static_cast<unsigned long long>(pairId),
+                static_cast<unsigned long long>(serial));
+        }
     }
 
-    if ((serial % 300) == 1) {
+    if (g_verboseLog && (serial % 300) == 1) {
         Log("OpenXRManager: AER frame captured. eye=%d serial=%llu pair=%llu\n",
             eyeIndex,
             static_cast<unsigned long long>(serial),
@@ -1284,7 +2084,10 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
         return false;
     }
 
-    const int64_t selectedFormat = PickMonoSwapchainFormat(runtimeFormats, static_cast<int64_t>(format));
+    const int64_t selectedFormat = PickMonoSwapchainFormat(
+        runtimeFormats,
+        static_cast<int64_t>(format),
+        IsRuntimeVirtualDesktop());
 
     // Pick a runtime-supported depth format ONLY AFTER the game's scene depth resource
     // has been pinned. This remains intentionally conservative: only the R32-family
@@ -1294,16 +2097,59 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
     ID3D12Resource* pinnedDepth = OmoGetSceneDepthResource();
     const DXGI_FORMAT pinnedDepthFormat = pinnedDepth ? pinnedDepth->GetDesc().Format : DXGI_FORMAT_UNKNOWN;
     int64_t selectedDepthFormat = 0;
-    if (GetDepthSubmit() != 0 && m_depthLayerSupported && pinnedDepth) {
-        for (int64_t rf : runtimeFormats) {
-            if (rf == static_cast<int64_t>(DXGI_FORMAT_D32_FLOAT)) {
-                selectedDepthFormat = static_cast<int64_t>(DXGI_FORMAT_D32_FLOAT);
-                break;
+    // CP2077 mono-only mode hangs at start-up when a depth swapchain is created
+    // but never populated (VirtualDesktopXR stalls waiting on the depth layer).
+    // Skip depth swapchain creation unless either (a) AER is on so the AER
+    // capture path will fill the depth, or (b) the user explicitly opted in to
+    // mono depth capture.
+    const bool aerSubmitOn = IsAERSubmitEnabled();
+    const bool depthWanted = GetDepthSubmit() != 0 && (aerSubmitOn || GetMonoDepthCapture() != 0);
+    if (depthWanted && m_depthLayerSupported && pinnedDepth) {
+        // Only R32-family (D32_FLOAT 32bpp) is supported for now. CP2077's
+        // R32-family (32bpp) accepted directly. R32G8X24-family (64bpp) accepted
+        // too: the depth-plane resolve shader (DepthResolve) converts plane 0
+        // of the typeless source into the same 32bpp D32_FLOAT snapshot used
+        // by the 32bpp path, so the depth swapchain is always D32_FLOAT
+        // regardless of game depth format.
+        const bool gameIs32bpp =
+            pinnedDepthFormat == DXGI_FORMAT_R32_TYPELESS ||
+            pinnedDepthFormat == DXGI_FORMAT_D32_FLOAT ||
+            pinnedDepthFormat == DXGI_FORMAT_R32_FLOAT;
+        const bool gameIs64bpp =
+            pinnedDepthFormat == DXGI_FORMAT_R32G8X24_TYPELESS ||
+            pinnedDepthFormat == DXGI_FORMAT_D32_FLOAT_S8X24_UINT ||
+            pinnedDepthFormat == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS ||
+            pinnedDepthFormat == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT;
+        if (gameIs32bpp || gameIs64bpp) {
+            for (int64_t rf : runtimeFormats) {
+                if (rf == static_cast<int64_t>(DXGI_FORMAT_D32_FLOAT)) {
+                    selectedDepthFormat = rf;
+                    break;
+                }
             }
         }
         if (selectedDepthFormat == 0) {
-            Log("OpenXRManager: no runtime D32_FLOAT depth format available — disabling depth layer\n");
+            // Log once per format transition only — EnsureMonoSubmitResources runs
+            // every frame and would otherwise flood the log with thousands of
+            // duplicate lines.
+            static DXGI_FORMAT s_lastLoggedRejected = DXGI_FORMAT_UNKNOWN;
+            if (s_lastLoggedRejected != pinnedDepthFormat) {
+                s_lastLoggedRejected = pinnedDepthFormat;
+                Log("OpenXRManager: depth layer disabled (gameFmt=%u not depth-resolvable, or runtime lacks D32_FLOAT)\n",
+                    static_cast<unsigned>(pinnedDepthFormat));
+            }
             m_depthLayerSupported = false;
+        } else {
+            static DXGI_FORMAT s_lastLoggedSelected = DXGI_FORMAT_UNKNOWN;
+            static int64_t s_lastLoggedDepthSel = 0;
+            if (s_lastLoggedSelected != pinnedDepthFormat ||
+                s_lastLoggedDepthSel != selectedDepthFormat) {
+                s_lastLoggedSelected = pinnedDepthFormat;
+                s_lastLoggedDepthSel = selectedDepthFormat;
+                Log("OpenXRManager: depth format gameFmt=%u selected=%lld\n",
+                    static_cast<unsigned>(pinnedDepthFormat),
+                    selectedDepthFormat);
+            }
         }
     }
     const bool wantDepthSwapchains = m_depthLayerSupported && selectedDepthFormat != 0;
@@ -1341,6 +2187,11 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
         }
     }
     m_eyeSwapchains.clear();
+
+    // Drop the cached last-good textures: a swapchain (re)create may change size/
+    // format, which would mismatch CopyResource. They re-create lazily next frame.
+    m_lastGoodValid = false;
+    for (int e = 0; e < 2; ++e) { m_lastGoodEye[e].Reset(); m_lastGoodEyeInited[e] = false; }
 
     if (m_fenceEvent) {
         CloseHandle(m_fenceEvent);
@@ -1520,6 +2371,8 @@ bool OpenXRManager::Init() {
             XR_VERSION_MINOR(instanceProps.runtimeVersion),
             XR_VERSION_PATCH(instanceProps.runtimeVersion));
         const bool actuallySteamVR = strcmp(ClassifyOpenXRRuntime(instanceProps.runtimeName), "SteamVR") == 0;
+        const bool actuallyVD = strcmp(ClassifyOpenXRRuntime(instanceProps.runtimeName), "Virtual Desktop") == 0;
+        m_runtimeIsVirtualDesktop.store(actuallyVD, std::memory_order_relaxed);
         // Detect the ACTIVE runtime by name, independent of the xr_runtime ini flag.
         // The pose-pair lock (GetSyncSequential) keys off this so SteamVR gets the
         // fix even when launched as the SYSTEM default OpenXR runtime with
@@ -1562,57 +2415,172 @@ bool OpenXRManager::Init() {
 
     Log("OpenXRManager: OpenXR Initialized. SystemID=%llu\n", m_systemId);
 
-    // [HANDS] Action Set Initialization
+    // [INPUT] Action Set Initialization -- gameplay locomotion + buttons
+    const bool inputActionsEnabled = GetInputActionsEnabled() != 0;
     {
         XrActionSetCreateInfo actionSetInfo{XR_TYPE_ACTION_SET_CREATE_INFO};
         strcpy_s(actionSetInfo.actionSetName, "gameplay");
         strcpy_s(actionSetInfo.localizedActionSetName, "Gameplay");
+        actionSetInfo.priority = 0;
         xrCreateActionSet(m_instance, &actionSetInfo, &m_actionSet);
 
-        XrActionCreateInfo actionInfo{XR_TYPE_ACTION_CREATE_INFO};
-        actionInfo.actionType = XR_ACTION_TYPE_POSE_INPUT;
-        strcpy_s(actionInfo.actionName, "hand_pose");
-        strcpy_s(actionInfo.localizedActionName, "Hand Pose");
-        
         xrStringToPath(m_instance, "/user/hand/left", &m_handPaths[0]);
         xrStringToPath(m_instance, "/user/hand/right", &m_handPaths[1]);
-        
-        actionInfo.countSubactionPaths = 2;
-        actionInfo.subactionPaths = m_handPaths;
-        xrCreateAction(m_actionSet, &actionInfo, &m_handPoseAction);
 
-        // Bindings for Oculus Touch as an example. (More bindings should be added later).
-        XrPath oculusTouchPath, valveIndexPath, htcVivePath, msftMRPath, simplePath;
-        xrStringToPath(m_instance, "/interaction_profiles/oculus/touch_controller", &oculusTouchPath);
-        xrStringToPath(m_instance, "/interaction_profiles/valve/index_controller", &valveIndexPath);
-        xrStringToPath(m_instance, "/interaction_profiles/htc/vive_controller", &htcVivePath);
-        xrStringToPath(m_instance, "/interaction_profiles/microsoft/motion_controller", &msftMRPath);
-        xrStringToPath(m_instance, "/interaction_profiles/khr/simple_controller", &simplePath);
-
-        XrPath leftAimPath, rightAimPath;
-        xrStringToPath(m_instance, "/user/hand/left/input/grip/pose", &leftAimPath);
-        xrStringToPath(m_instance, "/user/hand/right/input/grip/pose", &rightAimPath);
-
-        XrActionSuggestedBinding bindings[2] = {
-            { m_handPoseAction, leftAimPath },
-            { m_handPoseAction, rightAimPath }
-        };
-        XrInteractionProfileSuggestedBinding suggestedBindings{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
-        suggestedBindings.suggestedBindings = bindings;
-        suggestedBindings.countSuggestedBindings = 2;
-
-        XrPath profiles[] = {
-            oculusTouchPath,
-            valveIndexPath,
-            htcVivePath,
-            msftMRPath,
-            simplePath
+        auto makeAction = [&](XrAction& out, XrActionType type, const char* name, const char* loc, bool perHand) {
+            XrActionCreateInfo info{XR_TYPE_ACTION_CREATE_INFO};
+            info.actionType = type;
+            strcpy_s(info.actionName, name);
+            strcpy_s(info.localizedActionName, loc);
+            if (perHand) {
+                info.countSubactionPaths = 2;
+                info.subactionPaths = m_handPaths;
+            }
+            xrCreateAction(m_actionSet, &info, &out);
         };
 
-        for (XrPath profile : profiles) {
-            suggestedBindings.interactionProfile = profile;
-            xrSuggestInteractionProfileBindings(m_instance, &suggestedBindings);
+        makeAction(m_handPoseAction,        XR_ACTION_TYPE_POSE_INPUT,     "hand_pose",        "Hand Pose",            true);
+        // aim pose has a runtime-stable forward direction (-Z = pointing) that
+        // is NOT mirrored between left/right grip poses. We use it for the
+        // hand-locomotion yaw so the player walks where they point, not where
+        // their palm faces.
+        if (inputActionsEnabled) {
+            makeAction(m_handAimPoseAction, XR_ACTION_TYPE_POSE_INPUT, "hand_aim_pose", "Hand Aim Pose", true);
         }
+        if (inputActionsEnabled) {
+            makeAction(m_thumbstickAction,      XR_ACTION_TYPE_VECTOR2F_INPUT, "thumbstick",       "Thumbstick",           true);
+            makeAction(m_triggerAction,         XR_ACTION_TYPE_FLOAT_INPUT,    "trigger",          "Trigger",              true);
+            makeAction(m_gripAction,            XR_ACTION_TYPE_FLOAT_INPUT,    "grip",             "Grip",                 true);
+            makeAction(m_thumbstickClickAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "thumbstick_click", "Thumbstick Click",     true);
+            makeAction(m_primaryButtonAction,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "primary_button",   "Primary Button (A/X)", true);
+            makeAction(m_secondaryButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "secondary_button", "Secondary Button (B/Y)", true);
+            makeAction(m_menuButtonAction,      XR_ACTION_TYPE_BOOLEAN_INPUT,  "menu",             "Menu Button",          false);
+        }
+        Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
+            inputActionsEnabled ? "ENABLED" : "DISABLED (pose-only)", (int)inputActionsEnabled);
+
+        struct Bind { XrAction action; const char* path; };
+
+        auto suggest = [&](const char* profileStr, std::initializer_list<Bind> list) {
+            XrPath profile = XR_NULL_PATH;
+            if (XR_FAILED(xrStringToPath(m_instance, profileStr, &profile))) return;
+            std::vector<XrActionSuggestedBinding> v;
+            v.reserve(list.size());
+            for (const Bind& b : list) {
+                XrPath p = XR_NULL_PATH;
+                if (XR_SUCCEEDED(xrStringToPath(m_instance, b.path, &p))) {
+                    v.push_back({ b.action, p });
+                }
+            }
+            XrInteractionProfileSuggestedBinding sb{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+            sb.interactionProfile = profile;
+            sb.suggestedBindings = v.data();
+            sb.countSuggestedBindings = static_cast<uint32_t>(v.size());
+            XrResult r = xrSuggestInteractionProfileBindings(m_instance, &sb);
+            Log("OpenXRManager[Input]: suggest bindings %s -> %d (count=%u)\n", profileStr, r, sb.countSuggestedBindings);
+        };
+
+        if (!inputActionsEnabled) {
+            // Pose-only legacy behaviour: only suggest the grip-pose pair (matches the
+            // pre-Controls-tab build, useful as a kill-switch if the runtime chokes on
+            // the larger binding set).
+            const std::initializer_list<Bind> poseOnly = {
+                { m_handPoseAction, "/user/hand/left/input/grip/pose" },
+                { m_handPoseAction, "/user/hand/right/input/grip/pose" },
+            };
+            for (const char* profile : { "/interaction_profiles/oculus/touch_controller",
+                                          "/interaction_profiles/valve/index_controller",
+                                          "/interaction_profiles/htc/vive_controller",
+                                          "/interaction_profiles/microsoft/motion_controller",
+                                          "/interaction_profiles/khr/simple_controller" }) {
+                suggest(profile, poseOnly);
+            }
+            goto bindings_done;
+        }
+
+        // -- Oculus Touch (Quest/Rift): X/Y on left, A/B on right, menu = left menu button --
+        suggest("/interaction_profiles/oculus/touch_controller", {
+            { m_handPoseAction,        "/user/hand/left/input/grip/pose" },
+            { m_handPoseAction,        "/user/hand/right/input/grip/pose" },
+            { m_handAimPoseAction,     "/user/hand/left/input/aim/pose" },
+            { m_handAimPoseAction,     "/user/hand/right/input/aim/pose" },
+            { m_thumbstickAction,      "/user/hand/left/input/thumbstick" },
+            { m_thumbstickAction,      "/user/hand/right/input/thumbstick" },
+            { m_thumbstickClickAction, "/user/hand/left/input/thumbstick/click" },
+            { m_thumbstickClickAction, "/user/hand/right/input/thumbstick/click" },
+            { m_triggerAction,         "/user/hand/left/input/trigger/value" },
+            { m_triggerAction,         "/user/hand/right/input/trigger/value" },
+            { m_gripAction,            "/user/hand/left/input/squeeze/value" },
+            { m_gripAction,            "/user/hand/right/input/squeeze/value" },
+            { m_primaryButtonAction,   "/user/hand/left/input/x/click" },
+            { m_primaryButtonAction,   "/user/hand/right/input/a/click" },
+            { m_secondaryButtonAction, "/user/hand/left/input/y/click" },
+            { m_secondaryButtonAction, "/user/hand/right/input/b/click" },
+            { m_menuButtonAction,      "/user/hand/left/input/menu/click" },
+        });
+
+        // -- Valve Index: A/B on both hands, system as menu --
+        suggest("/interaction_profiles/valve/index_controller", {
+            { m_handPoseAction,        "/user/hand/left/input/grip/pose" },
+            { m_handPoseAction,        "/user/hand/right/input/grip/pose" },
+            { m_handAimPoseAction,     "/user/hand/left/input/aim/pose" },
+            { m_handAimPoseAction,     "/user/hand/right/input/aim/pose" },
+            { m_thumbstickAction,      "/user/hand/left/input/thumbstick" },
+            { m_thumbstickAction,      "/user/hand/right/input/thumbstick" },
+            { m_thumbstickClickAction, "/user/hand/left/input/thumbstick/click" },
+            { m_thumbstickClickAction, "/user/hand/right/input/thumbstick/click" },
+            { m_triggerAction,         "/user/hand/left/input/trigger/value" },
+            { m_triggerAction,         "/user/hand/right/input/trigger/value" },
+            { m_gripAction,            "/user/hand/left/input/squeeze/value" },
+            { m_gripAction,            "/user/hand/right/input/squeeze/value" },
+            { m_primaryButtonAction,   "/user/hand/left/input/a/click" },
+            { m_primaryButtonAction,   "/user/hand/right/input/a/click" },
+            { m_secondaryButtonAction, "/user/hand/left/input/b/click" },
+            { m_secondaryButtonAction, "/user/hand/right/input/b/click" },
+            { m_menuButtonAction,      "/user/hand/left/input/system/click" },
+        });
+
+        // -- HTC Vive Wand: no A/B/X/Y, no thumbstick (touchpad as v2f), grip is bool --
+        suggest("/interaction_profiles/htc/vive_controller", {
+            { m_handPoseAction,        "/user/hand/left/input/grip/pose" },
+            { m_handPoseAction,        "/user/hand/right/input/grip/pose" },
+            { m_handAimPoseAction,     "/user/hand/left/input/aim/pose" },
+            { m_handAimPoseAction,     "/user/hand/right/input/aim/pose" },
+            { m_thumbstickAction,      "/user/hand/left/input/trackpad" },
+            { m_thumbstickAction,      "/user/hand/right/input/trackpad" },
+            { m_thumbstickClickAction, "/user/hand/left/input/trackpad/click" },
+            { m_thumbstickClickAction, "/user/hand/right/input/trackpad/click" },
+            { m_triggerAction,         "/user/hand/left/input/trigger/value" },
+            { m_triggerAction,         "/user/hand/right/input/trigger/value" },
+            { m_menuButtonAction,      "/user/hand/left/input/menu/click" },
+        });
+
+        // -- Windows MR motion controller: trackpad+thumbstick combo --
+        suggest("/interaction_profiles/microsoft/motion_controller", {
+            { m_handPoseAction,        "/user/hand/left/input/grip/pose" },
+            { m_handPoseAction,        "/user/hand/right/input/grip/pose" },
+            { m_handAimPoseAction,     "/user/hand/left/input/aim/pose" },
+            { m_handAimPoseAction,     "/user/hand/right/input/aim/pose" },
+            { m_thumbstickAction,      "/user/hand/left/input/thumbstick" },
+            { m_thumbstickAction,      "/user/hand/right/input/thumbstick" },
+            { m_thumbstickClickAction, "/user/hand/left/input/thumbstick/click" },
+            { m_thumbstickClickAction, "/user/hand/right/input/thumbstick/click" },
+            { m_triggerAction,         "/user/hand/left/input/trigger/value" },
+            { m_triggerAction,         "/user/hand/right/input/trigger/value" },
+            { m_menuButtonAction,      "/user/hand/left/input/menu/click" },
+        });
+
+        // -- KHR simple controller (fallback: only select + menu + grip pose) --
+        suggest("/interaction_profiles/khr/simple_controller", {
+            { m_handPoseAction,        "/user/hand/left/input/grip/pose" },
+            { m_handPoseAction,        "/user/hand/right/input/grip/pose" },
+            { m_primaryButtonAction,   "/user/hand/left/input/select/click" },
+            { m_primaryButtonAction,   "/user/hand/right/input/select/click" },
+            { m_menuButtonAction,      "/user/hand/left/input/menu/click" },
+        });
+
+bindings_done:
+        (void)0;
     }
 
     m_initialized = true;
@@ -1715,6 +2683,14 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
             spaceInfo.subactionPath = m_handPaths[i];
             spaceInfo.poseInActionSpace.orientation.w = 1.0f;
             xrCreateActionSpace(m_session, &spaceInfo, &m_handSpaces[i]);
+
+            if (m_handAimPoseAction != XR_NULL_HANDLE) {
+                XrActionSpaceCreateInfo aimSpaceInfo{XR_TYPE_ACTION_SPACE_CREATE_INFO};
+                aimSpaceInfo.action = m_handAimPoseAction;
+                aimSpaceInfo.subactionPath = m_handPaths[i];
+                aimSpaceInfo.poseInActionSpace.orientation.w = 1.0f;
+                xrCreateActionSpace(m_session, &aimSpaceInfo, &m_handAimSpaces[i]);
+            }
         }
     }
 
@@ -1769,6 +2745,16 @@ void OpenXRManager::PollEvents() {
             } else if (m_sessionState == XR_SESSION_STATE_EXITING || m_sessionState == XR_SESSION_STATE_LOSS_PENDING) {
                 m_stopFrameThread.store(true, std::memory_order_relaxed);
             }
+        } else if (event.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
+            // Native OpenXR recenter (user held the home / system button, or used the runtime menu) —
+            // the runtime is about to remap "forward" of its tracking space at changed->changeTime.
+            // Trigger our local recenter so the mod's stored base pose lines up with the runtime's
+            // new tracking space; the next frame's HMD pose then reads (0,0,0,facing-forward) as the
+            // user expects.
+            auto* changed = reinterpret_cast<XrEventDataReferenceSpaceChangePending*>(&event);
+            Log("OpenXRManager: Tracking space change pending (native recenter), refSpace=%d -> local recenter.\n",
+                static_cast<int>(changed->referenceSpaceType));
+            RequestRecenter();
         }
 
         event = {XR_TYPE_EVENT_DATA_BUFFER};
@@ -1778,11 +2764,110 @@ void OpenXRManager::PollEvents() {
 DWORD OpenXRManager::FrameThreadMain() {
     Log("OpenXRManager: Frame thread started.\n");
     uint64_t monoWaitLogCounter = 0;
-    uint64_t runtimeViewLogCounter = 0;
     uint64_t steamVrStartupWaitLogCounter = 0;
+    uint64_t displayFrameIndex = 0;
+
+    // Try to restore the user's saved VRIK calibration on startup so they don't recalibrate
+    // every launch. If no file, seed m_calib[] with plugin defaults so any subsequent Apply
+    // Calibration / Auto-Calibration produces sensible wrist orientation (rather than identity).
+    if (!LoadCalibrationFromFile()) {
+        m_calib[0].store(1.05f, std::memory_order_relaxed);
+        m_calib[1].store(1.06f, std::memory_order_relaxed);
+        m_calib[4].store(1.0f,  std::memory_order_relaxed);
+        m_calib[5].store(1.0f,  std::memory_order_relaxed);
+        m_calib[9].store(-90.0f,  std::memory_order_relaxed); // wRy
+        m_calib[11].store(-180.0f,std::memory_order_relaxed); // wLp
+        m_calib[12].store(-90.0f, std::memory_order_relaxed); // wLy
+    }
+
+    constexpr float kPi = 3.1415926535f;
+    auto clamp01 = [](float v) {
+        if (v < 0.0f) return 0.0f;
+        if (v > 1.0f) return 1.0f;
+        return v;
+    };
+    auto smoothStep01 = [&](float v) {
+        const float x = clamp01(v);
+        return x * x * (3.0f - 2.0f * x);
+    };
+    auto quatAngleRad = [](const XrQuaternionf& a, const XrQuaternionf& b) {
+        float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+        if (dot < 0.0f) dot = -dot;
+        if (dot > 1.0f) dot = 1.0f;
+        return 2.0f * acosf(dot);
+    };
+    auto normalizeAngle = [&](float angle) {
+        while (angle > kPi) angle -= 2.0f * kPi;
+        while (angle < -kPi) angle += 2.0f * kPi;
+        return angle;
+    };
+    auto adaptiveFollow = [&](float strength, float delta, float quiet, float release) {
+        if (strength <= 0.001f || release <= quiet) {
+            return 1.0f;
+        }
+        const float stillFollow = 1.0f / (1.0f + 20.0f * strength);
+        const float motion = smoothStep01((delta - quiet) / (release - quiet));
+        return stillFollow + (1.0f - stillFollow) * motion;
+    };
+    auto resetTrackingPose = [](auto& state, const XrPosef& pose) {
+        state.initialized = true;
+        state.position = pose.position;
+        state.orientation = pose.orientation;
+    };
+    auto filterTrackingPose = [&](auto& state,
+                                  const XrPosef& rawPose,
+                                  float strength,
+                                  float quietPosMeters,
+                                  float releasePosMeters,
+                                  float quietAngleRad,
+                                  float releaseAngleRad) {
+        if (!state.initialized || strength <= 0.001f) {
+            resetTrackingPose(state, rawPose);
+            return rawPose;
+        }
+
+        const float dx = rawPose.position.x - state.position.x;
+        const float dy = rawPose.position.y - state.position.y;
+        const float dz = rawPose.position.z - state.position.z;
+        const float posDelta = sqrtf(dx * dx + dy * dy + dz * dz);
+        const float angDelta = quatAngleRad(state.orientation, rawPose.orientation);
+        const float posT = adaptiveFollow(strength, posDelta, quietPosMeters, releasePosMeters);
+        const float angT = adaptiveFollow(strength, angDelta, quietAngleRad, releaseAngleRad);
+
+        state.position.x += dx * posT;
+        state.position.y += dy * posT;
+        state.position.z += dz * posT;
+        state.orientation = NlerpQuat(state.orientation, rawPose.orientation, angT);
+
+        XrPosef filtered = rawPose;
+        filtered.position = state.position;
+        filtered.orientation = state.orientation;
+        return filtered;
+    };
+    auto resetTrackingAngle = [](auto& state, float angleRad) {
+        state.initialized = true;
+        state.angleRad = angleRad;
+    };
+    auto filterTrackingAngle = [&](auto& state,
+                                   float rawAngleRad,
+                                   float strength,
+                                   float quietAngleRad,
+                                   float releaseAngleRad) {
+        rawAngleRad = normalizeAngle(rawAngleRad);
+        if (!state.initialized || strength <= 0.001f) {
+            resetTrackingAngle(state, rawAngleRad);
+            return rawAngleRad;
+        }
+
+        const float delta = normalizeAngle(rawAngleRad - state.angleRad);
+        const float angleT = adaptiveFollow(strength, fabsf(delta), quietAngleRad, releaseAngleRad);
+        state.angleRad = normalizeAngle(state.angleRad + delta * angleT);
+        return state.angleRad;
+    };
 
     while (!m_stopFrameThread.load(std::memory_order_relaxed)) {
         PollEvents();
+        TickAutoCalibration();
 
         if (!m_sessionRunning.load(std::memory_order_relaxed)) {
             Sleep(10);
@@ -1800,7 +2885,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 startupFormat = m_lastPresentedFormat;
             }
             if (startupWidth == 0 || startupHeight == 0 || startupFormat == 0) {
-                if (((++steamVrStartupWaitLogCounter % 300) == 1)) {
+                if (g_verboseLog && ((++steamVrStartupWaitLogCounter % 300) == 1)) {
                     Log("OpenXRManager: SteamVR startup wait. Deferring frame loop until first present provides a backbuffer. width=%u height=%u format=%u\n",
                         startupWidth,
                         startupHeight,
@@ -1811,32 +2896,48 @@ DWORD OpenXRManager::FrameThreadMain() {
             }
         }
 
-        // Half-rate AER submit: when enabled and a complete pair has already been
-        // submitted, skip this display interval entirely (no xrWaitFrame/Begin/End)
-        // instead of resubmitting the stale pair. The runtime then sees the app
-        // presenting at the pair rate (1/2 game rate) and engages its motion
-        // smoothing (SSW/ASW) to synthesize the in-between frames, matching
-        // RealVR's "1/2 Rate" reprojection. Requires runtime spacewarp enabled;
-        // without it this looks like half-fps judder. Only gates on an already-
-        // submitted complete pair, so startup / mono fallback run normally.
+        // Half-rate submit — two modes:
+        //  * AER V2 ON: do NOT skip. The engine is HMD-paced
+        //    to ~90 Hz via the m_frameSyncEvent wait in OnPresent (one eye capture
+        //    per vsync, alternating), and on EVERY display interval the submit
+        //    block below sends the mod's OWN NvOF-synthesized frame for the stale
+        //    eye warped to the fresh predicted pose -- no runtime SSW needed.
+        //  * AER V2 OFF (legacy): skip the in-between interval so the runtime's
+        //    own SSW/ASW fills it when available. Only gates on an already-
+        //    submitted complete pair, so
+        //    startup / mono fallback run normally.
         if (IsAERSubmitEnabled() &&
             m_monoSubmitEnabled.load(std::memory_order_relaxed) &&
             GetAERHalfRate() != 0 &&
             GetMenuRectMode() == 0 && GetMenuMode() == 0) {
             uint64_t currentPair = 0;
+            uint64_t inBetweenReady = 0;
+            uint64_t inBetweenShown = 0;
             {
                 std::lock_guard<std::mutex> lock(m_presentMutex);
                 if (m_capturedEyeFrames[0].pairId != 0 &&
                     m_capturedEyeFrames[0].pairId == m_capturedEyeFrames[1].pairId) {
                     currentPair = m_capturedEyeFrames[0].pairId;
                 }
+                inBetweenReady = m_inBetweenReadyPairId;
+                inBetweenShown = m_inBetweenShownForPairId;
             }
-            if (currentPair != 0 && currentPair == m_lastSubmittedPairId) {
-                if (m_frameSyncEvent) {
-                    SetEvent(m_frameSyncEvent);
+            if (GetAERV2Enabled() != 0) {
+                // UNIFIED PRODUCER: do NOT gate on capture novelty. Every xrWaitFrame
+                // tick (90 Hz) we re-warp the latest captures to a fresh target time
+                // with a new continuous QPC blend, so each eye is updated every display
+                // interval even between real captures (45 -> 90). NvOF flow is cached
+                // per (prev,curr) pair (AerV2Pipeline::RunNvOF), so only the cheap warp
+                // re-runs on synth-only ticks; xrWaitFrame itself paces the loop.
+                (void)inBetweenReady; (void)inBetweenShown; (void)currentPair;
+            } else {
+                if (currentPair != 0 && currentPair == m_lastSubmittedPairId) {
+                    if (m_frameSyncEvent) {
+                        SetEvent(m_frameSyncEvent);
+                    }
+                    Sleep(1);
+                    continue;
                 }
-                Sleep(1);
-                continue;
             }
         }
 
@@ -1905,6 +3006,13 @@ DWORD OpenXRManager::FrameThreadMain() {
             Sleep(10);
             continue;
         }
+        // Advance the local 90 Hz slot index (only used to
+        // ping-pong the synth scratch slot + stride logs). The blendFactor itself
+        // is computed from QPC capture timestamps, not this counter.
+        ++displayFrameIndex;
+        if (frameState.predictedDisplayPeriod > 0) {
+            m_predictedDisplayPeriodNs.store(frameState.predictedDisplayPeriod, std::memory_order_relaxed);
+        }
 
         XrFrameBeginInfo beginInfo{XR_TYPE_FRAME_BEGIN_INFO};
         xrBeginFrame(m_session, &beginInfo);
@@ -1913,7 +3021,7 @@ DWORD OpenXRManager::FrameThreadMain() {
         const bool monoEnabled = m_monoSubmitEnabled.load(std::memory_order_relaxed);
         const bool menuRectActive = (GetMenuRectMode() != 0) || (GetMenuMode() != 0);
         const bool aerEnabled = monoEnabled && IsAERSubmitEnabled();
-        const bool useAerSubmit = aerEnabled && !menuRectActive;
+        bool useAerSubmit = aerEnabled && !menuRectActive;
         const bool monoReady = monoEnabled && EnsureMonoSubmitResources() && !m_eyeSwapchains.empty();
         if (monoReady && !m_views.empty()) {
             XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
@@ -1941,19 +3049,17 @@ DWORD OpenXRManager::FrameThreadMain() {
                 m_runtimeVerticalFovDeg.store((vfov0 + vfov1) * 0.5f, std::memory_order_relaxed);
                 m_runtimeIpd.store(ipd, std::memory_order_relaxed);
 
-                if (((++runtimeViewLogCounter % 300) == 1)) {
-                    Log("OpenXRManager: Runtime view data. hfov=(%.2f, %.2f) vfov=(%.2f, %.2f) ipd=%.4f leftPos=(%.4f, %.4f, %.4f) rightPos=(%.4f, %.4f, %.4f)\n",
-                        hfov0,
-                        hfov1,
-                        vfov0,
-                        vfov1,
-                        ipd,
-                        m_views[0].pose.position.x,
-                        m_views[0].pose.position.y,
-                        m_views[0].pose.position.z,
-                        m_views[1].pose.position.x,
-                        m_views[1].pose.position.y,
-                        m_views[1].pose.position.z);
+                // Feed the per-eye pose predictor used by the AER V2 synth path.
+                if (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) {
+                    if (m_qpcFreq == 0) {
+                        LARGE_INTEGER qf; QueryPerformanceFrequency(&qf);
+                        m_qpcFreq = qf.QuadPart;
+                    }
+                    LARGE_INTEGER pq; QueryPerformanceCounter(&pq);
+                    const double tSec = static_cast<double>(pq.QuadPart) / static_cast<double>(m_qpcFreq);
+                    for (int eye = 0; eye < 2 && eye < static_cast<int>(m_views.size()); ++eye) {
+                        m_posePredictor[eye].AddSample(tSec, m_views[eye].pose);
+                    }
                 }
             }
         }
@@ -1967,11 +3073,13 @@ DWORD OpenXRManager::FrameThreadMain() {
             (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
         if (headPoseLocated) {
             XrPosef basePose{};
+            bool baseReset = false;
             {
                 std::lock_guard<std::mutex> renderLock(m_renderPoseMutex);
                 if (!m_basePoseSet || m_recenterRequested.exchange(false, std::memory_order_relaxed)) {
                     m_basePose = location.pose;
                     m_basePoseSet = true;
+                    baseReset = true;
                     Log("OpenXRManager: Base pose captured.\n");
                 }
                 basePose = m_basePose;
@@ -1984,14 +3092,30 @@ DWORD OpenXRManager::FrameThreadMain() {
             relPosWorld.z = location.pose.position.z - basePose.position.z;
             XrVector3f relPos = RotateVector(baseInv, relPosWorld);
             XrQuaternionf relOri = MultiplyQuat(baseInv, location.pose.orientation);
+            XrPosef filteredHeadPose{};
+            filteredHeadPose.position = relPos;
+            filteredHeadPose.orientation = relOri;
+            if (baseReset) {
+                m_headFilterState.initialized = false;
+                m_handAimYawFilter[0].initialized = false;
+                m_handAimYawFilter[1].initialized = false;
+            }
+            filteredHeadPose = filterTrackingPose(
+                m_headFilterState,
+                filteredHeadPose,
+                GetHmdTrackingSmooth(),
+                0.0012f,
+                0.0080f,
+                0.0035f,
+                0.0350f);
 
-            m_posX.store(relPos.x, std::memory_order_relaxed);
-            m_posY.store(relPos.y, std::memory_order_relaxed);
-            m_posZ.store(relPos.z, std::memory_order_relaxed);
-            m_oriX.store(relOri.x, std::memory_order_relaxed);
-            m_oriY.store(relOri.y, std::memory_order_relaxed);
-            m_oriZ.store(relOri.z, std::memory_order_relaxed);
-            m_oriW.store(relOri.w, std::memory_order_relaxed);
+            m_posX.store(filteredHeadPose.position.x, std::memory_order_relaxed);
+            m_posY.store(filteredHeadPose.position.y, std::memory_order_relaxed);
+            m_posZ.store(filteredHeadPose.position.z, std::memory_order_relaxed);
+            m_oriX.store(filteredHeadPose.orientation.x, std::memory_order_relaxed);
+            m_oriY.store(filteredHeadPose.orientation.y, std::memory_order_relaxed);
+            m_oriZ.store(filteredHeadPose.orientation.z, std::memory_order_relaxed);
+            m_oriW.store(filteredHeadPose.orientation.w, std::memory_order_relaxed);
             m_poseValid.store(true, std::memory_order_relaxed);
 
             // [HANDS] Sync actions and locate hands
@@ -2012,6 +3136,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                     Log("OpenXRManager[Hands]: syncRes=%d sessionState=%d\n", syncRes, (int)m_sessionState);
                 }
 
+                // Build a fresh controller snapshot for the XInput merge. Only used
+                // when the gameplay-input kill switch is on; otherwise we stay byte-
+                // for-byte identical to the pre-Controls-tab behaviour.
+                const bool gameplayInputActive = (GetInputActionsEnabled() != 0) && (m_thumbstickAction != XR_NULL_HANDLE);
+                VRControllerState ctrl{};
+
                 std::lock_guard<std::mutex> handLock(m_handMutex);
                 for (int i = 0; i < 2; i++) {
                     XrActionStateGetInfo getInfo{XR_TYPE_ACTION_STATE_GET_INFO};
@@ -2020,16 +3150,18 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                     XrActionStatePose poseState{XR_TYPE_ACTION_STATE_POSE};
                     XrResult poseRes = xrGetActionStatePose(m_session, &getInfo, &poseState);
-                    
+
                     if (doHandLog) {
                         Log("OpenXRManager[Hands]: eye=%d poseRes=%d isActive=%d\n", i, poseRes, poseState.isActive);
                     }
 
                     m_hands[i].valid = false;
+                    bool poseValid = false;
+                    XrQuaternionf handRelOri{0,0,0,1};
                     if (poseState.isActive) {
                         XrSpaceLocation handLoc{XR_TYPE_SPACE_LOCATION};
                         XrResult locRes = xrLocateSpace(m_handSpaces[i], m_localSpace, frameState.predictedDisplayTime, &handLoc);
-                        
+
                         if (doHandLog) {
                             Log("OpenXRManager[Hands]: eye=%d locRes=%d flags=0x%X\n", i, locRes, handLoc.locationFlags);
                         }
@@ -2037,7 +3169,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         if (XR_SUCCEEDED(locRes)) {
                             if ((handLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
                                 (handLoc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
-                                
+
                                 XrQuaternionf headInv = ConjugateQuat(location.pose.orientation);
                                 XrVector3f hrelPosWorld{};
                                 hrelPosWorld.x = handLoc.pose.position.x - location.pose.position.x;
@@ -2046,17 +3178,170 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 XrVector3f hrelPos = RotateVector(headInv, hrelPosWorld);
                                 XrQuaternionf hrelOri = MultiplyQuat(headInv, handLoc.pose.orientation);
 
-                                m_hands[i].posX = hrelPos.x;
-                                m_hands[i].posY = hrelPos.y;
-                                m_hands[i].posZ = hrelPos.z;
-                                m_hands[i].oriX = hrelOri.x;
-                                m_hands[i].oriY = hrelOri.y;
-                                m_hands[i].oriZ = hrelOri.z;
-                                m_hands[i].oriW = hrelOri.w;
+                                XrPosef filteredHandPose{};
+                                filteredHandPose.position = hrelPos;
+                                filteredHandPose.orientation = hrelOri;
+                                filteredHandPose = filterTrackingPose(
+                                    m_handFilterState[i],
+                                    filteredHandPose,
+                                    GetHandTrackingSmooth(),
+                                    0.0018f,
+                                    0.0120f,
+                                    0.0050f,
+                                    0.0450f);
+
+                                m_hands[i].posX = filteredHandPose.position.x;
+                                m_hands[i].posY = filteredHandPose.position.y;
+                                m_hands[i].posZ = filteredHandPose.position.z;
+                                m_hands[i].oriX = filteredHandPose.orientation.x;
+                                m_hands[i].oriY = filteredHandPose.orientation.y;
+                                m_hands[i].oriZ = filteredHandPose.orientation.z;
+                                m_hands[i].oriW = filteredHandPose.orientation.w;
                                 m_hands[i].valid = true;
+                                poseValid = true;
+
+                                if (gameplayInputActive) {
+                                    // Yaw of the controller relative to the recenter base
+                                    // (= body forward). Used by hand-oriented locomotion.
+                                    handRelOri = MultiplyQuat(baseInv, handLoc.pose.orientation);
+                                }
                             }
                         }
                     }
+                    if (!poseValid) {
+                        m_handFilterState[i].initialized = false;
+                    }
+
+                    if (!gameplayInputActive) continue; // legacy pose-only path, no new bookkeeping
+
+                    if (i == 0) ctrl.leftHandValid  = poseValid;
+                    else        ctrl.rightHandValid = poseValid;
+
+                    // Aim-pose yaw -- this is where the controller POINTS, not
+                    // where the palm faces. grip-pose -Z is "away from palm",
+                    // which is MIRRORED between left and right hands and gave
+                    // inverted/diverging locomotion direction.
+                    bool aimYawValid = false;
+                    if (poseValid && m_handAimSpaces[i] != XR_NULL_HANDLE) {
+                        XrSpaceLocation aimLoc{XR_TYPE_SPACE_LOCATION};
+                        if (XR_SUCCEEDED(xrLocateSpace(m_handAimSpaces[i], m_localSpace, frameState.predictedDisplayTime, &aimLoc)) &&
+                            (aimLoc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
+                            const XrQuaternionf q = MultiplyQuat(baseInv, aimLoc.pose.orientation);
+                            // Same yaw extraction as GetHmdYawRelToBody so both
+                            // HMD-locomotion and Hand-locomotion use the SAME
+                            // sign convention. atan2(fwd.x, -fwd.z) was sign-
+                            // inverted relative to this and produced mirrored
+                            // walking direction.
+                            const float yaw = std::atan2(2.0f * (q.w * q.y + q.x * q.z),
+                                                         1.0f - 2.0f * (q.y * q.y + q.z * q.z));
+                            const float filteredYaw = filterTrackingAngle(
+                                m_handAimYawFilter[i],
+                                yaw,
+                                GetHandTrackingSmooth(),
+                                0.0040f,
+                                0.0800f);
+                            m_handYawRelToBody[i].store(filteredYaw, std::memory_order_relaxed);
+                            m_handYawValid[i].store(true, std::memory_order_relaxed);
+                            aimYawValid = true;
+                        }
+                    }
+                    if (!aimYawValid) {
+                        m_handAimYawFilter[i].initialized = false;
+                        m_handYawValid[i].store(false, std::memory_order_relaxed);
+                    }
+
+                    // -- Gameplay inputs (trigger/grip/stick/buttons) --
+                    if (m_thumbstickAction == XR_NULL_HANDLE) continue;
+                    auto getFloat = [&](XrAction a) -> float {
+                        XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+                        gi.action = a;
+                        gi.subactionPath = m_handPaths[i];
+                        XrActionStateFloat st{XR_TYPE_ACTION_STATE_FLOAT};
+                        if (XR_SUCCEEDED(xrGetActionStateFloat(m_session, &gi, &st)) && st.isActive)
+                            return st.currentState;
+                        return 0.0f;
+                    };
+                    auto getBool = [&](XrAction a) -> bool {
+                        XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+                        gi.action = a;
+                        gi.subactionPath = m_handPaths[i];
+                        XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
+                        if (XR_SUCCEEDED(xrGetActionStateBoolean(m_session, &gi, &st)) && st.isActive)
+                            return st.currentState != XR_FALSE;
+                        return false;
+                    };
+                    auto getVec2 = [&](XrAction a, float& outX, float& outY) {
+                        XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+                        gi.action = a;
+                        gi.subactionPath = m_handPaths[i];
+                        XrActionStateVector2f st{XR_TYPE_ACTION_STATE_VECTOR2F};
+                        if (XR_SUCCEEDED(xrGetActionStateVector2f(m_session, &gi, &st)) && st.isActive) {
+                            outX = st.currentState.x;
+                            outY = st.currentState.y;
+                        } else {
+                            outX = 0.0f;
+                            outY = 0.0f;
+                        }
+                    };
+
+                    const float trig = getFloat(m_triggerAction);
+                    const float grip = getFloat(m_gripAction);
+                    float sx = 0.0f, sy = 0.0f;
+                    getVec2(m_thumbstickAction, sx, sy);
+                    const bool sclick = getBool(m_thumbstickClickAction);
+                    const bool prim   = getBool(m_primaryButtonAction);
+                    const bool sec    = getBool(m_secondaryButtonAction);
+
+                    // XInput-compatible button bits so the hook can OR them into
+                    // XINPUT_GAMEPAD.wButtons directly (XINPUT_GAMEPAD_*).
+                    constexpr uint16_t XB_A              = 0x1000;
+                    constexpr uint16_t XB_B              = 0x2000;
+                    constexpr uint16_t XB_X              = 0x4000;
+                    constexpr uint16_t XB_Y              = 0x8000;
+                    constexpr uint16_t XB_LEFT_SHOULDER  = 0x0100;
+                    constexpr uint16_t XB_RIGHT_SHOULDER = 0x0200;
+                    constexpr uint16_t XB_LEFT_THUMB     = 0x0040;
+                    constexpr uint16_t XB_RIGHT_THUMB    = 0x0080;
+
+                    if (i == 0) {
+                        ctrl.leftTrigger = trig;
+                        ctrl.leftGrip    = grip;
+                        ctrl.leftThumbX  = sx;
+                        ctrl.leftThumbY  = sy;
+                        if (sclick) ctrl.buttons |= XB_LEFT_THUMB;
+                        if (prim)   ctrl.buttons |= XB_X;
+                        if (sec)    ctrl.buttons |= XB_Y;
+                        if (grip >= 0.7f) ctrl.buttons |= XB_LEFT_SHOULDER;
+                    } else {
+                        ctrl.rightTrigger = trig;
+                        ctrl.rightGrip    = grip;
+                        ctrl.rightThumbX  = sx;
+                        ctrl.rightThumbY  = sy;
+                        if (sclick) ctrl.buttons |= XB_RIGHT_THUMB;
+                        if (prim)   ctrl.buttons |= XB_A;
+                        if (sec)    ctrl.buttons |= XB_B;
+                        // Right grip is RESERVED for the hand-to-holster equip system: a CET mod reads
+                        // the grip value (shared[31] or similar) and the controller pose, and equips the
+                        // weapon whose visual holster the hand is touching. Do NOT merge into XInput as
+                        // ThrowGrenade — that would fire a grenade every time the player reaches for a
+                        // holstered weapon.
+                    }
+                }
+
+                if (gameplayInputActive) {
+                    // Menu button is single (no per-hand binding) on Touch/Index/Vive/WMR.
+                    if (m_menuButtonAction != XR_NULL_HANDLE) {
+                        XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+                        gi.action = m_menuButtonAction;
+                        gi.subactionPath = XR_NULL_PATH;
+                        XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
+                        if (XR_SUCCEEDED(xrGetActionStateBoolean(m_session, &gi, &st)) && st.isActive && st.currentState)
+                            ctrl.buttons |= 0x0010; // XINPUT_GAMEPAD_START
+                    }
+
+                    // Publish the snapshot for the XInput hook.
+                    std::lock_guard<std::mutex> inLock(m_inputMutex);
+                    m_controllerState = ctrl;
                 }
             }
 
@@ -2078,74 +3363,492 @@ DWORD OpenXRManager::FrameThreadMain() {
                 m_velValid.store(false, std::memory_order_relaxed);
             }
         } else {
+            m_headFilterState.initialized = false;
             m_velValid.store(false, std::memory_order_relaxed);
         }
 
         if (monoReady && viewCountOutput == m_eyeSwapchains.size()) {
             if (useAerSubmit) {
                 ID3D12Resource* eyeSources[2] = {};
-                ID3D12Resource* generatedSources[2] = {};
+                ID3D12Resource* generatedSources[2] = {};  // synth texture per synth eye (null = raw)
                 uint64_t eyeSerials[2] = {};
                 uint64_t eyePairIds[2] = {};
                 XrPosef eyePoses[2]{};
                 XrFovf eyeFovs[2]{};
                 bool eyeHasView[2] = {};
-                uint64_t interpolatedPairId = 0;
-                XrPosef interpolatedEyePoses[2]{};
-                XrFovf interpolatedEyeFovs[2]{};
-                bool interpolatedEyeHasView[2] = {};
                 ID3D12Resource* depthSource = nullptr;
+                ID3D12Resource* r32depth = nullptr;   // CUDA-importable scene depth for the warp
+                bool eyeIsSynth[2] = {false, false};
+                bool anyEyeSynth = false;
+                const uint32_t synthSlot = static_cast<uint32_t>(displayFrameIndex & 1ull);
+                bool useInBetweenPair = false;
+                uint32_t activeInBetweenSlot = 0;
+
+                // ===== Frame-thread synth =====
+                // Per eye, compute the CONTINUOUS blendFactor v24 from HIGH-RES QPC
+                // timestamps (microsecond precision, signed math = no underflow):
+                //   blend = (targetQpc - tPrev) / (tCurr - tPrev)
+                // where tPrev/tCurr are the QPC of this eye's previous/current real
+                // captures and targetQpc is the time this frame will be displayed.
+                // blend≈1 -> raw current; ≈0 -> raw previous; (0,1) -> NvOF temporal
+                // warp at that fraction so the synth lands exactly on display time
+                // (no hardcoded 0.5 -> no head-rotation jitter). The warp is queued
+                // AFTER the lock (ProcessTemporalFrame is non-blocking now).
+                bool doSynth[2] = {false, false};
+                float synthBlend[2] = {1.0f, 1.0f};
+                float poseTargetBlend[2] = {1.0f, 1.0f};
+                ID3D12Resource* sPrevTex[2] = {}, *sCurrTex[2] = {};
+                ID3D12Resource* sPrevFlow[2] = {}, *sCurrFlow[2] = {};
+                uint64_t sFlowConvVal[2] = {0, 0};  // max convert-fence value to GPU-Wait before NvOF
+                ID3D12Resource* sPrevDepth[2] = {}, *sCurrDepth[2] = {};
+                XrPosef sPrevPose[2]{}, sCurrPose[2]{}, sPredPose[2]{};
+                XrFovf sFov[2]{};
+                uint32_t sW[2] = {}, sH[2] = {};
+                const bool v2 = (GetAERV2Enabled() != 0);
+
+                // ANCHOR-TO-CAPTURE model (kills async present<->frame drift).
+                // The engine renders mono alternate-eye, so each display frame one
+                // eye is FRESH and the other is STALE by ~one capture interval. We
+                // set the target time to the FRESHEST capture (max captureQpc), then:
+                //   fresh eye  (tCurr == target)        -> blend≈1 -> raw
+                //   stale eye  (tCurr <  target)        -> blend>1 -> FORWARD-warp it
+                //                                          to the fresh eye's time.
+                // Both eyes therefore represent the SAME instant -> coherent stereo,
+                // and the target is anchored to real captures (no now+period drift,
+                // no missed window). xr_pose_lag adds optional forward lead (periods)
+                // to push the pair slightly toward actual display time.
+                LARGE_INTEGER qpcFreq{};
+                QueryPerformanceFrequency(&qpcFreq);
+                uint64_t periodNs = m_predictedDisplayPeriodNs.load(std::memory_order_relaxed);
+                if (periodNs == 0) periodNs = 11111111ull;  // 90 Hz default
+                const int64_t periodTicks = (static_cast<int64_t>(periodNs) * qpcFreq.QuadPart) / 1000000000ll;
+                // Forward lead in periods. Default xr_pose_lag=1 -> lead=0 so the
+                // FRESH eye stays raw (target == its capture -> blend=1) and only
+                // the STALE eye warps. Raising xr_pose_lag pushes the pair forward
+                // toward real display time (more extrapolation, less latency).
+                int lead = GetPoseLag() - 1; if (lead < 0) lead = 0;
+
+                uint64_t capQpc[2] = {0, 0}, prevQpc[2] = {0, 0};
+                bool haveHist[2] = {false, false};
+                int64_t dbgBlendMilli[2] = {1000, 1000};
+                int64_t dbgSpanUs[2] = {0, 0};
+
                 {
                     std::lock_guard<std::mutex> lock(m_presentMutex);
                     for (int eye = 0; eye < 2; ++eye) {
+                        eyeSerials[eye] = m_capturedEyeFrames[eye].serial;
+                        eyePairIds[eye] = m_capturedEyeFrames[eye].pairId;
+                        eyeHasView[eye] = m_capturedEyeFrames[eye].hasView;
+                        capQpc[eye]  = m_capturedEyeFrames[eye].captureQpc;
+                        prevQpc[eye] = m_previousCapturedEyeFrames[eye].captureQpc;
+                        // Default: raw current capture (also the synth fallback).
                         if (m_capturedEyeFrames[eye].texture) {
                             eyeSources[eye] = m_capturedEyeFrames[eye].texture;
                             eyeSources[eye]->AddRef();
-                            eyeSerials[eye] = m_capturedEyeFrames[eye].serial;
-                            eyePairIds[eye] = m_capturedEyeFrames[eye].pairId;
                             eyePoses[eye] = m_capturedEyeFrames[eye].pose;
                             eyeFovs[eye] = m_capturedEyeFrames[eye].fov;
-                            eyeHasView[eye] = m_capturedEyeFrames[eye].hasView;
+                        }
+                        // Unified producer: this is now the single synth producer for
+                        // AER V2. The old OnPresent /
+                        // ProcessAERV2Job worker producers are disabled for V2 (so no
+                        // race), and OnPresent only captures + converts the per-eye
+                        // NvOF input texture. Every 90 Hz display tick we warp each
+                        // eye's latest real capture to ONE common target time with a
+                        // continuous QPC blend (computed below), so both eyes land on
+                        // the same instant. (v2 used to `continue` here, which left
+                        // zero active producers = raw alternate-eye submit.)
+                        // Snapshot the warp inputs unconditionally (decide raw vs
+                        // synth AFTER the lock once the target is known).
+                        haveHist[eye] =
+                            m_previousCapturedEyeFrames[eye].texture && m_capturedEyeFrames[eye].texture &&
+                            m_previousCapturedEyeFrames[eye].opticalFlowTexture &&
+                            m_capturedEyeFrames[eye].opticalFlowTexture &&
+                            m_capturedEyeFrames[eye].hasView && m_previousCapturedEyeFrames[eye].hasView &&
+                            m_aerV2SynthEye[eye][synthSlot] != nullptr;
+                        if (haveHist[eye]) {
+                            sPrevTex[eye]  = m_previousCapturedEyeFrames[eye].texture;
+                            sCurrTex[eye]  = m_capturedEyeFrames[eye].texture;
+                            sPrevFlow[eye] = m_previousCapturedEyeFrames[eye].opticalFlowTexture;
+                            sCurrFlow[eye] = m_capturedEyeFrames[eye].opticalFlowTexture;
+                            // GPU-Wait target: both flow inputs must have finished their
+                            // fire-and-forget convert before NvOF reads them.
+                            {
+                                const uint64_t pv = m_previousCapturedEyeFrames[eye].opticalFlowConvertValue;
+                                const uint64_t cv = m_capturedEyeFrames[eye].opticalFlowConvertValue;
+                                sFlowConvVal[eye] = pv > cv ? pv : cv;
+                            }
+                            if (m_previousCapturedEyeFrames[eye].depthTexture &&
+                                m_previousCapturedEyeFrames[eye].depthSerial == m_previousCapturedEyeFrames[eye].serial)
+                                sPrevDepth[eye] = m_previousCapturedEyeFrames[eye].depthTexture;
+                            if (m_capturedEyeFrames[eye].depthTexture &&
+                                m_capturedEyeFrames[eye].depthSerial == m_capturedEyeFrames[eye].serial)
+                                sCurrDepth[eye] = m_capturedEyeFrames[eye].depthTexture;
+                            sPrevPose[eye] = m_previousCapturedEyeFrames[eye].pose;
+                            sCurrPose[eye] = m_capturedEyeFrames[eye].pose;
+                            sFov[eye] = m_capturedEyeFrames[eye].fov;
+                            sW[eye] = m_capturedEyeFrames[eye].width;
+                            sH[eye] = m_capturedEyeFrames[eye].height;
+                            sPrevTex[eye]->AddRef();  sCurrTex[eye]->AddRef();
+                            sPrevFlow[eye]->AddRef(); sCurrFlow[eye]->AddRef();
+                            if (sPrevDepth[eye]) sPrevDepth[eye]->AddRef();
+                            if (sCurrDepth[eye]) sCurrDepth[eye]->AddRef();
                         }
                     }
-                    interpolatedPairId = m_interpolatedPairId;
-                    for (int eye = 0; eye < 2; ++eye) {
-                        interpolatedEyePoses[eye] = m_interpolatedEyePoses[eye];
-                        interpolatedEyeFovs[eye] = m_interpolatedEyeFovs[eye];
-                        interpolatedEyeHasView[eye] = m_interpolatedEyeViewsValid[eye];
-                    }
-                    // [DEPTH] Pin the latest scene-depth snapshot for depth-aware AER
-                    // reprojection. Same shared resource as the mono path; using the
-                    // freshest snapshot (rather than strict per-serial match) is fine —
-                    // depth changes slowly frame-to-frame and reprojection is approximate.
                     if (m_depthLayerSupported && m_depthSnapshot && m_depthSnapshotSerial != 0) {
                         depthSource = m_depthSnapshot;
                         depthSource->AddRef();
+                    }
+                    // [DEPTH-AERV2] freshest CUDA-importable R32 depth for the warp.
+                    if (m_depthSnapshotR32 && m_depthSnapshotR32Serial != 0) {
+                        r32depth = m_depthSnapshotR32;
+                        r32depth->AddRef();
+                    }
+                }
+
+                // MODE-6 PER-EYE ALTERNATE-EYE.
+                //
+                // Each 90 Hz vsync, the eye that received a FRESH capture this
+                // interval is submitted RAW (its captured texture @ captured pose;
+                // the runtime's ATW reprojects it to display time -- same as mono).
+                // The OTHER eye is NvOF-warped from its previous two SAME-EYE
+                // captures (m_capturedEyeFrames[eye]/m_previousCapturedEyeFrames[eye]
+                // = the per-eye source ring) to the display pose. With the engine
+                // HMD-paced + the camera hook alternating, exactly one eye is fresh
+                // per vsync -> each eye is real at 45 Hz, both eyes get a fresh
+                // image at every 90 Hz submit.
+                //
+                // Replaces the old global isRealTick/synthTick pair-gate which
+                // submitted BOTH eyes raw on a real tick (one up to ~22ms stale ->
+                // temporal eye mismatch when moving) and BOTH warped on a synth
+                // tick. Mode-6 always has one fresh + one warped -> no pair mismatch.
+                static thread_local uint64_t s_lastEyePair[2] = {0, 0};
+                LARGE_INTEGER mode6NowQpc; QueryPerformanceCounter(&mode6NowQpc);
+                const int64_t mode6TargetQpc = mode6NowQpc.QuadPart + periodTicks +
+                                                static_cast<int64_t>(lead) * periodTicks;
+                // Fresh-window = 1.5 HMD periods. With the engine alternating eyes,
+                // the eye captured this vsync has age~0 (fresh -> raw), the other
+                // eye was captured ~2 periods ago (age>1.5 -> stale -> NvOF-warp).
+                const int64_t freshWindowTicks = periodTicks + (periodTicks >> 1);
+                for (int eye = 0; eye < 2; ++eye) {
+                    // TIMESTAMP-BASED fresh detection (no eye0-first bias). An eye is
+                    // "fresh" (raw submit) if it was captured within the fresh window.
+                    // The old pairId-based test (eyePairIds[eye] > s_lastEyePair) was
+                    // structurally biased: presentPairId increments ONLY on eye0
+                    // capture, so eye0's pairId always led eye1's by 1, and with
+                    // decoupled frame/present threads eye0 was detected "fresh" (raw,
+                    // runtime-ATW-smooth) more often than eye1 (NvOF-warped, lower
+                    // quality) -> the consistent "right eye worse than left" symptom.
+                    // Actual capture age removes that bias: each eye gets an equal
+                    // shot at being the raw eye based purely on temporal recency.
+                    const int64_t ageTicks = mode6NowQpc.QuadPart - static_cast<int64_t>(capQpc[eye]);
+                    const bool fresh = eyePairIds[eye] != 0 && ageTicks < freshWindowTicks;
+                    s_lastEyePair[eye] = eyePairIds[eye];
+                    const int64_t span =
+                        static_cast<int64_t>(capQpc[eye]) - static_cast<int64_t>(prevQpc[eye]);
+                    if (span > 0) dbgSpanUs[eye] = span * 1000000ll / qpcFreq.QuadPart;
+
+                    if (!haveHist[eye] || span <= 0) {
+                        // Warmup / no history: stays raw (captured texture).
+                        continue;
+                    }
+                    // Blend to the display-target instant for THIS eye. Used as:
+                    //   stale eye  -> image blend AND pose target
+                    //   fresh eye  -> pose target only (image stays current-heavy)
+                    // so the real eye can get a cheap pose-warp to display time.
+                    double blend = static_cast<double>(mode6TargetQpc - static_cast<int64_t>(prevQpc[eye])) /
+                                   static_cast<double>(span);
+                    float maxExtrap = GetAerMaxExtrap();
+                    if (maxExtrap < 1.0f) maxExtrap = 1.0f;
+                    if (blend < 0.0) blend = 0.0;
+                    if (blend > static_cast<double>(maxExtrap)) blend = static_cast<double>(maxExtrap);
+                    // Small OF-overshoot bias. NvOF slightly over-extrapolates linear
+                    // motion; subtract a small constant to pull the midpoint back.
+                    blend -= 0.02;
+                    if (blend < 0.0) blend = 0.0;
+                    poseTargetBlend[eye] = static_cast<float>(blend);
+
+                    if (fresh) {
+                        // Idea #1 — lightweight real-eye improvement. When depth is
+                        // enabled (GetAerXQueueWait!=0) we also run the FRESH eye
+                        // through the warp pipeline, but keep imageBlend=1.0 so the
+                        // CURRENT frame dominates while the pose target advances to
+                        // the display instant (poseTargetBlend). This approximates a
+                        // cheap pose-warp of the current frame: better left/right
+                        // consistency and less ATW work, without the heavy temporal
+                        // mixing of a normal stale-eye synth. When depth is off, raw
+                        // + runtime ATW remains cheaper and usually better.
+                        if (GetAerXQueueWait() != 0) {
+                            doSynth[eye] = true;
+                            synthBlend[eye] = 1.0f;
+                        }
+                        dbgBlendMilli[eye] = 1000;
+                        continue;
+                    }
+
+                    // STALE eye: full NvOF temporal synth to the display target.
+                    doSynth[eye] = true;
+                    synthBlend[eye] = static_cast<float>(blend);
+                    dbgBlendMilli[eye] = static_cast<int64_t>(blend * 1000.0);
+                }
+                // Suppress the now-unused legacy gate counters (kept for log compat).
+                static thread_local uint64_t s_lastRealPairTickGate = 0; (void)s_lastRealPairTickGate;
+                static thread_local int s_synthTickCount = 0; (void)s_synthTickCount;
+                // Release the snapshot refs for eyes we ended up NOT synthesizing.
+                for (int eye = 0; eye < 2; ++eye) {
+                    if (haveHist[eye] && !doSynth[eye]) {
+                        if (sPrevTex[eye]) { sPrevTex[eye]->Release(); sPrevTex[eye] = nullptr; }
+                        if (sCurrTex[eye]) { sCurrTex[eye]->Release(); sCurrTex[eye] = nullptr; }
+                        if (sPrevFlow[eye]) { sPrevFlow[eye]->Release(); sPrevFlow[eye] = nullptr; }
+                        if (sCurrFlow[eye]) { sCurrFlow[eye]->Release(); sCurrFlow[eye] = nullptr; }
+                        if (sPrevDepth[eye]) { sPrevDepth[eye]->Release(); sPrevDepth[eye] = nullptr; }
+                        if (sCurrDepth[eye]) { sCurrDepth[eye]->Release(); sCurrDepth[eye] = nullptr; }
+                    }
+                }
+
+                // [DLSS-MV] Copy the engine motion vectors into a CUDA-importable
+                // shared scratch once per frame. Executed on m_d3dQueue so it is
+                // FIFO-ordered BEFORE the pipeline's own m_d3dQueue->Signal that
+                // CUDA waits on — no CPU sync needed. Failure -> mvSource stays
+                // null -> kernel falls back to NvOF-only (haveMv=false).
+                ID3D12Resource* mvSource = nullptr;
+                float mvScaleX = NgxGetMvScaleX();
+                float mvScaleY = NgxGetMvScaleY();
+                if (anyEyeSynth) {
+                    // Lazily create the DIRECT allocator+list used for the MV copy
+                    // (the V2 worker that used to make these is disabled now).
+                    if (!m_mvWarpAlloc || !m_mvWarpList) {
+                        if (SUCCEEDED(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_mvWarpAlloc))) &&
+                            SUCCEEDED(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_mvWarpAlloc.Get(), nullptr, IID_PPV_ARGS(&m_mvWarpList)))) {
+                            m_mvWarpList->Close();
+                            m_mvWarpAlloc->SetName(L"AERV2_mvcopy_alloc");
+                            m_mvWarpList->SetName(L"AERV2_mvcopy_list");
+                        } else {
+                            m_mvWarpAlloc.Reset();
+                            m_mvWarpList.Reset();
+                        }
+                    }
+                    ID3D12Resource* engineMv = NgxAcquireMotionVectors();  // AddRef'd
+                    if (engineMv && m_mvWarpAlloc && m_mvWarpList) {
+                        const D3D12_RESOURCE_DESC mvDesc = engineMv->GetDesc();
+                        bool recreate = !m_aerV2MvScratch;
+                        if (m_aerV2MvScratch) {
+                            const auto cur = m_aerV2MvScratch->GetDesc();
+                            if (cur.Width != mvDesc.Width || cur.Height != mvDesc.Height || cur.Format != mvDesc.Format) {
+                                m_aerV2MvScratch.Reset();
+                                recreate = true;
+                            }
+                        }
+                        if (recreate) {
+                            D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+                            if (FAILED(m_d3dDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_SHARED, &mvDesc,
+                                    D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&m_aerV2MvScratch)))) {
+                                m_aerV2MvScratch.Reset();
+                            } else {
+                                SetD3DName(m_aerV2MvScratch.Get(), L"AERV2_engine_mv_scratch_shared");
+                            }
+                        }
+                        if (m_aerV2MvScratch && SUCCEEDED(m_mvWarpAlloc->Reset()) &&
+                            SUCCEEDED(m_mvWarpList->Reset(m_mvWarpAlloc.Get(), nullptr))) {
+                            D3D12_RESOURCE_BARRIER b[2] = {};
+                            b[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            b[0].Transition.pResource = engineMv;
+                            b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                            b[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            b[1].Transition.pResource = m_aerV2MvScratch.Get();
+                            b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+                            b[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_mvWarpList->ResourceBarrier(2, b);
+                            m_mvWarpList->CopyResource(m_aerV2MvScratch.Get(), engineMv);
+                            std::swap(b[0].Transition.StateBefore, b[0].Transition.StateAfter);
+                            std::swap(b[1].Transition.StateBefore, b[1].Transition.StateAfter);
+                            m_mvWarpList->ResourceBarrier(2, b);
+                            m_mvWarpList->Close();
+                            ID3D12CommandList* lists[] = { m_mvWarpList.Get() };
+                            m_d3dQueue->ExecuteCommandLists(1, lists);  // FIFO before pipeline signal
+                            mvSource = m_aerV2MvScratch.Get();
+                        }
+                    }
+                    if (engineMv) engineMv->Release();
+                }
+
+                // NOTE: a previous "matched stereo" override forced BOTH submitted
+                // eyes (and the warp targets) onto the freshest eye's orientation.
+                // With pose-pair-locking already rendering both eyes from eye0's
+                // frozen head pose, that override fought the rendered content: the
+                // stale eye's pixels carry eye0's orientation but were submitted at a
+                // different (freshest) orientation, so the compositor reprojected the
+                // delta -> severe one-eye "orbital" tearing on head turns. Reverted:
+                // each eye keeps its OWN extrapolated pose, consistent with its
+                // rendered+warped content.
+
+                // POSE/IMAGE TIME CONSISTENCY (critical for no head-turn jitter).
+                // The stale eye's submitted pose and its NvOF-warped IMAGE must
+                // represent the SAME temporal instant, or the image "swims" vs the
+                // pose on head turns -> whole-image jitter in both eyes. We derive
+                // BOTH from the same source: the time-based blend over the eye's
+                // prev/curr captures. The pose is ExtrapolatePose(prev,curr,blend)
+                // and the warp kernel interpolates the image at that same blend, so
+                // they agree by construction. The runtime's ATW then corrects the
+                // small residual from this blend instant to actual photon display
+                // (a uniform, smooth correction).
+                //
+                // Do NOT set the submitted pose to m_views[eye].pose (the runtime's
+                // predictedDisplayTime pose) while the image blend targets a
+                // different instant (now+period): that desync was the head-turn
+                // jitter. m_views is display-anchored, the capture-based blend is
+                // capture-anchored, and without an epoch-exact XrTime->QPC map
+                // they cannot be safely aligned -- so keep pose+image both
+                // capture-anchored and let ATW do the rest.
+
+                // Run the per-eye warp OUTSIDE the lock (non-blocking GPU queue).
+                for (int eye = 0; eye < 2; ++eye) {
+                    if (!doSynth[eye]) continue;
+                    if (!m_aerV2Pipeline) m_aerV2Pipeline = std::make_unique<aer_v2::AerV2Pipeline>();
+                    m_aerV2Pipeline->SetMode(aer_v2::AerV2Pipeline::Mode::AERv2HighQ);
+                    m_aerV2Pipeline->SetForceMatchedEyePoses(true);
+                    m_aerV2Pipeline->SetWarpTuning(GetAerRefineStrength(), GetAerOcclusionSharp(), GetAerFoveation(), GetFlowSmooth());
+                    // Pose target for this warp. Normally equals synthBlend
+                    // (stale eye: pose and image at the same extrapolated instant),
+                    // but for Idea #1 the fresh eye can keep imageBlend=1.0
+                    // (current-heavy) while still advancing its pose target toward
+                    // the display instant via poseTargetBlend.
+                    sPredPose[eye] = ExtrapolatePose(sPrevPose[eye], sCurrPose[eye], poseTargetBlend[eye]);
+                    bool ok = false;
+                    if (m_d3dDevice && m_d3dQueue && sW[eye] && sH[eye] &&
+                        m_aerV2Pipeline->EnsureInitialized(m_d3dDevice, m_d3dQueue, sW[eye], sH[eye])) {
+                        // GPU-Wait for the fire-and-forget flow-input conversion to
+                        // finish before NvOF reads it. Issued on m_d3dQueue, which the
+                        // pipeline uses for its own CUDA fence handshake, so the warp's
+                        // CUDA work transitively waits for the conversion. No CPU stall.
+                        if (sFlowConvVal[eye] != 0 && m_opticalFlow) {
+                            if (ID3D12Fence* cf = m_opticalFlow->GetConvertFence()) {
+                                m_d3dQueue->Wait(cf, sFlowConvVal[eye]);
+                            }
+                        }
+                        ok = m_aerV2Pipeline->ProcessTemporalFrame(
+                            eye,
+                            sPrevFlow[eye], sCurrFlow[eye], sPrevTex[eye], sCurrTex[eye],
+                            mvSource, r32depth, r32depth, mvScaleX, mvScaleY,
+                            sFov[eye], sPrevPose[eye], sCurrPose[eye], sPredPose[eye],
+                            synthBlend[eye], m_aerV2SynthEye[eye][synthSlot].Get());
+                    }
+                    if (ok) {
+                        if (eyeSources[eye]) eyeSources[eye]->Release();
+                        eyeSources[eye] = m_aerV2SynthEye[eye][synthSlot].Get();
+                        eyeSources[eye]->AddRef();
+                        generatedSources[eye] = m_aerV2SynthEye[eye][synthSlot].Get();
+                        generatedSources[eye]->AddRef();
+                        eyePoses[eye] = sPredPose[eye];
+                        eyeFovs[eye] = sFov[eye];
+                        eyeIsSynth[eye] = true;
+                        anyEyeSynth = true;
+                    }
+                    if (sPrevTex[eye]) sPrevTex[eye]->Release();
+                    if (sCurrTex[eye]) sCurrTex[eye]->Release();
+                    if (sPrevFlow[eye]) sPrevFlow[eye]->Release();
+                    if (sCurrFlow[eye]) sCurrFlow[eye]->Release();
+                    if (sPrevDepth[eye]) sPrevDepth[eye]->Release();
+                    if (sCurrDepth[eye]) sCurrDepth[eye]->Release();
+                }
+                const bool depthAvail = (r32depth != nullptr);
+                if (r32depth) { r32depth->Release(); r32depth = nullptr; }
+                if (g_verboseLog && v2 && (displayFrameIndex % 300) == 1) {
+                    Log("OpenXRManager: [AER V2] depthAware=%d dlssMv=%d foveation=%.2f (mvScale=%.3f,%.3f)\n",
+                        depthAvail ? 1 : 0, mvSource ? 1 : 0, GetAerFoveation(), mvScaleX, mvScaleY);
+                }
+                if (g_verboseLog && v2 && (displayFrameIndex % 300) == 1) {
+                    // Anchor-to-capture: target = freshest capture (+lead). One eye
+                    // is fresh (blend≈1 -> raw), the other is stale (blend>1 ->
+                    // FORWARD-warped to match). blendMilli is blend*1000; span = that
+                    // eye's real capture interval (us). Healthy: one eye ~1000, the
+                    // other >1100 and synth=1.
+                    Log("OpenXRManager: [AER V2] idx=%llu lead=%d blendL=%.3f blendR=%.3f synthL=%d synthR=%d | L:span=%lldus blendx1k=%lld R:span=%lldus blendx1k=%lld slot=%u\n",
+                        static_cast<unsigned long long>(displayFrameIndex), lead,
+                        synthBlend[0], synthBlend[1], eyeIsSynth[0] ? 1 : 0, eyeIsSynth[1] ? 1 : 0,
+                        static_cast<long long>(dbgSpanUs[0]), static_cast<long long>(dbgBlendMilli[0]),
+                        static_cast<long long>(dbgSpanUs[1]), static_cast<long long>(dbgBlendMilli[1]), synthSlot);
+                }
+
+                // ===== 1:1 half-rate consumer: on the in-between display interval,
+                // submit the BOTH-eye NvOF-produced pair instead of resubmitting a
+                // raw/current pair with one stale eye. This is the key cadence step
+                // that gives both eyes a fresh image every display interval.
+                if (v2 && GetAERHalfRate() != 0) {
+                    uint64_t inBetweenPairId = 0;
+                    XrPosef inBetweenPoses[2]{};
+                    XrFovf inBetweenFovs[2]{};
+                    bool inBetweenViews[2] = {};
+                    {
+                        std::lock_guard<std::mutex> lock(m_presentMutex);
+                        const uint64_t currentPair =
+                            (eyePairIds[0] != 0 && eyePairIds[0] == eyePairIds[1]) ? eyePairIds[0] : 0;
+                        if (m_inBetweenReadyPairId != 0 &&
+                            currentPair == m_lastSubmittedPairId &&
+                            m_inBetweenReadyPairId > m_inBetweenShownForPairId) {
+                            useInBetweenPair = true;
+                            inBetweenPairId = m_inBetweenReadyPairId;
+                            activeInBetweenSlot = m_inBetweenSlot;
+                            for (int eye = 0; eye < 2; ++eye) {
+                                inBetweenPoses[eye] = m_inBetweenEyePoses[eye];
+                                inBetweenFovs[eye] = m_inBetweenEyeFovs[eye];
+                                inBetweenViews[eye] = m_inBetweenEyeViewsValid[eye];
+                            }
+                        }
+                    }
+                    if (useInBetweenPair) {
+                        for (int eye = 0; eye < 2; ++eye) {
+                            if (eyeSources[eye]) { eyeSources[eye]->Release(); eyeSources[eye] = nullptr; }
+                            if (generatedSources[eye]) { generatedSources[eye]->Release(); generatedSources[eye] = nullptr; }
+                            if (m_aerV2InBetween[eye][activeInBetweenSlot]) {
+                                eyeSources[eye] = m_aerV2InBetween[eye][activeInBetweenSlot].Get();
+                                eyeSources[eye]->AddRef();
+                                generatedSources[eye] = m_aerV2InBetween[eye][activeInBetweenSlot].Get();
+                                generatedSources[eye]->AddRef();
+                                eyePoses[eye] = inBetweenPoses[eye];
+                                eyeFovs[eye] = inBetweenFovs[eye];
+                                eyeHasView[eye] = inBetweenViews[eye];
+                                eyeIsSynth[eye] = true;
+                                anyEyeSynth = true;
+                                // Keep the pair ids coherent for submit telemetry.
+                                eyePairIds[eye] = inBetweenPairId;
+                            }
+                        }
+                        m_inBetweenShownForPairId = inBetweenPairId;
                     }
                 }
 
                 const uint64_t submitSerial = eyeSerials[0] > eyeSerials[1] ? eyeSerials[0] : eyeSerials[1];
                 const bool completePair = GetAERPairGate() == 0 || (eyePairIds[0] != 0 && eyePairIds[0] == eyePairIds[1]);
-                const bool useInterpolatedPair =
-                    GetAERV2Enabled() != 0 &&
-                    completePair &&
-                    eyePairIds[0] != 0 &&
-                    eyePairIds[0] == interpolatedPairId &&
-                    m_opticalFlow != nullptr;
-                if (useInterpolatedPair) {
+                const bool submitReadyAERV2 =
+                    eyeSources[0] && eyeSources[1] &&
+                    eyeSerials[0] != 0 && eyeSerials[1] != 0 &&
+                    eyeHasView[0] && eyeHasView[1];
+                // Phase 2d: substitute the OLDER eye in the current pair with
+                // the worker-produced MV-warped frame. The warp advances that
+                // eye's image one game frame forward using engine motion
+                // vectors, so the submitted pair shares a single timestamp.
+                // We addref a private snapshot of m_mvWarpedEye here for the
+                // submit copy below; the slot itself is reused by the next
+                // worker pass (worker's m_mvWarpEvent wait guarantees the GPU
+                // write is complete before this addref/copy starts).
+                ID3D12Resource* mvWarpedReplacement[2] = {nullptr, nullptr};
+                const bool aerV2On = GetAERV2Enabled() != 0;
+                if (!aerV2On && completePair && eyePairIds[0] != 0) {
                     for (int eye = 0; eye < 2; ++eye) {
-                        ID3D12Resource* interp = m_opticalFlow->GetInterpolatedResource(eye);
-                        if (interp) {
-                            interp->AddRef();
-                            generatedSources[eye] = interp;
-                        }
-                        if (interpolatedEyeHasView[eye]) {
-                            eyePoses[eye] = interpolatedEyePoses[eye];
-                            eyeFovs[eye] = interpolatedEyeFovs[eye];
+                        if (m_mvWarpedValidPairId[eye].load(std::memory_order_acquire) == eyePairIds[0] &&
+                            m_mvWarpedEye[eye]) {
+                            m_mvWarpedEye[eye]->AddRef();
+                            mvWarpedReplacement[eye] = m_mvWarpedEye[eye].Get();
                         }
                     }
                 }
                 
+                // Reuse-last-frame path: OpenXR cannot "skip submit" without showing
+                // nothing, so stale ticks must re-submit the last clean eye image.
+
                 m_cmdAllocatorIndex = (m_cmdAllocatorIndex + 1) % 3;
                 ID3D12CommandAllocator* currentAllocator = m_cmdAllocators[m_cmdAllocatorIndex];
                 if (m_fenceValue >= 3 && m_fence->GetCompletedValue() < m_fenceValue - 2) {
@@ -2155,15 +3858,118 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                 ID3D12GraphicsCommandList* m_cmdList = m_cmdLists[m_cmdAllocatorIndex];
 
-                if (eyeSources[0] && eyeSources[1] && eyeSerials[0] != 0 && eyeSerials[1] != 0 && completePair && eyeHasView[0] && eyeHasView[1] &&
+                // Reuse the last clean frame on stale ticks instead of re-warping stale
+                // content again.
+                const bool reuseLastFrame = ReuseLastFrameOutputEnabled() && useAerSubmit &&
+                    submitSerial != 0 && submitSerial == m_lastSubmittedSerial &&
+                    m_lastGoodValid && m_lastGoodEye[0] && m_lastGoodEye[1];
+
+                if (eyeSources[0] && eyeSources[1] && eyeSerials[0] != 0 && eyeSerials[1] != 0 && (aerV2On ? submitReadyAERV2 : completePair) && eyeHasView[0] && eyeHasView[1] &&
                     SUCCEEDED(currentAllocator->Reset()) && SUCCEEDED(m_cmdList->Reset(currentAllocator, nullptr))) {
                     bool copyReady = true;
                     bool releaseOk = true;
-                    bool useDepthLayer = (depthSource != nullptr) && m_depthLayerSupported;
+                    bool useDepthLayer = (depthSource != nullptr) && m_depthLayerSupported && !reuseLastFrame;
+                    // alternate-eye AER V2 needs depth that matches the synthetic
+                    // midpoint image. Feeding the compositor raw-frame depth for a
+                    // synthetic color frame creates severe mismatches on nearby
+                    // geometry (experienced as black/incorrect synthetic flashes).
+                    // Until we synthesize matching midpoint depth, disable the XR
+                    // depth layer on synthetic submits and let the compositor use
+                    // color-only async warp for those frames.
+                    if (anyEyeSynth) {
+                        useDepthLayer = false;
+                    }
+
+                    // Phase 3: depth-based stereo reprojection. Identify the
+                    // FRESHER eye in the pair (higher serial = newer capture)
+                    // and synthesize the other from it + scene depth. This
+                    // collapses the inter-eye sim gap (the OLDER eye is now
+                    // replaced with a same-timestamp view derived from the
+                    // FRESHER one).
+                    bool stereoSynthOk = false;
+                    int stereoSynthForEye = -1;  // which eye gets the synthesized texture
+                    // AER V2 does not use the older D3D12 stereoSynth
+                    // reprojection pass. In AER V2 mode the only synthetic
+                    // image source must be the CUDA/NvOF pipeline below.
+                    if (!aerV2On && depthSource && m_stereoSynthEye && m_d3dDevice) {
+                        if (!m_stereoReproject) m_stereoReproject = std::make_unique<StereoReproject>();
+                        const D3D12_RESOURCE_DESC stereoDesc = m_stereoSynthEye->GetDesc();
+                        if (m_stereoReproject->EnsureInitialized(m_d3dDevice,
+                                stereoDesc.Format,
+                                static_cast<uint32_t>(stereoDesc.Width),
+                                stereoDesc.Height)) {
+                            const int fresherEye = (eyeSerials[0] >= eyeSerials[1]) ? 0 : 1;
+                            const int targetEye = fresherEye ^ 1;
+                            ID3D12Resource* srcColor = eyeSources[fresherEye];
+                            ID3D12Resource* srcDepth = depthSource;
+
+                            // FOV in radians (use the fresher eye's fov_x).
+                            float fovLeft = std::fabs(eyeFovs[fresherEye].angleLeft);
+                            float fovRight = std::fabs(eyeFovs[fresherEye].angleRight);
+                            float horizFovRad = fovLeft + fovRight;
+                            if (horizFovRad < 0.1f || horizFovRad > 3.14f) horizFovRad = 1.658f; // ~95°
+                            // IPD: use runtime view positions if available, else default 0.065.
+                            float ipdMeters = 0.065f;
+                            if (m_views.size() >= 2) {
+                                float dx = m_views[1].pose.position.x - m_views[0].pose.position.x;
+                                float dy = m_views[1].pose.position.y - m_views[0].pose.position.y;
+                                float dz = m_views[1].pose.position.z - m_views[0].pose.position.z;
+                                float distance = std::sqrt(dx*dx + dy*dy + dz*dz);
+                                if (distance > 0.04f && distance < 0.10f) ipdMeters = distance;
+                            }
+                            // CP2077 near plane (per FinalCamera log f40=0.02 observed).
+                            const float nearZ = 0.02f;
+                            // Convention: when synthesizing right(=eye1) from left(=eye0),
+                            // sample further LEFT in source for each output pixel →
+                            // positive sign. When synthesizing left from right → negative.
+                            const float signLR = (targetEye == 1) ? +1.0f : -1.0f;
+
+                            // Barriers: src color from COPY_SOURCE → PSR; depth
+                            // snapshot from COPY_SOURCE → PSR; synth scratch from
+                            // COMMON → RENDER_TARGET.
+                            D3D12_RESOURCE_BARRIER pre[3] = {};
+                            UINT preBc = 0;
+                            auto addBar = [&](D3D12_RESOURCE_BARRIER* arr, UINT& bc, ID3D12Resource* r,
+                                              D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+                                if (!r || before == after) return;
+                                arr[bc].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                                arr[bc].Transition.pResource = r;
+                                arr[bc].Transition.StateBefore = before;
+                                arr[bc].Transition.StateAfter = after;
+                                arr[bc].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                                ++bc;
+                            };
+                            addBar(pre, preBc, srcColor, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                            addBar(pre, preBc, srcDepth, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                            addBar(pre, preBc, m_stereoSynthEye.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                            if (preBc > 0) m_cmdList->ResourceBarrier(preBc, pre);
+
+                            stereoSynthOk = m_stereoReproject->RecordReproject(
+                                m_cmdList, srcColor, srcDepth, m_stereoSynthEye.Get(),
+                                ipdMeters, horizFovRad, nearZ, signLR);
+
+                            D3D12_RESOURCE_BARRIER post[3] = {};
+                            UINT postBc = 0;
+                            addBar(post, postBc, srcColor, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                            addBar(post, postBc, srcDepth, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                            addBar(post, postBc, m_stereoSynthEye.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                            if (postBc > 0) m_cmdList->ResourceBarrier(postBc, post);
+
+                            if (stereoSynthOk) stereoSynthForEye = targetEye;
+                            static uint64_t s_logCounter = 0;
+                            if (g_verboseLog && (s_logCounter++ % 300) == 0) {
+                                Log("OpenXRManager: [stereoSynth] pair=%llu fresherEye=%d targetEye=%d ipd=%.4f fovH=%.3f synth=%d\n",
+                                    static_cast<unsigned long long>(eyePairIds[0]),
+                                    fresherEye, targetEye, ipdMeters, horizFovRad,
+                                    stereoSynthOk ? 1 : 0);
+                            }
+                        }
+                    }
                     std::vector<bool> acquiredEyes(viewCountOutput, false);
                     std::vector<bool> acquiredDepthEyes(viewCountOutput, false);
                     std::vector<XrCompositionLayerProjectionView> projectionViews(viewCountOutput);
                     std::vector<XrCompositionLayerDepthInfoKHR> depthInfos;
+                    bool submittedSynthetic = false;
                     for (uint32_t i = 0; i < viewCountOutput; ++i) {
                         projectionViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
                     }
@@ -2206,8 +4012,26 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                         ID3D12Resource* texture = m_eyeSwapchains[eye].images[imageIndex].texture;
                         ID3D12Resource* copySource = nullptr;
+                        const bool syntheticSource = !reuseLastFrame && aerV2On &&
+                            sourceEye < 2 &&
+                            eyeIsSynth[sourceEye] &&
+                            generatedSources[sourceEye] != nullptr;
+                        if (syntheticSource) {
+                            submittedSynthetic = true;
+                        }
                         if (sourceEye < 2) {
-                            copySource = (useInterpolatedPair && generatedSources[sourceEye]) ? generatedSources[sourceEye] : eyeSources[sourceEye];
+                            if (aerV2On) {
+                                copySource = syntheticSource
+                                    ? generatedSources[sourceEye]
+                                    : eyeSources[sourceEye];
+                            } else if (static_cast<int>(sourceEye) == stereoSynthForEye && m_stereoSynthEye) {
+                                copySource = m_stereoSynthEye.Get();
+                            } else {
+                                copySource = eyeSources[sourceEye];
+                            }
+                        }
+                        if (reuseLastFrame && sourceEye < 2) {
+                            copySource = m_lastGoodEye[sourceEye].Get();
                         }
                         if (!texture || sourceEye >= 2 || !copySource) {
                             Log("OpenXRManager: AER source/target missing for eye %u sourceEye %u image %u\n", eye, sourceEye, imageIndex);
@@ -2215,41 +4039,185 @@ DWORD OpenXRManager::FrameThreadMain() {
                             break;
                         }
 
-                        D3D12_RESOURCE_BARRIER toCopyDest{};
-                        toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                        toCopyDest.Transition.pResource = texture;
-                        toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
-                        toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-                        toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                        m_cmdList->ResourceBarrier(1, &toCopyDest);
+                        if (syntheticSource) {
+                            // Synth eye: copy via the per-eye submit scratch so the
+                            // CUDA-written m_aerV2SynthEye is never read concurrently.
+                            const uint32_t scratchSlot = useInBetweenPair ? activeInBetweenSlot : synthSlot;
+                            ID3D12Resource* submitScratch = useInBetweenPair
+                                ? m_aerV2InBetweenSubmit[sourceEye][scratchSlot].Get()
+                                : m_aerV2SubmitEye[sourceEye][scratchSlot].Get();
+                            bool* scratchReady = useInBetweenPair
+                                ? &m_aerV2InBetweenSubmitReady[sourceEye][scratchSlot]
+                                : &m_aerV2SubmitEyeReady[sourceEye][scratchSlot];
+                            if (!submitScratch) {
+                                Log("OpenXRManager: AER submit scratch missing for eye %u slot %u\n",
+                                    sourceEye, scratchSlot);
+                                copyReady = false;
+                                break;
+                            }
+                            D3D12_RESOURCE_BARRIER preScratch{};
+                            preScratch.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            preScratch.Transition.pResource = submitScratch;
+                            preScratch.Transition.StateBefore = *scratchReady
+                                ? D3D12_RESOURCE_STATE_COPY_SOURCE
+                                : D3D12_RESOURCE_STATE_COMMON;
+                            preScratch.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+                            preScratch.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(1, &preScratch);
 
-                        m_cmdList->CopyResource(texture, copySource);
+                            m_cmdList->CopyResource(submitScratch, copySource);
 
-                        D3D12_RESOURCE_BARRIER toCommon{};
-                        toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                        toCommon.Transition.pResource = texture;
-                        toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                        toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
-                        toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                        m_cmdList->ResourceBarrier(1, &toCommon);
+                            D3D12_RESOURCE_BARRIER postScratch{};
+                            postScratch.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            postScratch.Transition.pResource = submitScratch;
+                            postScratch.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                            postScratch.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                            postScratch.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(1, &postScratch);
+                            *scratchReady = true;
+                            copySource = submitScratch;
+                        }
 
-                        // Submit the pose the frame was ACTUALLY rendered with (captured
-                        // at camera-hook time in OnPresent). The submitted pose must match
-                        // the rendered image or the runtime reprojects it the wrong way
-                        // (tearing / wobble). For debugEye source overrides, follow the
-                        // SOURCE eye's pose so the image+pose pair stays matched.
-                        const uint32_t poseEye = (debugEye == 1 || debugEye == 2 || debugEye == 3) ? sourceEye : eye;
-                        if (poseEye < 2) {
-                            projectionViews[eye].pose = eyePoses[poseEye];
-                            projectionViews[eye].fov = eyeFovs[poseEye];
+                        // CAS sharpen: when enabled, draw the sharpened source straight
+                        // into the swapchain image instead of
+                        // a plain copy. Source state differs by path (synth scratch is
+                        // COPY_SOURCE, raw capture is COMMON), so transition from that.
+                        const float sharpStrength = GetVrSharpness();
+                        bool doSharpen = false;
+                        // TEMP-DISABLED: in-submit CAS GPU-crashes (device removal) on
+                        // this runtime (VirtualDesktop OpenXR) -- rendering an RTV into
+                        // the runtime swapchain image and/or sampling the capture as SRV
+                        // faults. Needs a dedicated SRV-capable scratch (copy source ->
+                        // own RT, sharpen that -> swapchain). Gated behind CPVR_CAS_ENABLE
+                        // until reworked; the Sharpen slider is inert meanwhile.
+                        if (std::getenv("CPVR_CAS_ENABLE") && sharpStrength > 0.0001f && m_d3dDevice && texture) {
+                            if (!m_sharpenPass) m_sharpenPass = std::make_unique<SharpenPass>();
+                            const D3D12_RESOURCE_DESC sd = texture->GetDesc();
+                            m_sharpenReady = m_sharpenPass->EnsureInitialized(
+                                m_d3dDevice, sd.Format,
+                                static_cast<uint32_t>(sd.Width), sd.Height);
+                            doSharpen = m_sharpenReady;
+                        }
+                        if (doSharpen) {
+                            // Both paths leave copySource in COPY_SOURCE: the raw eye
+                            // capture rests in COPY_SOURCE (CapturePresentedFrame), and
+                            // the synth scratch was just transitioned to COPY_SOURCE.
+                            // (Assuming COMMON for raw was the CAS crash / device-removal.)
+                            const D3D12_RESOURCE_STATES srcPrev = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                            D3D12_RESOURCE_BARRIER pre[2] = {};
+                            pre[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            pre[0].Transition.pResource = copySource;
+                            pre[0].Transition.StateBefore = srcPrev;
+                            pre[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                            pre[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            pre[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            pre[1].Transition.pResource = texture;
+                            pre[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            pre[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                            pre[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(2, pre);
+
+                            m_sharpenPass->RecordSharpen(m_cmdList, copySource, texture,
+                                                         sharpStrength, GetVrSharpmix());
+
+                            D3D12_RESOURCE_BARRIER post[2] = {};
+                            post[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            post[0].Transition.pResource = texture;
+                            post[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                            post[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                            post[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            post[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            post[1].Transition.pResource = copySource;
+                            post[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                            post[1].Transition.StateAfter = srcPrev;
+                            post[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(2, post);
                         } else {
-                            projectionViews[eye].pose = eyePoses[eye];
-                            projectionViews[eye].fov = eyeFovs[eye];
+                            D3D12_RESOURCE_BARRIER toCopyDest{};
+                            toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            toCopyDest.Transition.pResource = texture;
+                            toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+                            toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(1, &toCopyDest);
+
+                            m_cmdList->CopyResource(texture, copySource);
+
+                            D3D12_RESOURCE_BARRIER toCommon{};
+                            toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            toCommon.Transition.pResource = texture;
+                            toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                            toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                            toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(1, &toCommon);
+                        }
+
+                        // AER V2 submits the synthetic eye with its own predicted
+                        // pose/FOV, not with the raw source eye's pose. The older debug/raw
+                        // source-eye remap logic is only valid for non-synthetic paths.
+                        if (syntheticSource) {
+                            projectionViews[eye].pose = eyePoses[sourceEye];
+                            projectionViews[eye].fov = eyeFovs[sourceEye];
+                        } else {
+                            const uint32_t poseEye = (debugEye == 1 || debugEye == 2 || debugEye == 3) ? sourceEye : eye;
+                            if (poseEye < 2) {
+                                projectionViews[eye].pose = eyePoses[poseEye];
+                                projectionViews[eye].fov = eyeFovs[poseEye];
+                            } else {
+                                projectionViews[eye].pose = eyePoses[eye];
+                                projectionViews[eye].fov = eyeFovs[eye];
+                            }
                         }
                         projectionViews[eye].subImage.swapchain = m_eyeSwapchains[eye].handle;
                         projectionViews[eye].subImage.imageRect.offset = {0, 0};
                         projectionViews[eye].subImage.imageRect.extent = {m_eyeSwapchains[eye].width, m_eyeSwapchains[eye].height};
                         projectionViews[eye].subImage.imageArrayIndex = 0;
+
+                        // Re-present: use the stashed pose so the runtime reprojects the
+                        // last-good image to the current head. Normal: capture this eye
+                        // into the persistent last-good texture
+                        // (CopyResource from copySource, which rests in COPY_SOURCE) and
+                        // stash its pose/fov for future re-presents.
+                        if (reuseLastFrame && sourceEye < 2) {
+                            projectionViews[eye].pose = m_lastGoodPose[sourceEye];
+                            projectionViews[eye].fov = m_lastGoodFov[sourceEye];
+                        } else if (ReuseLastFrameOutputEnabled() && sourceEye < 2 && copySource && m_d3dDevice) {
+                            if (!m_lastGoodEye[sourceEye]) {
+                                const D3D12_RESOURCE_DESC td = texture->GetDesc();
+                                D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+                                D3D12_RESOURCE_DESC rd{};
+                                rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+                                rd.Width = td.Width; rd.Height = td.Height;
+                                rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+                                rd.Format = td.Format; rd.SampleDesc.Count = 1;
+                                rd.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+                                m_d3dDevice->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+                                    D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&m_lastGoodEye[sourceEye]));
+                                m_lastGoodEyeInited[sourceEye] = false;
+                            }
+                            if (m_lastGoodEye[sourceEye]) {
+                                D3D12_RESOURCE_BARRIER b{};
+                                b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                                b.Transition.pResource = m_lastGoodEye[sourceEye].Get();
+                                b.Transition.StateBefore = m_lastGoodEyeInited[sourceEye]
+                                    ? D3D12_RESOURCE_STATE_COPY_SOURCE : D3D12_RESOURCE_STATE_COMMON;
+                                b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+                                b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                                m_cmdList->ResourceBarrier(1, &b);
+                                m_cmdList->CopyResource(m_lastGoodEye[sourceEye].Get(), copySource);
+                                b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                                b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                                m_cmdList->ResourceBarrier(1, &b);
+                                m_lastGoodEyeInited[sourceEye] = true;
+                                m_lastGoodPose[sourceEye] = projectionViews[eye].pose;
+                                m_lastGoodFov[sourceEye] = projectionViews[eye].fov;
+                            }
+                        }
+                    }
+
+                    if (!reuseLastFrame && copyReady &&
+                        m_lastGoodEyeInited[0] && m_lastGoodEyeInited[1]) {
+                        m_lastGoodValid = true;
                     }
 
                     // [DEPTH] Acquire each eye's depth swapchain, copy the scene-depth
@@ -2331,6 +4299,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                         }
                     } else {
                         useDepthLayer = false;
+                    }
+
+                    // Phase 3: return stereo-synth scratch to COMMON for the
+                    // next pair's reproject pre-barrier.
+                    if (stereoSynthOk && m_stereoSynthEye) {
+                        D3D12_RESOURCE_BARRIER toCommon{};
+                        toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                        toCommon.Transition.pResource = m_stereoSynthEye.Get();
+                        toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                        toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                        toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                        m_cmdList->ResourceBarrier(1, &toCommon);
                     }
 
                     m_cmdList->Close();
@@ -2422,32 +4402,52 @@ DWORD OpenXRManager::FrameThreadMain() {
                         endInfo.layers = layers;
                         const XrResult endRes = xrEndFrame(m_session, &endInfo);
                         if (XR_SUCCEEDED(endRes)) {
-                            if (eyePairIds[0] == 1 || (eyePairIds[0] % 300) == 0) {
-                                Log("OpenXRManager: AER frame submitted. left=%llu right=%llu pair=(%llu,%llu) fresh=%d shouldRender=%d debugEye=%d synth=%d depth=%d\n",
+                            // AER submit telemetry. Track ratio of raw vs synth
+                            // submits per 300-frame window — that's the lever
+                            // we're trying to bend (synth share = perceived per-
+                            // eye rate boost above baseline 34 Hz).
+                            static uint64_t s_aerSubmitsRaw = 0;
+                            static uint64_t s_aerSubmitsSynth = 0;
+                            static uint64_t s_aerFreshSubmits = 0;
+                            static uint64_t s_aerResubmits = 0;
+                            const bool wasFresh = submitSerial != m_lastSubmittedSerial;
+                            if (submittedSynthetic) ++s_aerSubmitsSynth; else ++s_aerSubmitsRaw;
+                            if (wasFresh) ++s_aerFreshSubmits; else ++s_aerResubmits;
+                            const bool stride = (eyePairIds[0] == 1 || (eyePairIds[0] % 300) == 0);
+                            if (stride || g_verboseLog != 0) {
+                                Log("OpenXRManager: AER frame submitted. left=%llu right=%llu pair=(%llu,%llu) fresh=%d shouldRender=%d debugEye=%d synth=%d depth=%d (window: raw=%llu synth=%llu fresh=%llu resub=%llu)\n",
                                     static_cast<unsigned long long>(eyeSerials[0]),
                                     static_cast<unsigned long long>(eyeSerials[1]),
                                     static_cast<unsigned long long>(eyePairIds[0]),
                                     static_cast<unsigned long long>(eyePairIds[1]),
-                                    submitSerial != m_lastSubmittedSerial ? 1 : 0,
+                                    wasFresh ? 1 : 0,
                                     frameState.shouldRender ? 1 : 0,
                                     GetAERDebugEye(),
-                                    useInterpolatedPair ? 1 : 0,
-                                    useDepthLayer ? 1 : 0);
+                                    submittedSynthetic ? 1 : 0,
+                                    useDepthLayer ? 1 : 0,
+                                    static_cast<unsigned long long>(s_aerSubmitsRaw),
+                                    static_cast<unsigned long long>(s_aerSubmitsSynth),
+                                    static_cast<unsigned long long>(s_aerFreshSubmits),
+                                    static_cast<unsigned long long>(s_aerResubmits));
+                            }
+                            if (stride) {
+                                // Reset window counters on the 300-pair stride
+                                // so we always see the LAST 300-pair behavior,
+                                // not a cumulative average that hides recent
+                                // regressions.
+                                s_aerSubmitsRaw = 0;
+                                s_aerSubmitsSynth = 0;
+                                s_aerFreshSubmits = 0;
+                                s_aerResubmits = 0;
                             }
                             m_lastSubmittedSerial = submitSerial;
                             m_lastSubmittedPairId = eyePairIds[0];
-                            if (useInterpolatedPair) {
-                                std::lock_guard<std::mutex> lock(m_presentMutex);
-                                if (m_interpolatedPairId == eyePairIds[0]) {
-                                    m_interpolatedPairId = 0;
-                                    m_interpolatedEyeViewsValid[0] = false;
-                                    m_interpolatedEyeViewsValid[1] = false;
-                                }
-                            }
                             eyeSources[0]->Release();
                             eyeSources[1]->Release();
                             if (generatedSources[0]) generatedSources[0]->Release();
                             if (generatedSources[1]) generatedSources[1]->Release();
+                            if (mvWarpedReplacement[0]) mvWarpedReplacement[0]->Release();
+                            if (mvWarpedReplacement[1]) mvWarpedReplacement[1]->Release();
                             if (depthSource) depthSource->Release();
                             if (m_frameSyncEvent) {
                                 SetEvent(m_frameSyncEvent);
@@ -2481,6 +4481,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                 }
                 if (generatedSources[1]) {
                     generatedSources[1]->Release();
+                }
+                if (mvWarpedReplacement[0]) {
+                    mvWarpedReplacement[0]->Release();
+                }
+                if (mvWarpedReplacement[1]) {
+                    mvWarpedReplacement[1]->Release();
                 }
                 if (depthSource) {
                     depthSource->Release();
@@ -2576,27 +4582,86 @@ DWORD OpenXRManager::FrameThreadMain() {
                             break;
                         }
 
-                        D3D12_RESOURCE_BARRIER toCopyDest{};
-                        toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                        toCopyDest.Transition.pResource = texture;
-                        toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
-                        toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-                        toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                        m_cmdList->ResourceBarrier(1, &toCopyDest);
+                        // CAS sharpen (same as the AER path): when xr_sharpness>0, draw
+                        // the sharpened mono source straight into the swapchain image.
+                        // monoSource is always COMMON here (no synth scratch in mono).
+                        const float monoSharp = GetVrSharpness();
+                        bool doMonoSharpen = false;
+                        // TEMP-DISABLED (see AER path): in-submit CAS GPU-crashes; gated
+                        // behind CPVR_CAS_ENABLE until reworked with an SRV scratch.
+                        if (std::getenv("CPVR_CAS_ENABLE") && monoSharp > 0.0001f && m_d3dDevice && texture && monoSource) {
+                            if (!m_sharpenPass) m_sharpenPass = std::make_unique<SharpenPass>();
+                            const D3D12_RESOURCE_DESC sd = texture->GetDesc();
+                            m_sharpenReady = m_sharpenPass->EnsureInitialized(
+                                m_d3dDevice, sd.Format,
+                                static_cast<uint32_t>(sd.Width), sd.Height);
+                            doMonoSharpen = m_sharpenReady;
+                        }
+                        if (doMonoSharpen) {
+                            // monoSource rests in COPY_SOURCE (CaptureMonoPresentedFrame).
+                            D3D12_RESOURCE_BARRIER pre[2] = {};
+                            pre[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            pre[0].Transition.pResource = monoSource;
+                            pre[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                            pre[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                            pre[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            pre[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            pre[1].Transition.pResource = texture;
+                            pre[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            pre[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                            pre[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(2, pre);
 
-                        m_cmdList->CopyResource(texture, monoSource);
+                            m_sharpenPass->RecordSharpen(m_cmdList, monoSource, texture,
+                                                         monoSharp, GetVrSharpmix());
 
-                        D3D12_RESOURCE_BARRIER toCommon{};
-                        toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                        toCommon.Transition.pResource = texture;
-                        toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                        toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
-                        toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                        m_cmdList->ResourceBarrier(1, &toCommon);
+                            D3D12_RESOURCE_BARRIER post[2] = {};
+                            post[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            post[0].Transition.pResource = texture;
+                            post[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                            post[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                            post[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            post[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            post[1].Transition.pResource = monoSource;
+                            post[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                            post[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                            post[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(2, post);
+                        } else {
+                            D3D12_RESOURCE_BARRIER toCopyDest{};
+                            toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            toCopyDest.Transition.pResource = texture;
+                            toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+                            toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(1, &toCopyDest);
+
+                            m_cmdList->CopyResource(texture, monoSource);
+
+                            D3D12_RESOURCE_BARRIER toCommon{};
+                            toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            toCommon.Transition.pResource = texture;
+                            toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+                            toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                            toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            m_cmdList->ResourceBarrier(1, &toCommon);
+                        }
 
                         projectionViews[eye].pose = monoPoses[eye];
                         projectionViews[eye].fov = monoFovs[eye];
                         if (menuRectActive) {
+                            // Head-locked menus. The menu/
+                            // world-map image is screen-space UI; submitting it with the
+                            // captured (lagged, HMD-oriented) pose makes the compositor
+                            // reproject it, so the map SWIMS/slides as you turn your head.
+                            // Submit at the CURRENT eye pose instead -> no reprojection ->
+                            // the menu stays fixed in front of the head (stable flat panel).
+                            {
+                                std::lock_guard<std::mutex> vl(m_viewMutex);
+                                if (static_cast<size_t>(eye) < m_views.size()) {
+                                    projectionViews[eye].pose = m_views[eye].pose;
+                                }
+                            }
                             const float menuFovDeg = GetMenuFov();
                             if (menuFovDeg > 1.0f && menuFovDeg < 170.0f) {
                                 const float halfFov = (menuFovDeg * 3.1415926535f / 180.0f) * 0.5f;
@@ -2895,6 +4960,23 @@ float OpenXRManager::GetHmdYawRelToBody() const {
     return std::atan2(2.0f * (w * y + x * z), 1.0f - 2.0f * (y * y + z * z));
 }
 
+float OpenXRManager::GetHandYawRelToBody(int side) const {
+    if (side < 0 || side > 1) return 0.0f;
+    if (!m_handYawValid[side].load(std::memory_order_relaxed)) {
+        // Fall back to HMD heading so locomotion doesn't snap to 0 when a
+        // controller drops tracking mid-step.
+        return GetHmdYawRelToBody();
+    }
+    return m_handYawRelToBody[side].load(std::memory_order_relaxed);
+}
+
+bool OpenXRManager::GetControllerState(VRControllerState* out) const {
+    if (!out) return false;
+    std::lock_guard<std::mutex> lock(m_inputMutex);
+    *out = m_controllerState;
+    return true;
+}
+
 bool OpenXRManager::GetHeadPose(OpenXRHeadPose* out) const {
     if (!out) return false;
 
@@ -2955,6 +5037,35 @@ bool OpenXRManager::GetHeadPose(OpenXRHeadPose* out) const {
     return out->valid;
 }
 
+bool OpenXRManager::GetCurrentEyeCenterOffset(int eye, XrVector3f* out) {
+    if (!out || eye < 0 || eye > 1) return false;
+    std::lock_guard<std::mutex> viewLock(m_viewMutex);
+    const bool useSyncedViews = (GetSyncSequential() != 0) &&
+        m_syncedPoseValid.load(std::memory_order_relaxed);
+    if (!useSyncedViews && m_views.size() < 2) return false;
+    const XrPosef& p0 = useSyncedViews ? m_syncedEyePoses[0] : m_views[0].pose;
+    const XrPosef& p1 = useSyncedViews ? m_syncedEyePoses[1] : m_views[1].pose;
+    const XrVector3f center{
+        (p0.position.x + p1.position.x) * 0.5f,
+        (p0.position.y + p1.position.y) * 0.5f,
+        (p0.position.z + p1.position.z) * 0.5f};
+    const XrPosef& pe = (eye == 0) ? p0 : p1;
+    out->x = pe.position.x - center.x;
+    out->y = pe.position.y - center.y;
+    out->z = pe.position.z - center.z;
+    return true;
+}
+
+bool OpenXRManager::GetCurrentEyeFov(int eye, XrFovf* out) {
+    if (!out || eye < 0 || eye > 1) return false;
+    std::lock_guard<std::mutex> viewLock(m_viewMutex);
+    const bool useSyncedViews = (GetSyncSequential() != 0) &&
+        m_syncedPoseValid.load(std::memory_order_relaxed);
+    if (!useSyncedViews && static_cast<size_t>(eye) >= m_views.size()) return false;
+    *out = useSyncedViews ? m_syncedEyeFovs[eye] : m_views[eye].fov;
+    return true;
+}
+
 void OpenXRManager::StoreRenderEyePose(int eye, const OpenXRHeadPose& pose, uint32_t seq) {
     if (eye < 0 || eye > 1 || !pose.valid) return;
     // GetHeadPose() returns a base-RECENTERED pose (see the m_basePose math in the
@@ -2988,71 +5099,204 @@ void OpenXRManager::StoreRenderEyePose(int eye, const OpenXRHeadPose& pose, uint
     m_renderEyeHeadPoseValid[eye] = true;
 }
 
+void OpenXRManager::UpdatePairLock() {
+    // PIPELINE SHIFT: this snapshot must be taken at the EARLIEST point of the
+    // frame timeline — BEFORE the engine's animation pass (the VRIK plugin reads
+    // shared memory inside Hooked_ComponentFunc21 during anim eval, which runs
+    // before render/LocateCamera). So it is now called from OnPresent at the PAIR
+    // BOUNDARY (follower eye), publishing the snapshot for the NEXT pair: both eyes
+    // of that pair then animate from this one frozen tracking state -> no per-eye
+    // skeleton tear. Sampling it in LocateCamera (during render) was too late —
+    // eye0 animated off the previous frame, eye1 off the fresh write -> the body
+    // jitter the user saw even on the flat mirror.
+    std::lock_guard<std::mutex> lock(m_handMutex);
+    OpenXRHeadPose live{};
+    GetHeadPose(&live);
+    m_pairLockHeadPose = live;
+    m_pairLockHeadValid = live.valid;
+    m_pairLockHands[0] = m_hands[0];
+    m_pairLockHands[1] = m_hands[1];
+    m_pairLockHmdOri[0] = m_oriX.load(std::memory_order_relaxed);
+    m_pairLockHmdOri[1] = m_oriY.load(std::memory_order_relaxed);
+    m_pairLockHmdOri[2] = m_oriZ.load(std::memory_order_relaxed);
+    m_pairLockHmdOri[3] = m_oriW.load(std::memory_order_relaxed);
+    m_pairLockHmdPosY = m_posY.load(std::memory_order_relaxed);
+    m_pairLockHandsValid = true;
+}
+
+bool OpenXRManager::GetPairLockedHeadPose(OpenXRHeadPose* out) {
+    if (!out) return false;
+    std::lock_guard<std::mutex> lock(m_handMutex);
+    // Return the snapshot UpdatePairLock froze for this pair (both eyes share it).
+    if (m_pairLockHeadValid) {
+        *out = m_pairLockHeadPose;
+        return out->valid;
+    }
+    return GetHeadPose(out);  // before the first snapshot
+}
+
+void OpenXRManager::FlushHandsToShared() {
+    static HANDLE s_hMapFile2 = NULL;
+    static float* sShared = nullptr;
+    if (!s_hMapFile2) {
+        s_hMapFile2 = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 512, "CyberpunkVR_Hands_Shared");
+        if (s_hMapFile2) sShared = (float*)MapViewOfFile(s_hMapFile2, FILE_MAP_ALL_ACCESS, 0, 0, 512);
+    }
+    if (!sShared) return;
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
+
+    // Publish hands + HMD orientation to the VRIK plugin. Default to the LIVE pose
+    // every flush. xr_pair_lock=1 restores the frozen snapshot for anyone who
+    // prefers the anti-tear tradeoff.
+    const bool usePairLock = m_pairLockHandsValid && GetVrPairLock() != 0;
+    OpenXRHeadPose srcHands[2];
+    float hmdOri[4];
+    if (usePairLock) {
+        srcHands[0] = m_pairLockHands[0];
+        srcHands[1] = m_pairLockHands[1];
+        hmdOri[0] = m_pairLockHmdOri[0];
+        hmdOri[1] = m_pairLockHmdOri[1];
+        hmdOri[2] = m_pairLockHmdOri[2];
+        hmdOri[3] = m_pairLockHmdOri[3];
+    } else {
+        srcHands[0] = m_hands[0];
+        srcHands[1] = m_hands[1];
+        hmdOri[0] = m_oriX.load(std::memory_order_relaxed);
+        hmdOri[1] = m_oriY.load(std::memory_order_relaxed);
+        hmdOri[2] = m_oriZ.load(std::memory_order_relaxed);
+        hmdOri[3] = m_oriW.load(std::memory_order_relaxed);
+    }
+    const float baseY = usePairLock ? m_pairLockHmdPosY : m_posY.load(std::memory_order_relaxed);
+
+    // ===== SEQLOCK BEGIN (torn-read fix) =====
+    // The VRIK plugin reads these pose slots from the engine's animation JOB threads
+    // while we write from the present thread; there is no lock spanning the two
+    // modules, so a half-written quaternion made the IK solver swing to a garbage arm
+    // -> body/hands jitter even at FULL REST. Seqlock: publish an ODD sequence number
+    // (= "write in progress"), write all fields, then an EVEN number (= "complete").
+    // The reader (plugin) snapshots seq before+after and retries while it is odd or
+    // changed, so it only ever consumes a fully consistent frame. Writer never blocks.
+    // Slot [127] = sequence counter (well clear of the [0..93] payload).
+    volatile uint32_t* seqSlot = reinterpret_cast<volatile uint32_t*>(&sShared[127]);
+    const uint32_t seqStart = (m_sharedSeq += 1u);   // odd after the first increment
+    *seqSlot = seqStart | 1u;                          // force ODD = write-in-progress
+    std::atomic_thread_fence(std::memory_order_release);
+
+    // Left hand [0-7]
+    sShared[0] = srcHands[0].valid ? 1.0f : 0.0f;
+    sShared[1] = srcHands[0].posX;
+    sShared[2] = srcHands[0].posY;
+    sShared[3] = srcHands[0].posZ;
+    sShared[4] = srcHands[0].oriX;
+    sShared[5] = srcHands[0].oriY;
+    sShared[6] = srcHands[0].oriZ;
+    sShared[7] = srcHands[0].oriW;
+    // Right hand [8-15] with weapon offset
+    float rx = srcHands[1].posX, ry = srcHands[1].posY, rz = srcHands[1].posZ;
+    float rqx = srcHands[1].oriX, rqy = srcHands[1].oriY, rqz = srcHands[1].oriZ, rqw = srcHands[1].oriW;
+    float offQx, offQy, offQz, offQw;
+    EulerToQuat(m_weaponPitch, m_weaponYaw, m_weaponRoll, offQx, offQy, offQz, offQw);
+    float fQx, fQy, fQz, fQw;
+    MulQuatLoc(rqx, rqy, rqz, rqw, offQx, offQy, offQz, offQw, fQx, fQy, fQz, fQw);
+    float tx = 2.0f * (rqy * m_weaponDz - rqz * m_weaponDy);
+    float ty = 2.0f * (rqz * m_weaponDx - rqx * m_weaponDz);
+    float tz = 2.0f * (rqx * m_weaponDy - rqy * m_weaponDx);
+    float vx = m_weaponDx + rqw * tx + (rqy * tz - rqz * ty);
+    float vy = m_weaponDy + rqw * ty + (rqz * tx - rqx * tz);
+    float vz = m_weaponDz + rqw * tz + (rqx * ty - rqy * tx);
+    sShared[8]  = srcHands[1].valid ? 1.0f : 0.0f;
+    sShared[9]  = rx + vx;
+    sShared[10] = ry + vy;
+    sShared[11] = rz + vz;
+    sShared[12] = fQx;
+    sShared[13] = fQy;
+    sShared[14] = fQz;
+    sShared[15] = fQw;
+    // HMD relative orientation [16-19]
+    sShared[16] = hmdOri[0];
+    sShared[17] = hmdOri[1];
+    sShared[18] = hmdOri[2];
+    sShared[19] = hmdOri[3];
+
+    // [89] physical head height + [90] neck-pivot (false-squat fix) — pose-locked
+    // from the SAME frozen snapshot as the hands (baseY computed above), written HERE
+    // (early-pipeline, before the next pair's animation) so VRIK body height/squat no
+    // longer bobs per eye. These used to be written live every present in OnPresent.
+    sShared[89] = baseY;
+    {
+        XrQuaternionf relOri{ hmdOri[0], hmdOri[1], hmdOri[2], hmdOri[3] };
+        const float kOptFwd = 0.15f; // optical centre this far FORWARD of the neck pivot (m)
+        const float kOptUp  = 0.08f; // and this far ABOVE it (m)
+        XrVector3f optLocal{ 0.0f, kOptUp, -kOptFwd }; // OpenXR head-local: +Y up, -Z forward
+        XrVector3f optW = RotateVector(relOri, optLocal);
+        sShared[90] = baseY - optW.y;
+    }
+
+    // ===== SEQLOCK END =====
+    // All payload slots are written; publish an EVEN sequence (= complete) so readers
+    // that snapshot this value (and find it unchanged + even across their read) accept
+    // the frame. Release fence first so the payload stores are visible before seq.
+    std::atomic_thread_fence(std::memory_order_release);
+    *seqSlot = seqStart + 1u;   // seqStart was forced odd -> +1 = EVEN = complete
+}
+
 void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     // [HANDS] Shared Memory Output
     static HANDLE s_hMapFile = NULL;
     static float* s_pSharedHands = nullptr;
     if (!s_hMapFile) {
-        s_hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 256, "CyberpunkVR_Hands_Shared");
+        s_hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 512, "CyberpunkVR_Hands_Shared");
         if (s_hMapFile) {
-            s_pSharedHands = (float*)MapViewOfFile(s_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 256);
+            s_pSharedHands = (float*)MapViewOfFile(s_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 512);
+            m_sharedHandsPtr = s_pSharedHands;   // expose to GetSharedSlot (overlay barrel crosshair)
         }
     }
     if (s_pSharedHands) {
         std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
         // Slot [32]: VR hand-tracking request for the RED4ext plugin (set from the overlay menu).
         s_pSharedHands[32] = static_cast<float>(m_vrHandTrackingMode.load(std::memory_order_relaxed));
-        s_pSharedHands[0] = m_hands[0].valid ? 1.0f : 0.0f;
-        s_pSharedHands[1] = m_hands[0].posX;
-        s_pSharedHands[2] = m_hands[0].posY;
-        s_pSharedHands[3] = m_hands[0].posZ;
-        s_pSharedHands[4] = m_hands[0].oriX;
-        s_pSharedHands[5] = m_hands[0].oriY;
-        s_pSharedHands[6] = m_hands[0].oriZ;
-        s_pSharedHands[7] = m_hands[0].oriW;
-
-        float rx = m_hands[1].posX;
-        float ry = m_hands[1].posY;
-        float rz = m_hands[1].posZ;
-        float rqx = m_hands[1].oriX;
-        float rqy = m_hands[1].oriY;
-        float rqz = m_hands[1].oriZ;
-        float rqw = m_hands[1].oriW;
-
-        // Apply weapon offset from live controls
-        float offQx, offQy, offQz, offQw;
-        EulerToQuat(m_weaponPitch, m_weaponYaw, m_weaponRoll, offQx, offQy, offQz, offQw);
-        
-        float finalQx, finalQy, finalQz, finalQw;
-        MulQuatLoc(rqx, rqy, rqz, rqw, offQx, offQy, offQz, offQw, finalQx, finalQy, finalQz, finalQw);
-
-        // Position offset (in local XR controller space -> rotated to head space)
-        float tx = 2.0f * (rqy * m_weaponDz - rqz * m_weaponDy);
-        float ty = 2.0f * (rqz * m_weaponDx - rqx * m_weaponDz);
-        float tz = 2.0f * (rqx * m_weaponDy - rqy * m_weaponDx);
-        
-        float vx = m_weaponDx + rqw * tx + (rqy * tz - rqz * ty);
-        float vy = m_weaponDy + rqw * ty + (rqz * tx - rqx * tz);
-        float vz = m_weaponDz + rqw * tz + (rqx * ty - rqy * tx);
-
-        s_pSharedHands[8] = m_hands[1].valid ? 1.0f : 0.0f;
-        s_pSharedHands[9] = rx + vx;
-        s_pSharedHands[10] = ry + vy;
-        s_pSharedHands[11] = rz + vz;
-        s_pSharedHands[12] = finalQx;
-        s_pSharedHands[13] = finalQy;
-        s_pSharedHands[14] = finalQz;
-        s_pSharedHands[15] = finalQw;
-
-        // [16..19] HMD orientation relative to the recenter base (relOri = baseInv*Qhead).
-        // The controller positions above are stored in HMD-LOCAL space (headInv*(hand-head)),
-        // so the RED4ext arm-IK plugin multiplies rawController by this quat to undo the head
-        // rotation: relOri*rawHandLocal = baseInv*(hand-head)world -> head-independent offset
-        // in the body-forward frame. Without this the hand swings/inverts when the head turns.
-        s_pSharedHands[16] = m_oriX.load(std::memory_order_relaxed);
-        s_pSharedHands[17] = m_oriY.load(std::memory_order_relaxed);
-        s_pSharedHands[18] = m_oriZ.load(std::memory_order_relaxed);
-        s_pSharedHands[19] = m_oriW.load(std::memory_order_relaxed);
+        s_pSharedHands[58] = static_cast<float>(m_weaponAimEnable.load(std::memory_order_relaxed)); // weapon-aim enable
+        // shared[23]: 0/unset = immersive holsters (default), 1 = simple slot mapping. Inverted so the
+        // zero-initialized shared block defaults to the immersive (current) behaviour before the first
+        // publish. The CET Holster mod reads this via GetVRSharedSlot(23).
+        s_pSharedHands[23] = (m_immersiveHolsters.load(std::memory_order_relaxed) != 0) ? 0.0f : 1.0f;
+        s_pSharedHands[59] = 5.0f;  // mode 5 = game muzzle xform (the working solution)
+        // [70..75]: anatomical HMD/body->shoulder offsets (auto-calibration result).
+        // Right (rx,ry,rz), then left (lx,ly,lz). [76] = valid flag. Kept outside
+        // [34..47], which is the regular calibration block.
+        if (m_calibExtValid.load(std::memory_order_relaxed)) {
+            for (int i = 0; i < 6; ++i) s_pSharedHands[70 + i] = m_calibExt[i].load(std::memory_order_relaxed);
+            s_pSharedHands[76] = 1.0f;
+        }
+        // [77..80]: T-pose measured anatomy (real arm length R/L, HMD eye height) + valid flag.
+        // The plugin scales the avatar arm bones to match (gizmo-path), straightening a relaxed arm.
+        if (m_measureValid.load(std::memory_order_relaxed)) {
+            s_pSharedHands[77] = m_userArmLenR.load(std::memory_order_relaxed);
+            s_pSharedHands[78] = m_userArmLenL.load(std::memory_order_relaxed);
+            s_pSharedHands[79] = m_userEyeHeight.load(std::memory_order_relaxed);
+            s_pSharedHands[80] = 1.0f;
+        }
+        // [89]: HMD PHYSICAL height relative to the recenter base (~0 standing, negative when the
+        // user physically squats). The game FPP camera Lua samples is a FIXED eye height, so the
+        // plugin needs this to actually lower the body / bend the knees on a real-life squat.
+        // [85..88] are written by the plugin (camera->head offset) -- do not touch them here.
+        // PAIR-LOCKED: use the frozen physical head height (snapshot at the pair
+        // boundary). [89] head height + [90] neck-pivot are now written from the
+        // frozen snapshot inside FlushHandsToShared (published at the pair boundary,
+        // BEFORE the next pair's animation) together with the hand slots [0..19], so
+        // they are no longer sampled live per present here.
+        // [91..93]: the ACTIVE baked camera->head offset (game-local right/fwd/up). dxgi shifts the
+        // VIEW by this in LocateCamera; the plugin adds the SAME offset to camModelPos so the avatar
+        // head sits exactly where the (offset-tuned) view sits -> head = camera, body follows.
+        {
+            float cb[3]; GetCameraOffset(cb);
+            s_pSharedHands[91] = cb[0]; s_pSharedHands[92] = cb[1]; s_pSharedHands[93] = cb[2];
+        }
+        // IMPORTANT: hand pose slots [0..19] are flushed in OnLocateCameraCallback
+        // BEFORE render (FlushHandsToShared). Do NOT rewrite them here after render,
+        // or the next frame may see a mixed temporal state (one wrong frame even
+        // on the flat monitor, amplified in AER). Keep OnPresent for config/static
+        // slots only.
 
         // [33..47] IK calibration from the overlay; [48] one-shot diag request.
         s_pSharedHands[33] = static_cast<float>(m_calibValid.load(std::memory_order_relaxed));
@@ -3071,7 +5315,34 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     const int presentEye = aerEnabled ? GetRenderedCameraEye() : 0;
     const bool aerWarmupFrame = aerEnabled && m_aerWarmupRemaining > 0;
 
-    if (aerEnabled && scheduledEye != presentEye && (s_presentCount % 300) == 1) {
+    // ===== POSE PAIR LOCKING — publish point (pipeline shift) =====
+    // Snapshot the tracking state + write the VRIK shared slots HERE, BEFORE the
+    // next animation/render pass (the plugin reads it during anim eval, which
+    // precedes render/LocateCamera).
+    //
+    // Publish EVERY present in both mono AND AER. An earlier AER-only gate
+    // (presentEye==1, the pair boundary) published hands only every OTHER
+    // present -> VRIK/skeleton updated at HALF the present rate -> hands
+    // "teleport" at ~20-45 Hz while the world rendered at 90. Publishing every
+    // present gives each eye's render the freshest hand pose (the live-pose path,
+    // usePairLock=0 default, already avoids the frozen-pair coherence issue, and
+    // any per-eye skeleton tear from a mid-pair update is far less visible than
+    // half-rate hands).
+    {
+        if (aerEnabled) m_pairLockLastEye = presentEye;
+        UpdatePairLock();
+        FlushHandsToShared();
+    }
+
+    // NOTE: NO present-thread SLEEP throttle here. There is no busy-wait/Sleep
+    // cap on the game present thread. HMD-pacing for AER V2 is done by the
+    // m_frameSyncEvent wait at the end of OnPresent. The old Sleep-to-45-pairs/s
+    // "GPU boost" was removed because it stalled the engine to ~7 pairs/s; the
+    // current path runs at full HMD rate, one eye per frame. To cap the engine
+    // further, use an
+    // EXTERNAL fps limiter (in-game / RTSS / driver).
+
+    if (g_verboseLog && aerEnabled && scheduledEye != presentEye && (s_presentCount % 300) == 1) {
         Log("OpenXRManager: AER eye mismatch corrected. scheduled=%d rendered=%d serial=%llu\n",
             scheduledEye,
             presentEye,
@@ -3103,7 +5374,7 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         m_syncedEyeViewsValid = viewsValid;
         m_syncedPoseValid.store(true, std::memory_order_relaxed);
         ++m_syncedPairId;
-        if (m_syncedPairId == 1 || (m_syncedPairId % 300) == 0) {
+        if (g_verboseLog && (m_syncedPairId == 1 || (m_syncedPairId % 300) == 0)) {
             Log("OpenXRManager: synchronized sequential pair latched. pair=%llu views=%d 3dof=%d\n",
                 static_cast<unsigned long long>(m_syncedPairId),
                 viewsValid ? 1 : 0,
@@ -3172,7 +5443,14 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                 fovWidth = static_cast<float>(resourceDesc.Width);
                 fovHeight = static_cast<float>(resourceDesc.Height);
             }
-            capturedFov = ApplyForcedProjectionFov(sourceFov, fovWidth, fovHeight);
+            XrFovf pairFovs[2]{};
+            const XrFovf* pairFovPtr = nullptr;
+            if (m_views.size() >= 2) {
+                pairFovs[0] = useSyncedView ? m_syncedEyeFovs[0] : m_views[0].fov;
+                pairFovs[1] = useSyncedView ? m_syncedEyeFovs[1] : m_views[1].fov;
+                pairFovPtr = pairFovs;
+            }
+            capturedFov = ApplyForcedProjectionFov(sourceFov, pairFovPtr, presentEye, fovWidth, fovHeight);
             hasCapturedView = true;
 
             // Render-pose submit (AER V2): replace the present-time pose with the
@@ -3180,8 +5458,7 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
             // camera hook), so the compositor time-warps the older 1/2-rate eye
             // forward to display time instead of showing it stale. Keep the runtime
             // per-eye offset for the correct stereo baseline; only head pos+ori
-            // carry the per-eye render timestamp. This is the fix for left-eye
-            // judder on head turns.
+            // carry the per-eye render timestamp.
             if (GetRenderPoseSubmit() != 0 && m_views.size() >= 2) {
                 std::lock_guard<std::mutex> renderLock(m_renderPoseMutex);
                 
@@ -3261,13 +5538,29 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                 monoCapturedPoses[eye].position.x += eyeOffset.x;
                 monoCapturedPoses[eye].position.y += eyeOffset.y;
                 monoCapturedPoses[eye].position.z += eyeOffset.z;
-                monoCapturedFovs[eye] = ApplyForcedProjectionFov(m_views[eye].fov, fovWidth, fovHeight);
+                XrFovf monoPairFovs[2] = { m_views[0].fov, m_views[1].fov };
+                monoCapturedFovs[eye] = ApplyForcedProjectionFov(m_views[eye].fov, monoPairFovs, eye, fovWidth, fovHeight);
                 monoCapturedViews[eye] = true;
             }
         }
     }
     bool monoCaptureOk = false;
-    if (monoEnabled && (!aerEnabled || menuRectActive) && backBuffer) {
+    // In AER mode the mono capture is REDUNDANT during gameplay: its output is
+    // never submitted (the AER submit path uses m_capturedEyeFrames, not
+    // m_monoCapturedFrame), but it still runs a full CopyResource +
+    // ExecuteCommandLists + Signal + its own ring-buffer drain wait
+    // (WaitForSingleObject INFINITE) EVERY present -- doubling the per-present
+    // GPU work and tripping the capture-queue drain wait, which throttles the
+    // game's present rate. CP2077 ties simulation ticks to present frames, so a
+    // depressed present rate makes sim-driven things (NPC skeletal anim, world
+    // logic) stutter while shader-time things (windmills/fans) stay smooth.
+    //
+    // BUT: in the MENU the AER capture is deliberately skipped (the
+    // `!menuRectActive` guard on CapturePresentedFrame below) because menus
+    // render as a single mono surface, not alternate-eye. So in the menu we MUST
+    // run the mono capture or there is no image at all. Run mono capture when
+    // either we're not in AER, or we're in AER but currently in a menu.
+    if (monoEnabled && backBuffer && (!aerEnabled || menuRectActive)) {
         monoCaptureOk = CaptureMonoPresentedFrame(backBuffer, resourceDesc, s_presentCount,
             monoCapturedPoses, monoCapturedFovs, monoCapturedViews);
         if (!monoCaptureOk && (s_presentCount % 300) == 1) {
@@ -3298,6 +5591,8 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     ID3D12Resource* flowCurrSource[2] = {};
     ID3D12Resource* flowPrev[2] = {};
     ID3D12Resource* flowCurr[2] = {};
+    ID3D12Resource* flowPrevDepth[2] = {};
+    ID3D12Resource* flowCurrDepth[2] = {};
     std::unique_lock<std::mutex> presentLock(m_presentMutex);
         if (m_lastPresentedBackBuffer) {
             m_lastPresentedBackBuffer->Release();
@@ -3314,6 +5609,7 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
             m_pendingEyeFrames[presentEye].fov = capturedFov;
             m_pendingEyeFrames[presentEye].hasView = hasCapturedView;
 
+            const bool aerV2On = (GetAERV2Enabled() != 0);
             const bool pairReady =
                 m_pendingEyeFrames[0].pairId == presentPairId &&
                 m_pendingEyeFrames[1].pairId == presentPairId &&
@@ -3321,26 +5617,24 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                 m_pendingEyeFrames[1].serial != 0 &&
                 m_pendingEyeFrames[0].hasView &&
                 m_pendingEyeFrames[1].hasView;
-            if (pairReady) {
+            if (aerV2On || pairReady) {
+                if (aerV2On) {
+                    std::swap(m_previousCapturedEyeFrames[presentEye], m_capturedEyeFrames[presentEye]);
+                    std::swap(m_capturedEyeFrames[presentEye], m_pendingEyeFrames[presentEye]);
+                } else {
                 std::swap(m_previousCapturedEyeFrames[0], m_capturedEyeFrames[0]);
                 std::swap(m_previousCapturedEyeFrames[1], m_capturedEyeFrames[1]);
                 std::swap(m_capturedEyeFrames[0], m_pendingEyeFrames[0]);
                 std::swap(m_capturedEyeFrames[1], m_pendingEyeFrames[1]);
-                auto nameFrameRole = [](CapturedEyeFrame& frame, const wchar_t* role, int eye) {
-                    SetD3DNamef(frame.texture, L"AERV2_%ls_eye%d_color_pair%llu_serial%llu", role, eye,
-                        static_cast<unsigned long long>(frame.pairId),
-                        static_cast<unsigned long long>(frame.serial));
-                    SetD3DNamef(frame.opticalFlowTexture, L"AERV2_%ls_eye%d_ofinput_pair%llu_serial%llu", role, eye,
-                        static_cast<unsigned long long>(frame.pairId),
-                        static_cast<unsigned long long>(frame.serial));
-                };
-                nameFrameRole(m_previousCapturedEyeFrames[0], L"previous", 0);
-                nameFrameRole(m_previousCapturedEyeFrames[1], L"previous", 1);
-                nameFrameRole(m_capturedEyeFrames[0], L"current", 0);
-                nameFrameRole(m_capturedEyeFrames[1], L"current", 1);
-                nameFrameRole(m_pendingEyeFrames[0], L"pending_reuse", 0);
-                nameFrameRole(m_pendingEyeFrames[1], L"pending_reuse", 1);
-                if (m_interpolatedPairId != 0 &&
+                }
+                // Per-frame resource renaming (nameFrameRole) removed: it formatted
+                // 6 wide strings + called SetName every present UNDER m_presentMutex,
+                // contending with the frame thread's submit. The resources are already
+                // named at creation (L"AERV2_pending_eye%d_color/depth"), so the
+                // per-frame pair/serial suffix is redundant debug verbosity. Re-enable
+                // here only when chasing a capture-slot race in PIX/VS Graphics Diag.
+                if (GetAERV2Enabled() == 0 &&
+                    m_interpolatedPairId != 0 &&
                     m_interpolatedPairId != presentPairId) {
                     if ((presentPairId % 300) == 0) {
                         Log("OpenXRManager: AER V2 stale synth dropped. stale=%llu current=%llu lastSubmitted=%llu\n",
@@ -3349,15 +5643,96 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                             static_cast<unsigned long long>(m_lastSubmittedPairId));
                     }
                     m_interpolatedPairId = 0;
+                    m_interpolatedSynthSlot = 0;
+                    m_interpolatedSyntheticEye = -1;
                     m_interpolatedEyeViewsValid[0] = false;
                     m_interpolatedEyeViewsValid[1] = false;
                 }
-                const bool synthSlotBusy = m_interpolatedPairId != 0;
+                const bool synthSlotBusy = (GetAERV2Enabled() == 0) && (m_interpolatedPairId != 0);
                 if (GetAERV2Enabled() != 0 && presentPairId == 1) {
                     Log("OpenXRManager: AER V2 optical-flow warmup active until pair=%llu\n",
                         static_cast<unsigned long long>(kAERV2FlowWarmupPairId));
                 }
-                if (GetAERV2Enabled() != 0 &&
+                // The NvOF synth now runs in FrameThreadMain
+                // (continuous blendFactor matched to predictedDisplayTime), NOT
+                // inline here. Disable the old present-thread V2 producer entirely;
+                // OnPresent for V2 just captures+swaps. (V1/legacy worker path
+                // below is unchanged.)
+                if (false && aerV2On &&
+                    m_lastSubmittedPairId != 0 &&
+                    presentPairId >= kAERV2FlowWarmupPairId &&
+                    !synthSlotBusy) {
+                    const int renderedEye = presentEye;
+                    const int syntheticEye = presentEye ^ 1;
+                    const bool pairAlreadyPublished =
+                        m_interpolatedPairId == presentPairId &&
+                        m_interpolatedSyntheticEye >= 0;
+                    if (!pairAlreadyPublished) {
+                        // NvOF flow is TEMPORAL between same-eye
+                        // prev/curr captures (not cross-eye). The synthetic eye's
+                        // previous render (2 presents ago) is warped forward by
+                        // blendFactor using same-eye temporal flow.
+                        if (m_previousCapturedEyeFrames[syntheticEye].serial != 0 &&
+                            m_previousCapturedEyeFrames[syntheticEye].texture &&
+                            m_previousCapturedEyeFrames[syntheticEye].opticalFlowTexture &&
+                            m_capturedEyeFrames[syntheticEye].serial != 0 &&
+                            m_capturedEyeFrames[syntheticEye].texture &&
+                            m_capturedEyeFrames[syntheticEye].opticalFlowTexture &&
+                            m_capturedEyeFrames[syntheticEye].hasView) {
+                            runAERV2Flow = true;
+                            flowPairId = s_presentCount;
+                            // Same-eye temporal: prev=older, curr=newer of synthetic eye
+                            flowPrevSource[syntheticEye] = m_previousCapturedEyeFrames[syntheticEye].texture;
+                            flowCurrSource[syntheticEye] = m_capturedEyeFrames[syntheticEye].texture;
+                            flowPrev[syntheticEye] = m_previousCapturedEyeFrames[syntheticEye].opticalFlowTexture;
+                            flowCurr[syntheticEye] = m_capturedEyeFrames[syntheticEye].opticalFlowTexture;
+                            if (m_previousCapturedEyeFrames[syntheticEye].depthTexture &&
+                                m_previousCapturedEyeFrames[syntheticEye].depthSerial == m_previousCapturedEyeFrames[syntheticEye].serial) {
+                                flowPrevDepth[syntheticEye] = m_previousCapturedEyeFrames[syntheticEye].depthTexture;
+                            }
+                            if (m_capturedEyeFrames[syntheticEye].depthTexture &&
+                                m_capturedEyeFrames[syntheticEye].depthSerial == m_capturedEyeFrames[syntheticEye].serial) {
+                                flowCurrDepth[syntheticEye] = m_capturedEyeFrames[syntheticEye].depthTexture;
+                            }
+                            flowPrevSource[syntheticEye]->AddRef();
+                            flowCurrSource[syntheticEye]->AddRef();
+                            flowPrev[syntheticEye]->AddRef();
+                            flowCurr[syntheticEye]->AddRef();
+                            if (flowPrevDepth[syntheticEye]) flowPrevDepth[syntheticEye]->AddRef();
+                            if (flowCurrDepth[syntheticEye]) flowCurrDepth[syntheticEye]->AddRef();
+                        }
+                        // 1:1 half-rate: also stage renderedEye's own temporal
+                        // history so ProcessAERV2Job can warp BOTH eyes into the
+                        // in-between pair (m_aerV2InBetween). Only when half-rate.
+                        if (runAERV2Flow && GetAERHalfRate() != 0 && !flowPrevSource[renderedEye] &&
+                            m_previousCapturedEyeFrames[renderedEye].serial != 0 &&
+                            m_previousCapturedEyeFrames[renderedEye].texture &&
+                            m_previousCapturedEyeFrames[renderedEye].opticalFlowTexture &&
+                            m_capturedEyeFrames[renderedEye].serial != 0 &&
+                            m_capturedEyeFrames[renderedEye].texture &&
+                            m_capturedEyeFrames[renderedEye].opticalFlowTexture &&
+                            m_capturedEyeFrames[renderedEye].hasView) {
+                            flowPrevSource[renderedEye] = m_previousCapturedEyeFrames[renderedEye].texture;
+                            flowCurrSource[renderedEye] = m_capturedEyeFrames[renderedEye].texture;
+                            flowPrev[renderedEye] = m_previousCapturedEyeFrames[renderedEye].opticalFlowTexture;
+                            flowCurr[renderedEye] = m_capturedEyeFrames[renderedEye].opticalFlowTexture;
+                            if (m_previousCapturedEyeFrames[renderedEye].depthTexture &&
+                                m_previousCapturedEyeFrames[renderedEye].depthSerial == m_previousCapturedEyeFrames[renderedEye].serial) {
+                                flowPrevDepth[renderedEye] = m_previousCapturedEyeFrames[renderedEye].depthTexture;
+                            }
+                            if (m_capturedEyeFrames[renderedEye].depthTexture &&
+                                m_capturedEyeFrames[renderedEye].depthSerial == m_capturedEyeFrames[renderedEye].serial) {
+                                flowCurrDepth[renderedEye] = m_capturedEyeFrames[renderedEye].depthTexture;
+                            }
+                            flowPrevSource[renderedEye]->AddRef();
+                            flowCurrSource[renderedEye]->AddRef();
+                            flowPrev[renderedEye]->AddRef();
+                            flowCurr[renderedEye]->AddRef();
+                            if (flowPrevDepth[renderedEye]) flowPrevDepth[renderedEye]->AddRef();
+                            if (flowCurrDepth[renderedEye]) flowCurrDepth[renderedEye]->AddRef();
+                        }
+                    }
+                } else if (!aerV2On &&
                     m_lastSubmittedPairId != 0 &&
                     presentPairId >= kAERV2FlowWarmupPairId &&
                     !synthSlotBusy &&
@@ -3382,10 +5757,20 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                     flowCurr[0] = m_capturedEyeFrames[0].opticalFlowTexture;
                     flowCurr[1] = m_capturedEyeFrames[1].opticalFlowTexture;
                     for (int eye = 0; eye < 2; ++eye) {
+                        if (m_previousCapturedEyeFrames[eye].depthTexture &&
+                            m_previousCapturedEyeFrames[eye].depthSerial == m_previousCapturedEyeFrames[eye].serial) {
+                            flowPrevDepth[eye] = m_previousCapturedEyeFrames[eye].depthTexture;
+                        }
+                        if (m_capturedEyeFrames[eye].depthTexture &&
+                            m_capturedEyeFrames[eye].depthSerial == m_capturedEyeFrames[eye].serial) {
+                            flowCurrDepth[eye] = m_capturedEyeFrames[eye].depthTexture;
+                        }
                         flowPrevSource[eye]->AddRef();
                         flowCurrSource[eye]->AddRef();
                         flowPrev[eye]->AddRef();
                         flowCurr[eye]->AddRef();
+                        if (flowPrevDepth[eye]) flowPrevDepth[eye]->AddRef();
+                        if (flowCurrDepth[eye]) flowCurrDepth[eye]->AddRef();
                     }
                 }
                 if ((presentPairId % 300) == 0) {
@@ -3414,71 +5799,135 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         }
     }
 
-    if (runAERV2Flow && m_opticalFlow) {
-        bool convertedOk = true;
-        for (int eye = 0; eye < 2; ++eye) {
-            if (!m_opticalFlow->ConvertToInputTexture(flowPrevSource[eye], flowPrev[eye]) ||
-                !m_opticalFlow->ConvertToInputTexture(flowCurrSource[eye], flowCurr[eye])) {
-                convertedOk = false;
-                break;
-            }
-        }
-        if (!convertedOk) {
-            Log("OpenXRManager: AER V2 input conversion failed. pair=%llu\n",
-                static_cast<unsigned long long>(flowPairId));
-            runAERV2Flow = false;
-        }
-    }
-    if (!runAERV2Flow && presentLock.owns_lock()) {
+    // Hand off Convert+Execute+Synth to the background worker so OnPresent does
+    // NOT CPU-block on ~3.5ms/frame of GPU sync. Source refs are already addref'd
+    // above; ownership is transferred into the job (worker releases on completion).
+    // Submit thread reads m_interpolatedPairId atomically — if the worker has
+    // published for the current pair, V2 frames are used; otherwise we fall back
+    // to raw current eye. Single-slot queue: if a fresh pair lands while worker
+    // is busy, the older queued (but not yet picked) job is replaced (refs
+    // released) so we never grow latency past one synth interval.
+    if (presentLock.owns_lock()) {
         presentLock.unlock();
     }
-
     if (runAERV2Flow && m_opticalFlow) {
-        const bool leftOk = m_opticalFlow->ExecuteFlow(flowPrev[0], flowCurr[0], 0);
-        const bool rightOk = m_opticalFlow->ExecuteFlow(flowPrev[1], flowCurr[1], 1);
-        bool leftSynth = false;
-        bool rightSynth = false;
-        if (leftOk) {
-            leftSynth = m_opticalFlow->SynthesizeMidpoint(flowPrev[0], flowCurr[0], 0);
+        auto job = std::make_unique<AERV2Job>();
+        job->pairId = flowPairId;
+        // Pair-counter id for the in-between submit cadence (see AERV2Job).
+        job->submitPairId = presentPairId;
+        if (GetAERV2Enabled() != 0) {
+            job->renderedEye = presentEye;
+            job->syntheticEye = presentEye ^ 1;
         }
-        if (rightOk) {
-            rightSynth = m_opticalFlow->SynthesizeMidpoint(flowPrev[1], flowCurr[1], 1);
+        for (int eye = 0; eye < 2; ++eye) {
+            job->flowPrevSource[eye] = flowPrevSource[eye];
+            job->flowCurrSource[eye] = flowCurrSource[eye];
+            job->flowPrev[eye]       = flowPrev[eye];
+            job->flowCurr[eye]       = flowCurr[eye];
+            job->prevDepth[eye]      = flowPrevDepth[eye];
+            job->currDepth[eye]      = flowCurrDepth[eye];
+            job->prevPose[eye] = m_previousCapturedEyeFrames[eye].pose;
+            job->currPose[eye] = m_capturedEyeFrames[eye].pose;
+            job->fov[eye]      = m_capturedEyeFrames[eye].fov;
+            job->hasView[eye]  =
+                m_previousCapturedEyeFrames[eye].hasView &&
+                m_capturedEyeFrames[eye].hasView;
+            // Cleared so the cleanup-fallback below sees only owned-by-job pointers.
+            flowPrevSource[eye] = nullptr;
+            flowCurrSource[eye] = nullptr;
+            flowPrev[eye]       = nullptr;
+            flowCurr[eye]       = nullptr;
+            flowPrevDepth[eye]  = nullptr;
+            flowCurrDepth[eye]  = nullptr;
         }
-        if (leftSynth && rightSynth) {
-            m_interpolatedPairId = flowPairId;
-            for (int eye = 0; eye < 2; ++eye) {
-                m_interpolatedEyePoses[eye] = ExtrapolatePose(
-                    m_previousCapturedEyeFrames[eye].pose,
-                    m_capturedEyeFrames[eye].pose,
-                    kAERV2FrameGenPoseT);
-                m_interpolatedEyeFovs[eye] = m_capturedEyeFrames[eye].fov;
-                m_interpolatedEyeViewsValid[eye] =
-                    m_previousCapturedEyeFrames[eye].hasView &&
-                    m_capturedEyeFrames[eye].hasView;
+        // Attach engine-side ground truth: motion vectors + depth captured via
+        // Streamline slSetTag hook. These are AddRef'd here and Released by the
+        // worker on completion (see ReleaseAERV2JobRefs). They may be null on
+        // very early frames before the NGX hook fires; worker handles that.
+        job->engineMv = NgxAcquireMotionVectors();
+        {
+            std::lock_guard<std::mutex> lock(m_presentMutex);
+            if (m_depthSnapshot && m_depthSnapshotSerial != 0) {
+                m_depthSnapshot->AddRef();
+                job->engineDepth = m_depthSnapshot;
             }
+        }
+
+        if (!job->engineDepth) {
+            job->engineDepth = NgxAcquireDepth();
+        }
+        // Record each captured eye's serial so the worker can identify the
+        // older eye of the pair (lower serial = captured earlier = candidate
+        // for MV-warp forward extrapolation).
+        job->currSerial[0] = m_capturedEyeFrames[0].serial;
+        job->currSerial[1] = m_capturedEyeFrames[1].serial;
+        if (GetAERV2Enabled() != 0) {
+            ProcessAERV2Job(std::move(job));
         } else {
-            m_interpolatedPairId = 0;
-            m_interpolatedEyeViewsValid[0] = false;
-            m_interpolatedEyeViewsValid[1] = false;
-        }
-        if (presentLock.owns_lock()) {
-            presentLock.unlock();
-        }
-        if ((flowPairId % 300) == 0 || !leftOk || !rightOk || !leftSynth || !rightSynth) {
-            Log("OpenXRManager: AER V2 flow/synth. pair=%llu flowL=%d flowR=%d synthL=%d synthR=%d\n",
-                static_cast<unsigned long long>(flowPairId),
-                leftOk ? 1 : 0,
-                rightOk ? 1 : 0,
-                leftSynth ? 1 : 0,
-                rightSynth ? 1 : 0);
+            StartAERV2WorkerIfNeeded();
+            std::unique_ptr<AERV2Job> replacedJob;
+            {
+                std::lock_guard<std::mutex> lock(m_aerV2JobMutex);
+                if (m_aerV2PendingJob) {
+                    replacedJob = std::move(m_aerV2PendingJob);
+                }
+                m_aerV2PendingJob = std::move(job);
+            }
+            m_aerV2JobCv.notify_one();
+            if (replacedJob) {
+                ReleaseAERV2JobRefs(*replacedJob);
+                if ((flowPairId % 300) == 0) {
+                    Log("OpenXRManager: AER V2 worker behind, replaced stale queued pair=%llu with %llu\n",
+                        static_cast<unsigned long long>(replacedJob->pairId),
+                        static_cast<unsigned long long>(flowPairId));
+                }
+            }
         }
     }
 
+    // Any refs we addref'd but couldn't transfer (e.g. runAERV2Flow false after
+    // the addref above, or m_opticalFlow null) get released here. After the job
+    // was built, these are already nulled — Release on null is a no-op.
     for (int eye = 0; eye < 2; ++eye) {
         if (flowPrevSource[eye]) flowPrevSource[eye]->Release();
         if (flowCurrSource[eye]) flowCurrSource[eye]->Release();
         if (flowPrev[eye]) flowPrev[eye]->Release();
         if (flowCurr[eye]) flowCurr[eye]->Release();
+        if (flowPrevDepth[eye]) flowPrevDepth[eye]->Release();
+        if (flowCurrDepth[eye]) flowCurrDepth[eye]->Release();
+    }
+
+    // Idea #2 — synced-pose freshness (per-present low-pass nudge). syncSequential
+    // freezes the head pose per pair for coherent stereo, but that lags on head
+    // turns. Each present we nudge the synced pose toward the LIVE pose by
+    // g_poseBlend (0=frozen, 1=live). The pair-boundary full snap below still
+    // runs as the hard reset; this just closes the lag gap between snaps.
+    // Both eyes still read the SAME synced pose -> stereo stays coherent; only
+    // the lag shrinks. Skipped until the first pair has latched (valid) and when
+    // the blend is 0 (no-op).
+    if (syncSequential && !aerWarmupFrame) {
+        const float pb = GetPoseBlend();
+        if (pb > 0.0f && m_syncedPoseValid.load(std::memory_order_relaxed)) {
+            const float keep = 1.0f - pb;
+            m_syncedPosX.store(m_syncedPosX.load(std::memory_order_relaxed) * keep +
+                               m_posX.load(std::memory_order_relaxed) * pb, std::memory_order_relaxed);
+            m_syncedPosY.store(m_syncedPosY.load(std::memory_order_relaxed) * keep +
+                               m_posY.load(std::memory_order_relaxed) * pb, std::memory_order_relaxed);
+            m_syncedPosZ.store(m_syncedPosZ.load(std::memory_order_relaxed) * keep +
+                               m_posZ.load(std::memory_order_relaxed) * pb, std::memory_order_relaxed);
+            // Orientation: component lerp + renormalize (valid for small per-present deltas).
+            float ox = m_syncedOriX.load(std::memory_order_relaxed) * keep + m_oriX.load(std::memory_order_relaxed) * pb;
+            float oy = m_syncedOriY.load(std::memory_order_relaxed) * keep + m_oriY.load(std::memory_order_relaxed) * pb;
+            float oz = m_syncedOriZ.load(std::memory_order_relaxed) * keep + m_oriZ.load(std::memory_order_relaxed) * pb;
+            float ow = m_syncedOriW.load(std::memory_order_relaxed) * keep + m_oriW.load(std::memory_order_relaxed) * pb;
+            const float on = std::sqrt(ox*ox + oy*oy + oz*oz + ow*ow);
+            if (on > 1e-9f) { const float inv = 1.0f / on;
+                ox *= inv; oy *= inv; oz *= inv; ow *= inv; }
+            m_syncedOriX.store(ox, std::memory_order_relaxed);
+            m_syncedOriY.store(oy, std::memory_order_relaxed);
+            m_syncedOriZ.store(oz, std::memory_order_relaxed);
+            m_syncedOriW.store(ow, std::memory_order_relaxed);
+        }
     }
 
     if (syncSequential && presentEye == 1 && !aerWarmupFrame) {
@@ -3488,10 +5937,6 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     if (aerEnabled) {
         if (aerWarmupFrame) {
             --m_aerWarmupRemaining;
-            m_renderEyeIndex.store(presentEye, std::memory_order_relaxed);
-        } else if (presentEye == 1) {
-            m_aerWarmupRemaining = GetAERWarmupFrames();
-            m_renderEyeIndex.store(0, std::memory_order_relaxed);
         } else {
             m_renderEyeIndex.store(presentEye ^ 1, std::memory_order_relaxed);
         }
@@ -3506,8 +5951,16 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     // By waiting for the compositor to finish xrEndFrame, we ensure the game
     // never runs ahead, and the next GetHeadPose will have the absolutely
     // fresh predicted display time for the subsequent frame.
-    // NOTE: AER mode submits pairs asynchronously at half-rate, so locking
-    // the game thread here causes severe frame pacing issues and 1-FPS drops.
+    //
+    // IMPORTANT: this wait is MONO-ONLY. An earlier attempt extended it to AER
+    // V2 (mode-6) on the theory that pacing captures to submits would help, but
+    // it introduced a feedback loop with the alternating-eye captures: the game
+    // thread waking point drifted vsync-to-vsync, so the rendered eye's pose age
+    // at display time varied -> variable ATW delta -> whole-image jitter in BOTH
+    // eyes on head turns. Mono is immune (single eye, submits at a consistent
+    // pose baseline). AER V2 instead lets the engine free-run and relies on the
+    // per-eye mode-6 warp + runtime ATW for smoothness. See
+    // docs/aer-v2-mode6-corrected.md.
     if (monoEnabled && !aerEnabled && m_frameSyncEvent) {
         WaitForSingleObject(m_frameSyncEvent, 1000);
     }
@@ -3530,6 +5983,483 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         static_cast<unsigned long long>(presentPairId));
 }
 
+void OpenXRManager::ReleaseAERV2JobRefs(AERV2Job& job) {
+    for (int eye = 0; eye < 2; ++eye) {
+        if (job.flowPrevSource[eye]) { job.flowPrevSource[eye]->Release(); job.flowPrevSource[eye] = nullptr; }
+        if (job.flowCurrSource[eye]) { job.flowCurrSource[eye]->Release(); job.flowCurrSource[eye] = nullptr; }
+        if (job.flowPrev[eye])       { job.flowPrev[eye]->Release();       job.flowPrev[eye] = nullptr; }
+        if (job.flowCurr[eye])       { job.flowCurr[eye]->Release();       job.flowCurr[eye] = nullptr; }
+        if (job.prevDepth[eye])      { job.prevDepth[eye]->Release();      job.prevDepth[eye] = nullptr; }
+        if (job.currDepth[eye])      { job.currDepth[eye]->Release();      job.currDepth[eye] = nullptr; }
+    }
+    if (job.engineMv)    { job.engineMv->Release();    job.engineMv = nullptr; }
+    if (job.engineDepth) { job.engineDepth->Release(); job.engineDepth = nullptr; }
+}
+
+void OpenXRManager::StartAERV2WorkerIfNeeded() {
+    if (m_aerV2WorkerThread.joinable()) {
+        return;
+    }
+    m_aerV2WorkerShutdown.store(false, std::memory_order_release);
+    m_aerV2WorkerThread = std::thread(&OpenXRManager::AERV2WorkerThreadMain, this);
+}
+
+void OpenXRManager::StopAERV2Worker() {
+    if (!m_aerV2WorkerThread.joinable()) {
+        // Still might have a pending job sitting from before the worker started.
+        std::unique_ptr<OpenXRManager::AERV2Job> stale;
+        {
+            std::lock_guard<std::mutex> lock(m_aerV2JobMutex);
+            stale = std::move(m_aerV2PendingJob);
+        }
+        if (stale) {
+            ReleaseAERV2JobRefs(*stale);
+        }
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_aerV2JobMutex);
+        m_aerV2WorkerShutdown.store(true, std::memory_order_release);
+    }
+    m_aerV2JobCv.notify_all();
+    m_aerV2WorkerThread.join();
+    // Drain any leftover queued job (worker exited without picking it up).
+    std::unique_ptr<OpenXRManager::AERV2Job> stale;
+    {
+        std::lock_guard<std::mutex> lock(m_aerV2JobMutex);
+        stale = std::move(m_aerV2PendingJob);
+    }
+    if (stale) {
+        ReleaseAERV2JobRefs(*stale);
+    }
+    m_aerV2BusyPairId.store(0, std::memory_order_relaxed);
+}
+
+void OpenXRManager::ProcessAERV2Job(std::unique_ptr<AERV2Job> job) {
+    if (!job) {
+        return;
+    }
+    m_aerV2BusyPairId.store(job->pairId, std::memory_order_release);
+
+    // Phase 2b/2c/2d: run motion-vector forward warp on the OLDER eye of
+    // the current pair so the AER submit can substitute that eye's stale
+    // image with an "advanced 1 frame forward by engine MV" version. Both
+    // submitted eyes then represent the SAME simulation timestamp,
+    // collapsing the within-pair gap that produces the "pushed back when
+    // walking" jitter.
+    bool mvWarpAttempted = false;
+    bool mvWarpOk[2] = {false, false};
+    const int olderEye = (job->syntheticEye >= 0 && job->syntheticEye < 2)
+        ? job->syntheticEye
+        : ((job->currSerial[0] <= job->currSerial[1]) ? 0 : 1);
+    if (GetAERV2Enabled() == 0 && job->engineMv && job->flowCurrSource[olderEye] &&
+        m_d3dDevice && m_mvWarpedEye[olderEye]) {
+        mvWarpAttempted = true;
+        if (!m_mvWarp) m_mvWarp = std::make_unique<MotionVectorWarp>();
+        const D3D12_RESOURCE_DESC dstDesc = m_mvWarpedEye[0]->GetDesc();
+        const bool warpInitOk = m_mvWarp->EnsureInitialized(
+            m_d3dDevice, dstDesc.Format,
+            static_cast<uint32_t>(dstDesc.Width), dstDesc.Height);
+        if (!m_mvWarpQueue) {
+            D3D12_COMMAND_QUEUE_DESC qd{};
+            qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            if (FAILED(m_d3dDevice->CreateCommandQueue(&qd, IID_PPV_ARGS(&m_mvWarpQueue))) ||
+                FAILED(m_d3dDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_mvWarpAlloc))) ||
+                FAILED(m_d3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_mvWarpAlloc.Get(), nullptr, IID_PPV_ARGS(&m_mvWarpList))) ||
+                FAILED(m_d3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_mvWarpFence)))) {
+                Log("OpenXRManager: [worker] MV-warp queue/list/fence init FAILED\n");
+                m_mvWarpQueue.Reset(); m_mvWarpAlloc.Reset();
+                m_mvWarpList.Reset(); m_mvWarpFence.Reset();
+            } else {
+                m_mvWarpQueue->SetName(L"AERV2_mvwarp_queue");
+                m_mvWarpAlloc->SetName(L"AERV2_mvwarp_alloc");
+                m_mvWarpList->SetName(L"AERV2_mvwarp_list");
+                m_mvWarpFence->SetName(L"AERV2_mvwarp_fence");
+                m_mvWarpList->Close();
+                m_mvWarpEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+            }
+        }
+
+        if (warpInitOk && m_mvWarpQueue && m_mvWarpList && m_mvWarpFence && m_mvWarpEvent) {
+            if (SUCCEEDED(m_mvWarpAlloc->Reset()) &&
+                SUCCEEDED(m_mvWarpList->Reset(m_mvWarpAlloc.Get(), nullptr))) {
+                D3D12_RESOURCE_BARRIER barriers[4] = {};
+                UINT bc = 0;
+                auto addBarrier = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+                    if (!r || before == after) return;
+                    barriers[bc].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                    barriers[bc].Transition.pResource = r;
+                    barriers[bc].Transition.StateBefore = before;
+                    barriers[bc].Transition.StateAfter = after;
+                    barriers[bc].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                    ++bc;
+                };
+                addBarrier(job->flowCurrSource[olderEye], D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                addBarrier(job->engineMv, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                addBarrier(m_mvWarpedEye[olderEye].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                if (bc > 0) m_mvWarpList->ResourceBarrier(bc, barriers);
+
+                const float kStartScaleX = 1.0f;
+                const float kStartScaleY = 1.0f;
+                mvWarpOk[olderEye] = m_mvWarp->RecordWarp(
+                    m_mvWarpList.Get(),
+                    job->flowCurrSource[olderEye],
+                    job->engineMv,
+                    m_mvWarpedEye[olderEye].Get(),
+                    kStartScaleX, kStartScaleY);
+
+                bc = 0;
+                addBarrier(job->flowCurrSource[olderEye], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                addBarrier(job->engineMv, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                addBarrier(m_mvWarpedEye[olderEye].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
+                if (bc > 0) m_mvWarpList->ResourceBarrier(bc, barriers);
+                m_mvWarpList->Close();
+
+                if (mvWarpOk[olderEye]) {
+                    ID3D12CommandList* lists[] = { m_mvWarpList.Get() };
+                    m_mvWarpQueue->ExecuteCommandLists(1, lists);
+                    ++m_mvWarpFenceValue;
+                    m_mvWarpQueue->Signal(m_mvWarpFence.Get(), m_mvWarpFenceValue);
+                    if (m_mvWarpFence->GetCompletedValue() < m_mvWarpFenceValue) {
+                        m_mvWarpFence->SetEventOnCompletion(m_mvWarpFenceValue, m_mvWarpEvent);
+                        WaitForSingleObject(m_mvWarpEvent, INFINITE);
+                    }
+                    m_mvWarpedEyeReady[olderEye] = true;
+                    m_mvWarpedValidPairId[olderEye].store(job->pairId, std::memory_order_release);
+                }
+            }
+        }
+    }
+
+    const bool mvAvail = (job->engineMv != nullptr);
+    const bool depthAvail = (job->engineDepth != nullptr);
+    const bool temporalDepthAvail =
+        job->prevDepth[0] && job->currDepth[0] &&
+        job->prevDepth[1] && job->currDepth[1];
+    if ((job->pairId % 300) == 0 || job->pairId == 1) {
+        uint32_t mvW = 0, mvH = 0, mvFmt = 0;
+        uint32_t dW = 0, dH = 0, dFmt = 0;
+        if (job->engineMv) {
+            auto d = job->engineMv->GetDesc();
+            mvW = static_cast<uint32_t>(d.Width);
+            mvH = d.Height;
+            mvFmt = static_cast<uint32_t>(d.Format);
+        }
+        if (job->engineDepth) {
+            auto d = job->engineDepth->GetDesc();
+            dW = static_cast<uint32_t>(d.Width);
+            dH = d.Height;
+            dFmt = static_cast<uint32_t>(d.Format);
+        }
+        Log("OpenXRManager: [worker] pair=%llu engineMv=%p (%ux%u fmt=%u avail=%d) engineDepth=%p avail=%d temporalDepth=%d olderEye=%d (serials=[%llu,%llu]) warpAttempted=%d warpOk=[%d,%d]\n",
+            static_cast<unsigned long long>(job->pairId),
+            job->engineMv, mvW, mvH, mvFmt, mvAvail ? 1 : 0,
+            job->engineDepth, depthAvail ? 1 : 0,
+            temporalDepthAvail ? 1 : 0,
+            olderEye,
+            static_cast<unsigned long long>(job->currSerial[0]),
+            static_cast<unsigned long long>(job->currSerial[1]),
+            mvWarpAttempted ? 1 : 0,
+            mvWarpOk[0] ? 1 : 0,
+            mvWarpOk[1] ? 1 : 0);
+    }
+
+    bool convertedOk = true;
+    bool inBetweenInputsOk = false;  // 1:1 half-rate: renderedEye history also converted
+    if (m_opticalFlow) {
+        if (GetAERV2Enabled() != 0 && job->renderedEye >= 0 && job->syntheticEye >= 0) {
+            // Same-eye temporal: the population path (OnPresent) fills the
+            // syntheticEye flow slots (prev+curr captures of that eye), and
+            // ProcessTemporalFrame below consumes flowPrev/flowCurr[syntheticEye].
+            if (!m_opticalFlow->ConvertToInputTexture(job->flowPrevSource[job->syntheticEye], job->flowPrev[job->syntheticEye]) ||
+                !m_opticalFlow->ConvertToInputTexture(job->flowCurrSource[job->syntheticEye], job->flowCurr[job->syntheticEye])) {
+                convertedOk = false;
+            }
+            // 1:1 half-rate: the in-between pair warps BOTH eyes, so also convert
+            // the renderedEye's own temporal history (OnPresent stages it only
+            // when half-rate is on). Non-fatal — failure just skips the in-between.
+            if (convertedOk && GetAERHalfRate() != 0 &&
+                job->flowPrevSource[job->renderedEye] && job->flowCurrSource[job->renderedEye] &&
+                job->flowPrev[job->renderedEye] && job->flowCurr[job->renderedEye]) {
+                inBetweenInputsOk =
+                    m_opticalFlow->ConvertToInputTexture(job->flowPrevSource[job->renderedEye], job->flowPrev[job->renderedEye]) &&
+                    m_opticalFlow->ConvertToInputTexture(job->flowCurrSource[job->renderedEye], job->flowCurr[job->renderedEye]);
+            }
+        } else {
+            for (int eye = 0; eye < 2 && convertedOk; ++eye) {
+                if (!m_opticalFlow->ConvertToInputTexture(job->flowPrevSource[eye], job->flowPrev[eye]) ||
+                    !m_opticalFlow->ConvertToInputTexture(job->flowCurrSource[eye], job->flowCurr[eye])) {
+                    convertedOk = false;
+                }
+            }
+        }
+    } else {
+        convertedOk = false;
+    }
+
+    bool leftOk = false;
+    bool rightOk = false;
+    bool leftSynth = false;
+    bool rightSynth = false;
+    bool realAERV2Used = false;
+    bool syntheticOk = false;
+    if (convertedOk) {
+        const uint32_t synthSlot = static_cast<uint32_t>(job->pairId & 1ull);
+        if (GetAERV2Enabled() != 0 && m_d3dDevice && m_d3dQueue && m_aerV2SynthEye[0][synthSlot] && m_aerV2SynthEye[1][synthSlot]) {
+            const int syntheticEye = (job->syntheticEye >= 0 && job->syntheticEye < 2) ? job->syntheticEye : olderEye;
+            const int renderedEye = (job->renderedEye >= 0 && job->renderedEye < 2) ? job->renderedEye : (syntheticEye ^ 1);
+            if (!m_aerV2Pipeline) {
+                m_aerV2Pipeline = std::make_unique<aer_v2::AerV2Pipeline>();
+            }
+            ID3D12Resource* flowInitSource = job->flowCurr[renderedEye] ? job->flowCurr[renderedEye] : job->flowPrev[syntheticEye];
+            if (!flowInitSource) {
+                Log("OpenXRManager: [worker] missing flow init source pair=%llu syntheticEye=%d renderedEye=%d\n",
+                    static_cast<unsigned long long>(job->pairId),
+                    syntheticEye,
+                    renderedEye);
+            } else {
+            const D3D12_RESOURCE_DESC flowDesc = flowInitSource->GetDesc();
+            m_aerV2Pipeline->SetMode(aer_v2::AerV2Pipeline::Mode::AERv2HighQ);
+            m_aerV2Pipeline->SetForceMatchedEyePoses(true);
+            if (m_aerV2Pipeline->EnsureInitialized(m_d3dDevice,
+                                                  m_d3dQueue,
+                                                  static_cast<uint32_t>(flowDesc.Width),
+                                                  flowDesc.Height)) {
+                const XrPosef predictedMatched = ExtrapolatePose(
+                    job->prevPose[renderedEye],
+                    job->currPose[renderedEye],
+                    kAERV2FrameGenPoseT);
+                XrPosef predictedSynthetic = ExtrapolatePose(
+                    job->prevPose[syntheticEye],
+                    job->currPose[syntheticEye],
+                    kAERV2FrameGenPoseT);
+                predictedSynthetic.orientation = predictedMatched.orientation;
+                const float mvScaleX = NgxGetMvScaleX();
+                const float mvScaleY = NgxGetMvScaleY();
+                ID3D12Resource* realMvSource = nullptr;
+                if (job->engineMv && m_d3dDevice && m_mvWarpQueue && m_mvWarpAlloc && m_mvWarpList && m_mvWarpFence && m_mvWarpEvent) {
+                    const D3D12_RESOURCE_DESC mvDesc = job->engineMv->GetDesc();
+                    bool recreateMvScratch = true;
+                    if (m_aerV2MvScratch) {
+                        const auto cur = m_aerV2MvScratch->GetDesc();
+                        if (cur.Width == mvDesc.Width && cur.Height == mvDesc.Height && cur.Format == mvDesc.Format) {
+                            recreateMvScratch = false;
+                        } else {
+                            m_aerV2MvScratch.Reset();
+                        }
+                    }
+                    if (recreateMvScratch) {
+                        D3D12_HEAP_PROPERTIES hp{};
+                        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+                        if (FAILED(m_d3dDevice->CreateCommittedResource(
+                                &hp,
+                                D3D12_HEAP_FLAG_SHARED,
+                                &mvDesc,
+                                D3D12_RESOURCE_STATE_COMMON,
+                                nullptr,
+                                IID_PPV_ARGS(&m_aerV2MvScratch)))) {
+                            Log("OpenXRManager: [worker] failed to create shareable MV scratch\n");
+                            m_aerV2MvScratch.Reset();
+                        } else {
+                            SetD3DName(m_aerV2MvScratch.Get(), L"AERV2_engine_mv_scratch_shared");
+                        }
+                    }
+                    if (m_aerV2MvScratch &&
+                        SUCCEEDED(m_mvWarpAlloc->Reset()) &&
+                        SUCCEEDED(m_mvWarpList->Reset(m_mvWarpAlloc.Get(), nullptr))) {
+                        const D3D12_RESOURCE_STATES mvScratchBefore = recreateMvScratch
+                            ? D3D12_RESOURCE_STATE_COMMON
+                            : D3D12_RESOURCE_STATE_COPY_SOURCE;
+                        D3D12_RESOURCE_BARRIER bars[3] = {};
+                        UINT bc = 0;
+                        auto addBar = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {
+                            if (!r || before == after) return;
+                            bars[bc].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                            bars[bc].Transition.pResource = r;
+                            bars[bc].Transition.StateBefore = before;
+                            bars[bc].Transition.StateAfter = after;
+                            bars[bc].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            ++bc;
+                        };
+                        addBar(job->engineMv, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                        addBar(m_aerV2MvScratch.Get(), mvScratchBefore, D3D12_RESOURCE_STATE_COPY_DEST);
+                        if (bc > 0) m_mvWarpList->ResourceBarrier(bc, bars);
+                        m_mvWarpList->CopyResource(m_aerV2MvScratch.Get(), job->engineMv);
+                        bc = 0;
+                        addBar(job->engineMv, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+                        addBar(m_aerV2MvScratch.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                        if (bc > 0) m_mvWarpList->ResourceBarrier(bc, bars);
+                        m_mvWarpList->Close();
+                        ID3D12CommandList* lists[] = { m_mvWarpList.Get() };
+                        m_mvWarpQueue->ExecuteCommandLists(1, lists);
+                        ++m_mvWarpFenceValue;
+                        m_mvWarpQueue->Signal(m_mvWarpFence.Get(), m_mvWarpFenceValue);
+                        if (m_mvWarpFence->GetCompletedValue() < m_mvWarpFenceValue) {
+                            m_mvWarpFence->SetEventOnCompletion(m_mvWarpFenceValue, m_mvWarpEvent);
+                            WaitForSingleObject(m_mvWarpEvent, INFINITE);
+                        }
+                        realMvSource = m_aerV2MvScratch.Get();
+                    }
+                }
+                ID3D12Resource* sourcePrevDepth = job->prevDepth[syntheticEye] ? job->prevDepth[syntheticEye] : job->engineDepth;
+                ID3D12Resource* sourceCurrDepth = job->currDepth[syntheticEye] ? job->currDepth[syntheticEye] : job->engineDepth;
+                syntheticOk = m_aerV2Pipeline->ProcessTemporalFrame(
+                    syntheticEye,
+                    job->flowPrev[syntheticEye], job->flowCurr[syntheticEye],
+                    job->flowCurrSource[syntheticEye], job->flowCurrSource[syntheticEye],
+                    realMvSource, sourcePrevDepth, sourceCurrDepth,
+                    mvScaleX, mvScaleY,
+                    job->fov[syntheticEye],
+                    job->prevPose[syntheticEye], job->currPose[syntheticEye], predictedSynthetic,
+                    kAERV2FrameGenPoseT,
+                    m_aerV2SynthEye[syntheticEye][synthSlot].Get());
+                if (syntheticEye == 0) {
+                    leftOk = syntheticOk;
+                    leftSynth = syntheticOk;
+                } else {
+                    rightOk = syntheticOk;
+                    rightSynth = syntheticOk;
+                }
+                realAERV2Used = syntheticOk;
+
+                // ===== 1:1 half-rate: BOTH-EYE in-between frame (mid, blend 0.5) =====
+                // Each eye gets its OWN fresh NvOF temporal mid so BOTH eyes update
+                // every display interval (90 Hz). The earlier 1-warp version reused
+                // the keyframe synth for the syntheticEye half -> that eye froze for
+                // 2 intervals (45 Hz, stuttery) = the "not 90 Hz both eyes" jitter.
+                // Pure NvOF (engineMv=null): same-eye temporal flow = real stereo.
+                // 2 warps/pair; the present-thread throttle that made this too slow
+                // before is now removed, so the budget is there.
+                if (syntheticOk && GetAERHalfRate() != 0 && inBetweenInputsOk &&
+                    m_aerV2InBetween[0][synthSlot] && m_aerV2InBetween[1][synthSlot]) {
+                    bool bothEyesOk = true;
+                    XrPosef predInB[2]{};
+                    for (int eye = 0; eye < 2 && bothEyesOk; ++eye) {
+                        if (!job->flowPrev[eye] || !job->flowCurr[eye] || !job->flowCurrSource[eye]) {
+                            bothEyesOk = false;
+                            break;
+                        }
+                        predInB[eye] = ExtrapolatePose(job->prevPose[eye], job->currPose[eye], kAERV2FrameGenPoseT);
+                        predInB[eye].orientation = predictedMatched.orientation;  // matched stereo
+                        ID3D12Resource* pD = job->prevDepth[eye] ? job->prevDepth[eye] : job->engineDepth;
+                        ID3D12Resource* cD = job->currDepth[eye] ? job->currDepth[eye] : job->engineDepth;
+                        bothEyesOk = m_aerV2Pipeline->ProcessTemporalFrame(
+                            eye,
+                            job->flowPrev[eye], job->flowCurr[eye],
+                            job->flowCurrSource[eye], job->flowCurrSource[eye],
+                            nullptr, pD, cD,
+                            mvScaleX, mvScaleY,
+                            job->fov[eye],
+                            job->prevPose[eye], job->currPose[eye], predInB[eye],
+                            kAERV2FrameGenPoseT,
+                            m_aerV2InBetween[eye][synthSlot].Get());
+                    }
+                    if (bothEyesOk) {
+                        std::lock_guard<std::mutex> publishLock(m_presentMutex);
+                        m_inBetweenReadyPairId = job->submitPairId;   // PAIR counter
+                        m_inBetweenSlot = synthSlot;
+                        m_inBetweenSyntheticEye = syntheticEye;        // -1 also fine now (both eyes fresh)
+                        for (int eye = 0; eye < 2; ++eye) {
+                            m_inBetweenEyePoses[eye] = predInB[eye];
+                            m_inBetweenEyeFovs[eye] = job->fov[eye];
+                            m_inBetweenEyeViewsValid[eye] = job->hasView[eye];
+                        }
+                    }
+                    if ((job->submitPairId % 300) == 1) {
+                        Log("OpenXRManager: [1:1 producer] BOTH-eye in-between pair=%llu ok=%d publishedReady=%llu\n",
+                            static_cast<unsigned long long>(job->submitPairId), bothEyesOk ? 1 : 0,
+                            static_cast<unsigned long long>(m_inBetweenReadyPairId));
+                    }
+                } else if (GetAERHalfRate() != 0 && (job->submitPairId % 300) == 1) {
+                    Log("OpenXRManager: [1:1 producer] in-between SKIPPED pair=%llu synthOk=%d inputsOk=%d haveTex0=%d haveTex1=%d\n",
+                        static_cast<unsigned long long>(job->submitPairId), syntheticOk ? 1 : 0, inBetweenInputsOk ? 1 : 0,
+                        m_aerV2InBetween[0][synthSlot] ? 1 : 0, m_aerV2InBetween[1][synthSlot] ? 1 : 0);
+                }
+            }
+            }
+        }
+
+        if (!realAERV2Used && GetAERV2Enabled() == 0 && m_opticalFlow) {
+            leftOk  = m_opticalFlow->ExecuteFlow(job->flowPrev[0], job->flowCurr[0], 0);
+            rightOk = m_opticalFlow->ExecuteFlow(job->flowPrev[1], job->flowCurr[1], 1);
+            if (leftOk)  leftSynth  = m_opticalFlow->SynthesizeMidpoint(job->flowPrev[0], job->flowCurr[0], 0);
+            if (rightOk) rightSynth = m_opticalFlow->SynthesizeMidpoint(job->flowPrev[1], job->flowCurr[1], 1);
+        }
+    }
+
+    bool published = false;
+    if (syntheticOk) {
+        std::lock_guard<std::mutex> publishLock(m_presentMutex);
+        if (job->pairId > m_interpolatedPairId) {
+            m_interpolatedPairId = job->pairId;
+            m_interpolatedSynthSlot = static_cast<uint32_t>(job->pairId & 1ull);
+            m_interpolatedSyntheticEye = olderEye;
+            for (int eye = 0; eye < 2; ++eye) {
+                if (eye == olderEye) {
+                    m_interpolatedEyePoses[eye] = ExtrapolatePose(
+                        job->prevPose[eye],
+                        job->currPose[eye],
+                        kAERV2FrameGenPoseT);
+                    m_interpolatedEyePoses[eye].orientation = ExtrapolatePose(
+                        job->prevPose[olderEye ^ 1],
+                        job->currPose[olderEye ^ 1],
+                        kAERV2FrameGenPoseT).orientation;
+                    m_interpolatedEyeFovs[eye] = job->fov[eye];
+                    m_interpolatedEyeViewsValid[eye] = job->hasView[eye];
+                } else {
+                    m_interpolatedEyeViewsValid[eye] = false;
+                }
+            }
+            published = true;
+        }
+        m_aerV2DonePairId.store(job->pairId, std::memory_order_release);
+    }
+
+    const bool verbose = (g_verboseLog != 0);
+    if (verbose || (job->pairId % 300) == 0 || !leftOk || !rightOk || !leftSynth || !rightSynth) {
+        Log("OpenXRManager: [worker] pair=%llu flowL=%d flowR=%d synthL=%d synthR=%d converted=%d published=%d realAERV2=%d (lastSubmittedPair=%llu interpolatedPair=%llu)\n",
+            static_cast<unsigned long long>(job->pairId),
+            leftOk ? 1 : 0,
+            rightOk ? 1 : 0,
+            leftSynth ? 1 : 0,
+            rightSynth ? 1 : 0,
+            convertedOk ? 1 : 0,
+            published ? 1 : 0,
+            realAERV2Used ? 1 : 0,
+            static_cast<unsigned long long>(m_lastSubmittedPairId),
+            static_cast<unsigned long long>(m_interpolatedPairId));
+    }
+
+    ReleaseAERV2JobRefs(*job);
+    m_aerV2BusyPairId.store(0, std::memory_order_release);
+}
+
+void OpenXRManager::AERV2WorkerThreadMain() {
+    Log("OpenXRManager: AER V2 worker thread started.\n");
+    while (true) {
+        std::unique_ptr<AERV2Job> job;
+        {
+            std::unique_lock<std::mutex> lock(m_aerV2JobMutex);
+            m_aerV2JobCv.wait(lock, [this]() {
+                return m_aerV2WorkerShutdown.load(std::memory_order_acquire) ||
+                       m_aerV2PendingJob != nullptr;
+            });
+            if (m_aerV2WorkerShutdown.load(std::memory_order_acquire) && !m_aerV2PendingJob) {
+                break;
+            }
+            job = std::move(m_aerV2PendingJob);
+            if (job) {
+                m_aerV2BusyPairId.store(job->pairId, std::memory_order_release);
+            }
+        }
+        if (!job) {
+            continue;
+        }
+        ProcessAERV2Job(std::move(job));
+    }
+    Log("OpenXRManager: AER V2 worker thread exiting.\n");
+}
+
 void OpenXRManager::Shutdown() {
     std::lock_guard<std::mutex> initLock(m_initMutex);
     m_stopFrameThread.store(true, std::memory_order_relaxed);
@@ -3538,6 +6468,7 @@ void OpenXRManager::Shutdown() {
         CloseHandle(m_frameThread);
         m_frameThread = nullptr;
     }
+    StopAERV2Worker();
 
     if (m_viewSpace != XR_NULL_HANDLE) {
         xrDestroySpace(m_viewSpace);
@@ -3633,6 +6564,14 @@ void OpenXRManager::Shutdown() {
     if (m_opticalFlow) {
         m_opticalFlow->Shutdown();
     }
+    if (m_aerV2Pipeline) {
+        m_aerV2Pipeline->Shutdown();
+        m_aerV2Pipeline.reset();
+    }
+    if (m_colorBlit) {
+        m_colorBlit->Shutdown();
+        m_colorBlit.reset();
+    }
     if (m_monoCapturedFrame.texture) {
         m_monoCapturedFrame.texture->Release();
         m_monoCapturedFrame.texture = nullptr;
@@ -3640,6 +6579,11 @@ void OpenXRManager::Shutdown() {
     if (m_depthSnapshot) {
         m_depthSnapshot->Release();
         m_depthSnapshot = nullptr;
+    }
+    if (m_depthSnapshotR32) {
+        m_depthSnapshotR32->Release();
+        m_depthSnapshotR32 = nullptr;
+        m_depthSnapshotR32Serial = 0;
     }
     m_monoCapturedFrame.width = 0;
     m_monoCapturedFrame.height = 0;
@@ -3660,11 +6604,21 @@ void OpenXRManager::Shutdown() {
             frame.opticalFlowTexture->Release();
             frame.opticalFlowTexture = nullptr;
         }
+        if (frame.depthTexture) {
+            frame.depthTexture->Release();
+            frame.depthTexture = nullptr;
+        }
         frame.width = 0;
         frame.height = 0;
         frame.format = 0;
+        frame.textureShareable = false;
+        frame.depthWidth = 0;
+        frame.depthHeight = 0;
+        frame.depthFormat = 0;
         frame.serial = 0;
         frame.pairId = 0;
+        frame.depthSerial = 0;
+        frame.depthInCopySource = false;
         frame.pose = {};
         frame.pose.orientation.w = 1.0f;
         frame.fov = {};
@@ -3679,11 +6633,21 @@ void OpenXRManager::Shutdown() {
             frame.opticalFlowTexture->Release();
             frame.opticalFlowTexture = nullptr;
         }
+        if (frame.depthTexture) {
+            frame.depthTexture->Release();
+            frame.depthTexture = nullptr;
+        }
         frame.width = 0;
         frame.height = 0;
         frame.format = 0;
+        frame.textureShareable = false;
+        frame.depthWidth = 0;
+        frame.depthHeight = 0;
+        frame.depthFormat = 0;
         frame.serial = 0;
         frame.pairId = 0;
+        frame.depthSerial = 0;
+        frame.depthInCopySource = false;
         frame.pose = {};
         frame.pose.orientation.w = 1.0f;
         frame.fov = {};
@@ -3698,15 +6662,32 @@ void OpenXRManager::Shutdown() {
             frame.opticalFlowTexture->Release();
             frame.opticalFlowTexture = nullptr;
         }
+        if (frame.depthTexture) {
+            frame.depthTexture->Release();
+            frame.depthTexture = nullptr;
+        }
         frame.width = 0;
         frame.height = 0;
         frame.format = 0;
+        frame.textureShareable = false;
+        frame.depthWidth = 0;
+        frame.depthHeight = 0;
+        frame.depthFormat = 0;
         frame.serial = 0;
         frame.pairId = 0;
+        frame.depthSerial = 0;
+        frame.depthInCopySource = false;
         frame.pose = {};
         frame.pose.orientation.w = 1.0f;
         frame.fov = {};
         frame.hasView = false;
+    }
+    for (int eye = 0; eye < 2; ++eye) {
+        for (int slot = 0; slot < 2; ++slot) {
+            m_aerV2SynthEye[eye][slot].Reset();
+            m_aerV2SubmitEye[eye][slot].Reset();
+            m_aerV2SubmitEyeReady[eye][slot] = false;
+        }
     }
 
     if (m_instance != XR_NULL_HANDLE) {
@@ -3720,6 +6701,8 @@ void OpenXRManager::Shutdown() {
         m_basePoseSet = false;
     }
     m_interpolatedPairId = 0;
+    m_interpolatedSynthSlot = 0;
+    m_interpolatedSyntheticEye = -1;
     m_interpolatedEyeViewsValid[0] = false;
     m_interpolatedEyeViewsValid[1] = false;
     Log("OpenXRManager: Shutdown complete.\n");

@@ -1,5 +1,6 @@
 #include "dxgi_factory_wrapper.h"
 #include "imgui_overlay.h"
+#include "ngx_hook.h"
 #include <cstdint>
 #include <cstdio>
 #include <unordered_map>
@@ -97,6 +98,48 @@ void RememberDredDeviceFromSwapChain(IDXGISwapChain* swapChain) {
     if (SUCCEEDED(hr) && device) {
         RememberDredDevice(device.Get());
     }
+}
+
+// DRED auto-breadcrumbs + page-fault reporting must be enabled BEFORE
+// D3D12CreateDevice runs; otherwise GetAutoBreadcrumbsOutput/
+// GetPageFaultAllocationOutput return empty data on device-removed and our
+// DumpDredOnce() logs nothing useful. Call from each CreateDXGIFactory* entry
+// — those run before any D3D12 device is created.
+void EnableDredOnce() {
+    static std::once_flag s_flag;
+    std::call_once(s_flag, []() {
+        HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+        if (!d3d12) {
+            Log("[DRED] LoadLibrary(d3d12.dll) failed; DRED not enabled\n");
+            return;
+        }
+        using PFN_D3D12GetDebugInterface = HRESULT(WINAPI*)(REFIID, void**);
+        auto fn = reinterpret_cast<PFN_D3D12GetDebugInterface>(
+            GetProcAddress(d3d12, "D3D12GetDebugInterface"));
+        if (!fn) {
+            Log("[DRED] D3D12GetDebugInterface export missing; DRED not enabled\n");
+            return;
+        }
+
+        // Prefer Settings1 (Windows 10 2004+) — gives BreadcrumbContext for
+        // richer DRED dumps; fall back to base Settings on older Windows.
+        Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> settings1;
+        if (SUCCEEDED(fn(IID_PPV_ARGS(&settings1))) && settings1) {
+            settings1->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            settings1->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            settings1->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            Log("[DRED] Enabled (settings1): AutoBreadcrumbs+PageFault+BreadcrumbContext\n");
+            return;
+        }
+        Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings> settings;
+        if (SUCCEEDED(fn(IID_PPV_ARGS(&settings))) && settings) {
+            settings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            settings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+            Log("[DRED] Enabled (settings): AutoBreadcrumbs+PageFault\n");
+            return;
+        }
+        Log("[DRED] D3D12GetDebugInterface QI for DRED settings failed; DRED not enabled\n");
+    });
 }
 
 bool IsDeviceRemovedHr(HRESULT hr) {
@@ -536,11 +579,11 @@ static int WINAPI HookedGetSystemMetrics(int nIndex) {
     if (virtualWidth > 0 && virtualHeight > 0) {
         // SM_CXSCREEN = 0, SM_CYSCREEN = 1, SM_CXFULLSCREEN = 16, SM_CYFULLSCREEN = 17, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79
         if (nIndex == SM_CXSCREEN || nIndex == SM_CXFULLSCREEN || nIndex == SM_CXVIRTUALSCREEN) {
-            Log("GetSystemMetrics(%d) override: %d -> %d\n", nIndex, res, virtualWidth);
+            if (g_verboseLog) Log("GetSystemMetrics(%d) override: %d -> %d\n", nIndex, res, virtualWidth);
             return virtualWidth;
         }
         if (nIndex == SM_CYSCREEN || nIndex == SM_CYFULLSCREEN || nIndex == SM_CYVIRTUALSCREEN) {
-            Log("GetSystemMetrics(%d) override: %d -> %d\n", nIndex, res, virtualHeight);
+            if (g_verboseLog) Log("GetSystemMetrics(%d) override: %d -> %d\n", nIndex, res, virtualHeight);
             return virtualHeight;
         }
     }
@@ -586,7 +629,7 @@ static DWORD WINAPI HookedGetMessagePos(VOID) {
 }
 
 static void InstallOSHooks() {
-    Log("InstallOSHooks: Installing IAT hooks for user32.dll functions...\n");
+    if (g_verboseLog) Log("InstallOSHooks: Installing IAT hooks for user32.dll functions...\n");
     
     HMODULE hUser32 = GetModuleHandleA("user32.dll");
     if (hUser32) {
@@ -600,7 +643,7 @@ static void InstallOSHooks() {
         g_origClipCursor = reinterpret_cast<ClipCursorFn>(GetProcAddress(hUser32, "ClipCursor"));
         g_origGetSystemMetrics = reinterpret_cast<GetSystemMetricsFn>(GetProcAddress(hUser32, "GetSystemMetrics"));
         g_origGetMessagePos = reinterpret_cast<GetMessagePosFn>(GetProcAddress(hUser32, "GetMessagePos"));
-        Log("InstallOSHooks: Dynamically resolved all user32 original functions.\n");
+        if (g_verboseLog) Log("InstallOSHooks: Dynamically resolved all user32 original functions.\n");
     } else {
         Log("InstallOSHooks: Warning: user32.dll not found in process!\n");
     }
@@ -614,7 +657,7 @@ static void InstallOSHooks() {
     
     for (HMODULE hMod : modules) {
         if (!hMod) continue;
-        Log("InstallOSHooks: Hooking module %p...\n", hMod);
+        if (g_verboseLog) Log("InstallOSHooks: Hooking module %p...\n", hMod);
         HookIAT(hMod, "user32.dll", "GetCursorPos", reinterpret_cast<void*>(HookedGetCursorPos), reinterpret_cast<void**>(&g_origGetCursorPos));
         HookIAT(hMod, "user32.dll", "SetCursorPos", reinterpret_cast<void*>(HookedSetCursorPos), reinterpret_cast<void**>(&g_origSetCursorPos));
         HookIAT(hMod, "user32.dll", "SetWindowPos", reinterpret_cast<void*>(HookedSetWindowPos), reinterpret_cast<void**>(&g_origSetWindowPos));
@@ -737,7 +780,7 @@ static void RecordEclQueue(void* queue) {
     }
 }
 
-// [DEPTH-DIAG] Scene-depth identification spike (groundwork for RealVR-style depth
+// [DEPTH-DIAG] Scene-depth identification spike (groundwork for alternate-eye depth
 // submission). Tearing is the flat color-only projection layer reprojected without
 // depth; the fix is submitting the game's depth as XR_KHR_composition_layer_depth.
 // First step: reliably PIN the game's main scene depth-stencil resource. This is
@@ -874,8 +917,10 @@ void TryHookCmdListVtable(ID3D12CommandList* anyList) {
     }
     const uint32_t n = g_distinctCmdVtables.fetch_add(1, std::memory_order_relaxed) + 1;
     if (PatchVtableMethod(vtable, 46, reinterpret_cast<void*>(&HookedOMSetRenderTargets))) {
-        Log("[DEPTH-DIAG] Hooked OMSetRenderTargets on direct-list vtable=%p (distinctVtables=%u)\n",
-            reinterpret_cast<void*>(vtable), n);
+        if (g_verboseLog) {
+            Log("[DEPTH-DIAG] Hooked OMSetRenderTargets on direct-list vtable=%p (distinctVtables=%u)\n",
+                reinterpret_cast<void*>(vtable), n);
+        }
     }
     // Same vtable: track depth state transitions (slot 26 = ResourceBarrier).
     PatchVtableMethod(vtable, 26, reinterpret_cast<void*>(&HookedResourceBarrier));
@@ -885,14 +930,21 @@ void InstallDepthCaptureHooks(ID3D12Device* device) {
     if (!device) return;
     void** vtable = *reinterpret_cast<void***>(device);
     if (PatchVtableMethod(vtable, 21, reinterpret_cast<void*>(&HookedCreateDepthStencilView))) {
-        Log("[DEPTH-DIAG] Hooked ID3D12Device::CreateDepthStencilView (slot 21)\n");
+        if (g_verboseLog) Log("[DEPTH-DIAG] Hooked ID3D12Device::CreateDepthStencilView (slot 21)\n");
     }
 }
+
+void TryHookQueueSignalVtable(ID3D12CommandQueue* queue); // defined below
 
 void STDMETHODCALLTYPE HookedExecuteCommandLists(ID3D12CommandQueue* queue, UINT numLists, ID3D12CommandList* const* lists) {
     g_eclTotalCalls.fetch_add(1, std::memory_order_relaxed);
     g_eclTotalLists.fetch_add(numLists, std::memory_order_relaxed);
     RecordEclQueue(queue);
+    // Hook Signal on each distinct queue vtable so we can later GPU-Wait on the
+    // game's most recent fence values (cross-queue sync for depth capture).
+    // ExecuteCommandLists is the perfect discovery point: every queue the game
+    // uses will eventually run something through here.
+    TryHookQueueSignalVtable(queue);
     if (lists) {
         for (UINT i = 0; i < numLists; ++i) {
             TryHookCmdListVtable(lists[i]);
@@ -926,6 +978,87 @@ void InstallCommandQueueDiagHook(ID3D12CommandQueue* queue) {
     g_presentQueue.store(queue, std::memory_order_relaxed);
     void** vtable = *reinterpret_cast<void***>(queue);
     PatchVtableMethod(vtable, 10, reinterpret_cast<void*>(&HookedExecuteCommandLists));
+}
+
+// Cross-queue fence tracker: the game writes scene depth on its own render
+// queue while we want to copy that resource on the swapchain (present) queue.
+// On VDXR + R32_TYPELESS the format guard passes our path through, and without
+// explicit cross-queue sync our copy can race the game's writer → GPU hang.
+// Hook ID3D12CommandQueue::Signal (vtable slot 14) on every distinct queue
+// vtable we see and record (queue → last (fence, value)). Before our depth
+// copy, our queue Waits on each tracked queue's last value — GPU-side, no
+// CPU stall. If the game has not yet signaled anything we just no-op.
+using SignalFn = HRESULT(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, ID3D12Fence*, UINT64);
+
+struct QueueSignalState {
+    ID3D12Fence* fence = nullptr;
+    UINT64 value = 0;
+};
+std::mutex g_queueSignalMutex;
+std::unordered_map<ID3D12CommandQueue*, QueueSignalState> g_queueLastSignal;
+// Dedicated mutex for the hooked-vtable set. We CANNOT reuse g_vtableMutex
+// here because PatchVtableMethod itself locks g_vtableMutex, which would
+// cause a recursive lock on a non-recursive std::mutex (= undefined
+// behavior, MSVC throws 0xE06D7363 C++ exception). Lesson learned the hard
+// way: per-set membership tracking gets its own lightweight mutex.
+std::mutex g_signalHookSetMutex;
+std::unordered_set<void**> g_signalHookedVtables;
+
+HRESULT STDMETHODCALLTYPE HookedQueueSignal(ID3D12CommandQueue* queue, ID3D12Fence* fence, UINT64 value) {
+    void** vtable = *reinterpret_cast<void***>(queue);
+    SignalFn originalFn = GetOriginalMethod<SignalFn>(vtable, 14);
+    const HRESULT hr = originalFn ? originalFn(queue, fence, value) : E_FAIL;
+    if (SUCCEEDED(hr) && fence) {
+        std::lock_guard<std::mutex> lock(g_queueSignalMutex);
+        auto& entry = g_queueLastSignal[queue];
+        // Track by queue ptr; same queue may signal multiple fences but we
+        // want the LATEST per-queue gate, regardless of which fence. Multiple
+        // game queues each carry their own latest signal independently.
+        if (entry.fence != fence) {
+            if (entry.fence) entry.fence->Release();
+            fence->AddRef();
+            entry.fence = fence;
+        }
+        entry.value = value;
+    }
+    return hr;
+}
+
+void TryHookQueueSignalVtable(ID3D12CommandQueue* queue) {
+    if (!queue) return;
+    void** vtable = *reinterpret_cast<void***>(queue);
+    {
+        std::lock_guard<std::mutex> lock(g_signalHookSetMutex);
+        if (g_signalHookedVtables.count(vtable)) return;
+        g_signalHookedVtables.insert(vtable);
+    }
+    // PatchVtableMethod locks g_vtableMutex internally — must NOT be
+    // called while we hold any other lock that PatchVtableMethod might
+    // recursively try to take.
+    PatchVtableMethod(vtable, 14, reinterpret_cast<void*>(&HookedQueueSignal));
+}
+
+// Issued on the consumer's queue (m_d3dQueue) BEFORE a CopyResource that may
+// race game-side depth writes. Tries to wait on every tracked queue's most
+// recent signal; harmless if none tracked yet.
+extern "C" void CyberpunkVRPort_WaitOnAllGameSignals(ID3D12CommandQueue* consumerQueue) {
+    if (!consumerQueue) return;
+    std::vector<QueueSignalState> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(g_queueSignalMutex);
+        snapshot.reserve(g_queueLastSignal.size());
+        for (auto& kv : g_queueLastSignal) {
+            if (kv.first == consumerQueue) continue; // no self-wait
+            if (kv.second.fence) {
+                kv.second.fence->AddRef();
+                snapshot.push_back(kv.second);
+            }
+        }
+    }
+    for (auto& s : snapshot) {
+        consumerQueue->Wait(s.fence, s.value);
+        s.fence->Release();
+    }
 }
 
 static bool HasMode(const DXGI_MODE_DESC* modes, UINT count, UINT width, UINT height) {
@@ -1090,6 +1223,17 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
         UpdateCursorCapture(desc.OutputWindow);
     }
 
+    // DLSS is loaded lazily after the renderer first evaluates a frame, so
+    // nvngx_dlss.dll may not yet be in the process at startup. Try to install
+    // the NGX EvaluateFeature hook on every Present until it succeeds; once
+    // installed the function returns true cheaply.
+    static std::atomic<bool> s_ngxHookTried{false};
+    if (!s_ngxHookTried.load(std::memory_order_acquire)) {
+        if (NgxInstallEvaluateFeatureHook()) {
+            s_ngxHookTried.store(true, std::memory_order_release);
+        }
+    }
+
     OverlayRender(swapChain);
     OpenXRManager::Get().OnPresent(swapChain);
     void** vtable = *reinterpret_cast<void***>(swapChain);
@@ -1205,6 +1349,13 @@ void InstallSwapchainHooks(IDXGISwapChain* swapChain) {
         swapChain3->Release();
     }
 }
+}
+
+// Extern "C" forwarder so dxgi_proxy.cpp can invoke the anonymous-namespace
+// DRED initializer at each CreateDXGIFactory* entry (runs before any D3D12
+// device is created — required for breadcrumbs/page-fault data to populate).
+extern "C" void CyberpunkVRPort_EnableDredOnce() {
+    EnableDredOnce();
 }
 
 DXGIFactoryWrapper::DXGIFactoryWrapper(IDXGIFactory7* realFactory) : m_real(realFactory), m_refCount(1) {}

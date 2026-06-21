@@ -1,6 +1,8 @@
 /build/
 /build-vs/
 /build-vs-aerv2/
+/build-cuda/
+/build-cuda-vs/
 /.vs/
 /out/
 *.suo
@@ -36,3 +38,14 @@ mods/cet/**/hud_layout.ini
 mods/cet/**/hud_scale.txt
 mods/cet/**/vrik_settings.ini
 mods/cet/**/vrik_recenter.ini
+
+# Release staging / packaging output
+/dist/
+
+# Local working backups
+/_pre_aer_restore_*/
+
+# Reverse-engineering dumps (IDA / RE research, large; kept out of the repo)
+/engine_re/
+/render_camera_RE/
+/weapons_RE/

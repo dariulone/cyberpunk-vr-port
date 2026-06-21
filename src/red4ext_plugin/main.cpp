@@ -43,11 +43,179 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <atomic>
+#include <cstdint>
 #include <fstream>
+#include <utility>
 #include <iomanip>
 #include <string>
 
 #include "vrik_hook.h"
+#include "weapon_aim_hook.h"
+
+// ---- Weapon-aim native hook state (ShotInputClassify redirect) ----
+volatile uint64_t  g_shotTick = 0;
+volatile uint64_t  g_goCalls = 0;
+volatile uint64_t  g_goMutated = 0;
+volatile int       g_goMode = 0;
+volatile float     g_goTestYaw = 0.0f;
+volatile int       g_goPlane = 0;
+volatile float     g_goLastQuat[4] = {0,0,0,0};
+volatile uint64_t  g_xfCalls = 0;
+volatile uint64_t  g_xfMutated = 0;
+volatile int       g_xfMode = 0;
+volatile float     g_xfTestYaw = 0.0f;
+volatile int       g_xfTestPlane = 0;
+volatile uint32_t  g_waLastRetRva = 0;
+volatile float     g_xfLastOut[4] = {0,0,0,0};
+// FIRE-SHOT hook -- live scanner + flexible override of the shot state.
+volatile uint64_t  g_fireCalls = 0;
+volatile uint64_t  g_fireMutated = 0;
+volatile int       g_fireMode = 0;
+volatile int       g_firePlane = 0;
+volatile float     g_fireTestAng = 0.0f;
+volatile int       g_fireNeg = 0;
+volatile float     g_fireDir[4] = {0,0,0,0};
+volatile float     g_fireDirOut[4] = {0,0,0,0};
+volatile int       g_fireScanSrc = 0;
+volatile int       g_fireScanRange = 0x2300;
+volatile int       g_fireOvrSrc = 0;
+volatile int       g_fireOvrOff = 0x80;
+volatile int       g_fireXform = 0;
+volatile int       g_fireXformOff = 0xF0;
+volatile int       g_fireCamSnap = 0;
+volatile int       g_fireCamSnapOff = 0xF0;
+volatile int       g_fireHitCount = 0;
+volatile int       g_fireHitOff[24] = {0};
+volatile float     g_fireHitVec[24*3] = {0};
+volatile float     g_fireHitDot[24] = {0};
+volatile int       g_fireInShot = 0;
+// TargetHelper clean controller-redirect (target = origin + ctrlFwd*100).
+volatile int       g_waTgtCtrl = 0;
+volatile int       g_waTgtNeg = 0;
+volatile uint64_t  g_waTgtOvr = 0;
+// Projectile ShootEvent startVelocity -> controller (the player bullet IS a projectile).
+volatile int       g_waProjCtrl = 0;
+volatile int       g_waProjNeg = 0;
+volatile int       g_waProjUnguide = 1;
+volatile float     g_waProjRange = 1000.0f;
+volatile int       g_waProjAlways = 0;
+volatile int       g_waProjOriginRow = 3;
+volatile uint32_t  g_waProjLastRetRva = 0;
+volatile uint32_t  g_waProjRejectReason = 0;
+volatile uint32_t  g_waProjGateRva = 0x4E5109;
+volatile uint64_t  g_waProjRet36F9FF = 0;
+volatile uint64_t  g_waProjRet36FD7C = 0;
+volatile uint64_t  g_waProjRet4E5109 = 0;
+volatile uint64_t  g_waProjRet4E615F = 0;
+volatile float     g_shotOrigin[3] = {0,0,0};
+volatile float     g_projDump[64] = {0};
+// TRACE-DISPATCHER hook -- the hitscan funnel, gated to the player shot.
+volatile uint64_t  g_trShotCalls = 0;
+volatile int       g_trRetCount = 0;
+volatile uint32_t  g_trRetRing[16] = {0};
+volatile uint32_t  g_trCallerRay[16*12] = {0};
+volatile float     g_trCallerDir[16*4] = {0};
+volatile uint32_t  g_trCallerHits[16] = {0};
+volatile int       g_trOverride = 0;
+volatile uint32_t  g_trGateRet = 0;
+volatile int       g_trWriteOff = 0x18;
+volatile int       g_trForce = 0;
+volatile int       g_trNeg = 0;
+volatile uint64_t  g_trOvrCount = 0;
+volatile int       g_shotInProgress = 0;
+volatile uintptr_t g_exeBaseTrace = 0;
+volatile uint32_t  g_traceRvas[128] = {0};
+volatile uint32_t  g_traceRvaCounts[128] = {0};
+volatile int       g_traceCount = 0;
+volatile uint64_t  g_traceHits = 0;
+volatile uintptr_t g_traceAddr = 0;
+volatile int       g_traceActive = 0;
+volatile int       g_traceGated = 0;
+volatile int       g_traceWriteOnly = 0;
+volatile uint64_t  g_ssCalls = 0;
+volatile uint64_t  g_ssSnapped = 0;
+volatile uintptr_t g_ssCamPtr = 0;
+volatile int       g_ssEnable = 0;
+volatile int       g_ssMode = 0;
+volatile float     g_ssTestYaw = 0.0f;
+volatile float     g_ssCamQuat[4] = {0,0,0,1};
+volatile float     g_ssDiagD0[4] = {0,0,0,0};
+volatile float     g_ssDiagF0[4] = {0,0,0,0};
+volatile float     g_ssDiag110[4] = {0,0,0,0};
+volatile uint64_t  g_waHeadCalls = 0;
+volatile uintptr_t g_waHeadObj = 0;
+volatile int       g_waHeadForce = 0;
+volatile float     g_waHeadYaw = 0.0f;
+volatile float     g_waHeadPitch = 0.0f;
+volatile float     g_waHeadOrig4E4 = 0.0f;
+volatile float     g_waHeadOrig4E8 = 0.0f;
+volatile float     g_waHeadVal4B8 = 0.0f;
+volatile int       g_waHeadFlag474 = 0;
+volatile uint64_t g_waXhCalls = 0;
+volatile uint64_t g_waXhMutated = 0;
+volatile int      g_waXhSnapped = 0;
+volatile float    g_waXhPos[4] = {0};
+volatile float    g_waXhDir[4] = {0};
+volatile uint64_t g_waProjCalls = 0;
+volatile uint64_t g_waProjMutated = 0;
+volatile uint64_t g_waTargetCalls = 0;
+volatile uint64_t g_waTargetFromShot = 0;
+volatile uint64_t g_waClassifyCalls = 0;
+volatile uint64_t g_waClassifyFromShot = 0;
+volatile uint64_t g_waRedirects = 0;
+volatile uint64_t g_waPhysCalls = 0;
+volatile uint64_t g_waPhysMutated = 0;
+volatile int      g_waPhysPatched = 0;
+volatile uint64_t g_waNormShot = 0;
+volatile uint64_t g_waNormMutated = 0;
+volatile int      g_waNormPatched = 0;
+volatile uint64_t g_waFireNormShot = 0;
+volatile uint64_t g_waFireNormMutated = 0;
+volatile int      g_waFireNormPatched = 0;
+volatile int      g_waDbgSnapped = 0;
+volatile float    g_waDbgArg3[72] = {0};
+volatile float    g_waDbgRay[40] = {0};
+volatile float    g_waDbgRayEntry[28] = {0};
+volatile uint64_t g_waCandA = 0;
+volatile uint64_t g_waCandB = 0;
+volatile uint64_t g_waSVP = 0;
+volatile uint64_t g_waSFVW = 0;
+volatile int      g_waInstalled = 0;
+volatile float    g_waTargetOrigin[4] = {0};
+volatile float    g_waTargetDir[4] = {0};
+volatile uintptr_t g_waExeBase = 0;
+volatile int      g_waEnable = 0;
+volatile int      g_waMode = 0;
+volatile float    g_waFwd[3] = {0, 0, 0};
+volatile float    g_waPos[3] = {0, 0, 0};
+volatile float    g_waGateDist = 5.0f;
+volatile uint32_t g_waFwdSeq = 0;
+
+// --- PrepareAttack hook (projectile launch dir lever; gameAttack_Projectile::PrepareAttack
+//     builds the launch event with launchParams.logicalOrientationProvider) ---
+volatile uint64_t g_paCalls = 0;       // hook invocations
+volatile uint64_t g_paSwaps = 0;       // provider swaps applied
+volatile int      g_paInstalled = 0;
+volatile int      g_paOn = 1;          // instrument (read-only) enabled
+volatile int      g_paSwap = 0;        // 1 = swap launch orientation provider -> controller
+volatile uint64_t g_paA1 = 0, g_paA2 = 0, g_paRet = 0;
+volatile uintptr_t g_paImpl = 0;       // resolved instance-vtable PrepareAttack impl (diag)
+volatile int      g_paProvBase = -1;   // which candidate held the provider: 0=ret 1=*ret 2=a2
+volatile int      g_paProvOff = -1;    // byte offset of the OrientationProvider handle
+char g_paRetType[96]  = {0};
+char g_paProvType[96] = {0};
+volatile uint64_t g_paEvQ[24] = {0};   // candidate-event qwords (the base that held the provider)
+
+// --- live projectile finder/steer (gameprojectileComponent) ---
+volatile uintptr_t g_projCompVtbl = 0;   // resolved instance vtable (CreateInstance)
+volatile uintptr_t g_projLive = 0;       // last found live projectile component
+volatile uintptr_t g_projOrientAddr = 0; // abs addr of worldTransform.Orientation (+0xe0) — CE target
+volatile int       g_projFound = 0;
+volatile int       g_projSteer = 0;      // overwrite orientation -> controller each tick
+volatile uint64_t  g_projSteers = 0;
+volatile float     g_projOrientQ[4] = {0,0,0,1};  // last read orientation
+volatile uint64_t  g_projDumpQ[40] = {0};
 
 // All diagnostic .txt logs go next to the game exe == where dxgi.dll lives (bin\x64),
 // so every log (proxy cyberpunkvrport.log + these .txt dumps) sits in one place.
@@ -104,7 +272,7 @@ volatile uint32_t g_capturedRcx[32] = {0};   // distinct low-32 rcx of skeletal 
 volatile uint64_t g_capturedFull[32] = {0};  // full 64-bit rcx, for arm-by-index / bone count
 volatile int      g_capturedCount = 0;
 
-// Pose-apply hook (sub_14017DDB4) state. See vrik_hook.h.
+// Pose-apply hook state. See vrik_hook.h.
 volatile uintptr_t g_PlayerTrackBufA = 0;
 volatile uintptr_t g_PlayerTrackBufB = 0;
 volatile int       g_AnimPoseDebug = 0;
@@ -125,11 +293,33 @@ volatile float     g_VRWristR_I = 0.0f,        g_VRWristR_J = -0.70710678f, g_VR
 volatile float     g_VRWristL_I = -0.70710678f, g_VRWristL_J = 0.0f,        g_VRWristL_K = 0.70710678f, g_VRWristL_R = 0.0f;
 // Per-hand reach scale + position offset (calibrated: R slightly shorter avatar reach than L).
 volatile float     g_VRScaleR = 1.05f, g_VRScaleL = 1.06f;
-volatile float     g_VROffRX = 0.0f, g_VROffRY = 0.0f, g_VROffRZ = 0.23f;
-volatile float     g_VROffLX = 0.0f, g_VROffLY = 0.0f, g_VROffLZ = 0.23f;
+volatile float     g_VROffRX = 0.0f, g_VROffRY = 0.0f, g_VROffRZ = 0.0f;
+volatile float     g_VROffLX = 0.0f, g_VROffLY = 0.0f, g_VROffLZ = 0.0f;
+// T-pose measured real arm length per hand (metres), shoulder->controller in the T-pose.
+// 0 = unset -> the gizmo-path arm-bone scaling (VRIK_ArmScale) is disabled. Published by the
+// auto-calibration into shared slots [77]/[78]; read in PollVRCalibFromShared.
+volatile float     g_VRUserArmLenR = 0.0f, g_VRUserArmLenL = 0.0f;
+volatile float     g_VRUserEyeHeight = 0.0f; // T-pose HMD floor height (metres); for Phase 3 body scale
+// Phase 2 body-under-HMD: bend the spine so the chest sits under the HMD (fixes head-ahead-of-
+// body + gizmo!=hand). Tunable via the overlay; defaults are a first guess to refine from diag.
+volatile int       g_VRBodyUnderHMD = 1;
+volatile int       g_VRNeutralizeAnimGraph = 1;
+volatile float     g_VRChestDrop = 0.40f;   // eyes -> chest down (m)
+volatile float     g_VRChestFwd  = -0.05f;  // eyes -> chest forward(+)/back(-) (m)
+volatile float     g_VRHeadDrop  = 0.08f;   // head bone sits this far ABOVE the eyes/HMD (m)
+volatile float     g_VRSquatThreshold = 0.20f; // HMD must drop more than this (m) before the body squats
+volatile float     g_VRCamSmooth = 0.12f; // body-anchor camera low-pass (per-frame lerp; 1=off). Absorbs weapon recoil/draw jerks.
+volatile float     g_VRIKDbgChest[3]    = {0,0,0};
+volatile float     g_VRIKDbgChestTgt[3] = {0,0,0};
+// Anatomical offset from the HMD to the SHOULDER joint, in HMD-LOCAL OpenXR axes
+// (X = right, Y = up, Z = backward). The plugin uses this to convert the HMD-local controller
+// position into a shoulder-relative offset so the wrist target stays put when the head rotates.
+// Defaults: ~17cm sideways, 17cm below HMD, 5cm behind. Right = +X, Left = -X.
+volatile float     g_VRShoulderRX =  0.14f, g_VRShoulderRY = -0.17f, g_VRShoulderRZ = 0.05f;
+volatile float     g_VRShoulderLX = -0.14f, g_VRShoulderLY = -0.17f, g_VRShoulderLZ = 0.05f;
 // Per-hand elbow pole spin (degrees): fine outward/inward nudge of the bend normal; 0 = natural.
 volatile float     g_VRElbowPoleR = 0.0f, g_VRElbowPoleL = 0.0f;
-// VRArmIK elbow-swing heuristic gain (per hand). 1.0 = faithful VRArmIK; the left arm is
+// Elbow-swing heuristic gain (per hand). 1.0 = the faithful heuristic; the left arm is
 // mirrored inside the solver, so both default to +1.0.
 volatile float     g_VRElbowSwingR = 1.0f, g_VRElbowSwingL = 1.0f;
 volatile int       g_VRRightBoneIdx = 24;
@@ -146,6 +336,21 @@ volatile int       g_VRRightUpperArmIdx = -1; // RightArm  (upper-arm start / sh
 volatile int       g_VRRightForeArmIdx  = -1; // RightForeArm (elbow)
 volatile int       g_VRLeftUpperArmIdx  = -1; // LeftArm
 volatile int       g_VRLeftForeArmIdx   = -1; // LeftForeArm
+int                g_VRSpineIdx[8]      = {-1,-1,-1,-1,-1,-1,-1,-1}; // Spine* torso chain
+volatile int       g_VRSpineCount       = 0;
+// Hip bones used by the hand-to-holster equip system. The IN-GAME right wrist + these two hip
+// bones are all in the same puppet model space, so the Euclidean distance computed in model space
+// equals the distance in world space (rigid transform).
+volatile int       g_VRRightUpLegIdx    = -1; // RightUpLeg (right hip)
+volatile int       g_VRLeftUpLegIdx     = -1; // LeftUpLeg  (left hip)
+// Lower-body chain for full-body "move hips under HMD + keep feet on the ground" (Phase 2b).
+volatile int       g_VRHipsIdx          = -1; // Hips (pelvis root of the visible body)
+volatile int       g_VRRightLegIdx      = -1; // RightLeg  (knee)
+volatile int       g_VRLeftLegIdx       = -1; // LeftLeg   (knee)
+volatile int       g_VRRightFootIdx     = -1; // RightFoot
+volatile int       g_VRLeftFootIdx      = -1; // LeftFoot
+volatile int       g_VRNeckIdx          = -1; // Neck (base of the neck, for the spine curve)
+volatile int       g_VRNeck1Idx         = -1; // Neck1 (upper neck, if present)
 
 // IK diagnostics (last solve, model space).
 volatile float     g_VRIKDbgTarget[3]   = {0,0,0};
@@ -172,6 +377,24 @@ static void WriteVRDiagCore(float camX, float camY, float camZ,
 // when it changes, so the overlay's "Log VR Diag" button works in-headset.
 static void PollVRCalibFromShared() {
     if (!g_pSharedHands) return;
+    // Shoulder anatomical offsets from auto-calibration (slots 70..75, validity in 76).
+    // These live outside the regular [34..47] calibration block.
+    if (g_pSharedHands[76] != 0.0f) {
+        g_VRShoulderRX = g_pSharedHands[70];
+        g_VRShoulderRY = g_pSharedHands[71];
+        g_VRShoulderRZ = g_pSharedHands[72];
+        g_VRShoulderLX = g_pSharedHands[73];
+        g_VRShoulderLY = g_pSharedHands[74];
+        g_VRShoulderLZ = g_pSharedHands[75];
+    }
+    // T-pose measured anatomy from auto-calibration: [77]/[78] = real arm length R/L (m),
+    // [79] = HMD eye height (m), [80] = valid. Drives the gizmo-path arm-bone scaling
+    // (a straight real arm -> straight avatar arm) instead of the old position-scale hack.
+    if (g_pSharedHands[80] != 0.0f) {
+        g_VRUserArmLenR   = g_pSharedHands[77];
+        g_VRUserArmLenL   = g_pSharedHands[78];
+        g_VRUserEyeHeight = g_pSharedHands[79];
+    }
     if (g_pSharedHands[33] != 0.0f) {
         const float* c = &g_pSharedHands[34]; // scaleR,scaleL,heightR,heightL,swingR,swingL,poleR,poleL, wRpyr(3), wLpyr(3)
         g_VRScaleR = c[0]; g_VRScaleL = c[1];
@@ -268,55 +491,59 @@ static uint64_t BuildChunkDebugMask() {
 
 void EnsureSharedMemory() {
     if (!g_pSharedHands) {
-        g_hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 256, "CyberpunkVR_Hands_Shared");
-        if (g_hMapFile) g_pSharedHands = (float*)MapViewOfFile(g_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 256);
+        g_hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 512, "CyberpunkVR_Hands_Shared");
+        if (g_hMapFile) g_pSharedHands = (float*)MapViewOfFile(g_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 512);
     }
 }
 
+// Seqlock reader facility (g_handsStable / RefreshHandsSnapshot / SharedPose) is
+// defined in vrik_hook.h (included above) so the native AnimPose hook there — the
+// real per-frame body-IK consumer — can use the same latched snapshot.
+
 void GetLeftVRHandValid(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4) {
-    aFrame->code++; EnsureSharedMemory();
-    if (aOut) *aOut = g_pSharedHands ? (g_pSharedHands[0] > 0.0f) : false;
+    aFrame->code++; EnsureSharedMemory(); RefreshHandsSnapshot();
+    if (aOut) *aOut = g_handsStableValid ? (SharedPose(0) > 0.0f) : false;
 }
 
 void GetRightVRHandValid(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4) {
-    aFrame->code++; EnsureSharedMemory();
-    if (aOut) *aOut = g_pSharedHands ? (g_pSharedHands[8] > 0.0f) : false;
+    aFrame->code++; EnsureSharedMemory(); RefreshHandsSnapshot();
+    if (aOut) *aOut = g_handsStableValid ? (SharedPose(8) > 0.0f) : false;
 }
 
 void GetLeftVRHandPos(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
-    aFrame->code++; EnsureSharedMemory();
+    aFrame->code++; EnsureSharedMemory(); RefreshHandsSnapshot();
     if (aOut) {
-        if (g_pSharedHands) {
-            aOut->X = g_pSharedHands[1]; aOut->Y = g_pSharedHands[2]; aOut->Z = g_pSharedHands[3];
+        if (g_handsStableValid) {
+            aOut->X = SharedPose(1); aOut->Y = SharedPose(2); aOut->Z = SharedPose(3);
         } else { aOut->X = aOut->Y = aOut->Z = 0.0f; }
         aOut->W = 1.0f;
     }
 }
 
 void GetRightVRHandPos(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
-    aFrame->code++; EnsureSharedMemory();
+    aFrame->code++; EnsureSharedMemory(); RefreshHandsSnapshot();
     if (aOut) {
-        if (g_pSharedHands) {
-            aOut->X = g_pSharedHands[9]; aOut->Y = g_pSharedHands[10]; aOut->Z = g_pSharedHands[11];
+        if (g_handsStableValid) {
+            aOut->X = SharedPose(9); aOut->Y = SharedPose(10); aOut->Z = SharedPose(11);
         } else { aOut->X = aOut->Y = aOut->Z = 0.0f; }
         aOut->W = 1.0f;
     }
 }
 
 void GetLeftVRHandRot(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Quaternion* aOut, int64_t a4) {
-    aFrame->code++; EnsureSharedMemory();
+    aFrame->code++; EnsureSharedMemory(); RefreshHandsSnapshot();
     if (aOut) {
-        if (g_pSharedHands) {
-            aOut->i = g_pSharedHands[4]; aOut->j = g_pSharedHands[5]; aOut->k = g_pSharedHands[6]; aOut->r = g_pSharedHands[7];
+        if (g_handsStableValid) {
+            aOut->i = SharedPose(4); aOut->j = SharedPose(5); aOut->k = SharedPose(6); aOut->r = SharedPose(7);
         } else { aOut->i = aOut->j = aOut->k = 0.0f; aOut->r = 1.0f; }
     }
 }
 
 void GetRightVRHandRot(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Quaternion* aOut, int64_t a4) {
-    aFrame->code++; EnsureSharedMemory();
+    aFrame->code++; EnsureSharedMemory(); RefreshHandsSnapshot();
     if (aOut) {
-        if (g_pSharedHands) {
-            aOut->i = g_pSharedHands[12]; aOut->j = g_pSharedHands[13]; aOut->k = g_pSharedHands[14]; aOut->r = g_pSharedHands[15];
+        if (g_handsStableValid) {
+            aOut->i = SharedPose(12); aOut->j = SharedPose(13); aOut->k = SharedPose(14); aOut->r = SharedPose(15);
         } else { aOut->i = aOut->j = aOut->k = 0.0f; aOut->r = 1.0f; }
     }
 }
@@ -833,6 +1060,21 @@ static RED4ext::Handle<RED4ext::ent::IOrientationProvider> CreateStaticOrientati
     provider->staticOrientation.j = 0.0f;
     provider->staticOrientation.k = 0.0f;
     provider->staticOrientation.r = 1.0f;
+    return RED4ext::Handle<RED4ext::ent::IOrientationProvider>(provider);
+}
+
+// Static orientation provider with a given quaternion (= the VR controller aim). Used to swap the
+// projectile launch's logicalOrientationProvider so the bullet flies down the controller/barrel.
+static RED4ext::Handle<RED4ext::ent::IOrientationProvider> CreateStaticOrientationProviderQ(const RED4ext::Quaternion& aQuat)
+{
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* cls = rtti ? rtti->GetClass("entStaticOrientationProvider") : nullptr;
+    if (!cls) return {};
+    auto* instance = cls->CreateInstance(true);
+    if (!instance) return {};
+    cls->InitializeProperties(instance);
+    auto* provider = reinterpret_cast<RED4ext::ent::StaticOrientationProvider*>(instance);
+    provider->staticOrientation = aQuat;
     return RED4ext::Handle<RED4ext::ent::IOrientationProvider>(provider);
 }
 
@@ -1782,6 +2024,36 @@ static bool ResolveRootGraphVectorPreset(int32_t aMode, RED4ext::CName& aOut)
     }
 }
 
+static int32_t ForceVRNeutralAnimGraphInputs()
+{
+    int32_t writes = 0;
+    auto add = [&](int32_t r) {
+        if (r > 0) writes += r;
+    };
+
+    // Weapon/camera stance inputs that visually move the FPP camera, shoulders and hands.
+    // Do not touch ironsight/ADS-specific inputs; weapon aiming must stay gameplay-correct.
+    add(SetRootGraphFloatVariable(RED4ext::CName("disable_maya_engine_right_hand"), 1.0f));
+    add(SetRootGraphFloatVariable(RED4ext::CName("disable_maya_engine_left_hand"), 1.0f));
+    add(SetRootGraphFloatVariable(RED4ext::CName("camera_pitch"), 0.0f));
+    add(SetRootGraphFloatVariable(RED4ext::CName("camera_yaw"), 0.0f));
+
+    RED4ext::Vector4 zero{0, 0, 0, 0};
+    add(SetRootGraphVectorVariable(RED4ext::CName("weapon_offset_shoulder"), zero));
+    add(SetRootGraphVectorVariable(RED4ext::CName("weapon_rotation_shoulder"), zero));
+    add(SetRootGraphVectorVariable(RED4ext::CName("debug_stand_camera_position"), zero));
+    add(SetRootGraphVectorVariable(RED4ext::CName("debug_crouch_camera_position"), zero));
+
+    // Runtime track arrays are the values the evaluated graph reads. Keep camera vertical offset
+    // neutral and leave feet IK enabled; this is applied every frame while VRIK is active.
+    add(SetRootLiveTrackValue(RED4ext::CName("cameraUpOffset"), 0.0f, 0));
+    add(SetRootLiveTrackValue(RED4ext::CName("allowFeetIk"), 1.0f, 0));
+    add(SetRootLiveTrackValue(RED4ext::CName("enableLeftFootIk"), 1.0f, 0));
+    add(SetRootLiveTrackValue(RED4ext::CName("enableRightFootIk"), 1.0f, 0));
+
+    return writes;
+}
+
 static void AppendRootGraphVariableLog(const char* aSource, const RED4ext::CName& aKey, const char* aValueText, int32_t aResult)
 {
     std::ofstream out(VRDiagPath("root_graph_variable_test_log.txt"), std::ios::app);
@@ -2282,10 +2554,12 @@ void UpdateVRIKAnimInputs(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* 
     // player here is exactly as safe as the manual "Start VR Tracking" button.
     // Edge-triggered on g_VRBind so the CET button still works independently.
     EnsureSharedMemory();
+
     if (g_pSharedHands) {
         static bool s_vrHooksInstalled = false;
         static bool s_vrArmed = false;
         static int  s_lastReq = 0;
+        static int  s_rearmCounter = 0;
         int req = static_cast<int>(g_pSharedHands[32]);
         if (req > 0) {
             if (!s_vrHooksInstalled) {
@@ -2296,16 +2570,26 @@ void UpdateVRIKAnimInputs(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* 
                 InstallAnimPoseHook();
                 s_vrHooksInstalled = true;
             }
-            if (!s_vrArmed && VRIK_DoArmPlayer() > 0) {
-                s_vrArmed = true;
+            // Re-arm: initial bootstrap, then once every ~60 frames (~1s @ 60fps) to refresh the
+            // cached track-buffer / bone-index pointers when the player puppet changes underneath
+            // us (save load, area transition, vehicle in/out, scripted scene). Without this the
+            // pointers go stale and tracking stops working until the user toggles it off+on.
+            ++s_rearmCounter;
+            if (!s_vrArmed || s_rearmCounter >= 60) {
+                if (VRIK_DoArmPlayer() > 0) s_vrArmed = true;
+                s_rearmCounter = 0;
             }
             if (s_lastReq <= 0) g_VRBind = req;   // off -> on edge
+            if (g_VRNeutralizeAnimGraph != 0) {
+                ForceVRNeutralAnimGraphInputs();
+            }
             // Keep the diag bone snapshot fresh while tracking, so the overlay's
             // "Log VR Diag" works without the CET window's capture toggle.
             g_VRDiagCapture = 1;
         } else {
             if (s_lastReq > 0) { g_VRBind = 0; g_VRDiagCapture = 0; } // on -> off edge
             s_vrArmed = false;                     // re-arm on next activation
+            s_rearmCounter = 0;
         }
         s_lastReq = req;
 
@@ -3564,7 +3848,7 @@ void ArmVRBoneHookByCaptureIndex(RED4ext::IScriptable* aContext, RED4ext::CStack
 }
 
 // Prints the player body component's bone buffer base address so it can be fed to a
-// Cheat Engine write-breakpoint ("find what writes to this address") -> reveals the
+// memory write-breakpoint ("find what writes to this address") -> reveals the
 // real MetaRig->bone pose-apply function to hook for VR hands.
 // component(+0x168)=modelInstance, (+0xE0)=bone DynArray entries ptr (the float buffer).
 void GetPlayerBoneBufferAddress(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
@@ -3615,7 +3899,7 @@ void GetPlayerBoneBufferAddress(RED4ext::IScriptable* aContext, RED4ext::CStackF
     if (aOut) *aOut = static_cast<int32_t>(reinterpret_cast<uintptr_t>(boneBuffer) & 0xFFFFFFFF);
 }
 
-// ---- Pose-apply hook (sub_14017DDB4) control ----
+// ---- Pose-apply hook control ----
 
 // Installs the MinHook on the pose-apply function (module+0x17DDB4).
 void InstallVRAnimPoseHook(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
@@ -3625,6 +3909,594 @@ void InstallVRAnimPoseHook(RED4ext::IScriptable* aContext, RED4ext::CStackFrame*
     // that crushed FPS (see UpdateVRIKAnimInputs note).
     bool ok = InstallAnimPoseHook();
     if (aOut) *aOut = ok ? 1 : 0;
+}
+
+// ---- Weapon-aim native hook (M1 instrumentation) script API ----
+
+// Installs the MinHooks on the projectile (+0x28D4B8) and TargetHelper (+0x46F774)
+// shot functions. M1 = read-only instrumentation; returns 1 on success.
+void InstallWeaponAimHook(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    bool ok = InstallWeaponAimHooks();
+    if (aOut) *aOut = ok ? 1 : 0;
+}
+
+// Writes the current hook stats + last sampled vectors to weapon_aim_native.txt.
+void DumpWeaponAimHookStats(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    std::ofstream out(VRDiagPath("weapon_aim_native.txt"), std::ios::out | std::ios::trunc);
+    if (!out.is_open()) { if (aOut) *aOut = -1; return; }
+    out << "installed=" << g_waInstalled << " enable=" << g_waEnable << " mode=" << g_waMode << "\n";
+    out << "XFORM-GETTER calls=" << g_xfCalls << " mutated=" << g_xfMutated
+        << " mode=" << g_xfMode << " testYaw=" << g_xfTestYaw << " shotInProg=" << g_shotInProgress << "  <== THE camera->shot lever\n";
+    out << "  xf out-orient = " << g_xfLastOut[0] << " " << g_xfLastOut[1] << " " << g_xfLastOut[2] << " " << g_xfLastOut[3] << "\n";
+    out << "SHOTSNAP calls=" << g_ssCalls << " snapped=" << g_ssSnapped
+        << " camPtr=0x" << std::hex << g_ssCamPtr << std::dec
+        << " enable=" << g_ssEnable << " mode=" << g_ssMode << " testYaw=" << g_ssTestYaw << "\n";
+    out << "  bracket quat = " << g_ssCamQuat[0] << " " << g_ssCamQuat[1] << " " << g_ssCamQuat[2] << " " << g_ssCamQuat[3] << "\n";
+    out << "  cam+0xD0(local) = " << g_ssDiagD0[0] << " " << g_ssDiagD0[1] << " " << g_ssDiagD0[2] << " " << g_ssDiagD0[3] << "\n";
+    out << "  cam+0xF0(world) = " << g_ssDiagF0[0] << " " << g_ssDiagF0[1] << " " << g_ssDiagF0[2] << " " << g_ssDiagF0[3]
+        << "  <== bracket target (default)\n";
+    out << "  cam+0x110       = " << g_ssDiag110[0] << " " << g_ssDiag110[1] << " " << g_ssDiag110[2] << " " << g_ssDiag110[3] << "\n";
+    out << "HEADING calls=" << g_waHeadCalls << " camObj=0x" << std::hex << g_waHeadObj << std::dec
+        << " force=" << g_waHeadForce << "\n";
+    out << "  set yaw/pitch=" << g_waHeadYaw << "/" << g_waHeadPitch
+        << "  orig[+4E4]/[+4E8]=" << g_waHeadOrig4E4 << "/" << g_waHeadOrig4E8
+        << "  [+4B8]=" << g_waHeadVal4B8 << " flag[+474]=" << g_waHeadFlag474 << "\n";
+    out << "xhUpd calls=" << g_waXhCalls << " mutated=" << g_waXhMutated << "  <== crosshair-aim (UI)\n";
+    out << "  cache+0x350 pos = " << g_waXhPos[0] << " " << g_waXhPos[1] << " " << g_waXhPos[2] << " " << g_waXhPos[3] << "\n";
+    out << "  cache+0x370 dir = " << g_waXhDir[0] << " " << g_waXhDir[1] << " " << g_waXhDir[2] << " " << g_waXhDir[3]
+        << "  (|xyz|=" << std::sqrt(g_waXhDir[0]*g_waXhDir[0]+g_waXhDir[1]*g_waXhDir[1]+g_waXhDir[2]*g_waXhDir[2]) << ")\n";
+    out << "exeBase=0x" << std::hex << g_waExeBase << std::dec << "\n";
+    out << "projCalls=" << g_waProjCalls << " projMutated=" << g_waProjMutated << "  <== projectile bullet lever\n";
+    out << "  projCtrl=" << g_waProjCtrl << " always=" << g_waProjAlways << " fireInShot=" << g_fireInShot
+        << " rejectReason=" << g_waProjRejectReason << " lastRetRva=0x" << std::hex << g_waProjLastRetRva << std::dec
+        << " gateRva=0x" << std::hex << g_waProjGateRva << std::dec
+        << " ctrlLen2=" << g_projDump[44] << " spd=" << g_projDump[45] << " targetLen2=" << g_projDump[46] << "\n";
+    out << "  projRetCounts: 36F9FF(queue)=" << g_waProjRet36F9FF << " 36FD7C(update)=" << g_waProjRet36FD7C
+        << " 4E5109(active)=" << g_waProjRet4E5109 << " 4E615F(alt)=" << g_waProjRet4E615F << "\n";
+    out << "targetCalls=" << g_waTargetCalls << " fromShot=" << g_waTargetFromShot
+        << " redirects=" << g_waRedirects << " lastRetRva=0x" << std::hex << g_waLastRetRva << std::dec
+        << " testYaw=" << g_xfTestYaw << " plane=" << g_xfTestPlane << "\n";
+    out << "classifyCalls=" << g_waClassifyCalls << " fromShot=" << g_waClassifyFromShot << "\n";
+    out << "normPatched=" << g_waNormPatched << " normShot(@0x46F0E5)=" << g_waNormShot
+        << " normMutated=" << g_waNormMutated << "  <== bullet-dir lever\n";
+    out << "fireNormPatched=" << g_waFireNormPatched << " fireNormShot(@0x84C968)=" << g_waFireNormShot
+        << " fireNormMutated=" << g_waFireNormMutated << "  <== weapon fire Normalize(target-muzzle)\n";
+    out << "physPatched=" << g_waPhysPatched << " physCalls(@0x46F1EA)=" << g_waPhysCalls
+        << " physMutated=" << g_waPhysMutated << "\n";
+    out << "shotPipeline: CandA(0x291D9C8)=" << g_waCandA << " CandB(0x291DD54)=" << g_waCandB
+        << " SVP(0x292263C)=" << g_waSVP << " SFVW(0x29216D0)=" << g_waSFVW << "\n";
+    out << "physArgSnapshot snapped=" << g_waDbgSnapped << " (look for the unit dir vector ~= camera forward)\n";
+    out << "-- arg3 (basis?) floats @+0x00..0x120 --\n";
+    for (int i = 0; i < 72; i += 4)
+        out << "   +0x" << std::hex << (i*4) << std::dec << ": "
+            << g_waDbgArg3[i] << " " << g_waDbgArg3[i+1] << " " << g_waDbgArg3[i+2] << " " << g_waDbgArg3[i+3] << "\n";
+    out << "-- rayList floats @+0x00..0xA0 --\n";
+    for (int i = 0; i < 40; i += 4)
+        out << "   +0x" << std::hex << (i*4) << std::dec << ": "
+            << g_waDbgRay[i] << " " << g_waDbgRay[i+1] << " " << g_waDbgRay[i+2] << " " << g_waDbgRay[i+3] << "\n";
+    out << "-- rayList[0] entry floats @+0x00..0x70 --\n";
+    for (int i = 0; i < 28; i += 4)
+        out << "   +0x" << std::hex << (i*4) << std::dec << ": "
+            << g_waDbgRayEntry[i] << " " << g_waDbgRayEntry[i+1] << " " << g_waDbgRayEntry[i+2] << " " << g_waDbgRayEntry[i+3] << "\n";
+    out << "publishedFwd  = " << g_waFwd[0] << " " << g_waFwd[1] << " " << g_waFwd[2] << " (seq " << g_waFwdSeq << ")\n";
+    out << "publishedPos  = " << g_waPos[0] << " " << g_waPos[1] << " " << g_waPos[2] << "\n";
+    out << "shotOrigin    = " << g_waTargetOrigin[0] << " " << g_waTargetOrigin[1] << " " << g_waTargetOrigin[2] << "\n";
+    out << "origAimDelta  = " << g_waTargetDir[0] << " " << g_waTargetDir[1] << " " << g_waTargetDir[2] << "\n";
+    out.close();
+    if (aOut) *aOut = 1;
+}
+
+// Live stat getter for the overlay (no file). which: 0=targetCalls, 1=redirects,
+// 2=projCalls, 3=installed, 4=lastFwdSeq.
+void GetWeaponAimStat(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t which = 0;
+    RED4ext::GetParameter(aFrame, &which);
+    aFrame->code++;
+    int32_t v = 0;
+    switch (which) {
+        case 0: v = static_cast<int32_t>(g_waTargetCalls); break;
+        case 1: v = static_cast<int32_t>(g_waRedirects); break;
+        case 2: v = static_cast<int32_t>(g_waProjCalls); break;
+        case 3: v = g_waInstalled; break;
+        case 4: v = static_cast<int32_t>(g_waFwdSeq); break;
+        case 5: v = static_cast<int32_t>(g_waClassifyFromShot); break;
+        case 6: v = static_cast<int32_t>(g_waClassifyCalls); break;
+        case 7: v = static_cast<int32_t>(g_waTargetFromShot); break;
+        case 8: v = static_cast<int32_t>(g_waPhysCalls); break;
+        case 9: v = static_cast<int32_t>(g_waPhysMutated); break;
+        case 10: v = g_waPhysPatched; break;
+        case 11: v = static_cast<int32_t>(g_waCandA); break;
+        case 12: v = static_cast<int32_t>(g_waCandB); break;
+        case 13: v = static_cast<int32_t>(g_waSVP); break;
+        case 14: v = static_cast<int32_t>(g_waSFVW); break;
+        case 15: v = static_cast<int32_t>(g_waNormShot); break;
+        case 16: v = static_cast<int32_t>(g_waNormMutated); break;
+        case 17: v = g_waNormPatched; break;
+        case 18: v = static_cast<int32_t>(g_waProjMutated); break;
+        case 19: v = static_cast<int32_t>(g_waXhCalls); break;
+        case 20: v = static_cast<int32_t>(g_waXhMutated); break;
+        case 21: v = static_cast<int32_t>(g_waHeadCalls); break;
+        case 22: v = (g_waHeadObj != 0) ? 1 : 0; break;
+        case 23: v = g_waHeadForce; break;
+        case 24: v = static_cast<int32_t>(g_ssCalls); break;
+        case 25: v = static_cast<int32_t>(g_ssSnapped); break;
+        case 26: v = (g_ssCamPtr != 0) ? 1 : 0; break;
+        case 27: v = static_cast<int32_t>(g_xfCalls); break;
+        case 28: v = static_cast<int32_t>(g_xfMutated); break;
+        case 29: v = static_cast<int32_t>(g_goCalls); break;
+        case 30: v = static_cast<int32_t>(g_goMutated); break;
+        case 31: v = static_cast<int32_t>(g_waTgtOvr); break;
+        case 32: v = g_waFireNormPatched; break;
+        case 33: v = static_cast<int32_t>(g_waFireNormShot); break;
+        case 34: v = static_cast<int32_t>(g_waFireNormMutated); break;
+        case 35: v = static_cast<int32_t>(g_waProjRejectReason); break;
+        case 36: v = static_cast<int32_t>(g_waProjLastRetRva); break;
+        case 37: v = g_waProjCtrl; break;
+        case 38: v = g_waProjAlways; break;
+        case 39: v = static_cast<int32_t>(g_waProjRet36F9FF); break;
+        case 40: v = static_cast<int32_t>(g_waProjRet36FD7C); break;
+        case 41: v = static_cast<int32_t>(g_waProjRet4E5109); break;
+        case 42: v = static_cast<int32_t>(g_waProjRet4E615F); break;
+        case 43: v = static_cast<int32_t>(g_waProjGateRva); break;
+        default: v = -1; break;
+    }
+    if (aOut) *aOut = v;
+}
+
+// Writes the live FPP-camera address + key field addresses to cam_addr.txt, formatted for
+// an external memory-inspection tool ("find what writes/accesses to this address"). No guessing -- it finds the
+// exact instruction that writes the aim/orientation, on the live game, no restarts.
+void DumpVRCamAddr(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    std::ofstream out(VRDiagPath("cam_addr.txt"), std::ios::out | std::ios::trunc);
+    if (!out.is_open()) { if (aOut) *aOut = -1; return; }
+    const uintptr_t cam = g_ssCamPtr;
+    out << "=== Camera watch targets (live FPP camera) ===\n";
+    out << "camPtr            = " << std::hex << cam << "\n";
+    out << "cam+0xF0 (WORLD orientation quat, what render+shot use):  " << (cam + 0xF0) << "\n";
+    out << "cam+0xD0 (local orientation, usually identity):           " << (cam + 0xD0) << "\n";
+    out << "cam+0x110 (world position):                               " << (cam + 0x110) << std::dec << "\n";
+    out << "\nIn your memory-inspection tool: attach to Cyberpunk2077.exe -> Memory View -> Ctrl+G -> paste\n";
+    out << "the cam+0xF0 address -> right-click the byte -> 'Find out what ACCESSES this address'\n";
+    out << "-> shoot at the wall + turn head -> the instruction list = the aim readers/writers.\n";
+    out << "Send me that instruction list (the 'Cyberpunk2077.exe+XXXXXX' addresses).\n";
+    out.close();
+    if (aOut) *aOut = 1;
+}
+
+// HW-breakpoint trace control: start watching the shot camera field (camPtr+offset) for
+// reads, fire a shot, stop, dump the accessor RVAs. offsetSel: 0=+0x110(origin) 1=+0xF0(orient).
+void StartVRCamTrace(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t offsetSel = 0, gated = 0, writeOnly = 0;
+    RED4ext::GetParameter(aFrame, &offsetSel);
+    RED4ext::GetParameter(aFrame, &gated);
+    RED4ext::GetParameter(aFrame, &writeOnly);
+    aFrame->code++;
+    uintptr_t watch = 0;
+    if (offsetSel == 2) {
+        // LOCATED camera (dxgi HMD-injection / render cam) quat, from shared mem [51]/[52]+16.
+        if (g_pSharedHands) {
+            uint32_t lo=0, hi=0;
+            std::memcpy(&lo, &g_pSharedHands[51], 4);
+            std::memcpy(&hi, &g_pSharedHands[52], 4);
+            uintptr_t cam = (static_cast<uintptr_t>(hi) << 32) | static_cast<uintptr_t>(lo);
+            if (cam) watch = cam + 16;
+        }
+    } else {
+        const uintptr_t off = (offsetSel == 1) ? 0xF0 : 0x110;
+        if (g_ssCamPtr) watch = g_ssCamPtr + off;
+    }
+    if (watch) { Wa_StartTrace(watch, gated, writeOnly); if (aOut) *aOut = 1; }
+    else if (aOut) *aOut = 0;
+}
+void StopVRCamTrace(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    Wa_StopTrace();
+    if (aOut) *aOut = g_traceCount;
+}
+void DumpVRCamTrace(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    std::ofstream out(VRDiagPath("cam_trace.txt"), std::ios::out | std::ios::trunc);
+    if (!out.is_open()) { if (aOut) *aOut = -1; return; }
+    out << "watched=0x" << std::hex << g_traceAddr << std::dec
+        << " hits=" << g_traceHits << " uniqueRVAs=" << g_traceCount << " active=" << g_traceActive << "\n";
+    out << "accessor RVAs + hit COUNT (low=per-shot reader, high=per-frame render):\n";
+    for (int i = 0; i < g_traceCount && i < 128; ++i)
+        out << "  0x" << std::hex << (0x140000000ull + g_traceRvas[i]) << std::dec
+            << "  count=" << g_traceRvaCounts[i] << "\n";
+    out.close();
+    if (aOut) *aOut = g_traceCount;
+}
+
+// CET publishes the FPP camera object pointer each frame so the ShotSnap hook can
+// bracket cam+0xD0. Mirrors SetVRRightHandEntity (handle -> instance pointer).
+// cam+0xD0 additive head-inject control.
+volatile int g_headLocalEnable = 0;
+volatile int g_headLocalConv = 0;
+
+// ADDITIVE HEAD INJECT: write the head-relative quaternion (hmdRel,
+// shared slots 16..19) into the FPP cam LOCAL orientation @ cam+0xD0. The game composes
+// world = heading (X) local(cam+0xD0), so the VIEW gets the head while the HEADING (=stick
+// aim) is untouched -> the bullet follows the stick, not the head. dxgi must be in SKIP-HMD
+// ALWAYS mode (HMD now flows via cam+0xD0). conv selects the VR->game-local axis mapping.
+// Separate __try function (the script-callback can't use __try -- it has C++ unwinding objects).
+static void WriteHeadLocal() {
+    if (!(g_headLocalEnable && g_ssCamPtr && g_pSharedHands)) return;
+    RefreshHandsSnapshot();
+    const float hi = SharedPose(16), hj = SharedPose(17), hk = SharedPose(18), hr = SharedPose(19);
+    const float l = hi*hi + hj*hj + hk*hk + hr*hr;
+    if (l <= 0.25f) return;
+    float qi, qj, qk, qr;
+    switch (g_headLocalConv) {
+        case 1: qi =  hi; qj = -hk; qk =  hj; qr = hr; break; // VRIK map (i,-k,j,r)
+        case 2: qi = -hi; qj = -hj; qk = -hk; qr = hr; break; // inverse
+        case 3: qi =  hi; qj =  hk; qk = -hj; qr = hr; break;
+        case 4: qi = -hi; qj =  hk; qk =  hj; qr = hr; break;
+        case 5: qi =  hk; qj =  hj; qk = -hi; qr = hr; break;
+        default: qi = hi; qj = hj; qk = hk; qr = hr; break; // identity
+    }
+    __try {
+        float* q = reinterpret_cast<float*>(g_ssCamPtr + 0xD0);
+        q[0] = qi; q[1] = qj; q[2] = qk; q[3] = qr;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+void SetVRShotCamera(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, void* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(aOut); RED4EXT_UNUSED_PARAMETER(a4);
+    RED4ext::Handle<RED4ext::IScriptable> cam;
+    RED4ext::GetParameter(aFrame, &cam);
+    aFrame->code++;
+    g_ssCamPtr = reinterpret_cast<uintptr_t>(cam.instance); // FPP camera component instance
+    WriteHeadLocal();
+}
+
+void SetVRHeadLocal(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t enable = 0, conv = 0;
+    RED4ext::GetParameter(aFrame, &enable);
+    RED4ext::GetParameter(aFrame, &conv);
+    aFrame->code++;
+    g_headLocalEnable = enable; g_headLocalConv = conv;
+    if (aOut) *aOut = conv;
+}
+
+// SKIP-HMD test: tells dxgi (via shared mem [58]) to skip the HMD camera overwrite.
+// mode 0=off, 1=ALWAYS (no head -- view follows game aim), 2=shot-frame only (decouple test).
+void SetVRSkipHmdTest(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t mode = 0;
+    RED4ext::GetParameter(aFrame, &mode);
+    aFrame->code++;
+    EnsureSharedMemory();
+    if (g_pSharedHands) reinterpret_cast<volatile uint32_t*>(g_pSharedHands)[58] = static_cast<uint32_t>(mode);
+    if (aOut) *aOut = mode;
+}
+
+// MENU OPEN bridge: redscript sets this when a full-screen menu (e.g. the world
+// map) opens/closes. dxgi reads shared[81] in OnLocateCameraCallback and
+// ApplySettings/DLSSResolutionOverride: while the flag is set, dxgi stops
+// driving the game camera with the HMD orientation (menu/map does NOT swim with
+// head rotation) and suspends the square-
+// resolution force (fixes map pin drift on pan/zoom).
+// SLOT CHOICE — slot [81] is dedicated and unused elsewhere. Do NOT use [63]
+// (overwritten every frame by the hand delta-quaternion in OnLocateCameraCallback)
+// or [70..75] (shoulder-calibration slots read by PollVRCalibFromShared as
+// g_VRShoulderRX/RY/RZ — writing the map flag there zeroes the VRIK shoulder
+// pose and causes body jitter whenever the map opens/closes).
+static constexpr int kWorldMapMenuOpenSharedSlot = 81;
+void SetVRMenuOpen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t open = 0;
+    RED4ext::GetParameter(aFrame, &open);
+    aFrame->code++;
+    EnsureSharedMemory();
+    if (g_pSharedHands) {
+        reinterpret_cast<volatile uint32_t*>(g_pSharedHands)[kWorldMapMenuOpenSharedSlot] = static_cast<uint32_t>(open ? 1 : 0);
+    }
+    if (aOut) *aOut = open;
+}
+
+// GetWorldOrientation (0x802390) override -- the Cheat-Engine-confirmed shot aim reader.
+// mode: 0=off, 1=ALWAYS (test view+bullet), 2=gated-by-shot (decouple). plane for testYaw.
+void SetVRGetOrient(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t mode = 0, plane = 0; float testYaw = 0.0f;
+    RED4ext::GetParameter(aFrame, &mode);
+    RED4ext::GetParameter(aFrame, &testYaw);
+    RED4ext::GetParameter(aFrame, &plane);
+    aFrame->code++;
+    g_goMode = mode; g_goTestYaw = testYaw; g_goPlane = plane;
+    if (aOut) *aOut = static_cast<int32_t>(g_goMutated);
+}
+
+// Camera-transform getter override control. mode: 0=off, 1=ALWAYS (test), 2=gated-by-shot.
+void SetVRXformOverride(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t mode = 0; float testYaw = 0.0f; int32_t plane = 0;
+    RED4ext::GetParameter(aFrame, &mode);
+    RED4ext::GetParameter(aFrame, &testYaw);
+    RED4ext::GetParameter(aFrame, &plane);
+    aFrame->code++;
+    g_xfMode = mode; g_xfTestYaw = testYaw; g_xfTestPlane = plane;
+    if (aOut) *aOut = static_cast<int32_t>(g_waTargetFromShot);
+}
+
+// FIRE-SHOT lever. mode: 0=scan-only, 1=bend-test (rotate the field at the
+// override offset by `angle` rad about `plane`), 2=controller override (write dxgi controller
+// forward [shared 60..62]; neg flips sign). Returns the fire-call count.
+void SetVRFireMode(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t mode = 0, plane = 0, neg = 0; float angle = 0.0f;
+    RED4ext::GetParameter(aFrame, &mode);
+    RED4ext::GetParameter(aFrame, &plane);
+    RED4ext::GetParameter(aFrame, &angle);
+    RED4ext::GetParameter(aFrame, &neg);
+    aFrame->code++;
+    g_fireMode = mode; g_firePlane = plane; g_fireTestAng = angle; g_fireNeg = neg;
+    if (aOut) *aOut = static_cast<int32_t>(g_fireCalls);
+}
+
+// Configure the auto-scanner: src 0=r8(shot-ctx) 1=rdx(arg2) 2=*(rdx+0x10)(transform) 3=*(rdx),
+// range = bytes to scan. Returns the scan source for confirmation.
+void SetVRFireScan(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t src = 0, range = 0x2300;
+    RED4ext::GetParameter(aFrame, &src);
+    RED4ext::GetParameter(aFrame, &range);
+    aFrame->code++;
+    g_fireScanSrc = src; if (range > 0) g_fireScanRange = range;
+    if (aOut) *aOut = src;
+}
+
+// Configure the override target (where mode 1/2 writes): src enum (same as scan), byte offset.
+void SetVRFireOverrideTarget(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t src = 0, off = 0;
+    RED4ext::GetParameter(aFrame, &src);
+    RED4ext::GetParameter(aFrame, &off);
+    aFrame->code++;
+    g_fireOvrSrc = src; g_fireOvrOff = off;
+    if (aOut) *aOut = off;
+}
+
+// Read back fire-hook state. idx: 0..3 override-target field (pre-write), 4..7 what we wrote,
+// 8 calls, 9 mutated, 10 hitCount, 11 scanSrc.
+void GetVRFireDump(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t idx = 0;
+    RED4ext::GetParameter(aFrame, &idx);
+    aFrame->code++;
+    float v = 0.0f;
+    if (idx >= 0 && idx <= 3) v = g_fireDir[idx];
+    else if (idx >= 4 && idx <= 7) v = g_fireDirOut[idx - 4];
+    else if (idx == 8) v = static_cast<float>(g_fireCalls);
+    else if (idx == 9) v = static_cast<float>(g_fireMutated);
+    else if (idx == 10) v = static_cast<float>(g_fireHitCount);
+    else if (idx == 11) v = static_cast<float>(g_fireScanSrc);
+    if (aOut) *aOut = v;
+}
+
+// Read an auto-scan hit. hit = 0..g_fireHitCount-1; field: 0=byteOffset, 1=x, 2=y, 3=z, 4=dotCtrl.
+void GetVRFireHit(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t hit = 0, field = 0;
+    RED4ext::GetParameter(aFrame, &hit);
+    RED4ext::GetParameter(aFrame, &field);
+    aFrame->code++;
+    float v = 0.0f;
+    if (hit >= 0 && hit < g_fireHitCount && hit < 24) {
+        if (field == 0) v = static_cast<float>(g_fireHitOff[hit]);
+        else if (field >= 1 && field <= 3) v = g_fireHitVec[hit*3 + (field-1)];
+        else if (field == 4) v = g_fireHitDot[hit];
+    }
+    if (aOut) *aOut = v;
+}
+
+// TargetHelper clean controller-redirect: target = origin + controllerFwd*100. on, neg(flip).
+// Returns the override count (so the UI confirms it applied during the shot).
+void SetVRTargetCtrl(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t on = 0, neg = 0;
+    RED4ext::GetParameter(aFrame, &on);
+    RED4ext::GetParameter(aFrame, &neg);
+    aFrame->code++;
+    g_waTgtCtrl = on; g_waTgtNeg = neg;
+    if (aOut) *aOut = static_cast<int32_t>(g_waTgtOvr);
+}
+
+// ★ TRANSFORM-orientation override: write the controller aim quat into the shooter transform
+// (*(rdx+0x10)) that the bullet raycast uses. mode: 0 off, 1 +0xF0(world), 2 +0xD0(local), 3 both.
+// off = the world-orient quat offset (default 0xF0) for scrubbing. Returns g_fireMutated.
+void SetVRFireXform(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t mode = 0, off = 0xF0;
+    RED4ext::GetParameter(aFrame, &mode);
+    RED4ext::GetParameter(aFrame, &off);
+    aFrame->code++;
+    g_fireXform = mode; if (off >= 0 && off <= 0x400) g_fireXformOff = off;
+    if (aOut) *aOut = static_cast<int32_t>(g_fireMutated);
+}
+
+// ★ CAM-SNAP: during the shot, force the FPP camera orientation to the controller so the projectile
+// launch's orientation provider (which reads the camera) launches the bullet down the controller.
+// mode on/off; off = cam quat offset (0xF0 world / 0xD0 local).
+void SetVRFireCamSnap(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t on = 0, off = 0xF0;
+    RED4ext::GetParameter(aFrame, &on);
+    RED4ext::GetParameter(aFrame, &off);
+    aFrame->code++;
+    g_fireCamSnap = on; if (off >= 0 && off <= 0x400) g_fireCamSnapOff = off;
+    if (aOut) *aOut = static_cast<int32_t>(g_fireMutated);
+}
+
+// ★ Projectile ShootEvent startVelocity -> controller forward (the player bullet is a projectile).
+// on, neg(flip). Returns g_waProjMutated count.
+void SetVRProjCtrl(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t on = 0, neg = 0, unguide = 1, always = 0;
+    RED4ext::GetParameter(aFrame, &on);
+    RED4ext::GetParameter(aFrame, &neg);
+    RED4ext::GetParameter(aFrame, &unguide);
+    RED4ext::GetParameter(aFrame, &always);
+    aFrame->code++;
+    g_waProjCtrl = on; g_waProjNeg = neg; g_waProjUnguide = unguide; g_waProjAlways = always;
+    if (aOut) *aOut = static_cast<int32_t>(g_waProjMutated);
+}
+
+// Read projectile-event diagnostics. idx 0-2 startPoint, 3-5 startVelocity(pre), 6-8 targetPos(pre),
+// 9 guided flag, 10-12 controller dir written.
+void GetVRProjDump(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t idx = 0;
+    RED4ext::GetParameter(aFrame, &idx);
+    aFrame->code++;
+    float v = (idx >= 0 && idx < 64) ? g_projDump[idx] : 0.0f;
+    if (aOut) *aOut = v;
+}
+
+// Select which localToWorld row (0..3) is used as the world muzzle origin for targetPosition.
+void SetVRProjOriginRow(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t row = 3;
+    RED4ext::GetParameter(aFrame, &row);
+    aFrame->code++;
+    if (row >= 0 && row <= 3) g_waProjOriginRow = row;
+    if (aOut) *aOut = g_waProjOriginRow;
+}
+
+// Restrict projectile copy mutation to one return RVA. 0 = all callers; default is 0x4E5109.
+// This avoids mutating queue/template copies.
+void SetVRProjGateRva(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t rva = 0;
+    RED4ext::GetParameter(aFrame, &rva);
+    aFrame->code++;
+    g_waProjGateRva = static_cast<uint32_t>(rva);
+    if (aOut) *aOut = static_cast<int32_t>(g_waProjGateRva);
+}
+
+// Pump the player/camera WORLD position (from CET player:GetWorldPosition()) -> the projectile
+// targetPosition origin (same world frame as the event's targetPosition).
+void SetVRShotOrigin(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    float x = 0, y = 0, z = 0;
+    RED4ext::GetParameter(aFrame, &x);
+    RED4ext::GetParameter(aFrame, &y);
+    RED4ext::GetParameter(aFrame, &z);
+    aFrame->code++;
+    g_shotOrigin[0] = x; g_shotOrigin[1] = y; g_shotOrigin[2] = z;
+    if (aOut) *aOut = 1;
+}
+
+// === TRACE-DISPATCHER funnel instrumentation ===
+// Control override: on=1 rewrites the ray END point to the controller forward during the shot;
+// asFloat = ray origin/end format (1 float Vec3, 0 fixed-point); neg flips; gateRet (hex RVA, 0
+// = all shot traces) restricts override to one caller once identified.
+void SetVRTraceOverride(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t on = 0, writeOff = 0x18, force = 0, neg = 0, gateRet = 0;
+    RED4ext::GetParameter(aFrame, &on);
+    RED4ext::GetParameter(aFrame, &writeOff);  // byte offset in ray struct to write the unit dir
+    RED4ext::GetParameter(aFrame, &force);     // 1 = write even if current isn't a unit vector
+    RED4ext::GetParameter(aFrame, &neg);
+    RED4ext::GetParameter(aFrame, &gateRet);
+    aFrame->code++;
+    g_trOverride = on; g_trWriteOff = writeOff; g_trForce = force; g_trNeg = neg; g_trGateRet = static_cast<uint32_t>(gateRet);
+    if (aOut) *aOut = static_cast<int32_t>(g_trOvrCount);
+}
+
+// Reset the captured return-RVA ring so a fresh shot's callers can be observed.
+void ResetVRTrace(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    g_trRetCount = 0; g_trShotCalls = 0; g_trOvrCount = 0;
+    for (int i = 0; i < 12; ++i) { g_trRetRing[i] = 0; }
+    if (aOut) *aOut = 0;
+}
+
+// Read trace summary. idx: 0=retCount, 1=shotCalls, 2=ovrCount; 10..25 = retRing[idx-10] (RVA).
+void GetVRTrace(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t idx = 0;
+    RED4ext::GetParameter(aFrame, &idx);
+    aFrame->code++;
+    float v = 0.0f;
+    if (idx == 0) v = static_cast<float>(g_trRetCount);
+    else if (idx == 1) v = static_cast<float>(g_trShotCalls);
+    else if (idx == 2) v = static_cast<float>(g_trOvrCount);
+    else if (idx >= 10 && idx < 26) v = static_cast<float>(g_trRetRing[idx - 10]);
+    if (aOut) *aOut = v;
+}
+
+// Read a captured caller's ray. caller = 0..g_trRetCount-1. field: 0=retRVA, 1=hits,
+// 10..21 = ray dword[field-10] as INT value, 30..41 = ray dword[field-30] as FLOAT.
+// The bullet caller's ray has a real origin (muzzle/camera world pos) at dwords [2..4] (+0x08).
+void GetVRTraceCaller(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t caller = 0, field = 0;
+    RED4ext::GetParameter(aFrame, &caller);
+    RED4ext::GetParameter(aFrame, &field);
+    aFrame->code++;
+    float v = 0.0f;
+    if (caller >= 0 && caller < g_trRetCount && caller < 16) {
+        if (field == 0) v = static_cast<float>(g_trRetRing[caller]);
+        else if (field == 1) v = static_cast<float>(g_trCallerHits[caller]);
+        else if (field >= 10 && field < 22) v = static_cast<float>(static_cast<int32_t>(g_trCallerRay[caller*12 + (field-10)]));
+        else if (field >= 30 && field < 42) { uint32_t r = g_trCallerRay[caller*12 + (field-30)]; float f; memcpy(&f, &r, 4); v = f; }
+        else if (field >= 50 && field < 54) v = g_trCallerDir[caller*4 + (field-50)]; // arg3 direction xyz w
+    }
+    if (aOut) *aOut = v;
+}
+
+// ShotSnap control: enable + compose mode + static-yaw sanity test (radians).
+void SetVRShotSnap(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t enable = 0, mode = 0; float testYaw = 0.0f;
+    RED4ext::GetParameter(aFrame, &enable);
+    RED4ext::GetParameter(aFrame, &mode);
+    RED4ext::GetParameter(aFrame, &testYaw);
+    aFrame->code++;
+    g_ssEnable = enable; g_ssMode = mode; g_ssTestYaw = testYaw;
+    if (aOut) *aOut = static_cast<int32_t>(g_ssCalls);
+}
+
+// Heading-decouple test control from CET: force flag + static yaw/pitch offset.
+void SetVRHeadingTest(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t force = 0; float yaw = 0.0f, pitch = 0.0f;
+    RED4ext::GetParameter(aFrame, &force);
+    RED4ext::GetParameter(aFrame, &yaw);
+    RED4ext::GetParameter(aFrame, &pitch);
+    aFrame->code++;
+    g_waHeadForce = force; g_waHeadYaw = yaw; g_waHeadPitch = pitch;
+    if (aOut) *aOut = static_cast<int32_t>(g_waHeadCalls);
+}
+
+// CET pushes the live weapon aim each frame: forward (unit, world), muzzle world pos,
+// enable + mode + gate distance. mode bit0 = override the shot origin with the muzzle pos.
+void SetVRWeaponAim(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    float fx = 0, fy = 0, fz = 0, px = 0, py = 0, pz = 0, gate = 5.0f;
+    int32_t enable = 0, mode = 0;
+    RED4ext::GetParameter(aFrame, &fx); RED4ext::GetParameter(aFrame, &fy); RED4ext::GetParameter(aFrame, &fz);
+    RED4ext::GetParameter(aFrame, &px); RED4ext::GetParameter(aFrame, &py); RED4ext::GetParameter(aFrame, &pz);
+    RED4ext::GetParameter(aFrame, &enable); RED4ext::GetParameter(aFrame, &mode); RED4ext::GetParameter(aFrame, &gate);
+    aFrame->code++;
+    g_waFwd[0] = fx; g_waFwd[1] = fy; g_waFwd[2] = fz;
+    g_waPos[0] = px; g_waPos[1] = py; g_waPos[2] = pz;
+    g_waEnable = enable; g_waMode = mode; g_waGateDist = gate;
+    ++g_waFwdSeq;
+    if (aOut) *aOut = static_cast<int32_t>(g_waFwdSeq);
 }
 
 // Resolves the player's live track buffers (a2[7][3] candidates) so the hook can
@@ -3660,6 +4532,8 @@ static int VRIK_DoArmPlayer() {
         {
             int head = -1, rightHand = -1, leftHand = -1;
             int rightArm = -1, rightFore = -1, leftArm = -1, leftFore = -1;
+            int spineTmp[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
+            int spineTmpCount = 0;
             const size_t kNoMatch = static_cast<size_t>(-1);
             size_t headLen = kNoMatch, rightLen = kNoMatch, leftLen = kNoMatch;
             for (uint32_t i = 0; i < boneCount; ++i)
@@ -3690,6 +4564,22 @@ static int VRIK_DoArmPlayer() {
                 if (EqualsInsensitive(nm, "RightForeArm")) rightFore = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "LeftArm"))      leftArm   = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "LeftForeArm"))  leftFore  = static_cast<int>(i);
+                // Torso chain. Weapon-ready poses mostly bend Spine* backward, which moves the
+                // shoulders before our arm IK runs. Keep only the spine bones, not hips/head.
+                if (ContainsInsensitive(nm, "spine") && spineTmpCount < 8) {
+                    spineTmp[spineTmpCount++] = static_cast<int>(i);
+                }
+                // Hip + leg bones: holster proximity AND the full-body lower chain (move hips
+                // under the HMD, keep feet planted via leg IK).
+                if (EqualsInsensitive(nm, "RightUpLeg"))   g_VRRightUpLegIdx = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "LeftUpLeg"))    g_VRLeftUpLegIdx  = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "RightLeg"))     g_VRRightLegIdx   = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "LeftLeg"))      g_VRLeftLegIdx    = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "RightFoot"))    g_VRRightFootIdx  = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "LeftFoot"))     g_VRLeftFootIdx   = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "Hips"))         g_VRHipsIdx       = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "Neck"))         g_VRNeckIdx       = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "Neck1"))        g_VRNeck1Idx      = static_cast<int>(i);
             }
 
             if (head >= 0)      g_VRHeadBoneIdx  = head;
@@ -3699,6 +4589,8 @@ static int VRIK_DoArmPlayer() {
             if (rightFore >= 0) g_VRRightForeArmIdx  = rightFore;
             if (leftArm >= 0)   g_VRLeftUpperArmIdx  = leftArm;
             if (leftFore >= 0)  g_VRLeftForeArmIdx   = leftFore;
+            g_VRSpineCount = spineTmpCount;
+            for (int s = 0; s < 8; ++s) g_VRSpineIdx[s] = (s < spineTmpCount) ? spineTmp[s] : -1;
 
             // Copy the parent-index table so the pose hook can run FK each frame.
             const uint32_t pc = metaRig->parentIndeces.Size();
@@ -3717,7 +4609,8 @@ static int VRIK_DoArmPlayer() {
                     << " rightArm=" << g_VRRightUpperArmIdx
                     << " rightForeArm=" << g_VRRightForeArmIdx
                     << " leftArm=" << g_VRLeftUpperArmIdx
-                    << " leftForeArm=" << g_VRLeftForeArmIdx << "\n";
+                    << " leftForeArm=" << g_VRLeftForeArmIdx
+                    << " spineCount=" << g_VRSpineCount << "\n";
         }
     }
 
@@ -3801,23 +4694,56 @@ volatile float g_VRCamJ = 0.0f;
 volatile float g_VRCamK = 0.0f;
 volatile float g_VRCamR = 1.0f;
 
+// FPP camera (HMD) world position + player entity world position, pushed from Lua each
+// frame (init.lua getCameraWorldPose + player:GetWorldPosition). The full-arm IK converts
+// the gizmo's WORLD hand target into the bone buffer's MODEL space using these, so the
+// hand lands exactly on the gizmo. See VRIK camModel block in vrik_hook.h.
+volatile float g_VRCamPosX = 0.0f, g_VRCamPosY = 0.0f, g_VRCamPosZ = 0.0f;
+volatile float g_VREntityPosX = 0.0f, g_VREntityPosY = 0.0f, g_VREntityPosZ = 0.0f;
+volatile int   g_VRCamPosValid = 0;   // 0 until Lua has pushed a camera/entity pose
+// Player entity world ORIENTATION quaternion (i,j,k,r). The world->model rotation is its
+// conjugate; the full-arm IK uses it to convert the gizmo world target into model space.
+// GetWorldOrientation().yaw was nil (silently 0), so we now take the real quaternion.
+volatile float g_VREntityQI = 0.0f, g_VREntityQJ = 0.0f, g_VREntityQK = 0.0f, g_VREntityQR = 1.0f;
+
 void SetVRPlayerYaw(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
     RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
 
     float pYaw = 0.0f;
     float ci = 0.0f, cj = 0.0f, ck = 0.0f, cr = 1.0f;
+    float camX = 0.0f, camY = 0.0f, camZ = 0.0f;   // FPP camera (HMD) world position
+    float entX = 0.0f, entY = 0.0f, entZ = 0.0f;   // player entity world position
+    float eqi = 0.0f, eqj = 0.0f, eqk = 0.0f, eqr = 1.0f; // entity world orientation quaternion
 
     RED4ext::GetParameter(aFrame, &pYaw);
     RED4ext::GetParameter(aFrame, &ci);
     RED4ext::GetParameter(aFrame, &cj);
     RED4ext::GetParameter(aFrame, &ck);
     RED4ext::GetParameter(aFrame, &cr);
+    RED4ext::GetParameter(aFrame, &camX);
+    RED4ext::GetParameter(aFrame, &camY);
+    RED4ext::GetParameter(aFrame, &camZ);
+    RED4ext::GetParameter(aFrame, &entX);
+    RED4ext::GetParameter(aFrame, &entY);
+    RED4ext::GetParameter(aFrame, &entZ);
+    RED4ext::GetParameter(aFrame, &eqi);
+    RED4ext::GetParameter(aFrame, &eqj);
+    RED4ext::GetParameter(aFrame, &eqk);
+    RED4ext::GetParameter(aFrame, &eqr);
     aFrame->code++;
 
     g_VRPlayerYaw = pYaw;
     // FPP camera (HMD) world quaternion -- used by the full-arm IK to place the
     // hand target in world space (world->model via -yaw), so head turns don't drag it.
     g_VRCamI = ci; g_VRCamJ = cj; g_VRCamK = ck; g_VRCamR = cr;
+    // Camera (HMD) + entity world position -> lets the IK convert the gizmo world target
+    // into model space (camModelPos = Rz(-yaw)*(camPos - entityPos)). The legacy quat-only
+    // call (5 params) leaves these at 0 and g_VRCamPosValid stays 0 -> IK falls back to the
+    // head-relative path.
+    g_VRCamPosX = camX; g_VRCamPosY = camY; g_VRCamPosZ = camZ;
+    g_VREntityPosX = entX; g_VREntityPosY = entY; g_VREntityPosZ = entZ;
+    g_VREntityQI = eqi; g_VREntityQJ = eqj; g_VREntityQK = eqk; g_VREntityQR = eqr;
+    g_VRCamPosValid = 1;
 
     if (aOut) *aOut = 1;
 }
@@ -3868,8 +4794,8 @@ void SetVRElbowPole(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
     if (aOut) *aOut = 1;
 }
 
-// Per-hand elbow-swing gain. Scales the VRArmIK position heuristic that swings the elbow
-// as the hand sweeps through its arc. 1.0 = faithful VRArmIK, 0 = elbow locked straight
+// Per-hand elbow-swing gain. Scales the arm-swing position heuristic that swings the elbow
+// as the hand sweeps through its arc. 1.0 = the faithful heuristic, 0 = elbow locked straight
 // down, negative = swing the other way. hand: 0 = right, 1 = left, else = both.
 void SetVRElbowSwing(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
     RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
@@ -4038,6 +4964,82 @@ static void WriteVRDiagCore(float camX, float camY, float camZ,
     out << "IK hand body(lx,ly,lz,cross) = (" << g_VRIKDbgLocal[0] << ", " << g_VRIKDbgLocal[1] << ", " << g_VRIKDbgLocal[2] << ", " << g_VRIKDbgLocal[3] << ")\n";
     out << "IK lens upper=" << g_VRIKDbgLens[0] << " fore=" << g_VRIKDbgLens[1]
         << " scale=" << g_VRBindScale << " yaw=" << g_VRPlayerYaw << "\n";
+
+    // ---- Phase-1 gate: gizmo-exact 1:1 validation -------------------------------
+    // Reconstruct the camera (HMD) + the right gizmo hand in MODEL space from the world
+    // transforms (world->model = Rz(-yaw)) and compare to what the IK actually used:
+    //   * camModel  ~= head bone model pos  (small, ~constant eye offset) -> world->model OK.
+    //   * gizmoModel ~= IK target(model)     (~0)                          -> 1:1 target OK.
+    // Both require the 11-param SetVRPlayerYaw push (g_VRCamPosValid=1).
+    {
+        // Use the REAL camera/entity transforms the hook uses (the cam.pos params above are 0
+        // when the diag is triggered from the overlay path). world->model = conj(entityQuat).
+        float entQ[4] = { g_VREntityQI, g_VREntityQJ, g_VREntityQK, g_VREntityQR };
+        float en = std::sqrt(entQ[0]*entQ[0]+entQ[1]*entQ[1]+entQ[2]*entQ[2]+entQ[3]*entQ[3]);
+        if (en > 1e-4f) { entQ[0]/=en; entQ[1]/=en; entQ[2]/=en; entQ[3]/=en; } else { entQ[0]=0;entQ[1]=0;entQ[2]=0;entQ[3]=1; }
+        float invEnt[4] = { -entQ[0], -entQ[1], -entQ[2], entQ[3] };
+        auto toModel = [&](float x, float y, float z, float* o) {
+            float v[3] = { x, y, z }; VRIK_QuatRotateVec(invEnt, v, o);
+        };
+        // Real-world right gizmo hand from the hook's camera pose (local = mapLocal(raw), above).
+        float camQ2[4] = { g_VRCamI, g_VRCamJ, g_VRCamK, g_VRCamR };
+        float woff[3]; VRIK_QuatRotateVec(camQ2, local, woff);
+        float gizR[3] = { g_VRCamPosX + woff[0], g_VRCamPosY + woff[1], g_VRCamPosZ + woff[2] };
+        float camModelP[3];  toModel(g_VRCamPosX - g_VREntityPosX, g_VRCamPosY - g_VREntityPosY, g_VRCamPosZ - g_VREntityPosZ, camModelP);
+        float gizmoModel[3]; toModel(gizR[0]-g_VREntityPosX, gizR[1]-g_VREntityPosY, gizR[2]-g_VREntityPosZ, gizmoModel);
+        out << "camPosValid=" << g_VRCamPosValid
+            << " camPos=(" << g_VRCamPosX << ", " << g_VRCamPosY << ", " << g_VRCamPosZ << ")"
+            << " entityPos=(" << g_VREntityPosX << ", " << g_VREntityPosY << ", " << g_VREntityPosZ << ")\n";
+        out << "entityQuat = (" << g_VREntityQI << ", " << g_VREntityQJ << ", " << g_VREntityQK << ", " << g_VREntityQR << ")\n";
+        out << "camModel(reconstructed) = (" << camModelP[0] << ", " << camModelP[1] << ", " << camModelP[2] << ")\n";
+        if (g_VRHeadBoneIdx >= 0 && g_VRHeadBoneIdx < 256) {
+            const float* hp = g_fkPos[g_VRHeadBoneIdx];
+            out << "head bone(model FK)     = (" << hp[0] << ", " << hp[1] << ", " << hp[2] << ")"
+                << "  delta camModel-head = (" << (camModelP[0]-hp[0]) << ", " << (camModelP[1]-hp[1]) << ", " << (camModelP[2]-hp[2]) << ")\n";
+        }
+        out << "gizmoModel(reconstructed) = (" << gizmoModel[0] << ", " << gizmoModel[1] << ", " << gizmoModel[2] << ")\n";
+        out << "GATE delta gizmoModel - IKtarget = (" << (gizmoModel[0]-g_VRIKDbgTarget[0]) << ", "
+            << (gizmoModel[1]-g_VRIKDbgTarget[1]) << ", " << (gizmoModel[2]-g_VRIKDbgTarget[2]) << ")  (want ~0)\n";
+        out << "userArmLen R/L=" << g_VRUserArmLenR << "/" << g_VRUserArmLenL
+            << " eyeHeight=" << g_VRUserEyeHeight << "\n";
+        out << "bodyUnderHMD=" << g_VRBodyUnderHMD << " chestDrop=" << g_VRChestDrop
+            << " chestFwd=" << g_VRChestFwd << "\n";
+        out << "chest target(model) = (" << g_VRIKDbgChestTgt[0] << ", " << g_VRIKDbgChestTgt[1] << ", " << g_VRIKDbgChestTgt[2] << ")\n";
+        out << "chest actual(model) = (" << g_VRIKDbgChest[0] << ", " << g_VRIKDbgChest[1] << ", " << g_VRIKDbgChest[2] << ")\n";
+
+        // Lower-body resolve + FK positions (model space, post-solve). If any reads UNRESOLVED the
+        // bone name didn't match -> leg IK never runs -> squat can't bend the knees.
+        out << "lowerbody idx: hips=" << g_VRHipsIdx
+            << " rUpLeg=" << g_VRRightUpLegIdx << " rLeg=" << g_VRRightLegIdx << " rFoot=" << g_VRRightFootIdx
+            << " lUpLeg=" << g_VRLeftUpLegIdx << " lLeg=" << g_VRLeftLegIdx << " lFoot=" << g_VRLeftFootIdx
+            << " neck=" << g_VRNeckIdx << "\n";
+        auto pfk = [&](int idx, const char* nm) {
+            if (idx >= 0 && idx < 256)
+                out << "  " << nm << "[" << idx << "] fk=(" << g_fkPos[idx][0] << ", " << g_fkPos[idx][1] << ", " << g_fkPos[idx][2] << ")\n";
+            else
+                out << "  " << nm << " = UNRESOLVED\n";
+        };
+        pfk(g_VRHipsIdx, "Hips"); pfk(g_VRRightUpLegIdx, "RUpLeg"); pfk(g_VRRightLegIdx, "RLeg"); pfk(g_VRRightFootIdx, "RFoot");
+        pfk(g_VRLeftUpLegIdx, "LUpLeg"); pfk(g_VRLeftLegIdx, "LLeg"); pfk(g_VRLeftFootIdx, "LFoot");
+
+        // Current avatar arm length in FK (post-scale) vs the target userArmLen -- if these don't
+        // match, the bicep/forearm scaling isn't reaching the user's real arm length.
+        auto fkArm = [&](int up, int fore, int hand) -> float {
+            if (up<0||fore<0||hand<0||up>=256||fore>=256||hand>=256) return 0.0f;
+            auto d=[&](int a,int b){ float dx=g_fkPos[a][0]-g_fkPos[b][0],dy=g_fkPos[a][1]-g_fkPos[b][1],dz=g_fkPos[a][2]-g_fkPos[b][2]; return std::sqrt(dx*dx+dy*dy+dz*dz); };
+            return d(fore,up)+d(hand,fore);
+        };
+        auto fkLeg = [&](int up, int knee, int foot) -> float {
+            if (up<0||knee<0||foot<0||up>=256||knee>=256||foot>=256) return 0.0f;
+            auto d=[&](int a,int b){ float dx=g_fkPos[a][0]-g_fkPos[b][0],dy=g_fkPos[a][1]-g_fkPos[b][1],dz=g_fkPos[a][2]-g_fkPos[b][2]; return std::sqrt(dx*dx+dy*dy+dz*dz); };
+            return d(knee,up)+d(foot,knee);
+        };
+        out << "avatar arm FK R/L = " << fkArm(g_VRRightUpperArmIdx,g_VRRightForeArmIdx,g_VRRightBoneIdx)
+            << "/" << fkArm(g_VRLeftUpperArmIdx,g_VRLeftForeArmIdx,g_VRLeftBoneIdx)
+            << "  target userArmLen=" << g_VRUserArmLenR << "/" << g_VRUserArmLenL << "\n";
+        out << "avatar leg FK R/L = " << fkLeg(g_VRRightUpLegIdx,g_VRRightLegIdx,g_VRRightFootIdx)
+            << "/" << fkLeg(g_VRLeftUpLegIdx,g_VRLeftLegIdx,g_VRLeftFootIdx) << "\n";
+    }
     out << "LK target(model)   = (" << g_VRIKDbgTargetL[0] << ", " << g_VRIKDbgTargetL[1] << ", " << g_VRIKDbgTargetL[2] << ")\n";
     out << "LK shoulder(model) = (" << g_VRIKDbgShoulderL[0] << ", " << g_VRIKDbgShoulderL[1] << ", " << g_VRIKDbgShoulderL[2] << ")\n";
     out << "LK elbow(model)    = (" << g_VRIKDbgElbowL[0] << ", " << g_VRIKDbgElbowL[1] << ", " << g_VRIKDbgElbowL[2] << ")\n";
@@ -4217,6 +5219,816 @@ void DumpRuntimeClassFunctions(RED4ext::IScriptable* aContext, RED4ext::CStackFr
     if (aOut) *aOut = dumped;
 }
 
+// ============================================================================
+// PROJECTILE-AIM RTTI ENUMERATOR (2026-06-15). Dumps the exact native classes /
+// methods / properties of the projectile launch + orientation-provider chain, so we
+// hook/swap the RIGHT thing by name (the "beat the registrar wall via RTTI" plan).
+// Output: vr_projectile_rtti.txt. Trigger: native DumpVRProjectileRtti() (CET button).
+// ============================================================================
+static void DumpClassDetail(std::ofstream& out, RED4ext::CRTTISystem* rtti, const char* className)
+{
+    RED4ext::CClass* cls = rtti->GetClass(className);
+    out << "\n==================================================\n";
+    out << "CLASS " << className << (cls ? "" : "   <NOT FOUND>") << "\n";
+    if (!cls) return;
+    // parent chain
+    out << "  parents:";
+    for (RED4ext::CClass* p = cls->parent; p; p = p->parent) out << " " << p->name.ToString();
+    out << "\n  size=0x" << std::hex << cls->GetSize() << std::dec << "\n";
+
+    out << "  -- properties (name : type @offset) --\n";
+    RED4ext::DynArray<RED4ext::CProperty*> props;
+    cls->GetProperties(props);
+    for (uint32_t i = 0; i < props.Size(); ++i) {
+        auto* prop = props[i];
+        if (!prop) continue;
+        out << "    +0x" << std::hex << prop->valueOffset << std::dec
+            << "  " << prop->name.ToString() << " : " << GetTypeNameForDump(prop->type) << "\n";
+    }
+    out << "  -- functions (N=native, E=event) --\n";
+    for (auto* func : cls->funcs) {
+        if (!func) continue;
+        out << "    [" << (func->flags.isNative ? "N" : "s") << (func->flags.isEvent ? "E" : " ")
+            << "] " << func->fullName.ToString();
+        if (func->returnType && func->returnType->type)
+            out << " -> " << GetTypeNameForDump(func->returnType->type);
+        out << "  (" << func->params.Size() << " params)\n";
+    }
+    for (auto* func : cls->staticFuncs) {
+        if (!func) continue;
+        out << "    [static] " << func->fullName.ToString() << "\n";
+    }
+}
+
+void DumpVRProjectileRtti(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
+{
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    aFrame->code++;
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    if (!rtti) { if (aOut) *aOut = -1; return; }
+    std::ofstream out(VRDiagPath("vr_projectile_rtti.txt"), std::ios::trunc);
+
+    // 1) ALL orientation/position provider classes (derived from the interfaces) =
+    //    candidates to instantiate (entStaticOrientationProvider) or swap into launch params.
+    const char* providerBases[] = { "entIOrientationProvider", "entIPositionProvider",
+                                    "gameIOrientationProvider", "gameIPositionProvider" };
+    for (const char* base : providerBases) {
+        auto* baseCls = rtti->GetClass(base);
+        out << "\n#### derived of " << base << (baseCls ? "" : " <NOT FOUND>") << " ####\n";
+        if (!baseCls) continue;
+        RED4ext::DynArray<RED4ext::CClass*> derived;
+        rtti->GetDerivedClasses(baseCls, derived);
+        for (uint32_t i = 0; i < derived.Size(); ++i)
+            if (derived[i]) out << "  - " << derived[i]->name.ToString() << "\n";
+    }
+
+    // 2) the projectile launch / attack / event chain — full detail (props + native methods).
+    const char* classes[] = {
+        "gameAttack_Projectile", "gameIAttack", "gamedataAttack_Projectile_Record",
+        "gameprojectileObject", "gameprojectileComponent", "gameprojectileSpawnerComponent",
+        "gameprojectileLauncherComponent",
+        "gameprojectileShootEvent", "gameprojectileSetUpEvent", "gameprojectileSetUpAndLaunchEvent",
+        "gameprojectileLaunchEvent", "gameprojectileLaunchParams", "gameprojectileWeaponParams",
+        "gameprojectileTrajectoryParams", "gameprojectileLinearTrajectoryParams",
+        "entStaticOrientationProvider", "entStaticPositionProvider",
+        "entEntityOrientationProvider", "entEntityPositionProvider",
+        "gameuiWeaponShootParams", "gameTargetingSystem",
+    };
+    for (const char* c : classes) DumpClassDetail(out, rtti, c);
+
+    out.close();
+    if (aOut) *aOut = 1;
+}
+
+// ============================================================================
+// PrepareAttack HOOK — projectile launch direction lever.
+// gameAttack_Projectile::PrepareAttack builds the launch event
+// whose launchParams.logicalOrientationProvider sets the projectile direction (reads the camera for
+// the player). We instrument it (read-only: auto-detect the event base + the OrientationProvider
+// handle offset by RTTI type name), then optionally SWAP that provider to a controller-aimed
+// entStaticOrientationProvider so the bullet flies down the barrel. All derefs are SEH-guarded.
+// ============================================================================
+static constexpr uintptr_t kPrepareAttackOffset = 0x1D912B0;
+typedef uintptr_t (*PaFn)(uintptr_t, uintptr_t);
+static PaFn OrigPA = nullptr;
+
+static void PaSafeTypeName(uintptr_t p, char* out, size_t n) {
+    out[0] = 0;
+    if (p < 0x100000) return;
+    __try {
+        auto* obj = reinterpret_cast<RED4ext::IScriptable*>(p);
+        auto* t = obj->GetType();
+        if (t) { const char* s = t->name.ToString(); if (s) strncpy_s(out, n, s, _TRUNCATE); }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { out[0] = 0; }
+}
+static bool PaScanForProvider(uintptr_t base, int& outOff, char* typeOut, size_t typeN, volatile uint64_t* qdump) {
+    bool found = false;
+    __try {
+        for (uint32_t o = 0; o < 0xC0; o += 8) {
+            uintptr_t q = *reinterpret_cast<uintptr_t*>(base + o);
+            if (qdump) qdump[o / 8] = q;
+            if (q > 0x100000 && q < 0x7FFFFFFFFFFFull) {
+                char tn[96]; PaSafeTypeName(q, tn, sizeof(tn));
+                if (tn[0] && strstr(tn, "OrientationProvider")) {
+                    outOff = (int)o; if (typeOut) strncpy_s(typeOut, typeN, tn, _TRUNCATE); found = true;
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return found;
+}
+
+// Swap the launch event's logical (+visual) orientation provider to a controller-aimed static
+// provider. Separate fn (no __try) because RED4ext::Handle has a destructor (can't unwind under SEH).
+static void PaSwapProvider(uintptr_t evt, int off, const RED4ext::Quaternion& q) {
+    auto hLog = CreateStaticOrientationProviderQ(q);
+    if (!hLog.instance) return;
+    *reinterpret_cast<RED4ext::Handle<RED4ext::ent::IOrientationProvider>*>(evt + off) = hLog;
+    auto hVis = CreateStaticOrientationProviderQ(q);   // launchParams: logical@+0x18 visual@+0x38 (=+0x20)
+    if (hVis.instance)
+        *reinterpret_cast<RED4ext::Handle<RED4ext::ent::IOrientationProvider>*>(evt + off + 0x20) = hVis;
+    g_paSwaps++;
+}
+
+extern "C" uintptr_t Hooked_PrepareAttack(uintptr_t a1, uintptr_t a2) {
+    uintptr_t r = OrigPA ? OrigPA(a1, a2) : 0;
+    if (!g_paOn) return r;
+    g_paCalls++; g_paA1 = a1; g_paA2 = a2; g_paRet = r;
+    PaSafeTypeName(r, (char*)g_paRetType, sizeof(g_paRetType));
+
+    // Identify the launch-event base + the OrientationProvider handle offset. The PrepareAttack ABI
+    // may return the event by ptr (r), by hidden-ret (r -> &Handle -> *r = event), or as 'this' (a2).
+    uintptr_t cand[3] = { r, 0, a2 };
+    __try { if (r > 0x100000) cand[1] = *reinterpret_cast<uintptr_t*>(r); } __except (EXCEPTION_EXECUTE_HANDLER) { cand[1] = 0; }
+    int base = -1, off = -1;
+    for (int b = 0; b < 3; ++b) {
+        if (cand[b] < 0x100000) continue;
+        int o = -1; char tn[96] = {0};
+        if (PaScanForProvider(cand[b], o, tn, sizeof(tn), (b == 0 ? g_paEvQ : nullptr))) {
+            base = b; off = o; strncpy_s((char*)g_paProvType, sizeof(g_paProvType), tn, _TRUNCATE);
+            // dump the winning base's qwords
+            __try { for (uint32_t k = 0; k < 0xC0; k += 8) g_paEvQ[k/8] = *reinterpret_cast<uintptr_t*>(cand[b] + k); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+            break;
+        }
+    }
+    if (base >= 0) { g_paProvBase = base; g_paProvOff = off; }
+
+    // SWAP: replace the detected logical (and visual) orientation provider with a controller static
+    // provider so the launch aims down the barrel. Guarded: only on a confirmed detection.
+    if (g_paSwap && g_paProvBase >= 0 && g_paProvOff >= 0 && g_pSharedHands) {
+        RED4ext::Quaternion q;
+        q.i = g_pSharedHands[53]; q.j = g_pSharedHands[54]; q.k = g_pSharedHands[55]; q.r = g_pSharedHands[56];
+        const float l2 = q.i*q.i + q.j*q.j + q.k*q.k + q.r*q.r;
+        if (l2 > 0.5f && l2 < 2.0f) {
+            uintptr_t evt = (g_paProvBase == 0) ? r : (g_paProvBase == 1 ? cand[1] : a2);
+            PaSwapProvider(evt, g_paProvOff, q);
+        }
+    }
+    return r;
+}
+
+void InstallVRPrepareAttack(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    if (g_paInstalled) { if (aOut) *aOut = 2; return; }
+    MH_Initialize();
+    const uintptr_t modBase = reinterpret_cast<uintptr_t>(GetModuleHandleA("Cyberpunk2077.exe"));
+    if (!modBase) { if (aOut) *aOut = -1; return; }
+
+    // The engine calls PrepareAttack as a direct C++ virtual,
+    // so resolve the concrete instance-vtable impl: create a throwaway gameAttack_Projectile, read
+    // *(inst) = vtable, [vtable + 0x168] = PrepareAttack impl, and hook THAT address.
+    void* tgt = nullptr;
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* cls = rtti ? rtti->GetClass("gameAttack_Projectile") : nullptr;
+    if (cls) {
+        void* inst = cls->CreateInstance(true);
+        if (inst) {
+            __try {
+                uintptr_t vt = *reinterpret_cast<uintptr_t*>(inst);
+                if (vt >= modBase && vt < modBase + 0x10000000) {
+                    uintptr_t impl = *reinterpret_cast<uintptr_t*>(vt + 0x168);
+                    if (impl >= modBase && impl < modBase + 0x10000000) {
+                        g_paImpl = impl;
+                        tgt = reinterpret_cast<void*>(impl);
+                    }
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) { tgt = nullptr; }
+            // leak the throwaway instance (one-time, tiny) — safer than guessing the free path.
+        }
+    }
+    // Fallback: hook the RTTI thunk (only catches script invocations).
+    if (!tgt) tgt = reinterpret_cast<void*>(modBase + kPrepareAttackOffset);
+
+    bool ok = (MH_CreateHook(tgt, reinterpret_cast<void*>(&Hooked_PrepareAttack), reinterpret_cast<void**>(&OrigPA)) == MH_OK)
+           && (MH_EnableHook(tgt) == MH_OK);
+    g_paInstalled = ok ? 1 : 0;
+    if (aOut) *aOut = ok ? (g_paImpl ? 1 : 3) : 0;   // 1=hooked impl, 3=hooked thunk fallback
+}
+void SetVRPrepareAttackSwap(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t on = 0; RED4ext::GetParameter(aFrame, &on); aFrame->code++;
+    g_paSwap = on;
+}
+void GetVRPADump(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t) {
+    int32_t idx = 0; RED4ext::GetParameter(aFrame, &idx); aFrame->code++;
+    double v = 0.0;
+    switch (idx) {
+        case 0: v = (double)g_paCalls; break;
+        case 1: v = (double)g_paSwaps; break;
+        case 2: v = (double)g_paInstalled; break;
+        case 3: v = (double)g_paProvBase; break;
+        case 4: v = (double)g_paProvOff; break;
+        case 5: v = (double)g_paSwap; break;
+        case 6: v = (g_paImpl != 0) ? 1.0 : 0.0; break;  // 1 = hooked the real instance-vtable impl
+        default:
+            if (idx >= 10 && idx < 34) v = (double)g_paEvQ[idx - 10];
+            break;
+    }
+    if (aOut) *aOut = (float)v;
+}
+
+// ============================================================================
+// LIVE PROJECTILE finder + CE-target dump + orientation steer test.
+// The projectile launch is native (no script-wrapper hook works). So instead: find the LIVE
+// gameprojectileComponent in memory (by its instance vtable), report the absolute address of its
+// worldTransform.Orientation (+0xe0) so CE "find out what writes" pinpoints the native fn that sets
+// the launch direction; and a steer-test that overwrites that orientation with the controller aim.
+// ============================================================================
+static uintptr_t ResolveProjCompVtable() {
+    if (g_projCompVtbl) return g_projCompVtbl;
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* cls = rtti ? rtti->GetClass("gameprojectileComponent") : nullptr;
+    if (!cls) return 0;
+    void* inst = cls->CreateInstance(true);  // leak (one-time) — just need the vtable
+    if (!inst) return 0;
+    __try { g_projCompVtbl = *reinterpret_cast<uintptr_t*>(inst); } __except (EXCEPTION_EXECUTE_HANDLER) { g_projCompVtbl = 0; }
+    return g_projCompVtbl;
+}
+volatile int g_projTotal = 0;   // total vtable matches (pooled + active)
+volatile int g_projValid = 0;   // matches that pass RTTI GetType()=="gameprojectileComponent"
+
+static uintptr_t SafeReadPtr(uintptr_t a) {
+    __try { return *reinterpret_cast<uintptr_t*>(a); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+// SEH-guarded readability check via VirtualQuery (avoids the AV that crashed the game when a garbage
+// float like 0xF51C006E was treated as a pointer and dereferenced).
+static bool IsReadable(uintptr_t a, size_t n) {
+    if (a < 0x10000) return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(reinterpret_cast<void*>(a), &mbi, sizeof(mbi))) return false;
+    if (mbi.State != MEM_COMMIT) return false;
+    DWORD prot = mbi.Protect;
+    if (prot & (PAGE_NOACCESS | PAGE_GUARD)) return false;
+    if (!(prot & (PAGE_READONLY|PAGE_READWRITE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_WRITECOPY|PAGE_EXECUTE_WRITECOPY))) return false;
+    uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+    return (a + n) <= end;
+}
+// Validate a candidate is a REAL gameprojectileComponent instance — STRUCTURALLY, with NO virtual
+// calls (calling GetType() on a stack transient whose first qword == vtbl crashed the game). The
+// component is 0x920 bytes (RTTI dump); a real heap instance has that fully committed, a stack/RTTI
+// transient does not. Plus a couple of field-plausibility checks. All reads IsReadable/SEH-gated.
+static bool IsProjComp(uintptr_t obj, uintptr_t vtbl) {
+    if (!IsReadable(obj, 0x920)) return false;        // full component must be committed+readable
+    if (SafeReadPtr(obj) != vtbl) return false;        // first qword == the component vtable
+    // entIComponent fields: name(CName)@+0x40 nonzero; id(CRUID)@+0x60 nonzero on a constructed comp.
+    uint64_t nm = SafeReadPtr(obj + 0x40);
+    uint64_t id = SafeReadPtr(obj + 0x60);
+    if (nm == 0 && id == 0) return false;              // unconstructed/pooled blank -> skip
+    // a real component sits on a heap allocation, not a thread stack: stacks are tiny regions.
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(reinterpret_cast<void*>(obj), &mbi, sizeof(mbi))) return false;
+    if (mbi.RegionSize < 0x20000) return false;        // skip small (stack-like) regions
+    return true;
+}
+// returns offset of a unit-quaternion in the transform region (=orientation), or -1 if none.
+// An ACTIVE flying projectile has a valid unit quat; pooled/dormant ones are zeroed/garbage.
+static int DetectOrientOffset(uintptr_t comp) {
+    __try {
+        for (uint32_t o = 0xB0; o <= 0x140; o += 4) {
+            float* q = reinterpret_cast<float*>(comp + o);
+            // reject NaN/inf and require near-unit magnitude with a non-trivial quat
+            float m = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+            if (m > 0.96f && m < 1.04f &&
+                q[0] > -1.01f && q[0] < 1.01f && q[1] > -1.01f && q[1] < 1.01f &&
+                q[2] > -1.01f && q[2] < 1.01f && q[3] > -1.01f && q[3] < 1.01f)
+                return (int)o;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return -1;
+}
+static bool ProjIsActive(uintptr_t comp) { return DetectOrientOffset(comp) >= 0; }
+static uintptr_t FindLiveProjectile(uintptr_t vtbl) {
+    if (!vtbl) return 0;
+    // validate the cached one first — must still be a real projectile component
+    if (g_projLive) {
+        if (IsProjComp(g_projLive, vtbl) && ProjIsActive(g_projLive)) return g_projLive;
+        g_projLive = 0;
+    }
+    int total = 0, valid = 0; uintptr_t firstValid = 0;
+    MEMORY_BASIC_INFORMATION mbi;
+    uintptr_t addr = 0;
+    while (VirtualQuery(reinterpret_cast<void*>(addr), &mbi, sizeof(mbi))) {
+        uintptr_t base = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+        size_t sz = mbi.RegionSize ? mbi.RegionSize : 0x1000;
+        // heap only: committed, private, plain RW, bounded — skips images and most stacks
+        if (mbi.State == MEM_COMMIT && mbi.Type == MEM_PRIVATE && mbi.Protect == PAGE_READWRITE && sz <= 64ull*1024*1024) {
+            __try {
+                uintptr_t* p = reinterpret_cast<uintptr_t*>(base);
+                const size_t n = sz / 8;
+                for (size_t i = 0; i < n; ++i) {
+                    if (p[i] == vtbl) {
+                        ++total;
+                        uintptr_t comp = base + i*8;
+                        if (IsProjComp(comp, vtbl)) {          // RTTI-validated real instance
+                            ++valid; if (!firstValid) firstValid = comp;
+                            if (ProjIsActive(comp)) { g_projLive = comp; g_projTotal = total; g_projValid = valid; return comp; }
+                        }
+                    }
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        addr = base + sz;
+        if (addr < base) break;
+    }
+    g_projTotal = total; g_projValid = valid;
+    g_projLive = firstValid;   // a real (but maybe dormant) instance, or 0
+    return firstValid;
+}
+// SEH-guarded raw reads (no C++ objects here, so __try is allowed). Fills the diag globals.
+static void ReadProjFields(uintptr_t comp, int qoff) {
+    __try {
+        float* q = reinterpret_cast<float*>(comp + qoff);
+        for (int i = 0; i < 4; ++i) g_projOrientQ[i] = q[i];
+        for (uint32_t o = 0xC0; o < 0x160; o += 8)
+            g_projDumpQ[(o - 0xC0) / 8] = *reinterpret_cast<uintptr_t*>(comp + o);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+// scan-and-collect RTTI-VALIDATED projectile component instances (no stack/RTTI-struct false positives)
+static int CollectProjectiles(uintptr_t vtbl, uintptr_t* out, int maxN) {
+    int cnt = 0, total = 0; if (!vtbl) return 0;
+    MEMORY_BASIC_INFORMATION mbi; uintptr_t addr = 0;
+    while (VirtualQuery(reinterpret_cast<void*>(addr), &mbi, sizeof(mbi))) {
+        uintptr_t base = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+        size_t sz = mbi.RegionSize ? mbi.RegionSize : 0x1000;
+        if (mbi.State == MEM_COMMIT && mbi.Type == MEM_PRIVATE && mbi.Protect == PAGE_READWRITE && sz <= 64ull*1024*1024) {
+            __try {
+                uintptr_t* p = reinterpret_cast<uintptr_t*>(base); const size_t n = sz/8;
+                for (size_t i = 0; i < n && cnt < maxN; ++i) {
+                    if (p[i] == vtbl) { ++total; uintptr_t comp = base + i*8; if (IsProjComp(comp, vtbl)) out[cnt++] = comp; }
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        addr = base + sz; if (addr < base) break; if (cnt >= maxN) break;
+    }
+    g_projTotal = total; g_projValid = cnt;
+    return cnt;
+}
+static void DumpRegion(std::ofstream& out, uintptr_t obj, uint32_t lo, uint32_t hi) {
+    static float fbuf[128]; static uintptr_t qbuf[64];
+    int nf = 0, nq = 0;
+    __try {
+        for (uint32_t o = lo; o < hi; o += 4) { if (nf < 128) fbuf[nf++] = *reinterpret_cast<float*>(obj + o); }
+        for (uint32_t o = lo; o < hi; o += 8) { if (nq < 64) qbuf[nq++] = *reinterpret_cast<uintptr_t*>(obj + o); }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return; }
+    int fi = 0;
+    for (uint32_t o = lo; o < hi; o += 8) {
+        out << "    +0x" << std::hex << o << std::dec << "  q=0x" << std::hex << qbuf[(o-lo)/8] << std::dec
+            << "  f=(" << fbuf[fi] << ", " << fbuf[fi+1] << ")\n";
+        fi += 2;
+    }
+}
+void DumpVRLiveProjectile(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    uintptr_t vtbl = ResolveProjCompVtable();
+    uintptr_t matches[16];
+    int total = CollectProjectiles(vtbl, matches, 16);
+    g_projTotal = total;
+    std::ofstream out(VRDiagPath("vr_live_projectile.txt"), std::ios::trunc);
+    out << "gameprojectileComponent vtbl=0x" << std::hex << vtbl << std::dec
+        << "  rawMatches=" << g_projTotal << "  RTTI-valid=" << total << "\n";
+    int activeIdx = -1, activeOff = -1;
+    for (int k = 0; k < total; ++k) {
+        uintptr_t comp = matches[k];
+        int qoff = DetectOrientOffset(comp);
+        out << "\n==== match[" << k << "] = 0x" << std::hex << comp << std::dec
+            << (qoff >= 0 ? "  ACTIVE (unit-quat @+0x" : "  (no unit-quat)") ;
+        if (qoff >= 0) out << std::hex << qoff << std::dec << ")";
+        out << "\n";
+        DumpRegion(out, comp, 0xC0, 0x160);
+        // follow heap pointers one level (parentTransform/binding/entity may hold the live transform)
+        static const uint32_t pofs[] = { 0x90u, 0xd8u, 0xf8u, 0x138u, 0x150u };
+        for (uint32_t po : pofs) {
+            uintptr_t hp = SafeReadPtr(comp + po);
+            if (IsReadable(hp, 0x60)) {   // only deref genuinely-committed memory (no AV like 0xF51C006E)
+                out << "  -> [+0x" << std::hex << po << "] = 0x" << hp << std::dec << "  (deref +0x00..+0x60):\n";
+                DumpRegion(out, hp, 0x00, 0x60);
+            }
+        }
+        if (qoff >= 0 && activeIdx < 0) { activeIdx = k; activeOff = qoff; }
+    }
+    if (activeIdx >= 0) {
+        g_projLive = matches[activeIdx]; g_projFound = 1;
+        g_projOrientAddr = matches[activeIdx] + activeOff;
+        ReadProjFields(matches[activeIdx], activeOff);
+        out << "\n*** ACTIVE match[" << activeIdx << "]; CE 'find what writes' 0x" << std::hex << g_projOrientAddr << std::dec << " ***\n";
+    } else {
+        g_projFound = total > 0 ? 1 : 0; if (total) g_projLive = matches[0];
+        out << "\n*** no ACTIVE projectile (unit-quat) found; inspect the heap-ptr derefs above for the live transform ***\n";
+    }
+    if (aOut) *aOut = (activeIdx >= 0) ? 1 : (total > 0 ? 2 : 0);
+}
+// per-frame steer (called from onUpdate via the CET pump): set the live projectile's orientation to
+// the controller aim quat (shared[53..56]). Tests whether the trajectory re-reads orientation.
+static void ProjSteerTick() {
+    if (!g_projSteer || !g_pSharedHands) return;
+    uintptr_t vtbl = g_projCompVtbl ? g_projCompVtbl : ResolveProjCompVtable();
+    uintptr_t comp = FindLiveProjectile(vtbl);
+    if (!comp) return;
+    int qoff = DetectOrientOffset(comp);
+    if (qoff < 0) return;   // not an active projectile (no unit-quat orientation)
+    __try {
+        float qx=g_pSharedHands[53], qy=g_pSharedHands[54], qz=g_pSharedHands[55], qw=g_pSharedHands[56];
+        if (qx*qx+qy*qy+qz*qz+qw*qw > 0.5f) {
+            float* o = reinterpret_cast<float*>(comp + qoff);
+            o[0]=qx; o[1]=qy; o[2]=qz; o[3]=qw;
+            g_projSteers++;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+void SetVRProjSteer(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t on = 0; RED4ext::GetParameter(aFrame, &on); aFrame->code++; g_projSteer = on;
+}
+void VRProjSteerTick(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    aFrame->code++; ProjSteerTick();
+}
+void GetVRProjLiveDump(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t) {
+    int32_t idx = 0; RED4ext::GetParameter(aFrame, &idx); aFrame->code++;
+    double v = 0.0;
+    switch (idx) {
+        case 0: v = (double)g_projFound; break;
+        case 1: v = (double)g_projSteers; break;
+        case 2: v = (double)(g_projLive & 0xFFFFFFFF); break;
+        case 3: v = (double)((g_projLive >> 32) & 0xFFFFFFFF); break;
+        case 4: v = (double)g_projOrientQ[0]; break;
+        case 5: v = (double)g_projOrientQ[1]; break;
+        case 6: v = (double)g_projOrientQ[2]; break;
+        case 7: v = (double)g_projOrientQ[3]; break;
+        case 8: v = (g_projCompVtbl != 0) ? 1.0 : 0.0; break;
+        case 9: v = (double)g_projTotal; break;   // raw vtable matches (incl. stack/RTTI junk)
+        case 10: v = (double)g_projValid; break;  // RTTI-validated real instances
+        default: break;
+    }
+    if (aOut) *aOut = (float)v;
+}
+
+// ============================================================================
+// ORIENTATION-PROVIDER GetOrientation VMT INSTRUMENT (the user's "stand at the register" plan).
+// We can't pin the GetOrientation vtable slot statically (auto-analysis off, CClass vs instance
+// vtable confusion). So: CreateInstance the provider class -> read its REAL instance vtable -> VMT-
+// instrument the interface-tail slots (read-only: each stub bumps a per-slot counter + records the
+// output quaternion, then calls the original). Fire a projectile -> the slot that fires == the one
+// the launch calls; its output is the camera-forward quat. Then we flip that stub to OVERRIDE the
+// output with the controller aim. No shared-memory writes (avoids the worldTransform hang).
+// ============================================================================
+static constexpr int kProvSlotLo = 3;      // first vtable slot to instrument
+static constexpr int kProvNSlots = 48;     // slots [3..50]
+static constexpr int kProvNCls   = 3;      // entEntity / entStatic / entFunc
+static const char*   kProvNames[kProvNCls] = {
+    "entEntityOrientationProvider", "entStaticOrientationProvider", "entFuncOrientationProvider" };
+static uintptr_t g_provVtbl[kProvNCls] = {0};
+static void*     g_provOrig[kProvNCls][kProvNSlots] = {0};
+volatile uint64_t g_provCalls[kProvNCls][kProvNSlots] = {0};
+volatile int      g_provOverrideCls  = -1;
+volatile int      g_provOverrideSlot = -1; // (cls,slot) whose stub overwrites the out-quat
+volatile uint64_t g_provOverrides = 0;
+volatile float    g_provLastQ[4] = {0,0,0,1};
+volatile float    g_provOrigQ[4] = {0,0,0,1};   // provider's ORIGINAL out-quat (=camera) for the override slot
+volatile float    g_provCtrlQ[4] = {0,0,0,1};   // controller quat shared[12..15] captured at the same call
+volatile float    g_provHmdQ[4]  = {0,0,0,1};   // hmd quat shared[16..19] captured at the same call
+volatile float    g_provMuzzleQ[4] = {0,0,0,1}; // weapon muzzle WORLD orientation (CET publishes it)
+volatile uint32_t g_provMuzzleSeq = 0;          // freshness
+volatile float    g_provDeltaQ[4] = {0,0,0,1};  // mode6 cone-rotation delta (recomputed per muzzle seq)
+volatile uint32_t g_provDeltaSeq = 0xFFFFFFFF;  // seq the delta was computed for
+volatile int      g_provQuatMode = 1;      // 0=raw shared[53..56], 1=build from controller fwd shared[60..62]
+volatile int      g_provFwdAxis  = 1;      // which body axis is "forward": 0=+X 1=+Y 2=+Z (RED uses +Y)
+
+// Build a world orientation quaternion whose chosen forward axis = the controller forward vector.
+// up = world +Z; matrix [right, fwd, up] -> quaternion. Falls back gracefully near-parallel.
+static void BuildOrientFromFwd(float fx, float fy, float fz, int fwdAxis, float* q) {
+    float fl = std::sqrt(fx*fx+fy*fy+fz*fz); if (fl < 1e-4f) { q[0]=0;q[1]=0;q[2]=0;q[3]=1; return; }
+    fx/=fl; fy/=fl; fz/=fl;
+    float ux=0, uy=0, uz=1;
+    if (std::fabs(fz) > 0.95f) { ux=0; uy=1; uz=0; }            // forward near world-up -> use +Y as ref
+    // right = normalize(cross(fwd, up))
+    float rx = fy*uz - fz*uy, ry = fz*ux - fx*uz, rz = fx*uy - fy*ux;
+    float rl = std::sqrt(rx*rx+ry*ry+rz*rz); if (rl<1e-4f){rx=1;ry=0;rz=0;rl=1;} rx/=rl;ry/=rl;rz/=rl;
+    // recompute up = cross(right, fwd)
+    float vx = ry*fz - rz*fy, vy = rz*fx - rx*fz, vz = rx*fy - ry*fx;
+    // columns of rotation matrix depend on which axis is forward (RED forward = +Y)
+    float m00,m01,m02, m10,m11,m12, m20,m21,m22;
+    // X column=right, the forward axis column=fwd, remaining=up
+    if (fwdAxis == 1) { // +Y = forward
+        m00=rx; m10=ry; m20=rz;      // X = right
+        m01=fx; m11=fy; m21=fz;      // Y = forward
+        m02=vx; m12=vy; m22=vz;      // Z = up
+    } else if (fwdAxis == 0) { // +X = forward
+        m00=fx; m10=fy; m20=fz;
+        m01=rx; m11=ry; m21=rz;
+        m02=vx; m12=vy; m22=vz;
+    } else { // +Z = forward
+        m00=rx; m10=ry; m20=rz;
+        m01=vx; m11=vy; m21=vz;
+        m02=fx; m12=fy; m22=fz;
+    }
+    // matrix -> quaternion (Shepperd)
+    float tr = m00+m11+m22;
+    if (tr > 0.0f) { float s=std::sqrt(tr+1.0f)*2.0f; q[3]=0.25f*s; q[0]=(m21-m12)/s; q[1]=(m02-m20)/s; q[2]=(m10-m01)/s; }
+    else if (m00>m11 && m00>m22) { float s=std::sqrt(1.0f+m00-m11-m22)*2.0f; q[3]=(m21-m12)/s; q[0]=0.25f*s; q[1]=(m01+m10)/s; q[2]=(m02+m20)/s; }
+    else if (m11>m22) { float s=std::sqrt(1.0f+m11-m00-m22)*2.0f; q[3]=(m02-m20)/s; q[0]=(m01+m10)/s; q[1]=0.25f*s; q[2]=(m12+m21)/s; }
+    else { float s=std::sqrt(1.0f+m22-m00-m11)*2.0f; q[3]=(m10-m01)/s; q[0]=(m02+m20)/s; q[1]=(m12+m21)/s; q[2]=0.25f*s; }
+}
+
+// Rotate vector v by quaternion q (q=x,y,z,w): o = q * v * q^-1.
+static inline void ProvRotVec(const float* q, const float* v, float* o) {
+    const float x=q[0],y=q[1],z=q[2],w=q[3];
+    const float tx=2.0f*(y*v[2]-z*v[1]);
+    const float ty=2.0f*(z*v[0]-x*v[2]);
+    const float tz=2.0f*(x*v[1]-y*v[0]);
+    o[0]=v[0]+w*tx+(y*tz-z*ty);
+    o[1]=v[1]+w*ty+(z*tx-x*tz);
+    o[2]=v[2]+w*tz+(x*ty-y*tx);
+}
+
+// Each stub knows its (class C, slot S): bump counter; sample/override the out-quat; call original.
+template <int C, int S>
+static uintptr_t __fastcall ProvStub(uintptr_t rcx, uintptr_t rdx, uintptr_t r8, uintptr_t r9) {
+    g_provCalls[C][S]++;
+    using Fn = uintptr_t(__fastcall*)(uintptr_t,uintptr_t,uintptr_t,uintptr_t);
+    Fn orig = reinterpret_cast<Fn>(g_provOrig[C][S]);
+    uintptr_t ret = orig ? orig(rcx, rdx, r8, r9) : 0;
+    uintptr_t outp = rdx ? rdx : ret;   // out-quat: rdx buffer (or returned rax)
+    if (IsReadable(outp, 16)) {
+        __try {
+            float* q = reinterpret_cast<float*>(outp);
+            float m = q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3];
+            if (m > 0.9f && m < 1.1f) {  // unit quaternion -> this slot returns an orientation
+                g_provLastQ[0]=q[0]; g_provLastQ[1]=q[1]; g_provLastQ[2]=q[2]; g_provLastQ[3]=q[3];
+                // DIAGNOSTIC capture, ALWAYS read-only, hardwired to entFunc(C==2) vtable slot 33
+                // (S = 33 - kProvSlotLo = 30) = the PISTOL launch orientation. Capture the original
+                // (=camera) quat + the controller quat so the exact transform can be derived offline.
+                if (C == 2 && S == 30) {
+                    g_provOrigQ[0]=q[0]; g_provOrigQ[1]=q[1]; g_provOrigQ[2]=q[2]; g_provOrigQ[3]=q[3];
+                    if (g_pSharedHands) {
+                        g_provCtrlQ[0]=g_pSharedHands[12]; g_provCtrlQ[1]=g_pSharedHands[13]; g_provCtrlQ[2]=g_pSharedHands[14]; g_provCtrlQ[3]=g_pSharedHands[15];
+                        g_provHmdQ[0]=g_pSharedHands[16]; g_provHmdQ[1]=g_pSharedHands[17]; g_provHmdQ[2]=g_pSharedHands[18]; g_provHmdQ[3]=g_pSharedHands[19];
+                    }
+                }
+                // ENABLE: VR-overlay-driven via shared[58] -> override slot 33 (S==30) on ANY provider
+                // class (pistol=entFunc, grenade=entEntity), mode shared[59] (default 5 = game muzzle).
+                // Native SetVRProvOverrideSlot path kept as a manual fallback.
+                bool sharedOn = (g_pSharedHands && g_pSharedHands[58] > 0.5f && S == 30);
+                bool nativeOn = (g_provOverrideCls == C && g_provOverrideSlot == S);
+                if ((sharedOn || nativeOn) && g_pSharedHands) {
+                    // shared (VR-overlay) path defaults to mode 6 = muzzle + preserved spread.
+                    const int mode = sharedOn ? 6 : g_provQuatMode;
+                    if (mode == 6) {
+                        // MUZZLE + PRESERVE SPREAD (shotguns): rotate the whole shot CONE so its center
+                        // lands on the barrel, keeping each pellet's relative offset.
+                        //   delta = muzzle (X) conj(qCenter)  -- qCenter = first pellet's quat this frame
+                        //   qNew  = delta (X) q               -- per pellet
+                        // 1 pellet (pistol) -> qNew = muzzle exactly. N pellets -> pattern around muzzle.
+                        float mq[4]={g_provMuzzleQ[0],g_provMuzzleQ[1],g_provMuzzleQ[2],g_provMuzzleQ[3]};
+                        if (mq[0]*mq[0]+mq[1]*mq[1]+mq[2]*mq[2]+mq[3]*mq[3] > 0.5f) {
+                            if (g_provDeltaSeq != g_provMuzzleSeq) {   // recompute once per frame (first pellet)
+                                float cqx=-q[0],cqy=-q[1],cqz=-q[2],cqw=q[3];           // conj(q)
+                                g_provDeltaQ[0]=mq[3]*cqx+mq[0]*cqw+mq[1]*cqz-mq[2]*cqy; // mq (X) conj(q)
+                                g_provDeltaQ[1]=mq[3]*cqy-mq[0]*cqz+mq[1]*cqw+mq[2]*cqx;
+                                g_provDeltaQ[2]=mq[3]*cqz+mq[0]*cqy-mq[1]*cqx+mq[2]*cqw;
+                                g_provDeltaQ[3]=mq[3]*cqw-mq[0]*cqx-mq[1]*cqy-mq[2]*cqz;
+                                g_provDeltaSeq = g_provMuzzleSeq;
+                            }
+                            float dx=g_provDeltaQ[0],dy=g_provDeltaQ[1],dz=g_provDeltaQ[2],dw=g_provDeltaQ[3];
+                            float ax=q[0],ay=q[1],az=q[2],aw=q[3];                       // delta (X) q
+                            q[0]=dw*ax+dx*aw+dy*az-dz*ay;
+                            q[1]=dw*ay-dx*az+dy*aw+dz*ax;
+                            q[2]=dw*az+dx*ay-dy*ax+dz*aw;
+                            q[3]=dw*aw-dx*ax-dy*ay-dz*az;
+                            g_provOverrides++;
+                        }
+                    } else if (mode == 5) {
+                        // MUZZLE: use the game's own muzzle WORLD orientation (CET publishes it via
+                        // weapon:GetMuzzleSlotWorldTransform). Pure game-world, NO controller-space math.
+                        // g_provMuzzleFwdAxis selects which muzzle local axis = barrel (default +Y).
+                        float mq[4]={g_provMuzzleQ[0],g_provMuzzleQ[1],g_provMuzzleQ[2],g_provMuzzleQ[3]};
+                        if (mq[0]*mq[0]+mq[1]*mq[1]+mq[2]*mq[2]+mq[3]*mq[3] > 0.5f) {
+                            if (g_provFwdAxis == 1) {            // muzzle orientation used directly
+                                q[0]=mq[0]; q[1]=mq[1]; q[2]=mq[2]; q[3]=mq[3];
+                            } else {                            // rebuild +Y-forward from the chosen muzzle axis
+                                float ax[3]={0,0,0}; ax[g_provFwdAxis==0?0:2]=1.0f;
+                                float fw[3]; ProvRotVec(mq, ax, fw);
+                                float nq[4]; BuildOrientFromFwd(fw[0],fw[1],fw[2],1,nq);
+                                q[0]=nq[0];q[1]=nq[1];q[2]=nq[2];q[3]=nq[3];
+                            }
+                            g_provOverrides++;
+                        }
+                    } else if (mode == 4) {
+                        // DATA-DERIVED correct aim. The controller BARREL = its local -Z axis (not +Y!).
+                        //   barrel_base = rot(ctrl, (0,0,-1));  barrel_head = rot(conj(hmd), barrel_base)
+                        //   fwd_world   = rot(camera/origQ, barrel_head);  qNew = lookQuat(fwd_world,+Y)
+                        // Identity when controller points where the head looks -> crosshair; tracks the
+                        // controller as it deviates. (Verified against the aligned-sample quaternions.)
+                        float cq[4]={g_pSharedHands[12],g_pSharedHands[13],g_pSharedHands[14],g_pSharedHands[15]};
+                        float hq[4]={g_pSharedHands[16],g_pSharedHands[17],g_pSharedHands[18],g_pSharedHands[19]};
+                        if (cq[0]*cq[0]+cq[1]*cq[1]+cq[2]*cq[2]+cq[3]*cq[3]>0.5f &&
+                            hq[0]*hq[0]+hq[1]*hq[1]+hq[2]*hq[2]+hq[3]*hq[3]>0.5f) {
+                            float zaxis[3]={0,0,-1}, cb[3], ch[3], cw[3];
+                            ProvRotVec(cq, zaxis, cb);                 // barrel in base
+                            float hconj[4]={-hq[0],-hq[1],-hq[2],hq[3]};
+                            ProvRotVec(hconj, cb, ch);                 // -> head-local
+                            float oq[4]={q[0],q[1],q[2],q[3]};
+                            ProvRotVec(oq, ch, cw);                    // -> world via camera basis
+                            float nq[4]; BuildOrientFromFwd(cw[0], cw[1], cw[2], 1 /*+Y*/, nq);
+                            q[0]=nq[0]; q[1]=nq[1]; q[2]=nq[2]; q[3]=nq[3]; g_provOverrides++;
+                        }
+                    } else if (mode == 3) {
+                        // qNew = original(camera) * [ inv(swap(hmd)) * swap(controller) ]
+                        // = camera rotated by the controller's offset-from-head, in game-local space.
+                        // swap=(x,-z,y,w) is the VR->game axis map (matches VRIK). Identity when the
+                        // controller points where the head looks -> bullet stays on crosshair; tracks
+                        // the controller as it deviates. (Derived from the aligned-sample numbers.)
+                        float cqx=g_pSharedHands[12], cqy=g_pSharedHands[13], cqz=g_pSharedHands[14], cqw=g_pSharedHands[15];
+                        float hqx=g_pSharedHands[16], hqy=g_pSharedHands[17], hqz=g_pSharedHands[18], hqw=g_pSharedHands[19];
+                        if (cqx*cqx+cqy*cqy+cqz*cqz+cqw*cqw>0.5f && hqx*hqx+hqy*hqy+hqz*hqz+hqw*hqw>0.5f) {
+                            // swapped controller, swapped head
+                            float sc[4]={cqx,-cqz,cqy,cqw};
+                            float sh[4]={hqx,-hqz,hqy,hqw};
+                            float ih[4]={-sh[0],-sh[1],-sh[2],sh[3]};           // inv(swap(hmd))
+                            // delta = ih (X) sc
+                            float dx=ih[3]*sc[0]+ih[0]*sc[3]+ih[1]*sc[2]-ih[2]*sc[1];
+                            float dy=ih[3]*sc[1]-ih[0]*sc[2]+ih[1]*sc[3]+ih[2]*sc[0];
+                            float dz=ih[3]*sc[2]+ih[0]*sc[1]-ih[1]*sc[0]+ih[2]*sc[3];
+                            float dw=ih[3]*sc[3]-ih[0]*sc[0]-ih[1]*sc[1]-ih[2]*sc[2];
+                            // qNew = original (X) delta
+                            float ax=q[0],ay=q[1],az=q[2],aw=q[3];
+                            q[0]=aw*dx+ax*dw+ay*dz-az*dy;
+                            q[1]=aw*dy-ax*dz+ay*dw+az*dx;
+                            q[2]=aw*dz+ax*dy-ay*dx+az*dw;
+                            q[3]=aw*dw-ax*dx-ay*dy-az*dz;
+                            g_provOverrides++;
+                        }
+                    } else if (mode == 2) {
+                        // EXACTLY VRIK_WriteHand: handWorld = headQuat * swap(controllerQuat).
+                        // The provider's ORIGINAL out-quat == the camera/head orientation, so it plays
+                        // headQuat; delta = swap(shared[12..15]) = (x,-z,y,w) of the controller quat.
+                        // qNew = original (X) delta  -> the VRIK-correct world hand aim (head-stable).
+                        float hx=g_pSharedHands[12], hy=g_pSharedHands[13], hz=g_pSharedHands[14], hw=g_pSharedHands[15];
+                        if (hx*hx+hy*hy+hz*hz+hw*hw > 0.5f) {
+                            float dx=hx, dy=-hz, dz=hy, dw=hw;          // VR->game axis swap (i,-k,j,r)
+                            float ax=q[0],ay=q[1],az=q[2],aw=q[3];      // original (head/camera)
+                            q[0]=aw*dx+ax*dw+ay*dz-az*dy;               // Hamilton original (X) delta
+                            q[1]=aw*dy-ax*dz+ay*dw+az*dx;
+                            q[2]=aw*dz+ax*dy-ay*dx+az*dw;
+                            q[3]=aw*dw-ax*dx-ay*dy-az*dz;
+                            g_provOverrides++;
+                        }
+                    } else if (mode == 1) {
+                        float fx=g_pSharedHands[60], fy=g_pSharedHands[61], fz=g_pSharedHands[62];
+                        if (fx*fx+fy*fy+fz*fz > 0.25f) {
+                            float nq[4]; BuildOrientFromFwd(fx, fy, fz, g_provFwdAxis, nq);
+                            q[0]=nq[0]; q[1]=nq[1]; q[2]=nq[2]; q[3]=nq[3]; g_provOverrides++;
+                        }
+                    } else {
+                        float cx=g_pSharedHands[53],cy=g_pSharedHands[54],cz=g_pSharedHands[55],cw=g_pSharedHands[56];
+                        if (cx*cx+cy*cy+cz*cz+cw*cw > 0.5f) { q[0]=cx; q[1]=cy; q[2]=cz; q[3]=cw; g_provOverrides++; }
+                    }
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return ret;
+}
+static void* g_provStubTbl[kProvNCls][kProvNSlots] = {0};
+template <int C, int... I> static void FillRow(std::integer_sequence<int, I...>) {
+    ((g_provStubTbl[C][I] = reinterpret_cast<void*>(&ProvStub<C, I>)), ...);
+}
+volatile int g_provInstalled = 0;
+static int InstallProvClass(int c) {
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* cls = rtti ? rtti->GetClass(kProvNames[c]) : nullptr;
+    if (!cls) return -1;
+    void* inst = cls->CreateInstance(true);
+    if (!inst) return -2;
+    uintptr_t vt = 0;
+    __try { vt = *reinterpret_cast<uintptr_t*>(inst); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (!vt) return -3;
+    g_provVtbl[c] = vt;
+    DWORD oldp = 0;
+    if (!VirtualProtect(reinterpret_cast<void*>(vt + kProvSlotLo*8), kProvNSlots*8, PAGE_EXECUTE_READWRITE, &oldp)) return -4;
+    for (int i = 0; i < kProvNSlots; ++i) {
+        uintptr_t* slot = reinterpret_cast<uintptr_t*>(vt + (kProvSlotLo + i)*8);
+        g_provOrig[c][i] = reinterpret_cast<void*>(*slot);
+        *slot = reinterpret_cast<uintptr_t>(g_provStubTbl[c][i]);
+    }
+    VirtualProtect(reinterpret_cast<void*>(vt + kProvSlotLo*8), kProvNSlots*8, oldp, &oldp);
+    return 1;
+}
+void InstallVRProvInstrument(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    if (g_provInstalled) { if (aOut) *aOut = 2; return; }
+    FillRow<0>(std::make_integer_sequence<int, kProvNSlots>{});
+    FillRow<1>(std::make_integer_sequence<int, kProvNSlots>{});
+    FillRow<2>(std::make_integer_sequence<int, kProvNSlots>{});
+    int ok = 0;
+    for (int c = 0; c < kProvNCls; ++c) if (InstallProvClass(c) == 1) ++ok;
+    g_provInstalled = ok > 0 ? 1 : 0;
+    if (aOut) *aOut = ok;   // number of provider classes instrumented (expect 3)
+}
+// arg = cls*1000 + REAL vtable slot (e.g. 0*1000+33 for entEntity slot 33); -1 = off.
+// Stored override slot is the STUB INDEX (realSlot - kProvSlotLo) to match ProvStub<C,S>.
+void SetVRProvOverrideSlot(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t v = -1; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
+    if (v < 0) { g_provOverrideCls = -1; g_provOverrideSlot = -1; }
+    else {
+        int realSlot = v % 1000;
+        g_provOverrideCls = v / 1000;
+        g_provOverrideSlot = realSlot - kProvSlotLo;   // -> stub index
+    }
+}
+void SetVRProvQuatMode(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t mode = 1, axis = 1; RED4ext::GetParameter(aFrame, &mode); RED4ext::GetParameter(aFrame, &axis);
+    aFrame->code++; g_provQuatMode = mode; g_provFwdAxis = axis;
+}
+void SetVRMuzzleQuat(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    float i=0,j=0,k=0,r=1; RED4ext::GetParameter(aFrame,&i); RED4ext::GetParameter(aFrame,&j);
+    RED4ext::GetParameter(aFrame,&k); RED4ext::GetParameter(aFrame,&r); aFrame->code++;
+    g_provMuzzleQ[0]=i; g_provMuzzleQ[1]=j; g_provMuzzleQ[2]=k; g_provMuzzleQ[3]=r; ++g_provMuzzleSeq;
+    // Publish the muzzle WORLD forward (+Y of the quat) to shared[24..26] (FREE slots; [33..47] are
+    // VRIK IK-calib, [50..62] weapon-aim) so the dxgi overlay can project an EXACT barrel crosshair
+    // (this dir through the located camera = the eye view).
+    if (g_pSharedHands) {
+        g_pSharedHands[24] = 2.0f*(i*j - k*r);
+        g_pSharedHands[25] = 1.0f - 2.0f*(i*i + k*k);
+        g_pSharedHands[26] = 2.0f*(j*k + i*r);
+        g_pSharedHands[27] = 1.0f;  // valid
+    }
+}
+// Publish the current ADS/scope zoom factor to shared[28] so the dxgi overlay can scale the
+// barrel laser-dot's screen offset by it (the scope magnifies the image but the bullet still
+// leaves the barrel). CET pushes PlayerStateMachine.ZoomLevel each frame; 1.0 = no zoom.
+void SetVRZoomLevel(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    float z = 1.0f; RED4ext::GetParameter(aFrame, &z); aFrame->code++;
+    if (g_pSharedHands) g_pSharedHands[28] = (z > 0.01f && z < 64.0f) ? z : 1.0f;
+}
+// Melee fire pulse -> shared[29]. The CET weapon mod pulses this on a VR swing; the dxgi XInput merge
+// reads it and forces the right trigger so the GAME performs its own native melee attack (native
+// damage / crits / numbers / armor). A swing doesn't press RT by itself, hence the inject.
+// Melee RT IMPULSE: the CET mod calls this on a detected VR swing with a small frame count (e.g. 4).
+// dxgi (HookedXInputGetState) sees shared[29] > 0 and taps RT for that many frames, so the game enters
+// its NATIVE melee-attack PSM state — dealing fully native damage / combo / numbers / markers — then
+// decrements it back to 0. (Not a sustained hold, so it's a single attack press, not spam.)
+void SetVRMeleeFire(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t v = 0; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
+    if (g_pSharedHands) g_pSharedHands[29] = (float)v;
+}
+// Read the held-trigger power flag (shared[30], published by the dxgi XInput merge while in melee
+// mode). The CET weapon mod uses it as the power-attack modifier for the next swing.
+void GetVRMeleeTrigger(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    if (aOut) *aOut = (g_pSharedHands && g_pSharedHands[30] > 0.5f) ? 1 : 0;
+}
+// Generic shared-slot read for CET mods that need raw values (hand HMD-local poses, grip analog,
+// etc.). idx must be 0..127 -- the shared block is 128 floats (CyberpunkVR_Hands_Shared, 512 bytes).
+// Slot map (used today): [0]/[8] hand-valid, [1-3]/[9-11] hand pos HMD-local, [4-7]/[12-15] hand
+// orient, [16-19] HMD orient, [24-26]+[27] muzzle fwd+valid, [28] zoom, [30] RT-held bool,
+// [32] hand-tracking mode, [49] right grip, [58] weapon-aim enable, [70..76] shoulder calibration.
+void GetVRSharedSlot(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t) {
+    int32_t idx = 0; RED4ext::GetParameter(aFrame, &idx); aFrame->code++;
+    if (aOut) *aOut = (g_pSharedHands && idx >= 0 && idx < 128) ? g_pSharedHands[idx] : 0.0f;
+}
+void GetVRProvDump(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t) {
+    int32_t idx = 0; RED4ext::GetParameter(aFrame, &idx); aFrame->code++;
+    double v = 0.0;
+    if (idx == 103) v = g_provQuatMode;
+    else if (idx == 104) v = g_provFwdAxis;
+    else if (idx == 100) v = g_provInstalled;
+    else if (idx == 101) v = (double)g_provOverrides;
+    else if (idx == 102) v = (g_provOverrideCls < 0) ? -1 : (g_provOverrideCls*1000 + g_provOverrideSlot);
+    else if (idx >= 200 && idx < 204) v = g_provLastQ[idx-200];
+    else if (idx >= 210 && idx < 214) v = g_provOrigQ[idx-210];   // original (camera) quat
+    else if (idx >= 214 && idx < 218) v = g_provCtrlQ[idx-214];   // controller quat shared[12..15]
+    else if (idx >= 218 && idx < 222) v = g_provHmdQ[idx-218];    // hmd quat shared[16..19]
+    else if (idx >= 0 && idx < kProvNCls*kProvNSlots) v = (double)g_provCalls[idx / kProvNSlots][idx % kProvNSlots];
+    if (aOut) *aOut = (float)v;
+}
+// Clear the per-(class,slot) GetOrientation fire counters + sampled quats. Lets the user check each
+// weapon fresh: clear -> equip+fire one weapon -> read which entFunc/entEntity slot fired.
+void ResetVRProvCounts(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    aFrame->code++;
+    for (int c = 0; c < kProvNCls; ++c)
+        for (int s = 0; s < kProvNSlots; ++s) g_provCalls[c][s] = 0;
+    g_provOverrides = 0;
+    for (int i = 0; i < 4; ++i) { g_provLastQ[i]=0; g_provOrigQ[i]=0; g_provCtrlQ[i]=0; g_provHmdQ[i]=0; }
+}
+
 RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto rtti = RED4ext::CRTTISystem::Get();
     RED4ext::CBaseFunction::Flags flags = {.isNative = true, .isStatic = true};
@@ -4369,6 +6181,10 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     f15s->AddParam("Float", "yaw");
     f15s->AddParam("Float", "ci"); f15s->AddParam("Float", "cj");
     f15s->AddParam("Float", "ck"); f15s->AddParam("Float", "cr");
+    f15s->AddParam("Float", "camX"); f15s->AddParam("Float", "camY"); f15s->AddParam("Float", "camZ");
+    f15s->AddParam("Float", "entX"); f15s->AddParam("Float", "entY"); f15s->AddParam("Float", "entZ");
+    f15s->AddParam("Float", "eqi"); f15s->AddParam("Float", "eqj");
+    f15s->AddParam("Float", "eqk"); f15s->AddParam("Float", "eqr");
     rtti->RegisterFunction(f15s);
 
     auto f19 = RED4ext::CGlobalFunction::Create("DumpAnimVTable", "DumpAnimVTable", &DumpAnimVTable);
@@ -4561,6 +6377,177 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     f58->AddParam("Int32", "mode");
     f58->AddParam("Int32", "arrayMode");
     rtti->RegisterFunction(f58);
+
+    // Weapon-aim native hook (M1 instrumentation).
+    auto f59 = RED4ext::CGlobalFunction::Create("InstallWeaponAimHook", "InstallWeaponAimHook", &InstallWeaponAimHook);
+    f59->flags = flags; f59->SetReturnType("Int32"); rtti->RegisterFunction(f59);
+
+    auto f60 = RED4ext::CGlobalFunction::Create("DumpWeaponAimHookStats", "DumpWeaponAimHookStats", &DumpWeaponAimHookStats);
+    f60->flags = flags; f60->SetReturnType("Int32"); rtti->RegisterFunction(f60);
+
+    auto fProjRtti = RED4ext::CGlobalFunction::Create("DumpVRProjectileRtti", "DumpVRProjectileRtti", &DumpVRProjectileRtti);
+    fProjRtti->flags = flags; fProjRtti->SetReturnType("Int32"); rtti->RegisterFunction(fProjRtti);
+
+    auto fPaInstall = RED4ext::CGlobalFunction::Create("InstallVRPrepareAttack", "InstallVRPrepareAttack", &InstallVRPrepareAttack);
+    fPaInstall->flags = flags; fPaInstall->SetReturnType("Int32"); rtti->RegisterFunction(fPaInstall);
+    auto fPaSwap = RED4ext::CGlobalFunction::Create("SetVRPrepareAttackSwap", "SetVRPrepareAttackSwap", &SetVRPrepareAttackSwap);
+    fPaSwap->flags = flags; fPaSwap->AddParam("Int32", "on"); rtti->RegisterFunction(fPaSwap);
+    auto fPaDump = RED4ext::CGlobalFunction::Create("GetVRPADump", "GetVRPADump", &GetVRPADump);
+    fPaDump->flags = flags; fPaDump->AddParam("Int32", "idx"); fPaDump->SetReturnType("Float"); rtti->RegisterFunction(fPaDump);
+
+    auto fProjFind = RED4ext::CGlobalFunction::Create("DumpVRLiveProjectile", "DumpVRLiveProjectile", &DumpVRLiveProjectile);
+    fProjFind->flags = flags; fProjFind->SetReturnType("Int32"); rtti->RegisterFunction(fProjFind);
+    auto fProjSteer = RED4ext::CGlobalFunction::Create("SetVRProjSteer", "SetVRProjSteer", &SetVRProjSteer);
+    fProjSteer->flags = flags; fProjSteer->AddParam("Int32", "on"); rtti->RegisterFunction(fProjSteer);
+    auto fProjTick = RED4ext::CGlobalFunction::Create("VRProjSteerTick", "VRProjSteerTick", &VRProjSteerTick);
+    fProjTick->flags = flags; rtti->RegisterFunction(fProjTick);
+    auto fProjLD = RED4ext::CGlobalFunction::Create("GetVRProjLiveDump", "GetVRProjLiveDump", &GetVRProjLiveDump);
+    fProjLD->flags = flags; fProjLD->AddParam("Int32", "idx"); fProjLD->SetReturnType("Float"); rtti->RegisterFunction(fProjLD);
+
+    auto fProvInst = RED4ext::CGlobalFunction::Create("InstallVRProvInstrument", "InstallVRProvInstrument", &InstallVRProvInstrument);
+    fProvInst->flags = flags; fProvInst->SetReturnType("Int32"); rtti->RegisterFunction(fProvInst);
+    auto fProvOvr = RED4ext::CGlobalFunction::Create("SetVRProvOverrideSlot", "SetVRProvOverrideSlot", &SetVRProvOverrideSlot);
+    fProvOvr->flags = flags; fProvOvr->AddParam("Int32", "slot"); rtti->RegisterFunction(fProvOvr);
+    auto fProvDump = RED4ext::CGlobalFunction::Create("GetVRProvDump", "GetVRProvDump", &GetVRProvDump);
+    fProvDump->flags = flags; fProvDump->AddParam("Int32", "idx"); fProvDump->SetReturnType("Float"); rtti->RegisterFunction(fProvDump);
+    auto fProvReset = RED4ext::CGlobalFunction::Create("ResetVRProvCounts", "ResetVRProvCounts", &ResetVRProvCounts);
+    fProvReset->flags = flags; rtti->RegisterFunction(fProvReset);
+    auto fProvQM = RED4ext::CGlobalFunction::Create("SetVRProvQuatMode", "SetVRProvQuatMode", &SetVRProvQuatMode);
+    fProvQM->flags = flags; fProvQM->AddParam("Int32", "mode"); fProvQM->AddParam("Int32", "axis"); rtti->RegisterFunction(fProvQM);
+    auto fMuz = RED4ext::CGlobalFunction::Create("SetVRMuzzleQuat", "SetVRMuzzleQuat", &SetVRMuzzleQuat);
+    fMuz->flags = flags; fMuz->AddParam("Float","i"); fMuz->AddParam("Float","j"); fMuz->AddParam("Float","k"); fMuz->AddParam("Float","r"); rtti->RegisterFunction(fMuz);
+    auto fZoom = RED4ext::CGlobalFunction::Create("SetVRZoomLevel", "SetVRZoomLevel", &SetVRZoomLevel);
+    fZoom->flags = flags; fZoom->AddParam("Float","zoom"); rtti->RegisterFunction(fZoom);
+    auto fMeleeFire = RED4ext::CGlobalFunction::Create("SetVRMeleeFire", "SetVRMeleeFire", &SetVRMeleeFire);
+    fMeleeFire->flags = flags; fMeleeFire->AddParam("Int32","fire"); rtti->RegisterFunction(fMeleeFire);
+    auto fMeleeTrig = RED4ext::CGlobalFunction::Create("GetVRMeleeTrigger", "GetVRMeleeTrigger", &GetVRMeleeTrigger);
+    fMeleeTrig->flags = flags; fMeleeTrig->SetReturnType("Int32"); rtti->RegisterFunction(fMeleeTrig);
+    // Generic shared-slot getter (for the hand-to-holster CET mod + other VR mods that need raw poses).
+    auto fGetSlot = RED4ext::CGlobalFunction::Create("GetVRSharedSlot", "GetVRSharedSlot", &GetVRSharedSlot);
+    fGetSlot->flags = flags; fGetSlot->AddParam("Int32", "idx"); fGetSlot->SetReturnType("Float");
+    rtti->RegisterFunction(fGetSlot);
+
+    auto f61 = RED4ext::CGlobalFunction::Create("SetVRWeaponAim", "SetVRWeaponAim", &SetVRWeaponAim);
+    f61->flags = flags; f61->SetReturnType("Int32");
+    f61->AddParam("Float", "fx"); f61->AddParam("Float", "fy"); f61->AddParam("Float", "fz");
+    f61->AddParam("Float", "px"); f61->AddParam("Float", "py"); f61->AddParam("Float", "pz");
+    f61->AddParam("Int32", "enable"); f61->AddParam("Int32", "mode"); f61->AddParam("Float", "gate");
+    rtti->RegisterFunction(f61);
+
+    auto f62 = RED4ext::CGlobalFunction::Create("GetWeaponAimStat", "GetWeaponAimStat", &GetWeaponAimStat);
+    f62->flags = flags; f62->SetReturnType("Int32"); f62->AddParam("Int32", "which");
+    rtti->RegisterFunction(f62);
+
+    auto f63 = RED4ext::CGlobalFunction::Create("SetVRHeadingTest", "SetVRHeadingTest", &SetVRHeadingTest);
+    f63->flags = flags; f63->SetReturnType("Int32");
+    f63->AddParam("Int32", "force"); f63->AddParam("Float", "yaw"); f63->AddParam("Float", "pitch");
+    rtti->RegisterFunction(f63);
+
+    auto f64 = RED4ext::CGlobalFunction::Create("SetVRShotCamera", "SetVRShotCamera", &SetVRShotCamera);
+    f64->flags = flags; f64->AddParam("handle:IScriptable", "cam"); rtti->RegisterFunction(f64);
+
+    auto f65 = RED4ext::CGlobalFunction::Create("SetVRShotSnap", "SetVRShotSnap", &SetVRShotSnap);
+    f65->flags = flags; f65->SetReturnType("Int32");
+    f65->AddParam("Int32", "enable"); f65->AddParam("Int32", "mode"); f65->AddParam("Float", "testYaw");
+    rtti->RegisterFunction(f65);
+
+    auto f66 = RED4ext::CGlobalFunction::Create("StartVRCamTrace", "StartVRCamTrace", &StartVRCamTrace);
+    f66->flags = flags; f66->SetReturnType("Int32"); f66->AddParam("Int32", "offsetSel"); f66->AddParam("Int32", "gated"); f66->AddParam("Int32", "writeOnly");
+    rtti->RegisterFunction(f66);
+    auto f67 = RED4ext::CGlobalFunction::Create("StopVRCamTrace", "StopVRCamTrace", &StopVRCamTrace);
+    f67->flags = flags; f67->SetReturnType("Int32"); rtti->RegisterFunction(f67);
+    auto f68 = RED4ext::CGlobalFunction::Create("DumpVRCamTrace", "DumpVRCamTrace", &DumpVRCamTrace);
+    f68->flags = flags; f68->SetReturnType("Int32"); rtti->RegisterFunction(f68);
+
+    auto f70 = RED4ext::CGlobalFunction::Create("DumpVRCamAddr", "DumpVRCamAddr", &DumpVRCamAddr);
+    f70->flags = flags; f70->SetReturnType("Int32"); rtti->RegisterFunction(f70);
+
+    auto f71 = RED4ext::CGlobalFunction::Create("SetVRGetOrient", "SetVRGetOrient", &SetVRGetOrient);
+    f71->flags = flags; f71->SetReturnType("Int32"); f71->AddParam("Int32", "mode"); f71->AddParam("Float", "testYaw"); f71->AddParam("Int32", "plane");
+    rtti->RegisterFunction(f71);
+
+    auto f72 = RED4ext::CGlobalFunction::Create("SetVRSkipHmdTest", "SetVRSkipHmdTest", &SetVRSkipHmdTest);
+    f72->flags = flags; f72->SetReturnType("Int32"); f72->AddParam("Int32", "mode"); rtti->RegisterFunction(f72);
+
+    auto fMenu = RED4ext::CGlobalFunction::Create("SetVRMenuOpen", "SetVRMenuOpen", &SetVRMenuOpen);
+    fMenu->flags = flags; fMenu->SetReturnType("Int32"); fMenu->AddParam("Int32", "open"); rtti->RegisterFunction(fMenu);
+
+    auto f73 = RED4ext::CGlobalFunction::Create("SetVRHeadLocal", "SetVRHeadLocal", &SetVRHeadLocal);
+    f73->flags = flags; f73->SetReturnType("Int32"); f73->AddParam("Int32", "enable"); f73->AddParam("Int32", "conv");
+    rtti->RegisterFunction(f73);
+
+    auto f69 = RED4ext::CGlobalFunction::Create("SetVRXformOverride", "SetVRXformOverride", &SetVRXformOverride);
+    f69->flags = flags; f69->SetReturnType("Int32"); f69->AddParam("Int32", "mode"); f69->AddParam("Float", "testYaw"); f69->AddParam("Int32", "plane");
+    rtti->RegisterFunction(f69);
+
+    // FIRE-SHOT direction lever.
+    auto f74 = RED4ext::CGlobalFunction::Create("SetVRFireMode", "SetVRFireMode", &SetVRFireMode);
+    f74->flags = flags; f74->SetReturnType("Int32"); f74->AddParam("Int32", "mode"); f74->AddParam("Int32", "plane"); f74->AddParam("Float", "angle"); f74->AddParam("Int32", "neg");
+    rtti->RegisterFunction(f74);
+
+    auto f75 = RED4ext::CGlobalFunction::Create("GetVRFireDump", "GetVRFireDump", &GetVRFireDump);
+    f75->flags = flags; f75->SetReturnType("Float"); f75->AddParam("Int32", "idx");
+    rtti->RegisterFunction(f75);
+
+    auto f76 = RED4ext::CGlobalFunction::Create("SetVRFireScan", "SetVRFireScan", &SetVRFireScan);
+    f76->flags = flags; f76->SetReturnType("Int32"); f76->AddParam("Int32", "src"); f76->AddParam("Int32", "base");
+    rtti->RegisterFunction(f76);
+
+    auto f77 = RED4ext::CGlobalFunction::Create("SetVRFireOverrideTarget", "SetVRFireOverrideTarget", &SetVRFireOverrideTarget);
+    f77->flags = flags; f77->SetReturnType("Int32"); f77->AddParam("Int32", "src"); f77->AddParam("Int32", "off");
+    rtti->RegisterFunction(f77);
+
+    auto f78 = RED4ext::CGlobalFunction::Create("GetVRFireHit", "GetVRFireHit", &GetVRFireHit);
+    f78->flags = flags; f78->SetReturnType("Float"); f78->AddParam("Int32", "hit"); f78->AddParam("Int32", "field");
+    rtti->RegisterFunction(f78);
+
+    // TRACE-DISPATCHER funnel instrumentation.
+    auto f79 = RED4ext::CGlobalFunction::Create("SetVRTraceOverride", "SetVRTraceOverride", &SetVRTraceOverride);
+    f79->flags = flags; f79->SetReturnType("Int32"); f79->AddParam("Int32", "on"); f79->AddParam("Int32", "writeOff"); f79->AddParam("Int32", "force"); f79->AddParam("Int32", "neg"); f79->AddParam("Int32", "gateRet");
+    rtti->RegisterFunction(f79);
+
+    auto f80 = RED4ext::CGlobalFunction::Create("ResetVRTrace", "ResetVRTrace", &ResetVRTrace);
+    f80->flags = flags; f80->SetReturnType("Int32"); rtti->RegisterFunction(f80);
+
+    auto f81 = RED4ext::CGlobalFunction::Create("GetVRTrace", "GetVRTrace", &GetVRTrace);
+    f81->flags = flags; f81->SetReturnType("Float"); f81->AddParam("Int32", "idx");
+    rtti->RegisterFunction(f81);
+
+    auto f82 = RED4ext::CGlobalFunction::Create("GetVRTraceCaller", "GetVRTraceCaller", &GetVRTraceCaller);
+    f82->flags = flags; f82->SetReturnType("Float"); f82->AddParam("Int32", "caller"); f82->AddParam("Int32", "field");
+    rtti->RegisterFunction(f82);
+
+    auto f83 = RED4ext::CGlobalFunction::Create("SetVRTargetCtrl", "SetVRTargetCtrl", &SetVRTargetCtrl);
+    f83->flags = flags; f83->SetReturnType("Int32"); f83->AddParam("Int32", "on"); f83->AddParam("Int32", "neg");
+    rtti->RegisterFunction(f83);
+
+    auto f84 = RED4ext::CGlobalFunction::Create("SetVRProjCtrl", "SetVRProjCtrl", &SetVRProjCtrl);
+    f84->flags = flags; f84->SetReturnType("Int32"); f84->AddParam("Int32", "on"); f84->AddParam("Int32", "neg"); f84->AddParam("Int32", "unguide"); f84->AddParam("Int32", "always");
+    rtti->RegisterFunction(f84);
+
+    auto f86 = RED4ext::CGlobalFunction::Create("GetVRProjDump", "GetVRProjDump", &GetVRProjDump);
+    f86->flags = flags; f86->SetReturnType("Float"); f86->AddParam("Int32", "idx");
+    rtti->RegisterFunction(f86);
+
+    auto f87 = RED4ext::CGlobalFunction::Create("SetVRProjOriginRow", "SetVRProjOriginRow", &SetVRProjOriginRow);
+    f87->flags = flags; f87->SetReturnType("Int32"); f87->AddParam("Int32", "row");
+    rtti->RegisterFunction(f87);
+
+    auto f90 = RED4ext::CGlobalFunction::Create("SetVRProjGateRva", "SetVRProjGateRva", &SetVRProjGateRva);
+    f90->flags = flags; f90->SetReturnType("Int32"); f90->AddParam("Int32", "rva");
+    rtti->RegisterFunction(f90);
+
+    auto f88 = RED4ext::CGlobalFunction::Create("SetVRShotOrigin", "SetVRShotOrigin", &SetVRShotOrigin);
+    f88->flags = flags; f88->SetReturnType("Int32"); f88->AddParam("Float", "x"); f88->AddParam("Float", "y"); f88->AddParam("Float", "z");
+    rtti->RegisterFunction(f88);
+
+    auto f89 = RED4ext::CGlobalFunction::Create("SetVRFireCamSnap", "SetVRFireCamSnap", &SetVRFireCamSnap);
+    f89->flags = flags; f89->SetReturnType("Int32"); f89->AddParam("Int32", "on"); f89->AddParam("Int32", "off");
+    rtti->RegisterFunction(f89);
+
+    auto f85 = RED4ext::CGlobalFunction::Create("SetVRFireXform", "SetVRFireXform", &SetVRFireXform);
+    f85->flags = flags; f85->SetReturnType("Int32"); f85->AddParam("Int32", "mode"); f85->AddParam("Int32", "off");
+    rtti->RegisterFunction(f85);
 }
 
 RED4EXT_C_EXPORT void RED4EXT_CALL RegisterTypes() {}
