@@ -213,6 +213,7 @@ public:
     bool IsRuntimeVirtualDesktop() const { return m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed); }
     float GetRuntimeVerticalFovDeg() const { return m_runtimeVerticalFovDeg.load(std::memory_order_relaxed); }
     float GetRuntimeIpd() const { return m_runtimeIpd.load(std::memory_order_relaxed); }
+    void MaybeLogRuntimeFovDetails(const XrFovf& left, const XrFovf& right, float runtimeHfovDeg, float runtimeVfovDeg, float runtimeIpdMeters);
     bool GetCurrentEyeCenterOffset(int eye, XrVector3f* out);
     bool GetCurrentEyeFov(int eye, XrFovf* out);
     
@@ -640,6 +641,12 @@ private:
     std::atomic<float> m_runtimeHorizontalFovDeg = 0.0f;
     std::atomic<float> m_runtimeVerticalFovDeg = 0.0f;
     std::atomic<float> m_runtimeIpd = 0.0f;
+    bool m_runtimeFovLogInitialized = false;
+    XrFovf m_loggedRuntimeEyeFovs[2]{};
+    float m_loggedRuntimeHorizontalFovDeg = 0.0f;
+    float m_loggedRuntimeVerticalFovDeg = 0.0f;
+    float m_loggedRuntimeIpd = 0.0f;
+    float m_loggedForcedProjectionFovDeg = 0.0f;
     std::atomic<bool> m_runtimeIsSteamVR = false;
     std::atomic<bool> m_runtimeIsVirtualDesktop = false;
     // Head velocity in the base-recentered frame (rad/s, m/s) for AER forward pose

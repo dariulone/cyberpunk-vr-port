@@ -37,6 +37,8 @@ extern void Log(const char* fmt, ...);
 extern volatile int g_verboseLog; // gate per-frame hand-tracking spam
 extern "C" int GetDisableRoll();
 extern "C" float GetForcedFov();
+extern "C" float GetGameRenderFovDeg(); // FOV (deg) the game actually renders with (native or forced); 0 if unknown
+extern "C" float GetTargetRenderVfovDegC(); // overscanned vertical FOV (deg) the game renders = lens*overscan; 0 if unknown
 extern "C" float GetMenuFov();
 extern "C" int GetMenuRectMode();
 extern "C" int GetMenuMode();
@@ -404,6 +406,59 @@ static XrQuaternionf NlerpQuat(const XrQuaternionf& a, const XrQuaternionf& b, f
     return out;
 }
 
+void OpenXRManager::MaybeLogRuntimeFovDetails(const XrFovf& left, const XrFovf& right, float runtimeHfovDeg, float runtimeVfovDeg, float runtimeIpdMeters) {
+    const float forcedProjectionFovDeg = GetForcedFov();
+    const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(left, right);
+    const float correctedGameHfovDeg = GetCorrectedGameHorizontalFovDeg(corr);
+
+    auto valueChanged = [](float a, float b) {
+        return fabsf(a - b) > 0.01f;
+    };
+
+    const bool changed = !m_runtimeFovLogInitialized ||
+        valueChanged(m_loggedRuntimeEyeFovs[0].angleLeft, left.angleLeft) ||
+        valueChanged(m_loggedRuntimeEyeFovs[0].angleRight, left.angleRight) ||
+        valueChanged(m_loggedRuntimeEyeFovs[0].angleUp, left.angleUp) ||
+        valueChanged(m_loggedRuntimeEyeFovs[0].angleDown, left.angleDown) ||
+        valueChanged(m_loggedRuntimeEyeFovs[1].angleLeft, right.angleLeft) ||
+        valueChanged(m_loggedRuntimeEyeFovs[1].angleRight, right.angleRight) ||
+        valueChanged(m_loggedRuntimeEyeFovs[1].angleUp, right.angleUp) ||
+        valueChanged(m_loggedRuntimeEyeFovs[1].angleDown, right.angleDown) ||
+        valueChanged(m_loggedRuntimeHorizontalFovDeg, runtimeHfovDeg) ||
+        valueChanged(m_loggedRuntimeVerticalFovDeg, runtimeVfovDeg) ||
+        valueChanged(m_loggedRuntimeIpd, runtimeIpdMeters) ||
+        valueChanged(m_loggedForcedProjectionFovDeg, forcedProjectionFovDeg);
+    if (!changed) {
+        return;
+    }
+
+    m_runtimeFovLogInitialized = true;
+    m_loggedRuntimeEyeFovs[0] = left;
+    m_loggedRuntimeEyeFovs[1] = right;
+    m_loggedRuntimeHorizontalFovDeg = runtimeHfovDeg;
+    m_loggedRuntimeVerticalFovDeg = runtimeVfovDeg;
+    m_loggedRuntimeIpd = runtimeIpdMeters;
+    m_loggedForcedProjectionFovDeg = forcedProjectionFovDeg;
+
+    Log("OpenXRManager[FOV]: raw left=(L=%.3f R=%.3f U=%.3f D=%.3f) right=(L=%.3f R=%.3f U=%.3f D=%.3f) runtimeHFov=%.3f runtimeVFov=%.3f runtimeIPD=%.4f correctedGameHFov=%.3f correctionYaw=%.3f correctionPitch=%.3f xr_force_fov=%.3f useRuntimeProjection=%d\n",
+        left.angleLeft * (180.0f / 3.1415926535f),
+        left.angleRight * (180.0f / 3.1415926535f),
+        left.angleUp * (180.0f / 3.1415926535f),
+        left.angleDown * (180.0f / 3.1415926535f),
+        right.angleLeft * (180.0f / 3.1415926535f),
+        right.angleRight * (180.0f / 3.1415926535f),
+        right.angleUp * (180.0f / 3.1415926535f),
+        right.angleDown * (180.0f / 3.1415926535f),
+        runtimeHfovDeg,
+        runtimeVfovDeg,
+        runtimeIpdMeters,
+        correctedGameHfovDeg,
+        corr.yawDeltaRad * (180.0f / 3.1415926535f),
+        corr.pitchDeltaRad * (180.0f / 3.1415926535f),
+        forcedProjectionFovDeg,
+        forcedProjectionFovDeg <= 1.0f ? 1 : 0);
+}
+
 static XrPosef ExtrapolatePose(const XrPosef& previous, const XrPosef& current, float t) {
     XrPosef out{};
     out.orientation = NlerpQuat(previous.orientation, current.orientation, t);
@@ -497,11 +552,54 @@ static int64_t PickMonoSwapchainFormat(const std::vector<int64_t>& runtimeFormat
 static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, const XrFovf* pairFovs, int eyeIndex, float width, float height) {
     float forceFov = GetForcedFov();
     if (forceFov <= 1.0f || forceFov >= 170.0f) {
-        // Default path = keep the runtime frusta, with quarter-angle asymmetry
-        // compensation when both eyes are available.
+        // THE FIX (proven by the "tunnel" test = no stretch): the SUBMITTED FOV must
+        // equal the FOV the game actually RENDERED the present frame with = the gameplay
+        // camera FOV (+0x410), exposed as GetGameRenderFovDeg(). Submitting the lens/
+        // m_views FOV while the game renders a DIFFERENT FOV makes the compositor
+        // reproject a mismatch -> world stretches/zooms on head turn. Anchoring submit
+        // == render makes reprojection 1:1 -> NO stretch. The gameplay FOV is forced
+        // wide (~lens) in OnNormalFovHookCallback so this also FILLS the lens (no
+        // tunnel). horizontal = gameFov; vertical from render aspect (square -> symm).
         if (pairFovs && eyeIndex >= 0 && eyeIndex <= 1) {
+            // DE-CANT first: corr.eye[] is the symmetric (de-canted) per-eye FOV. On a
+            // canted HMD (Quest 3, Pimax) this removes the lens cant from the FOV (the
+            // cant is carried by the render+submit POSE instead, ApplyCantToPose /
+            // OnFinalCameraCallback). On a symmetric HMD (Pico) corr.eye == raw -> no-op.
             const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(pairFovs[0], pairFovs[1]);
-            return corr.eye[eyeIndex];
+            XrFovf fov = corr.eye[eyeIndex];
+
+            // Anchor the submitted HORIZONTAL span to the FOV the game actually renders
+            // (GetGameRenderFovDeg, = the forced +0x410 the engine renders with), keep
+            // the de-cant center (0 on symmetric), and derive the VERTICAL from the
+            // real RENDER ASPECT. Self-balancing: on a square render + square lens (Pico)
+            // atan(tan(H/2)/1) == H/2 -> submit == render -> no stretch; on a non-square
+            // lens (Quest 99 vs 94, Pimax 104 vs 93) the vertical follows the render
+            // aspect so the image is NOT stretched/letterboxed on those HMDs (this is the
+            // build homard confirmed "FOV is good" on Quest 3).
+            const float gameFovDeg = GetGameRenderFovDeg();
+            const float aspect = (height > 1.0f) ? (width / height) : 0.0f;
+            if (gameFovDeg > 1.0f && aspect > 0.01f && aspect < 10.0f) {
+                const float wantHalfH = (gameFovDeg * 3.1415926535f / 180.0f) * 0.5f;
+                const float hCenter = (fov.angleRight + fov.angleLeft) * 0.5f; // de-cant center (0 if symmetric)
+                const float vCenter = (fov.angleUp + fov.angleDown) * 0.5f;
+                const float halfV = atanf(tanf(wantHalfH) / aspect);
+                fov.angleLeft  = hCenter - wantHalfH;
+                fov.angleRight = hCenter + wantHalfH;
+                fov.angleUp    = vCenter + halfV;
+                fov.angleDown  = vCenter - halfV;
+                static uint32_t s_sfLogN = 0;
+                if (g_verboseLog || (s_sfLogN++ % 200) == 0) {
+                    const float hfovDeg = (fov.angleRight - fov.angleLeft) * (180.0f / 3.1415926535f);
+                    const float vfovDeg = (fov.angleUp - fov.angleDown) * (180.0f / 3.1415926535f);
+                    Log("OpenXRManager[SUBMITFOV]: eye=%d gameFov=%.2f aspect=%.3f -> submitHFov=%.2f submitVFov=%.2f (lensHFov=%.2f lensVFov=%.2f decantYaw=%d)\n",
+                        eyeIndex, gameFovDeg, aspect, hfovDeg, vfovDeg,
+                        (sourceFov.angleRight - sourceFov.angleLeft) * (180.0f / 3.1415926535f),
+                        (sourceFov.angleUp - sourceFov.angleDown) * (180.0f / 3.1415926535f),
+                        corr.yawEnabled ? 1 : 0);
+                }
+                return fov;
+            }
+            return fov;
         }
         return sourceFov;
     }
@@ -528,6 +626,36 @@ static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, const XrFovf* pa
     fov.angleDown = -halfFovV;
     fov.angleUp = halfFovV;
     return fov;
+}
+
+// ---- Display-cant SUBMIT pose (pairs with the RENDER-side cant in dxgi_proxy
+// OnFinalCameraCallback). The render camera of each AER eye is rotated by its
+// frustum-center cant so the de-canted symmetric FOV content lands on the canted
+// lens; the SUBMIT pose must carry the SAME cant so the compositor's reprojection
+// agrees with the rendered content (otherwise the canted content is reprojected as
+// if un-canted -> mismatch). Render + submit are both canted with a symmetric FOV.
+// ONLY for AER (per-eye render); mono renders ONE frame so a per-eye
+// cant can't be baked into its content -> mono stays un-canted (compositor handles
+// the lens). No-op on symmetric HMDs (Pico).
+static XrQuaternionf ComputeCantPoseDelta(const XrFovf* pairFovs, int eye) {
+    const XrQuaternionf identity{0.0f, 0.0f, 0.0f, 1.0f};
+    if (!pairFovs || eye < 0 || eye > 1) return identity;
+    const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(pairFovs[0], pairFovs[1]);
+    if (!corr.yawEnabled && !corr.pitchEnabled) return identity;
+    const float yaw   = corr.yawEnabled   ? (eye == 0 ? corr.yawDeltaRad : -corr.yawDeltaRad) : 0.0f;
+    const float pitch = corr.pitchEnabled ? corr.pitchDeltaRad : 0.0f;
+    const XrQuaternionf qYaw{0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};       // about +Y (up)
+    const XrQuaternionf qPitch{sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)}; // about +X (right)
+    return MultiplyQuat(qYaw, qPitch);
+}
+
+static void ApplyCantToPose(XrPosef& pose, const XrFovf* pairFovs, int eye) {
+    const XrQuaternionf d = ComputeCantPoseDelta(pairFovs, eye);
+    if (d.x == 0.0f && d.y == 0.0f && d.z == 0.0f && d.w == 1.0f) return; // no-op (symmetric)
+    XrQuaternionf o = MultiplyQuat(pose.orientation, d); // local (post-multiply)
+    const float n = sqrtf(o.x * o.x + o.y * o.y + o.z * o.z + o.w * o.w);
+    if (n > 1e-8f) { const float inv = 1.0f / n; o.x *= inv; o.y *= inv; o.z *= inv; o.w *= inv; }
+    pose.orientation = o;
 }
 
 // Reuse-last-frame output path. When enabled, the AER submit path re-submits the
@@ -2411,6 +2539,16 @@ bool OpenXRManager::Init() {
     if (XR_SUCCEEDED(xrEnumerateViewConfigurationViews(m_instance, m_systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 0, &viewCount, nullptr)) && viewCount > 0) {
         m_viewConfigViews.resize(viewCount, {XR_TYPE_VIEW_CONFIGURATION_VIEW});
         xrEnumerateViewConfigurationViews(m_instance, m_systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, viewCount, &viewCount, m_viewConfigViews.data());
+        for (uint32_t eye = 0; eye < viewCount; ++eye) {
+            const XrViewConfigurationView& view = m_viewConfigViews[eye];
+            Log("OpenXRManager[FOV]: viewConfig eye=%u recommended=%ux%u max=%ux%u samples=%u\n",
+                eye,
+                view.recommendedImageRectWidth,
+                view.recommendedImageRectHeight,
+                view.maxImageRectWidth,
+                view.maxImageRectHeight,
+                view.recommendedSwapchainSampleCount);
+        }
     }
 
     Log("OpenXRManager: OpenXR Initialized. SystemID=%llu\n", m_systemId);
@@ -2631,6 +2769,14 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
         Log("OpenXRManager: Failed to create XrSession (res=%d)\n", res);
         return false;
     }
+
+    m_runtimeFovLogInitialized = false;
+    m_loggedRuntimeEyeFovs[0] = {};
+    m_loggedRuntimeEyeFovs[1] = {};
+    m_loggedRuntimeHorizontalFovDeg = 0.0f;
+    m_loggedRuntimeVerticalFovDeg = 0.0f;
+    m_loggedRuntimeIpd = 0.0f;
+    m_loggedForcedProjectionFovDeg = 0.0f;
 
     m_d3dDevice = device;
     m_d3dQueue = queue;
@@ -3048,6 +3194,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                 m_runtimeHorizontalFovDeg.store((hfov0 + hfov1) * 0.5f, std::memory_order_relaxed);
                 m_runtimeVerticalFovDeg.store((vfov0 + vfov1) * 0.5f, std::memory_order_relaxed);
                 m_runtimeIpd.store(ipd, std::memory_order_relaxed);
+                MaybeLogRuntimeFovDetails(
+                    m_views[0].fov,
+                    m_views[1].fov,
+                    (hfov0 + hfov1) * 0.5f,
+                    (vfov0 + vfov1) * 0.5f,
+                    ipd);
 
                 // Feed the per-eye pose predictor used by the AER V2 synth path.
                 if (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) {
@@ -4084,13 +4236,13 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // COPY_SOURCE, raw capture is COMMON), so transition from that.
                         const float sharpStrength = GetVrSharpness();
                         bool doSharpen = false;
-                        // TEMP-DISABLED: in-submit CAS GPU-crashes (device removal) on
+                        // DISABLED: in-submit CAS GPU-crashes (device removal) on
                         // this runtime (VirtualDesktop OpenXR) -- rendering an RTV into
                         // the runtime swapchain image and/or sampling the capture as SRV
                         // faults. Needs a dedicated SRV-capable scratch (copy source ->
-                        // own RT, sharpen that -> swapchain). Gated behind CPVR_CAS_ENABLE
-                        // until reworked; the Sharpen slider is inert meanwhile.
-                        if (std::getenv("CPVR_CAS_ENABLE") && sharpStrength > 0.0001f && m_d3dDevice && texture) {
+                        // own RT, sharpen that -> swapchain) before re-enabling; the
+                        // Sharpen slider is inert meanwhile.
+                        if (false && sharpStrength > 0.0001f && m_d3dDevice && texture) {
                             if (!m_sharpenPass) m_sharpenPass = std::make_unique<SharpenPass>();
                             const D3D12_RESOURCE_DESC sd = texture->GetDesc();
                             m_sharpenReady = m_sharpenPass->EnsureInitialized(
@@ -4587,9 +4739,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // monoSource is always COMMON here (no synth scratch in mono).
                         const float monoSharp = GetVrSharpness();
                         bool doMonoSharpen = false;
-                        // TEMP-DISABLED (see AER path): in-submit CAS GPU-crashes; gated
-                        // behind CPVR_CAS_ENABLE until reworked with an SRV scratch.
-                        if (std::getenv("CPVR_CAS_ENABLE") && monoSharp > 0.0001f && m_d3dDevice && texture && monoSource) {
+                        // DISABLED (see AER path): in-submit CAS GPU-crashes; needs an
+                        // SRV scratch rework before re-enabling.
+                        if (false && monoSharp > 0.0001f && m_d3dDevice && texture && monoSource) {
                             if (!m_sharpenPass) m_sharpenPass = std::make_unique<SharpenPass>();
                             const D3D12_RESOURCE_DESC sd = texture->GetDesc();
                             m_sharpenReady = m_sharpenPass->EnsureInitialized(
@@ -4881,6 +5033,27 @@ DWORD OpenXRManager::FrameThreadMain() {
                             endInfo.layers = layers;
                             const XrResult endRes = xrEndFrame(m_session, &endInfo);
                             if (XR_SUCCEEDED(endRes)) {
+                                // DIAG: the angular gap between the SUBMITTED render pose
+                                // (the head pose the captured frame was rendered with) and
+                                // the CURRENT head pose (location.pose, freshly located this
+                                // frame-thread tick). On a head turn this gap = the render->
+                                // display latency the compositor must reproject; a large gap
+                                // (many deg) is exactly the "image stretches on turn" — it's
+                                // capture-pipeline latency, not FOV. Logged unconditionally
+                                // for the first calls so we can MEASURE it.
+                                {
+                                    static uint32_t s_pd = 0;
+                                    if (s_pd < 80) {
+                                        const XrQuaternionf& a = monoPoses[0].orientation;
+                                        const XrQuaternionf& b = location.pose.orientation;
+                                        float dot = a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w;
+                                        dot = dot < 0.0f ? -dot : dot; if (dot > 1.0f) dot = 1.0f;
+                                        const float gapDeg = 2.0f * acosf(dot) * 180.0f / 3.1415926535f;
+                                        Log("POSEDIAG: render->live head angular gap = %.2f deg | submitSerial=%llu lastSub=%llu (turn your head to read latency)\n",
+                                            gapDeg, (unsigned long long)presentSerial, (unsigned long long)m_lastSubmittedSerial);
+                                        s_pd++;
+                                    }
+                                }
                                 if ((presentSerial % 300) == 1) {
                                     Log("OpenXRManager: Mono frame submitted. serial=%llu fresh=%d views=%u shouldRender=%d depth=%d\n",
                                         static_cast<unsigned long long>(presentSerial),
@@ -5491,6 +5664,16 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                         rp.position.z + eyeOffset.z};
                 }
             }
+            // Submit-pose cant, PAIRED with the render-side cant (dxgi_proxy
+            // OnFinalCameraCallback). The render camera of this eye is already canted,
+            // so its content carries the cant; the submitted pose must carry the SAME
+            // cant for the compositor to reproject it correctly. Both-canted (render +
+            // submit) is self-consistent, so screen-space HUD/
+            // laser/hands do NOT double (that only happened with submit-ONLY cant,
+            // where the un-canted content disagreed with the canted submit pose).
+            // No-op on symmetric HMDs (Pico). Mono path is left un-canted (one shared
+            // frame can't carry a per-eye render cant).
+            ApplyCantToPose(capturedPose, pairFovPtr, presentEye);
         }
     } else if (monoEnabled) {
         std::lock_guard<std::mutex> viewLock(m_viewMutex);
@@ -5540,6 +5723,9 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                 monoCapturedPoses[eye].position.z += eyeOffset.z;
                 XrFovf monoPairFovs[2] = { m_views[0].fov, m_views[1].fov };
                 monoCapturedFovs[eye] = ApplyForcedProjectionFov(m_views[eye].fov, monoPairFovs, eye, fovWidth, fovHeight);
+                // No cant pose rotation (removed): in mono both eyes derive from ONE
+                // frame, so a per-eye cant delta doubled the whole image. See the AER
+                // note above.
                 monoCapturedViews[eye] = true;
             }
         }

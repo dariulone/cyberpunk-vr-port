@@ -4,7 +4,7 @@
 #include <cstdlib>
 
 extern void Log(const char* fmt, ...);
-extern "C" int GetVrNvofPerf();  // ini xr_nvof_perf (env CPVR_NVOF_PERF override inside)
+extern "C" int GetVrNvofPerf();  // ini xr_nvof_perf (0=FAST, 1=MEDIUM, 2=SLOW)
 
 #if defined(AER_V2_NVOF_ENABLED)
 #include "NvOFCuda.h"
@@ -77,8 +77,8 @@ bool NvOFInstance::Init(CudaInterop* cuda, uint32_t width, uint32_t height) {
         // NvOF perf level. SLOW (20) gives the densest flow, but it benefits from a
         // reduced OF input resolution to stay within the frame budget. At our full
         // 3072^2 x2 eyes SLOW couldn't keep up, so FAST stays the safe default.
-        // Override via env CPVR_NVOF_PERF (0=FAST, 1=MEDIUM, 2=SLOW) -- raise once
-        // an OF-input downscale path is implemented.
+        // Set via ini xr_nvof_perf (0=FAST, 1=MEDIUM, 2=SLOW) -- raise once an
+        // OF-input downscale path is implemented.
         const int pv = GetVrNvofPerf();
         const NV_OF_PERF_LEVEL perf = pv >= 2 ? NV_OF_PERF_LEVEL_SLOW
                                     : (pv == 1 ? NV_OF_PERF_LEVEL_MEDIUM : NV_OF_PERF_LEVEL_FAST);

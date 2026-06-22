@@ -84,7 +84,23 @@ if(AER_V2_NVOF)
             externals/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOFCuda.cpp
             src/aer_v2/warp_kernel.cu
         )
-        set_property(TARGET dxgi PROPERTY CUDA_ARCHITECTURES native)
+        # Distribution build: real SASS for every common gaming/datacenter arch
+        # (Turing sm_75 is the NvOF floor) PLUS a compute_75 PTX fallback, so any
+        # GPU >= Turing that lacks a matching cubin (Jetson sm_87, future Blackwell
+        # variants, etc.) JITs from PTX instead of failing. Was "native" -> that
+        # baked in ONLY the build machine's GPU arch, so on any user with a different
+        # GPU the warp kernel had no image and cudaLaunchKernel failed every frame
+        # with cudaErrorNoKernelImageForDevice (err=209) -> AER V2 synthesis silently
+        # died (raw stale eye, "eyes not superposed"), e.g. on an RTX 4090 (sm_89).
+        # NOTE: do NOT use "all-major" -- on CUDA 13 it emits real SASS only for the
+        # newest minor of each major ({75,89,90,120}) + compute_120 PTX, which leaves
+        # RTX 30-series (sm_86) with no cubin and no usable (forward-only) PTX -> 209.
+        # 86-real is required explicitly. Override with -DCPVR_CUDA_ARCHITECTURES=native
+        # for fast local iteration.
+        if(NOT DEFINED CPVR_CUDA_ARCHITECTURES)
+            set(CPVR_CUDA_ARCHITECTURES "75-real;80-real;86-real;89-real;90-real;120-real;75-virtual")
+        endif()
+        set_property(TARGET dxgi PROPERTY CUDA_ARCHITECTURES "${CPVR_CUDA_ARCHITECTURES}")
         target_compile_definitions(dxgi PRIVATE AER_V2_NVOF_ENABLED=1)
         target_link_libraries(dxgi PRIVATE CUDA::cudart CUDA::cuda_driver)
         target_include_directories(dxgi PRIVATE ${CUDAToolkit_INCLUDE_DIRS})

@@ -179,6 +179,15 @@ static void InitRuntimePaths() {
     // Default: immersive holsters ON (current behaviour -- equip by visual holster).
     g_liveControls.xrImmersiveHolsters = 1;
 
+    // Default ON: VR controller -> XInput gamepad pipeline. Both the entry-point
+    // detour (xrXInputInstall) and the gameplay action set (xrInputActions) are
+    // required for the game to see the controller; without them CP2077 detects no
+    // pad and shows keyboard glyphs. Applied here so an ini missing these keys
+    // still enables the controller. Override to 0 in vrport.ini on a runtime where
+    // the binding/entry-point patch keeps the game from reaching its main menu.
+    g_liveControls.xrXInputInstall = 1;
+    g_liveControls.xrInputActions = 1;
+
     // Capture the recenter-request baseline NOW (before CET could write), so the
     // first OnGameAttached this session is seen as a change and triggers a recenter,
     // while a stale counter left over from a previous session does not.
@@ -253,12 +262,13 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_snap_turn=0\n");
     fprintf(file, "xr_snap_turn_angle_deg=30\n");
     fprintf(file, "xr_movement_source=0\n");
-    // Default OFF for the new gameplay-input pipeline so a busted runtime
-    // binding or a 14-byte XInput entry-point patch can't keep CP2077 from
-    // reaching its main menu. Opt in by editing vrport.ini after confirming
-    // the legacy path still launches cleanly.
-    fprintf(file, "xr_xinput_install=0\n");
-    fprintf(file, "xr_input_actions=0\n");
+    // Default ON for the gameplay-input pipeline: both flags are required for the
+    // VR controller to reach CP2077 as an XInput pad (otherwise the game detects no
+    // controller and shows keyboard glyphs). Set either to 0 in vrport.ini if a
+    // busted runtime binding or the 14-byte XInput entry-point patch keeps the game
+    // from reaching its main menu.
+    fprintf(file, "xr_xinput_install=1\n");
+    fprintf(file, "xr_input_actions=1\n");
     fprintf(file, "xr_mono_xqueue_wait=0\n");
     fprintf(file, "xr_snap_turn_pulse_ms=30\n");
     fprintf(file, "xr_mono_depth_capture=0\n");
@@ -1176,11 +1186,40 @@ static UINT GetForcedWindowWidthValue() {
     return GetForcedRenderWidthValue();
 }
 
+// Per-eye display aspect (width/height) the OpenXR runtime recommends. Quest 3 /
+// Pimax etc. are TALLER than wide (~0.94); Pico is ~square (~1.0). Used to render
+// at the lens aspect so the game derives the CORRECT vertical FOV (otherwise a
+// square render makes VFOV == HFOV instead of the runtime VFOV, which reads as a
+// vertical zoom / "world too big"). Returns 0 if unknown.
+static float GetDisplayAspectWoverH() {
+    uint32_t w = 0, h = 0;
+    if (OpenXRManager::Get().GetRecommendedRenderTargetSize(&w, &h) && w > 0 && h > 0) {
+        return static_cast<float>(w) / static_cast<float>(h);
+    }
+    return 0.0f;
+}
+
 static UINT GetForcedWindowHeightValue() {
     if (g_launcherHeight > 0) {
         return static_cast<UINT>(g_launcherHeight);
     }
     return GetForcedRenderHeightValue();
+}
+
+// The RENDER-target height to force: chosen width scaled to the runtime per-eye
+// aspect, so the game's internal render matches the lens shape and derives the
+// CORRECT vertical FOV. A square render (height == width) makes VFOV == HFOV
+// instead of the runtime VFOV -> vertical zoom / "world too big". On a ~square HMD
+// (Pico, aspect ~1.0) this equals the width = no change. Only the RENDER override
+// uses this; window/swapchain getters keep the launcher value.
+static UINT GetForcedRenderHeightForAspect() {
+    const UINT width = GetForcedWindowWidthValue();
+    const float aspect = GetDisplayAspectWoverH();
+    if (width > 0 && aspect > 0.05f && aspect < 20.0f) {
+        const UINT h = static_cast<UINT>(static_cast<float>(width) / aspect + 0.5f);
+        if (h > 0) return h;
+    }
+    return GetForcedWindowHeightValue();
 }
 
 static UINT GetForcedSquareResolutionValue() {
@@ -1303,23 +1342,15 @@ extern "C" float GetVrSharpmix() {
 }
 
 extern "C" int GetReuseLastFrameOutput() {
-    const char* e = getenv("CPVR_REUSE_LAST_FRAME");
-    if (!(e && *e)) {
-        e = getenv("CPVR_OUTPUT_REALVR");
-    }
-    if (e && *e) return atoi(e) != 0 ? 1 : 0;
     return g_liveControls.xrReuseLastFrame;
 }
 
 extern "C" int GetVrNvofPerf() {
-    const char* e = getenv("CPVR_NVOF_PERF");
-    if (e && *e) { int v = atoi(e); return v < 0 ? 0 : (v > 2 ? 2 : v); }
-    return g_liveControls.xrNvofPerf;
+    const int v = g_liveControls.xrNvofPerf;
+    return v < 0 ? 0 : (v > 2 ? 2 : v);
 }
 
 extern "C" int GetVrPairLock() {
-    const char* e = getenv("CPVR_PAIRLOCK");
-    if (e && *e) return atoi(e) != 0 ? 1 : 0;
     return g_liveControls.xrPairLock;
 }
 
@@ -1791,7 +1822,7 @@ static float* GetShotShared();  // shared-mem accessor (defined below)
 // the map's UI projection so pins track the background correctly.
 static void ApplySettingsResolutionOverride(uintptr_t settingsPtr) {
     const UINT forcedWidth = GetForcedWindowWidthValue();
-    const UINT forcedHeight = GetForcedWindowHeightValue();
+    const UINT forcedHeight = GetForcedRenderHeightForAspect();
     if (!settingsPtr || forcedWidth == 0 || forcedHeight == 0) {
         return;
     }
@@ -1824,8 +1855,9 @@ static void ApplySettingsResolutionOverride(uintptr_t settingsPtr) {
 }
 
 static void ApplyDLSSResolutionOverride(uintptr_t dlssPtr) {
-    const UINT forcedSquare = GetForcedSquareResolutionValue();
-    if (!dlssPtr || forcedSquare == 0) {
+    const UINT forcedWidth = GetForcedWindowWidthValue();
+    const UINT forcedHeight = GetForcedRenderHeightForAspect();
+    if (!dlssPtr || forcedWidth == 0 || forcedHeight == 0) {
         return;
     }
 
@@ -1840,9 +1872,12 @@ static void ApplyDLSSResolutionOverride(uintptr_t dlssPtr) {
         }
     }
 
-    WriteU32Safe(dlssPtr + 0x04, forcedSquare);
-    WriteU32Safe(dlssPtr + 0x18, forcedSquare);
-    WriteU32Safe(dlssPtr + 0x1C, forcedSquare);
+    // Non-square: width and height carry the runtime per-eye aspect so the game's
+    // render (and the vertical FOV it derives from this aspect) matches the lens.
+    // +0x18/+0x1C are the width/height pair; +0x04 is the width base.
+    WriteU32Safe(dlssPtr + 0x04, forcedWidth);
+    WriteU32Safe(dlssPtr + 0x18, forcedWidth);
+    WriteU32Safe(dlssPtr + 0x1C, forcedHeight);
 }
 
 static void ApplyKnownResolutionOverrides() {
@@ -1860,6 +1895,22 @@ static volatile float g_pitchOverrideValue = 0.0f;
 static volatile float g_normalFovOverrideValue = 0.0f;
 static volatile float g_lodFovOverride = 120.0f;
 static bool g_pitchHookInstalled = false;
+
+// The FOV (degrees) the GAME actually renders the scene with, captured live by
+// OnNormalFovHookCallback (native by default, or xr_force_fov). The OpenXR submit
+// path reads this so the projection-layer FOV MATCHES the rendered content (an
+// XrCompositionLayerProjectionView.fov must describe the frustum the image was
+// rendered with, not the lens). 0 until the FOV hook first fires.
+extern "C" float GetGameRenderFovDeg() {
+    const float f = g_normalFovOverrideValue;
+    return (f > 1.0f && f < 170.0f) ? f : 0.0f;
+}
+
+// FOV overscan factor. Fixed at 1.0 (no overscan): overscan changed the game FOV
+// away from the lens FOV (~103.982 on a symmetric HMD) and distorted scale.
+extern "C" float GetFovOverscan() {
+    return 1.0f;
+}
 static bool g_normalFovHookInstalled = false;
 static bool g_forceHeadingUpdateHookInstalled = false;
 static volatile int g_menuModeValue = 0;
@@ -1889,13 +1940,44 @@ static bool ExtractOpenXRYawPitch(const OpenXRHeadPose& xrPose, float* outYaw, f
     return true;
 }
 
+// Overscan factor: render (and submit) a FOV this much wider than the lens, so the
+// compositor's reprojection (ATW) on head turns has rendered pixels beyond the lens
+// edge to pull in -> no edge stretch. The runtime crops the wider image back to the
+// lens, so the VISIBLE FOV + scale stay correct. ~1.0 = no margin = stretch on turn
+// (the bug). The "body big" era accidentally had margin because the render FOV was
+// far NARROWER than the submitted FOV. Tunable via xr_fov_overscan.
+extern "C" float GetFovOverscan();  // defined below near the live-controls getters
+
+// The VERTICAL FOV (deg) we want the game to RENDER = lens vertical * overscan.
+extern "C" float GetTargetRenderVfovDegC();
+static float GetTargetRenderVfovDeg() {
+    const float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
+    if (!(vfovDeg > 1.0f && vfovDeg < 175.0f)) return 0.0f;
+    float os = GetFovOverscan();
+    if (!(os >= 1.0f && os <= 2.0f)) os = 1.3f;
+    const float t = vfovDeg * os;
+    return (t > 1.0f && t < 178.0f) ? t : vfovDeg;
+}
+
+// C-linkage wrapper so the OpenXR submit (openxr_manager.cpp) can set the submitted
+// FOV to the SAME overscanned target the game renders -> render == submit, runtime
+// crops to lens, ATW gets margin.
+extern "C" float GetTargetRenderVfovDegC() { return GetTargetRenderVfovDeg(); }
+
 static float GetDesiredGameHorizontalFov() {
-    XrFovf left{}, right{};
-    if (OpenXRManager::Get().GetCurrentEyeFov(0, &left) &&
-        OpenXRManager::Get().GetCurrentEyeFov(1, &right)) {
-        const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(left, right);
-        const float fov = GetCorrectedGameHorizontalFovDeg(corr);
-        return fov > 1.0f ? fov : 0.0f;
+    //   gameFov(+0x410) = 2 * atan( tan(targetRenderVfov/2) * 16/9 )
+    // CP2077's +0x410 is a "horizontal FOV AT 16:9": the engine LOCKS the vertical =
+    // 2*atan(tan(fov/2)*9/16) then widens horizontal for the render aspect. Feed it
+    // the 16:9-horizontal that back-derives to our TARGET render vertical (= lens *
+    // overscan), so the game renders OVERSCANNED. The submit FOV is set to the same
+    // target (ApplyForcedProjectionFov), and the runtime crops both to the lens ->
+    // correct visible scale + ATW margin = no stretch on head turn.
+    const float targetVfov = GetTargetRenderVfovDeg();
+    if (targetVfov > 1.0f) {
+        const float halfVRad = targetVfov * 0.5f * 3.1415926535f / 180.0f;
+        const float gameHalfH = std::atan(std::tan(halfVRad) * (16.0f / 9.0f));
+        const float gameFovDeg = gameHalfH * 2.0f * 180.0f / 3.1415926535f;
+        if (gameFovDeg > 1.0f && gameFovDeg < 179.0f) return gameFovDeg;
     }
     const float runtimeFov = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
     return runtimeFov > 1.0f ? runtimeFov : 0.0f;
@@ -2196,10 +2278,9 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // the animation pass). LocateCamera runs DURING render, AFTER animation, so it
     // must NOT re-sample — the camera view must match the body the plugin already
     // posed. In mono there is no pairing, so sample live (no added latency).
-    // CPVR_PAIRLOCK=0 disables the pose-pair-lock: sample the LIVE head pose every
-    // camera-locate instead of the per-pair frozen snapshot. Disabling it trades
+    // xr_pair_lock (vrport.ini): 0 disables the pose-pair-lock and samples the LIVE
+    // head pose every camera-locate instead of the per-pair frozen snapshot, trading
     // pair-consistent body alignment for a small per-eye skeleton tear.
-    // vrport.ini xr_pair_lock (0 = live pose every locate; env CPVR_PAIRLOCK overrides).
     const bool pairLockOn = GetVrPairLock() != 0;
     const bool aerActiveForPose = OpenXRManager::Get().IsAERSubmitEnabled() && pairLockOn;
     const bool hasXR = aerActiveForPose
@@ -2796,8 +2877,43 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
         finalPosFP[1] = g_lastLocatePosFP[1] + g_lastIpdShiftFP[1];
         finalPosFP[2] = g_lastLocatePosFP[2] + g_lastIpdShiftFP[2];
 
-        if (IsPlausibleUnitQuaternion(locateQuat)) {
-            ApplyFinalCameraOrientationFromQuat(rsiPtr, locateQuat);
+        // RENDER-SIDE display-cant. The submitted FOV is
+        // de-canted to SYMMETRIC (ApplyForcedProjectionFov), which only lands
+        // correctly on a canted-lens HMD if the eye's RENDER CAMERA is rotated by
+        // that eye's frustum-center cant. Doing it on the RENDER (here, per
+        // renderEye, late = render-only like the IPD shift) keeps the world AND the
+        // screen-space HUD/laser/hands consistent within the eye's frame -> no double
+        // vision (unlike rotating only the submit pose, which desynced overlay).
+        // No-op on symmetric HMDs (Pico: cant==0). Applied with the matching submit
+        // pose cant in OnPresent so render and submit agree.
+        float renderQuat[4] = { locateQuat[0], locateQuat[1], locateQuat[2], locateQuat[3] };
+        {
+            XrFovf lf{}, rf{};
+            if (OpenXRManager::Get().GetCurrentEyeFov(0, &lf) &&
+                OpenXRManager::Get().GetCurrentEyeFov(1, &rf)) {
+                const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(lf, rf);
+                if (corr.yawEnabled || corr.pitchEnabled) {
+                    const int re = g_renderedEye & 1;
+                    const float yaw   = corr.yawEnabled   ? (re == 0 ? corr.yawDeltaRad : -corr.yawDeltaRad) : 0.0f;
+                    const float pitch = corr.pitchEnabled ? corr.pitchDeltaRad : 0.0f;
+                    // game-camera local axes: Z = up (yaw), X = right (pitch).
+                    float cX, cY, cZ, cW;
+                    MulQuat(0.0f, 0.0f, sinf(yaw * 0.5f), cosf(yaw * 0.5f),
+                            sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f),
+                            cX, cY, cZ, cW);
+                    float oX, oY, oZ, oW;
+                    MulQuat(locateQuat[0], locateQuat[1], locateQuat[2], locateQuat[3],
+                            cX, cY, cZ, cW, oX, oY, oZ, oW);
+                    renderQuat[0] = oX; renderQuat[1] = oY; renderQuat[2] = oZ; renderQuat[3] = oW;
+                    if (g_verboseLog && (g_finalCameraHits % 600) == 1) {
+                        Log("FinalCamera CANT(render): eye=%d yaw=%.3fdeg pitch=%.3fdeg\n",
+                            re, yaw * 57.29578f, pitch * 57.29578f);
+                    }
+                }
+            }
+        }
+        if (IsPlausibleUnitQuaternion(renderQuat)) {
+            ApplyFinalCameraOrientationFromQuat(rsiPtr, renderQuat);
         }
     }
 
@@ -3040,11 +3156,25 @@ static uint64_t g_normalFovHookHits = 0;
 extern "C" void __fastcall OnNormalFovHookCallback(void* cameraState, float originalFov) {
     g_normalFovHookHits++;
 
-    const float desiredFov = GetDesiredGameHorizontalFov();
-    g_normalFovOverrideValue = desiredFov > 1.0f ? desiredFov : originalFov;
+    // Force the game FOV to the lens horizontal FOV (~103.982 on a symmetric HMD).
+    // The render/aspect handling downstream derives the per-axis projection from it,
+    // so do not widen the game FOV beyond the lens here.
+    const float forced = GetForcedFov();
+    const float lensH = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
+    const float desiredFov = (forced > 1.0f && forced < 170.0f)
+        ? forced
+        : (lensH > 1.0f && lensH < 170.0f ? lensH : originalFov);
+    g_normalFovOverrideValue = desiredFov;
 
-    // Keep the visible camera FOV aligned with the OpenXR runtime, while giving
-    // LOD/streaming a wider cone so edge and floor geometry does not pop out.
+    static uint64_t s_fovLog = 0;
+    if (s_fovLog < 20) {
+        Log("NormalFOV: original=%.3f xr_force_fov=%.3f lensH=%.3f -> wrote=%.3f (submit anchored to this)\n",
+            originalFov, forced, lensH, desiredFov);
+        s_fovLog++;
+    }
+
+    // LOD cone: a bit wider than the actual FOV so edge/floor geometry doesn't pop;
+    // based on whatever FOV we ultimately use (native or user-forced).
     g_lodFovOverride = g_normalFovOverrideValue + 30.0f;
 
     // The camera FOV hook writes the FOV ONLY to camera
@@ -3147,6 +3277,680 @@ bool InstallNormalFovHook() {
     found[0] = 0xE9;
     *reinterpret_cast<int32_t*>(found + 1) = static_cast<int32_t>(code - (found + 5));
     for (int i = 5; i < replaceLen; ++i) found[i] = 0x90;
+    VirtualProtect(found, replaceLen, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), found, replaceLen);
+    return true;
+}
+
+// ===================== Projection Commit Hook =====================
+// Hooks the projection-data commit site. At this point
+// xmm0 already contains r13[0:16] (loaded by the prior movups). The code then
+// copies r13 data to the render object at rbx+0x21C0 (9 floats = 36 bytes),
+// followed by xmm1 from r13[16:32], and FOV from r13[32]. We intercept to log
+// the values and override the FOV.
+//
+// Layout at r13 (projection source, 9 floats = 36 bytes):
+//   r13[0:4]   (floats 0-3): -> rbx+0x21C0 (projection params)
+//   r13[4:8]   (floats 4-7): -> rbx+0x21D0 (projection params)
+//   r13[8]     (float 8):    -> rbx+0x21E0 (FOV in degrees)
+//
+static uint64_t g_unifixHits = 0;
+static bool g_unifixHookInstalled = false;
+static float g_unifixProjDump[9] = {};
+static volatile bool g_unifixEnableOverride = false;
+static volatile uintptr_t g_unifixRenderObj = 0;
+
+static uint64_t g_projAspectCopyHits = 0;
+static bool g_projAspectCopyHookInstalled = false;
+static float g_projAspectLastSrcFov = 0.0f;
+static float g_projAspectLastSrcAspect = 0.0f;
+static float g_projAspectLastDstFov = 0.0f;
+static float g_projAspectLastDstAspect = 0.0f;
+static bool g_projAspectLastPatched = false;
+
+static uint64_t g_projAspectCallHits = 0;
+static bool g_projAspectCallHookInstalled = false;
+static float g_projAspectCallLastFov = 0.0f;
+static float g_projAspectCallLastAspect = 0.0f;
+static uint32_t g_projAspectCallLastFovOff = 0;
+static uint32_t g_projAspectCallLastAspectOff = 0;
+static bool g_projAspectCallLastPatched = false;
+
+static uint64_t g_projStageHits = 0;
+static bool g_projStageHookInstalled = false;
+static float g_projStageFov = 0.0f;
+static float g_projStageAspect = 0.0f;
+static float g_projStageExtra = 0.0f;
+static bool g_projStagePatched = false;
+
+extern "C" void __fastcall OnUnifixHookCallback(void* projectionData, void* renderObj) {
+    g_unifixHits++;
+    if (renderObj) g_unifixRenderObj = reinterpret_cast<uintptr_t>(renderObj);
+    if (!projectionData) return;
+
+    __try {
+        float* proj = reinterpret_cast<float*>(projectionData);
+        bool nonZero = false;
+        for (int i = 0; i < 9; ++i) {
+            g_unifixProjDump[i] = proj[i];
+            if (proj[i] != 0.0f) nonZero = true;
+        }
+
+        // Also read directly from render object (rbx+0x21C0) — this is where
+        // the game stores the ACTUAL projection during gameplay. The r13 source
+        // may be a zeroed template; the real data is in the destination.
+        float rbxProj[9] = {};
+        bool rbxNonZero = false;
+        if (renderObj) {
+            float* dst = reinterpret_cast<float*>(g_unifixRenderObj + 0x21C0);
+            for (int i = 0; i < 9; ++i) {
+                rbxProj[i] = dst[i];
+                if (rbxProj[i] != 0.0f) rbxNonZero = true;
+            }
+        }
+
+        static bool s_seenNonZeroRbx = false;
+        bool shouldLog = false;
+        if (rbxNonZero && !s_seenNonZeroRbx) { s_seenNonZeroRbx = true; shouldLog = true; }
+        if (g_unifixHits <= 5) shouldLog = true;
+        if ((g_unifixHits % 600) == 0) shouldLog = true;
+
+        if (shouldLog) {
+            Log("Unifix: hits=%llu r13zero=%d rbxZero=%d\n",
+                static_cast<unsigned long long>(g_unifixHits),
+                nonZero ? 0 : 1,
+                rbxNonZero ? 0 : 1);
+            if (rbxNonZero) {
+                Log("UnifixRender: rbx=%p p0-3=[%.6f %.6f %.6f %.6f] p4-7=[%.6f %.6f %.6f %.6f] fov=%.6f\n",
+                    renderObj,
+                    rbxProj[0], rbxProj[1], rbxProj[2], rbxProj[3],
+                    rbxProj[4], rbxProj[5], rbxProj[6], rbxProj[7],
+                    rbxProj[8]);
+            }
+        }
+
+        if (g_unifixEnableOverride && rbxNonZero) {
+            const float desiredFov = g_normalFovOverrideValue;
+            float* dst = reinterpret_cast<float*>(g_unifixRenderObj + 0x21E0);
+            if (desiredFov > 1.0f && desiredFov < 179.0f && *dst != desiredFov) {
+                *dst = desiredFov;
+            }
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+bool InstallUnifixHook() {
+    // AOB: mov rcx,rdi; mov rdx,rdi; movups [rbx+0x21C0],xmm0
+    // = 48 8B CF | 48 8B D7 | 0F 11 83 C0 21 00 00  (13 bytes)
+    // xmm0 was already loaded from [r13] by the preceding instruction (41 0F 10 45 00).
+    const char* pattern = "\x48\x8B\xCF\x48\x8B\xD7\x0F\x11\x83\xC0\x21\x00\x00";
+    const char* mask = "xxxxxxxxxxxxx";
+    uint8_t* found = static_cast<uint8_t*>(FindPattern("Cyberpunk2077.exe", pattern, mask));
+    if (!found) return false;
+
+    // Replace 2 complete instructions (6 bytes): mov rcx,rdi (3) + mov rdx,rdi (3).
+    // The third instruction (movups, 7 bytes) stays untouched.
+    constexpr int replaceLen = 6;
+    void* tramp = AllocateTrampoline(found, 512);
+    if (!tramp) return false;
+
+    uint8_t* code = static_cast<uint8_t*>(tramp);
+    int pos = 0;
+
+    // --- Trampoline: save, call callback, restore, execute originals, jump back ---
+
+    // Push volatile GPRs + flags (9 * 8 = 72 bytes)
+    code[pos++] = 0x9C;                          // pushfq
+    code[pos++] = 0x50;                          // push rax
+    code[pos++] = 0x51;                          // push rcx
+    code[pos++] = 0x52;                          // push rdx
+    code[pos++] = 0x41; code[pos++] = 0x50;      // push r8
+    code[pos++] = 0x41; code[pos++] = 0x51;      // push r9
+    code[pos++] = 0x41; code[pos++] = 0x52;      // push r10
+    code[pos++] = 0x41; code[pos++] = 0x53;      // push r11
+    code[pos++] = 0x55;                          // push rbp
+
+    // Save volatile xmm registers (4 * 16 = 64 bytes)
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x40; // sub rsp,40h
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x04; code[pos++] = 0x24;       // movups [rsp],xmm0
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10; // movups [rsp+10h],xmm1
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20; // movups [rsp+20h],xmm2
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30; // movups [rsp+30h],xmm3
+
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xE5;   // mov rbp,rsp
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xE4; code[pos++] = 0xF0; // and rsp,-10h (align)
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x20; // sub rsp,20h (shadow space)
+
+    // rcx = r13 (projection data), rdx = rbx (render object)
+    code[pos++] = 0x4C; code[pos++] = 0x89; code[pos++] = 0xE9;   // mov rcx, r13
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xDA;   // mov rdx, rbx
+
+    WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(OnUnifixHookCallback));
+    code[pos++] = 0xFF; code[pos++] = 0xD0;                       // call rax
+
+    // Restore xmm
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xEC;   // mov rsp,rbp
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x04; code[pos++] = 0x24;       // movups xmm0,[rsp]
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xC4; code[pos++] = 0x40; // add rsp,40h
+
+    // Pop volatile GPRs (reverse order)
+    code[pos++] = 0x5D;                          // pop rbp
+    code[pos++] = 0x41; code[pos++] = 0x5B;      // pop r11
+    code[pos++] = 0x41; code[pos++] = 0x5A;      // pop r10
+    code[pos++] = 0x41; code[pos++] = 0x59;      // pop r9
+    code[pos++] = 0x41; code[pos++] = 0x58;      // pop r8
+    code[pos++] = 0x5A;                          // pop rdx
+    code[pos++] = 0x59;                          // pop rcx
+    code[pos++] = 0x58;                          // pop rax
+    code[pos++] = 0x9D;                          // popfq
+
+    // Execute original 6 bytes:
+    code[pos++] = 0x48; code[pos++] = 0x8B; code[pos++] = 0xCF;   // mov rcx, rdi
+    code[pos++] = 0x48; code[pos++] = 0x8B; code[pos++] = 0xD7;   // mov rdx, rdi
+    // (movups [rbx+0x21C0],xmm0 at found+6 is NOT replaced — executes in-place)
+
+    // Jump back to found + replaceLen
+    code[pos++] = 0xE9;
+    *reinterpret_cast<int32_t*>(code + pos) = static_cast<int32_t>((found + replaceLen) - (code + pos + 4));
+    pos += 4;
+
+    // Patch: JMP to trampoline + NOPs
+    DWORD oldProtect;
+    VirtualProtect(found, replaceLen, PAGE_EXECUTE_READWRITE, &oldProtect);
+    found[0] = 0xE9;
+    *reinterpret_cast<int32_t*>(found + 1) = static_cast<int32_t>(code - (found + 5));
+    found[5] = 0x90;  // NOP the 6th byte (rest of 2nd instruction)
+    VirtualProtect(found, replaceLen, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), found, replaceLen);
+    return true;
+}
+
+// ===================== Projection FOV/Aspect Copy Hook =====================
+// From ida_headless\proj4_disasm.txt and proj.txt:
+//   sub_14028D4B8 @ 0x28D530: movups xmm1, [rdx+80h]
+//                             movups [rcx+80h], xmm1
+// The copied block contains:
+//   [80h] = FOV
+//   [84h] = ASPECT
+//   [88h] / [8Ch] = other per-view scalars
+//
+// This is the first solid place where the engine copies the per-view FOV/aspect
+// into the render-side struct. If aspect stays 16:9 while the VR swapchain is 1:1,
+// the image stretches horizontally; here we patch the copied struct to square
+// aspect directly.
+//
+// Strategy:
+// - execute the original copy first
+// - inspect src[80]/[84]
+// - if it looks like a camera/projection view (FOV in a sane range, aspect ~16:9),
+//   patch dst[84] = 1.0f
+// - if the copied FOV is a 16:9-horizontal (>120 deg), convert it to the matching
+//   square VFOV: 2*atan(tan(fov/2) * 9/16)
+//
+extern "C" void __fastcall OnProjAspectCopyCallback(void* dst, const void* src) {
+    g_projAspectCopyHits++;
+    if (!dst || !src)
+        return;
+
+    __try {
+        const uintptr_t srcAddr = reinterpret_cast<uintptr_t>(src);
+        const uintptr_t dstAddr = reinterpret_cast<uintptr_t>(dst);
+
+        const float srcFov = *reinterpret_cast<const float*>(srcAddr + 0x80);
+        const float srcAspect = *reinterpret_cast<const float*>(srcAddr + 0x84);
+        float dstFov = *reinterpret_cast<float*>(dstAddr + 0x80);
+        float dstAspect = *reinterpret_cast<float*>(dstAddr + 0x84);
+
+        g_projAspectLastSrcFov = srcFov;
+        g_projAspectLastSrcAspect = srcAspect;
+        g_projAspectLastDstFov = dstFov;
+        g_projAspectLastDstAspect = dstAspect;
+        g_projAspectLastPatched = false;
+
+        const bool aspectLooks16x9 = (srcAspect > 1.70f && srcAspect < 1.85f);
+        const bool fovLooksValid = (srcFov > 30.0f && srcFov < 180.0f);
+        const bool looksLikeView = aspectLooks16x9 && fovLooksValid;
+
+        if (looksLikeView) {
+            float patchedFov = srcFov;
+
+            // If the copied FOV is already the square/VFOV (~104), keep it.
+            // If it's the 16:9-horizontal (~132.5), convert to the square VFOV.
+            if (srcFov > 120.0f && srcFov < 170.0f) {
+                const float halfH = srcFov * 0.5f * 3.1415926535f / 180.0f;
+                patchedFov = std::atan(std::tan(halfH) * (9.0f / 16.0f)) * 2.0f * 180.0f / 3.1415926535f;
+            }
+
+            *reinterpret_cast<float*>(dstAddr + 0x80) = patchedFov;
+            *reinterpret_cast<float*>(dstAddr + 0x84) = 1.0f;
+            dstFov = patchedFov;
+            dstAspect = 1.0f;
+            g_projAspectLastPatched = true;
+            g_projAspectLastDstFov = dstFov;
+            g_projAspectLastDstAspect = dstAspect;
+        }
+
+        if (g_projAspectCopyHits <= 20 || (g_projAspectCopyHits % 600) == 0 || g_projAspectLastPatched) {
+            Log("ProjAspect: hits=%llu srcFov=%.6f srcAspect=%.6f -> dstFov=%.6f dstAspect=%.6f patched=%d\n",
+                static_cast<unsigned long long>(g_projAspectCopyHits),
+                srcFov,
+                srcAspect,
+                dstFov,
+                dstAspect,
+                g_projAspectLastPatched ? 1 : 0);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+bool InstallProjAspectCopyHook() {
+    HMODULE exe = GetModuleHandleA("Cyberpunk2077.exe");
+    if (!exe)
+        return false;
+
+    uint8_t* found = reinterpret_cast<uint8_t*>(exe) + 0x28D530;
+    const uint8_t expected[] = {
+        0x0F, 0x10, 0x8A, 0x80, 0x00, 0x00, 0x00,
+        0x0F, 0x11, 0x89, 0x80, 0x00, 0x00, 0x00,
+    };
+    for (size_t i = 0; i < sizeof(expected); ++i) {
+        if (found[i] != expected[i]) {
+            if (g_verboseLog) {
+                Log("ProjAspect hook: RVA 0x28D530 byte mismatch at +0x%zX (got %02X expected %02X)\n",
+                    i, found[i], expected[i]);
+            }
+            return false;
+        }
+    }
+
+    constexpr int replaceLen = 14; // full 2-instruction copy
+    void* tramp = AllocateTrampoline(found, 512);
+    if (!tramp)
+        return false;
+
+    uint8_t* code = static_cast<uint8_t*>(tramp);
+    int pos = 0;
+
+    // Execute the original copy first:
+    //   movups xmm1, [rdx+80h]
+    //   movups [rcx+80h], xmm1
+    for (int i = 0; i < replaceLen; ++i)
+        code[pos++] = found[i];
+
+    // Save volatile regs + flags
+    code[pos++] = 0x9C;                          // pushfq
+    code[pos++] = 0x50;                          // push rax
+    code[pos++] = 0x51;                          // push rcx
+    code[pos++] = 0x52;                          // push rdx
+    code[pos++] = 0x41; code[pos++] = 0x50;     // push r8
+    code[pos++] = 0x41; code[pos++] = 0x51;     // push r9
+    code[pos++] = 0x41; code[pos++] = 0x52;     // push r10
+    code[pos++] = 0x41; code[pos++] = 0x53;     // push r11
+    code[pos++] = 0x55;                         // push rbp
+
+    // Save xmm0-xmm3 + xmm1 is included
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x40;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x04; code[pos++] = 0x24;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
+
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xE5;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xE4; code[pos++] = 0xF0;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x20;
+
+    // callback(dst=rcx, src=rdx)
+    WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(OnProjAspectCopyCallback));
+    code[pos++] = 0xFF; code[pos++] = 0xD0;
+
+    // restore
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xEC;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x04; code[pos++] = 0x24;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xC4; code[pos++] = 0x40;
+    code[pos++] = 0x5D;
+    code[pos++] = 0x41; code[pos++] = 0x5B;
+    code[pos++] = 0x41; code[pos++] = 0x5A;
+    code[pos++] = 0x41; code[pos++] = 0x59;
+    code[pos++] = 0x41; code[pos++] = 0x58;
+    code[pos++] = 0x5A;
+    code[pos++] = 0x59;
+    code[pos++] = 0x58;
+    code[pos++] = 0x9D;
+
+    code[pos++] = 0xE9;
+    *reinterpret_cast<int32_t*>(code + pos) = static_cast<int32_t>((found + replaceLen) - (code + pos + 4));
+    pos += 4;
+
+    DWORD oldProtect;
+    VirtualProtect(found, replaceLen, PAGE_EXECUTE_READWRITE, &oldProtect);
+    found[0] = 0xE9;
+    *reinterpret_cast<int32_t*>(found + 1) = static_cast<int32_t>(code - (found + 5));
+    for (int i = 5; i < replaceLen; ++i)
+        found[i] = 0x90;
+    VirtualProtect(found, replaceLen, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), found, replaceLen);
+    return true;
+}
+
+// ===================== Projection Aspect Call Hook =====================
+// Real projection/aspect path from ida_headless:
+//   f108294.txt
+//     0x10869A: movss xmm2, [rdx+84h]
+//     0x1086A2: movss xmm1, [rdx+80h]
+//     0x1086AA: call sub_140109814
+//
+//     0x10891C: movss xmm2, [rdx+7Ch]
+//     0x108921: movss xmm1, [rdx+78h]
+//     0x108926: call sub_140109814
+//
+//     0x1089AE: movss xmm2, [rdx+84h]
+//     0x1089B6: movss xmm1, [rdx+80h]
+//     0x1089BE: call sub_140109814
+//
+// We patch the source struct that the loads read from, BEFORE the call computes the
+// downstream projection. This is the first solid place in the real path where aspect
+// can be made square (1.0f).
+extern "C" void __fastcall OnProjAspectCallCallback(void* src, uint32_t fovOff, uint32_t aspectOff, uint32_t siteId) {
+    (void)siteId;
+    g_projAspectCallHits++;
+    g_projAspectCallLastPatched = false;
+    g_projAspectCallLastFovOff = fovOff;
+    g_projAspectCallLastAspectOff = aspectOff;
+
+    if (!src)
+        return;
+
+    __try {
+        const uintptr_t base = reinterpret_cast<uintptr_t>(src);
+        float* fovPtr = reinterpret_cast<float*>(base + fovOff);
+        float* aspectPtr = reinterpret_cast<float*>(base + aspectOff);
+        const float fov = *fovPtr;
+        const float aspect = *aspectPtr;
+        g_projAspectCallLastFov = fov;
+        g_projAspectCallLastAspect = aspect;
+
+        const bool fovLooksValid = std::isfinite(fov) && (fov > 30.0f) && (fov < 180.0f);
+        const bool aspectLooks16x9 = std::isfinite(aspect) && (aspect > 1.70f) && (aspect < 1.85f);
+
+        if (fovLooksValid && aspectLooks16x9) {
+            float patchedFov = fov;
+            if (patchedFov > 120.0f && patchedFov < 170.0f) {
+                const float halfH = patchedFov * 0.5f * 3.1415926535f / 180.0f;
+                patchedFov = std::atan(std::tan(halfH) * (9.0f / 16.0f)) * 2.0f * 180.0f / 3.1415926535f;
+                *fovPtr = patchedFov;
+            }
+            *aspectPtr = 1.0f;
+            g_projAspectCallLastFov = patchedFov;
+            g_projAspectCallLastAspect = 1.0f;
+            g_projAspectCallLastPatched = true;
+        }
+
+        if (g_projAspectCallHits <= 20 || (g_projAspectCallHits % 600) == 0 || g_projAspectCallLastPatched) {
+            Log("ProjAspectCall: hits=%llu fovOff=0x%X aspectOff=0x%X fov=%.6f aspect=%.6f patched=%d\n",
+                static_cast<unsigned long long>(g_projAspectCallHits),
+                fovOff,
+                aspectOff,
+                g_projAspectCallLastFov,
+                g_projAspectCallLastAspect,
+                g_projAspectCallLastPatched ? 1 : 0);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+static bool InstallProjAspectCallHookAtRva(uintptr_t rva, const uint8_t* expected, int replaceLen, uint32_t fovOff, uint32_t aspectOff, uint32_t siteId) {
+    HMODULE exe = GetModuleHandleA("Cyberpunk2077.exe");
+    if (!exe)
+        return false;
+
+    uint8_t* found = reinterpret_cast<uint8_t*>(exe) + rva;
+    for (int i = 0; i < replaceLen; ++i) {
+        if (found[i] != expected[i]) {
+            if (g_verboseLog) {
+                Log("ProjAspectCall hook: RVA 0x%llX mismatch at +0x%X (got %02X expected %02X)\n",
+                    static_cast<unsigned long long>(rva), i, found[i], expected[i]);
+            }
+            return false;
+        }
+    }
+
+    void* tramp = AllocateTrampoline(found, 512);
+    if (!tramp)
+        return false;
+
+    uint8_t* code = static_cast<uint8_t*>(tramp);
+    int pos = 0;
+
+    // Save volatile regs + flags
+    code[pos++] = 0x9C;
+    code[pos++] = 0x50;
+    code[pos++] = 0x51;
+    code[pos++] = 0x52;
+    code[pos++] = 0x41; code[pos++] = 0x50;
+    code[pos++] = 0x41; code[pos++] = 0x51;
+    code[pos++] = 0x41; code[pos++] = 0x52;
+    code[pos++] = 0x41; code[pos++] = 0x53;
+    code[pos++] = 0x55;
+
+    // Save xmm0-xmm3 (xmm0 already carries another input to sub_140109814)
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x40;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x04; code[pos++] = 0x24;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
+
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xE5;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xE4; code[pos++] = 0xF0;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x20;
+
+    // rcx=src(rdx), edx=fovOff, r8d=aspectOff, r9d=siteId
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xD1; // mov rcx, rdx
+    code[pos++] = 0xBA; *reinterpret_cast<uint32_t*>(code + pos) = fovOff; pos += 4; // mov edx, imm32
+    code[pos++] = 0x41; code[pos++] = 0xB8; *reinterpret_cast<uint32_t*>(code + pos) = aspectOff; pos += 4; // mov r8d, imm32
+    code[pos++] = 0x41; code[pos++] = 0xB9; *reinterpret_cast<uint32_t*>(code + pos) = siteId; pos += 4; // mov r9d, imm32
+
+    WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(OnProjAspectCallCallback));
+    code[pos++] = 0xFF; code[pos++] = 0xD0;
+
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xEC;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x04; code[pos++] = 0x24;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xC4; code[pos++] = 0x40;
+    code[pos++] = 0x5D;
+    code[pos++] = 0x41; code[pos++] = 0x5B;
+    code[pos++] = 0x41; code[pos++] = 0x5A;
+    code[pos++] = 0x41; code[pos++] = 0x59;
+    code[pos++] = 0x41; code[pos++] = 0x58;
+    code[pos++] = 0x5A;
+    code[pos++] = 0x59;
+    code[pos++] = 0x58;
+    code[pos++] = 0x9D;
+
+    // Execute original bytes (loads into xmm2/xmm1)
+    for (int i = 0; i < replaceLen; ++i)
+        code[pos++] = expected[i];
+
+    code[pos++] = 0xE9;
+    *reinterpret_cast<int32_t*>(code + pos) = static_cast<int32_t>((found + replaceLen) - (code + pos + 4));
+    pos += 4;
+
+    DWORD oldProtect;
+    VirtualProtect(found, replaceLen, PAGE_EXECUTE_READWRITE, &oldProtect);
+    found[0] = 0xE9;
+    *reinterpret_cast<int32_t*>(found + 1) = static_cast<int32_t>(code - (found + 5));
+    for (int i = 5; i < replaceLen; ++i)
+        found[i] = 0x90;
+    VirtualProtect(found, replaceLen, oldProtect, &oldProtect);
+    FlushInstructionCache(GetCurrentProcess(), found, replaceLen);
+    return true;
+}
+
+bool InstallProjAspectCallHooks() {
+    bool ok = false;
+
+    {
+        const uint8_t patternA[] = {
+            0xF3, 0x0F, 0x10, 0x92, 0x84, 0x00, 0x00, 0x00,
+            0xF3, 0x0F, 0x10, 0x8A, 0x80, 0x00, 0x00, 0x00,
+        };
+        ok |= InstallProjAspectCallHookAtRva(0x10869A, patternA, sizeof(patternA), 0x80, 0x84, 1);
+        ok |= InstallProjAspectCallHookAtRva(0x1089AE, patternA, sizeof(patternA), 0x80, 0x84, 2);
+    }
+
+    {
+        const uint8_t patternB[] = {
+            0xF3, 0x0F, 0x10, 0x52, 0x7C,
+            0xF3, 0x0F, 0x10, 0x4A, 0x78,
+        };
+        ok |= InstallProjAspectCallHookAtRva(0x10891C, patternB, sizeof(patternB), 0x78, 0x7C, 3);
+    }
+
+    return ok;
+}
+
+// ===================== Projection Stage Hook =====================
+// render_camera_RE / ida_headless:
+//   sub_14012752C @ 0x12752C  projection_from_fov_aspect
+//   0x127970: movss xmm4, [rdx+80h] ; FOV
+//   0x127978: movss xmm5, [rdx+84h] ; ASPECT
+//   0x127980: movss xmm6, [rdx+88h]
+//
+// Patch only the aspect term at the exact downstream point where projection is built.
+extern "C" void __fastcall OnProjStageCallback(const void* src) {
+    g_projStageHits++;
+    g_projStagePatched = false;
+    if (!src)
+        return;
+
+    __try {
+        const uintptr_t base = reinterpret_cast<uintptr_t>(src);
+        const float fov = *reinterpret_cast<const float*>(base + 0x80);
+        const float aspect = *reinterpret_cast<const float*>(base + 0x84);
+        const float extra = *reinterpret_cast<const float*>(base + 0x88);
+        g_projStageFov = fov;
+        g_projStageAspect = aspect;
+        g_projStageExtra = extra;
+
+        if (std::isfinite(fov) && std::isfinite(aspect) && (fov > 30.0f) && (fov < 180.0f) && (aspect > 1.70f) && (aspect < 1.85f)) {
+            g_projStageAspect = 1.0f;
+            g_projStagePatched = true;
+        }
+
+        if (g_projStageHits <= 20 || (g_projStageHits % 600) == 0 || g_projStagePatched) {
+            Log("ProjStage: hits=%llu fov=%.6f aspect=%.6f extra=%.6f patched=%d\n",
+                static_cast<unsigned long long>(g_projStageHits),
+                g_projStageFov,
+                g_projStageAspect,
+                g_projStageExtra,
+                g_projStagePatched ? 1 : 0);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+bool InstallProjStageHook() {
+    HMODULE exe = GetModuleHandleA("Cyberpunk2077.exe");
+    if (!exe)
+        return false;
+
+    uint8_t* found = reinterpret_cast<uint8_t*>(exe) + 0x127970;
+    const uint8_t expected[] = {
+        0xF3, 0x0F, 0x10, 0xA2, 0x80, 0x00, 0x00, 0x00,
+        0xF3, 0x0F, 0x10, 0xAA, 0x84, 0x00, 0x00, 0x00,
+        0xF3, 0x0F, 0x10, 0xB2, 0x88, 0x00, 0x00, 0x00,
+    };
+    constexpr int replaceLen = sizeof(expected);
+    for (int i = 0; i < replaceLen; ++i) {
+        if (found[i] != expected[i]) {
+            if (g_verboseLog) {
+                Log("ProjStage hook: RVA 0x127970 mismatch at +0x%X (got %02X expected %02X)\n", i, found[i], expected[i]);
+            }
+            return false;
+        }
+    }
+
+    void* tramp = AllocateTrampoline(found, 512);
+    if (!tramp)
+        return false;
+
+    uint8_t* code = static_cast<uint8_t*>(tramp);
+    int pos = 0;
+
+    // Save volatile regs/flags and volatile xmm regs. xmm7 is nonvolatile and holds scale.
+    code[pos++] = 0x9C;
+    code[pos++] = 0x50;
+    code[pos++] = 0x51;
+    code[pos++] = 0x52;
+    code[pos++] = 0x41; code[pos++] = 0x50;
+    code[pos++] = 0x41; code[pos++] = 0x51;
+    code[pos++] = 0x41; code[pos++] = 0x52;
+    code[pos++] = 0x41; code[pos++] = 0x53;
+    code[pos++] = 0x55;
+
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x40;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x04; code[pos++] = 0x24;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
+    code[pos++] = 0x0F; code[pos++] = 0x11; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
+
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xE5;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xE4; code[pos++] = 0xF0;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xEC; code[pos++] = 0x20;
+
+    // rcx = rdx (source struct)
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xD1;
+    WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(OnProjStageCallback));
+    code[pos++] = 0xFF; code[pos++] = 0xD0;
+
+    code[pos++] = 0x48; code[pos++] = 0x89; code[pos++] = 0xEC;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x04; code[pos++] = 0x24;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x4C; code[pos++] = 0x24; code[pos++] = 0x10;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x54; code[pos++] = 0x24; code[pos++] = 0x20;
+    code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x5C; code[pos++] = 0x24; code[pos++] = 0x30;
+    code[pos++] = 0x48; code[pos++] = 0x83; code[pos++] = 0xC4; code[pos++] = 0x40;
+    code[pos++] = 0x5D;
+    code[pos++] = 0x41; code[pos++] = 0x5B;
+    code[pos++] = 0x41; code[pos++] = 0x5A;
+    code[pos++] = 0x41; code[pos++] = 0x59;
+    code[pos++] = 0x41; code[pos++] = 0x58;
+    code[pos++] = 0x5A;
+    code[pos++] = 0x59;
+    code[pos++] = 0x58;
+    code[pos++] = 0x9D;
+
+    // Original loads
+    for (int i = 0; i < replaceLen; ++i)
+        code[pos++] = expected[i];
+
+    // Override xmm4/xmm5 from globals (leave xmm6 as original src+88)
+    WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(&g_projStageFov));
+    code[pos++] = 0xF3; code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x20; // movss xmm4,[rax]
+    WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(&g_projStageAspect));
+    code[pos++] = 0xF3; code[pos++] = 0x0F; code[pos++] = 0x10; code[pos++] = 0x28; // movss xmm5,[rax]
+
+    code[pos++] = 0xE9;
+    *reinterpret_cast<int32_t*>(code + pos) = static_cast<int32_t>((found + replaceLen) - (code + pos + 4));
+    pos += 4;
+
+    DWORD oldProtect;
+    VirtualProtect(found, replaceLen, PAGE_EXECUTE_READWRITE, &oldProtect);
+    found[0] = 0xE9;
+    *reinterpret_cast<int32_t*>(found + 1) = static_cast<int32_t>(code - (found + 5));
+    for (int i = 5; i < replaceLen; ++i)
+        found[i] = 0x90;
     VirtualProtect(found, replaceLen, oldProtect, &oldProtect);
     FlushInstructionCache(GetCurrentProcess(), found, replaceLen);
     return true;
@@ -4313,8 +5117,6 @@ bool InstallNativeSetterClearHook() {
 using XInputGetState_t = DWORD (WINAPI*)(DWORD, XINPUT_STATE*);
 
 static XInputGetState_t g_realXInputGetState = nullptr;
-static uint8_t  g_xinputOrig[16] = {};
-static uint8_t* g_xinputHookAt = nullptr;
 static bool     g_xinputHooked = false;
 static int      g_xinputSnapArmedDir = 0;       // currently latched stick direction so we don't fire while held
 static DWORD    g_xinputSnapPulseStartMs = 0;   // when the current pulse began
@@ -4464,58 +5266,91 @@ static DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState
     return r;
 }
 
+// Redirect every "XInputGetState" import slot in a module's IAT to newFunc.
+// Unlike an inline entry-point patch this never rewrites the bytes of the
+// (Windows-version-specific) XInput DLL, so it cannot corrupt a relative
+// instruction and crash on a machine whose XInput1_4.dll differs from the
+// dev's -- the exact failure that "xr_xinput_install=1" caused on some setups.
+// It also composes with anything that already hooked the slot (e.g. Steam
+// Input): the previous slot value is chained back as the "real" function.
+static int PatchXInputIat(HMODULE mod, void* newFunc, void** outOrig) {
+    auto base = reinterpret_cast<uint8_t*>(mod);
+    auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    if (!base || dos->e_magic != IMAGE_DOS_SIGNATURE) return 0;
+    auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return 0;
+    const IMAGE_DATA_DIRECTORY& dir =
+        nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (dir.VirtualAddress == 0 || dir.Size == 0) return 0;
+
+    int patched = 0;
+    for (auto imp = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress);
+         imp->Name; ++imp) {
+        const char* dll = reinterpret_cast<const char*>(base + imp->Name);
+        if (_strnicmp(dll, "xinput", 6) != 0) continue;            // xinput1_4 / 1_3 / 9_1_0
+        if (imp->OriginalFirstThunk == 0 || imp->FirstThunk == 0) continue;
+        auto nameThunk = reinterpret_cast<IMAGE_THUNK_DATA*>(base + imp->OriginalFirstThunk);
+        auto iatThunk  = reinterpret_cast<IMAGE_THUNK_DATA*>(base + imp->FirstThunk);
+        for (; nameThunk->u1.AddressOfData; ++nameThunk, ++iatThunk) {
+            if (nameThunk->u1.Ordinal & IMAGE_ORDINAL_FLAG) continue;   // imported by ordinal: no name
+            auto ibn = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + nameThunk->u1.AddressOfData);
+            if (strcmp(reinterpret_cast<const char*>(ibn->Name), "XInputGetState") != 0) continue;
+            void** slot = reinterpret_cast<void**>(&iatThunk->u1.Function);
+            if (*slot == newFunc) continue;                            // already ours (re-scan)
+            DWORD oldP = 0;
+            if (VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldP)) {
+                if (outOrig && !*outOrig) *outOrig = *slot;            // chain whatever was there
+                *slot = newFunc;
+                VirtualProtect(slot, sizeof(void*), oldP, &oldP);
+                ++patched;
+            }
+        }
+    }
+    return patched;
+}
+
 bool InstallXInputHook() {
-    HMODULE m = LoadLibraryA("XInput1_4.dll");
-    if (!m) m = LoadLibraryA("XInput1_3.dll");
-    if (!m) m = LoadLibraryA("xinput9_1_0.dll");
-    if (!m) {
-        Log("XInput: no XInput DLL found\n");
-        return false;
-    }
-    void* fn = GetProcAddress(m, "XInputGetState");
-    if (!fn) {
-        // Some builds export ordinal-only "XInputGetStateEx" (#100). For our needs
-        // XInputGetState is fine; skip if absent.
-        Log("XInput: GetProcAddress(XInputGetState) failed\n");
-        return false;
+    // Make sure an XInput DLL is resolvable so a not-yet-bound import is live and
+    // the GetProcAddress fallback below works. Not fatal if absent -- the IAT
+    // match is by name, independent of which XInput variant the game imports.
+    HMODULE xi = GetModuleHandleA("XInput1_4.dll");
+    if (!xi) xi = LoadLibraryA("XInput1_4.dll");
+    if (!xi) xi = LoadLibraryA("XInput1_3.dll");
+    if (!xi) xi = LoadLibraryA("xinput9_1_0.dll");
+
+    void* orig = nullptr;
+    int patched = 0;
+    void* hook = reinterpret_cast<void*>(&HookedXInputGetState);
+
+    // Main executable first (CP2077 imports XInputGetState here), then every other
+    // loaded module that imports it, so no caller is missed. The exe is also in the
+    // EnumProcessModules list; the "already ours" guard makes the re-scan a no-op.
+    if (HMODULE exe = GetModuleHandleW(nullptr))
+        patched += PatchXInputIat(exe, hook, &orig);
+
+    HMODULE mods[512];
+    DWORD needed = 0;
+    if (EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &needed)) {
+        const DWORD count = needed / sizeof(HMODULE);
+        const DWORD n = count < 512 ? count : 512;
+        for (DWORD i = 0; i < n; ++i)
+            patched += PatchXInputIat(mods[i], hook, &orig);
     }
 
-    // 14-byte detour stub: load 64-bit absolute into rax, jmp rax. Save the
-    // original 14 bytes so we can call the real function from a trampoline.
-    g_xinputHookAt = static_cast<uint8_t*>(fn);
-    memcpy(g_xinputOrig, g_xinputHookAt, sizeof(g_xinputOrig));
-
-    // Trampoline = original 14 bytes + jmp back to (hookAt + 14).
-    void* tramp = AllocateTrampoline(g_xinputHookAt, 64);
-    if (!tramp) {
-        Log("XInput: AllocateTrampoline failed\n");
-        return false;
+    if (patched > 0 && orig) {
+        g_realXInputGetState = reinterpret_cast<XInputGetState_t>(orig);
+        g_xinputHooked = true;
+        Log("XInput: IAT hook installed (%d slot(s) patched, real=%p)\n", patched, orig);
+        return true;
     }
-    uint8_t* tcode = static_cast<uint8_t*>(tramp);
-    int tpos = 0;
-    memcpy(tcode + tpos, g_xinputOrig, 14); tpos += 14;
-    tcode[tpos++] = 0xFF; tcode[tpos++] = 0x25; // jmp [rip+0]
-    *reinterpret_cast<int32_t*>(tcode + tpos) = 0; tpos += 4;
-    *reinterpret_cast<uint64_t*>(tcode + tpos) = reinterpret_cast<uint64_t>(g_xinputHookAt + 14);
-    tpos += 8;
-    g_realXInputGetState = reinterpret_cast<XInputGetState_t>(tcode);
 
-    // Patch the real entry point with: movabs rax, &Hooked; jmp rax (12 bytes).
-    DWORD oldProtect = 0;
-    if (!VirtualProtect(g_xinputHookAt, 14, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-        Log("XInput: VirtualProtect failed\n");
-        return false;
-    }
-    uint8_t* p = g_xinputHookAt;
-    p[0] = 0x48; p[1] = 0xB8; // mov rax, imm64
-    *reinterpret_cast<uint64_t*>(p + 2) = reinterpret_cast<uint64_t>(&HookedXInputGetState);
-    p[10] = 0xFF; p[11] = 0xE0; // jmp rax
-    p[12] = 0x90; p[13] = 0x90;
-    VirtualProtect(g_xinputHookAt, 14, oldProtect, &oldProtect);
-    FlushInstructionCache(GetCurrentProcess(), g_xinputHookAt, 14);
-    g_xinputHooked = true;
-    Log("XInput: hook installed at %p (trampoline=%p)\n", g_xinputHookAt, tcode);
-    return true;
+    // No import slot found (game resolves XInput dynamically or by ordinal). Keep a
+    // real pointer so the shim could still chain if ever invoked, and fail soft --
+    // controller input is simply unavailable, the game is NOT patched, no crash.
+    if (xi && !g_realXInputGetState)
+        g_realXInputGetState = reinterpret_cast<XInputGetState_t>(GetProcAddress(xi, "XInputGetState"));
+    Log("XInput: no XInputGetState import slot found (patched=%d) -- controller input unavailable\n", patched);
+    return false;
 }
 
 DWORD WINAPI WorkerThread(LPVOID) {
@@ -4552,6 +5387,18 @@ DWORD WINAPI WorkerThread(LPVOID) {
     bool h_fov = InstallNormalFovHook();
     g_normalFovHookInstalled = h_fov;
     if (g_verboseLog || !h_fov) Log("NormalFOV hook result: %s\n", h_fov ? "SUCCESS" : "FAILED");
+
+    g_projAspectCopyHookInstalled = false;
+
+    g_projAspectCallHookInstalled = false;
+
+    bool h_proj_stage = InstallProjStageHook();
+    g_projStageHookInstalled = h_proj_stage;
+    Log("ProjStage hook result: %s\n", h_proj_stage ? "SUCCESS" : "FAILED");
+
+    bool h_unifix = InstallUnifixHook();
+    g_unifixHookInstalled = h_unifix;
+    if (g_verboseLog || !h_unifix) Log("Unifix hook result: %s\n", h_unifix ? "SUCCESS" : "FAILED");
 
     bool h_lod = InstallFixLoDHook();
     if (g_verboseLog || !h_lod) Log("FixLoD hook result: %s\n", h_lod ? "SUCCESS" : "FAILED");
@@ -4676,6 +5523,38 @@ DWORD WINAPI WorkerThread(LPVOID) {
             g_telemetry->freeDeltaHits,
             reinterpret_cast<void*>(g_telemetry->freeDeltaRsi),
             g_telemetry->freeDeltaXmm3);
+
+        Log("Unifix:       hits=%llu, proj=[%.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f] fov=%.4f\n",
+            static_cast<unsigned long long>(g_unifixHits),
+            g_unifixProjDump[0], g_unifixProjDump[1], g_unifixProjDump[2], g_unifixProjDump[3],
+            g_unifixProjDump[4], g_unifixProjDump[5], g_unifixProjDump[6], g_unifixProjDump[7],
+            g_unifixProjDump[8]);
+
+        Log("ProjStage:    hits=%llu fov=%.4f aspect=%.4f extra=%.4f patched=%d\n",
+            static_cast<unsigned long long>(g_projStageHits),
+            g_projStageFov,
+            g_projStageAspect,
+            g_projStageExtra,
+            g_projStagePatched ? 1 : 0);
+
+        // Read render object projection data directly (filled by game during gameplay)
+        if (g_unifixRenderObj) {
+            uintptr_t rbx = g_unifixRenderObj;
+            float renderProj[9] = {};
+            bool ok = true;
+            __try {
+                for (int i = 0; i < 9; ++i)
+                    renderProj[i] = *reinterpret_cast<float*>(rbx + 0x21C0 + i * 4);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+            if (ok) {
+                Log("UnifixRender: rbx=%p p0-3=[%.6f %.6f %.6f %.6f] p4-7=[%.6f %.6f %.6f %.6f] fov=%.6f\n",
+                    reinterpret_cast<void*>(rbx),
+                    renderProj[0], renderProj[1], renderProj[2], renderProj[3],
+                    renderProj[4], renderProj[5], renderProj[6], renderProj[7],
+                    renderProj[8]);
+            }
+        }
 
         Log("DLSSMatrices: hits=%llu, this=%p, state=%p, slot=%u, adjusted=%u, eye=%d, enabled=%d, mode=%d\n",
             static_cast<unsigned long long>(g_dlssMatricesHits),
