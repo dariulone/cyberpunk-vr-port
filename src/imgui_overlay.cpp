@@ -1437,6 +1437,8 @@ void OverlayRender(IDXGISwapChain* swapChain) {
         UpdateImGuiMouseFromCursor(desc.OutputWindow, backbufferWidth, backbufferHeight);
     }
 
+    ImGui::GetIO().MouseDrawCursor = g_menuVisible;
+
     ImGui::NewFrame();
 
     DrawHandLocatorOverlay();

@@ -208,6 +208,8 @@ static void InitRuntimePaths() {
     }
 }
 
+
+
 static void EnsureLiveControlFileExists() {
     InitRuntimePaths();
 
@@ -2212,6 +2214,8 @@ static float* GetShotShared() {
 // VARIABILI GLOBALI PER LA CACHE
 // ============================================
 static RED4ext::CProperty* g_mountedVehicleProp = nullptr;
+static RED4ext::CProperty* g_isAimingProp = nullptr;
+static RED4ext::CProperty* g_equippedWeaponProp = nullptr;
 static bool g_isRTTIInitialized = false;
 
 // ============================================
@@ -2225,13 +2229,22 @@ void InitializeMountedVehicleCache() {
     
     if (playerPuppetCls) {
         g_mountedVehicleProp = playerPuppetCls->GetProperty("mountedVehicle");
-        
+        g_isAimingProp = playerPuppetCls->GetProperty("isAiming");
+        g_equippedWeaponProp = playerPuppetCls->GetProperty("equippedRightHandWeapon");
+
         if (g_mountedVehicleProp) {
             std::cout << "[VR] Found property: mountedVehicle (type: " 
                       << g_mountedVehicleProp->type->GetName().ToString() << ")" << std::endl;
-        } else {
-            std::cout << "[VR] ERROR: mountedVehicle property not found!" << std::endl;
+        } 
+
+        if (g_isAimingProp) {
+            std::cout << "[VR] Found property: isAiming" << std::endl;
         }
+
+        if (g_equippedWeaponProp) {
+            std::cout << "[VR] Found property: equippedRightHandWeapon" << std::endl;
+        }
+
     }
 
     g_isRTTIInitialized = true;
@@ -2240,6 +2253,8 @@ void InitializeMountedVehicleCache() {
 
 static uint64_t g_locateCameraHits = 0;
 bool g_isInVehicle = false;
+bool g_isAiming = false;
+bool g_hasWeaponEquipped = false;
 extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val) {
     (void)xmm0_val;
     g_locateCameraHits++;
@@ -2270,8 +2285,16 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // 3. Controlla se mountedVehicle è diverso da null
     if (playerHandle && g_mountedVehicleProp) {
         auto mountedVehicle = g_mountedVehicleProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
-        
         g_isInVehicle = (mountedVehicle.instance != nullptr);
+    }
+   
+    if (g_isAimingProp) {
+        g_isAiming = g_isAimingProp->GetValue<bool>(playerHandle.instance);
+    }
+    
+    if (g_equippedWeaponProp) {
+        auto equippedWeapon = g_equippedWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
+        g_hasWeaponEquipped = (equippedWeapon.instance != nullptr);
     }
     
 
@@ -2397,7 +2420,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         // 5. Applica gameYaw + xrPitchRoll (no yaw HMD)
         float tmpX, tmpY, tmpZ, tmpW;
         
-        if(!g_isInVehicle){
+        if(!g_isInVehicle && !g_isAiming && !g_hasWeaponEquipped){
             MulQuat(0.0f, 0.0f, sy, cy, xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW, tmpX, tmpY, tmpZ, tmpW);
         }else{
             MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
@@ -4296,6 +4319,22 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     if (idx > 3) idx = 3;
     float deltaYawDegrees = 0.0f;
     
+    // 2. Aggiungi lo snap yaw se presente
+    const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
+    float snap = 0.0f;
+    if (bits != 0) {
+        memcpy(&snap, &bits, sizeof(float));
+    }
+
+    if(g_isAiming || g_hasWeaponEquipped){
+        int idx = GetSnapTurnYawIndex();
+        if (idx < 0) idx = 0;
+        if (idx > 3) idx = 3;
+        deltaHead[idx] += snap;
+        return;
+    }
+
+
     // 1. Calcola il delta yaw continuo dal visore (in GRADI)
     OpenXRHeadPose xrPose{};
     bool hasXR = OpenXRManager::Get().GetHeadPose(&xrPose);
@@ -4322,12 +4361,7 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
         }
         g_lastBodyYaw = currentYaw;
 
-        // 2. Aggiungi lo snap yaw se presente
-        const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
-        float snap = 0.0f;
-        if (bits != 0) {
-            memcpy(&snap, &bits, sizeof(float));
-        }
+
         // 3. Applica il delta totale (tracking continuo + snap)
         float totalDelta = deltaYawDegrees + snap;
         if (totalDelta != 0.0f) {
@@ -5015,7 +5049,12 @@ bool InstallFreeDeltaHeadHook() {
 // (forward). Only active in HMD movement mode and outside menus; the vehicle path
 // never hits OnFootMoveXY so driving is untouched.
 extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
-    const int src = g_liveControls.xrMovementSource;
+    int src = g_liveControls.xrMovementSource;
+
+    if(g_isAiming || g_hasWeaponEquipped){
+       src = 1; 
+    }
+
     if (src <= 0) return; // 0 = Game (no rotation)
     if (g_menuModeValue != 0) return;
     if (!moveStruct) return;
