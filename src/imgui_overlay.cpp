@@ -55,8 +55,8 @@ HWND g_hwnd = nullptr;
 WNDPROC g_originalWndProc = nullptr;
 bool g_imguiInitialized = false;
 bool g_menuVisible = false;
-bool g_drawHandLocator = true;
-bool g_drawHandProxy3D = true;
+bool g_drawHandLocator = false;
+bool g_drawHandProxy3D = false;
 bool g_drawHandDebugAxes = false;
 float g_handLocatorScale = 1.0f;
 // Long aim ray down each hand's forward (the visible "where I'm pointing / where the
@@ -65,7 +65,7 @@ bool g_drawAimRay = true;
 float g_aimRayLenM = 8.0f;
 // EXACT barrel crosshair: project the GAME muzzle forward (plugin publishes it to shared[24..26])
 // through the located game camera (= the eye view) -> a dot exactly where the bullet goes.
-bool g_drawBarrelCross = true;   // g_lastLocateQuat is declared above, at global scope
+bool g_drawBarrelCross = false;   // g_lastLocateQuat is declared above, at global scope
 
 void MapAbstractHandPoint(bool isLeftHand, float hx, float hy, float hz, float* cx, float* cy, float* cz) {
     if (isLeftHand) {
@@ -1107,6 +1107,12 @@ bool DrawLiveControls(LiveControlsUiState& state) {
             ImGui::BulletText("Right grip    - holster equip / unequip | Left grip - crouch (shoulder)");
             ImGui::BulletText("Left  thumb click - sprint (L3) | Right thumb click - crouch (R3)");
             ImGui::BulletText("Left  menu button - pause menu");
+            ImGui::BulletText("DPAD - Emulation");
+            ImGui::BulletText("Right GRIP + RightThum UP | DPAD UP");
+            ImGui::BulletText("Right GRIP + RightThum DOWN | DPAD DOWN");
+            ImGui::BulletText("Right GRIP + RightThum LEFT | DPAD LEFT");
+            ImGui::BulletText("Right GRIP + RightThum RIGHT | DPAD RIGHT");
+
             ImGui::TextWrapped("Buttons follow each runtime's interaction profile (Touch / Index / "
                                "Vive / WMR). Customize the actual key bindings in the game's "
                                "in-engine \"Key Bindings -> Controller\" menu.");
