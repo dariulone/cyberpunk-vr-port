@@ -4499,6 +4499,17 @@ void SetVRWeaponAim(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
     if (aOut) *aOut = static_cast<int32_t>(g_waFwdSeq);
 }
 
+void GetVRWeaponAim(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext);
+    RED4EXT_UNUSED_PARAMETER(aFrame);
+    RED4EXT_UNUSED_PARAMETER(a4);
+    
+    if (aOut) {
+        *aOut = g_waEnable;
+    }
+}
+
+
 // Resolves the player's live track buffers (a2[7][3] candidates) so the hook can
 // identify the player call. Returns bitmask: 1=bufA set, 2=bufB set.
 static int VRIK_DoArmPlayer() {
@@ -6434,6 +6445,11 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     f61->AddParam("Int32", "enable"); f61->AddParam("Int32", "mode"); f61->AddParam("Float", "gate");
     rtti->RegisterFunction(f61);
 
+    auto f61b = RED4ext::CGlobalFunction::Create("GetVRWeaponAim", "GetVRWeaponAim", &GetVRWeaponAim);
+    f61b->flags = flags;
+    f61b->SetReturnType("Int32");
+    rtti->RegisterFunction(f61b);
+
     auto f62 = RED4ext::CGlobalFunction::Create("GetWeaponAimStat", "GetWeaponAimStat", &GetWeaponAimStat);
     f62->flags = flags; f62->SetReturnType("Int32"); f62->AddParam("Int32", "which");
     rtti->RegisterFunction(f62);
@@ -6548,10 +6564,7 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto f85 = RED4ext::CGlobalFunction::Create("SetVRFireXform", "SetVRFireXform", &SetVRFireXform);
     f85->flags = flags; f85->SetReturnType("Int32"); f85->AddParam("Int32", "mode"); f85->AddParam("Int32", "off");
     rtti->RegisterFunction(f85);
-
-    auto func = RED4ext::CGlobalFunction::Create("IsPlayerInVehicle", "IsPlayerInVehicle", &IsPlayerInVehicle);
-    rtti->RegisterFunction(func);
-    
+ 
 }
 
 RED4EXT_C_EXPORT void RED4EXT_CALL RegisterTypes() {}
@@ -6576,58 +6589,4 @@ RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* aInfo) {
 
 RED4EXT_C_EXPORT uint32_t RED4EXT_CALL Supports() {
     return RED4EXT_API_VERSION_1_COMPAT_0;
-}
-
-
-
-void IsPlayerInVehicle(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, void* aOut, int64_t a4)
-{
-    RED4EXT_UNUSED_PARAMETER(aContext);
-    RED4EXT_UNUSED_PARAMETER(aFrame);
-    RED4EXT_UNUSED_PARAMETER(aOut);
-    RED4EXT_UNUSED_PARAMETER(a4);
-
-    RED4ext::ScriptGameInstance gameInstance;
-    RED4ext::Handle<RED4ext::IScriptable> handle;
-    RED4ext::ExecuteGlobalFunction("GetPlayer;GameInstance", &handle, gameInstance);
-
-    if (handle)
-    {
-        auto rtti = RED4ext::CRTTISystem::Get();
-        auto playerPuppetCls = rtti->GetClass("PlayerPuppet");
-        
-        // La proprietà che contiene il MountDescriptor
-        auto mountDescriptorProp = playerPuppetCls->GetProperty("mountDescriptor");
-        
-        if (mountDescriptorProp)
-        {
-            // Ottieni il MountDescriptor (è una struct inline, non un Handle)
-            // Nota: GetValue restituisce un puntatore alla struct
-            auto* mountDescriptor = mountDescriptorProp->GetValuePtr(handle.instance);
-            
-            if (mountDescriptor)
-            {
-                // mountType è all'offset 0x34 nella struct MountDescriptor
-                // enum MountDescriptorMountType : int32_t
-                int32_t mountType = *reinterpret_cast<int32_t*>(
-                    reinterpret_cast<uintptr_t>(mountDescriptor) + 0x34
-                );
-                
-                // Vehicle = 3
-                bool isInVehicle = (mountType == 3);
-                
-                std::cout << "mountType=" << mountType 
-                          << " isInVehicle=" << std::boolalpha << isInVehicle << std::endl;
-                
-                // Puoi anche controllare altri stati
-                if (mountType == 0) {
-                    std::cout << "Player is on foot (Unmounted)" << std::endl;
-                } else if (mountType == 3) {
-                    std::cout << "Player is in a vehicle" << std::endl;
-                } else if (mountType == 4) {
-                    std::cout << "Player is on a moving platform" << std::endl;
-                }
-            }
-        }
-    }
 }

@@ -16,6 +16,8 @@
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <iostream>
+#include <MinHook.h>
+
 
 #define CreateDXGIFactory RealDXGIHeader_CreateDXGIFactory
 #define CreateDXGIFactory1 RealDXGIHeader_CreateDXGIFactory1
@@ -406,6 +408,10 @@ extern "C" float GetAerOcclusionSharp(); extern "C" void SetAerOcclusionSharp(fl
 extern "C" float GetAerFoveation();      extern "C" void SetAerFoveation(float);
 extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(float);
 extern "C" float GetHandTrackingSmooth(); extern "C" void SetHandTrackingSmooth(float);
+
+extern "C" __declspec(dllexport) bool GetWeaponAimEnabled() {
+    return OpenXRManager::Get().GetWeaponAimEnable();
+}
 
 static void PollLiveControls() {
     InitRuntimePaths();
@@ -2218,6 +2224,8 @@ static RED4ext::CProperty* g_isAimingProp = nullptr;
 static RED4ext::CProperty* g_equippedWeaponProp = nullptr;
 static bool g_isRTTIInitialized = false;
 
+
+
 // ============================================
 // INIZIALIZZAZIONE RTTI
 // ============================================
@@ -2276,7 +2284,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         InitializeMountedVehicleCache();
     }
 
-
+  
     // 2. Ottieni il PlayerPuppet
     RED4ext::ScriptGameInstance gameInstance;
     RED4ext::Handle<RED4ext::IScriptable> playerHandle;
@@ -2295,6 +2303,12 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     if (g_equippedWeaponProp) {
         auto equippedWeapon = g_equippedWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
         g_hasWeaponEquipped = (equippedWeapon.instance != nullptr);
+    }
+    
+    if(g_hasWeaponEquipped){
+        OpenXRManager::Get().SetSharedSlot(126, 1.0f);
+    }else{
+        OpenXRManager::Get().SetSharedSlot(126, 0.0f);
     }
     
 

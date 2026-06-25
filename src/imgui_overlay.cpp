@@ -65,7 +65,7 @@ bool g_drawAimRay = true;
 float g_aimRayLenM = 8.0f;
 // EXACT barrel crosshair: project the GAME muzzle forward (plugin publishes it to shared[24..26])
 // through the located game camera (= the eye view) -> a dot exactly where the bullet goes.
-bool g_drawBarrelCross = false;   // g_lastLocateQuat is declared above, at global scope
+bool g_drawBarrelCross = true;   // g_lastLocateQuat is declared above, at global scope
 
 void MapAbstractHandPoint(bool isLeftHand, float hx, float hy, float hz, float* cx, float* cy, float* cz) {
     if (isLeftHand) {
@@ -199,13 +199,13 @@ void RenderIm3dToDrawList(ImDrawList* drawList, const ImVec2& displaySize) {
                 if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i].m_positionSize), displaySize, &a)) continue;
                 if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i + 1].m_positionSize), displaySize, &b)) continue;
                 const float thickness = std::max(1.0f, (verts[i].m_positionSize.w + verts[i + 1].m_positionSize.w) * 0.5f);
-                drawList->AddLine(a, b, ToImU32(verts[i].m_color), thickness);
+                //drawList->AddLine(a, b, ToImU32(verts[i].m_color), thickness);
             }
         } else if (list.m_primType == Im3d::DrawPrimitive_Points) {
             for (Im3d::U32 i = 0; i < list.m_vertexCount; ++i) {
                 ImVec2 p{};
                 if (!ProjectIm3dPointToScreen(Im3d::Vec3(verts[i].m_positionSize), displaySize, &p)) continue;
-                const float radius = std::max(1.0f, verts[i].m_positionSize.w * 0.5f);
+                const float radius = std::max(1.0f, verts[i].m_positionSize.w * 0.1f);
                 drawList->AddCircleFilled(p, radius, ToImU32(verts[i].m_color));
             }
         }
@@ -503,7 +503,22 @@ void DrawHandLocatorOverlay() {
 // direction with the SAME view/FOV the eye renders through -> the dot lands exactly where the bullet
 // goes (both derive from the same muzzle + camera). No controller-space guessing.
 void DrawBarrelCrosshair() {
-    if (!g_drawBarrelCross) return;
+    
+    const float enableLaser = OpenXRManager::Get().GetSharedSlot(126);
+    
+    float rad = 3.0f;
+    
+    if (!g_drawBarrelCross || enableLaser < 0.9f){
+        /*rad = 0.0f;
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        if (dl) {
+            ImVec2 sc = {0.0f, 0.0f};
+            dl->AddCircleFilled(sc, rad, IM_COL32(255, 60, 60, 0));
+            //dl->AddCircle(sc, 11.0f, IM_COL32(255, 255, 255, 235), 0, 2.0f);
+        }*/
+        return;
+    } 
+
     if (OpenXRManager::Get().GetSharedSlot(27) < 0.5f) return;   // muzzle fwd not published yet
     const float mfx = OpenXRManager::Get().GetSharedSlot(24);
     const float mfy = OpenXRManager::Get().GetSharedSlot(25);
@@ -536,8 +551,8 @@ void DrawBarrelCrosshair() {
         }
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         if (dl) {
-            dl->AddCircleFilled(sc, 5.0f, IM_COL32(255, 60, 60, 255));
-            dl->AddCircle(sc, 11.0f, IM_COL32(255, 255, 255, 235), 0, 2.0f);
+            dl->AddCircleFilled(sc, rad, IM_COL32(255, 60, 60, 255));
+            //dl->AddCircle(sc, 11.0f, IM_COL32(255, 255, 255, 235), 0, 2.0f);
         }
     }
 }
@@ -1032,14 +1047,14 @@ bool DrawLiveControls(LiveControlsUiState& state) {
             // the game's own muzzle world transform. Writes shared[58]; the RED4ext plugin applies it.
             {
                 static bool s_weaponAim = true;   // default ON — backend's m_weaponAimEnable also defaults to 1
-                if (ImGui::Checkbox("Bullet from weapon barrel (decoupled VR aim)", &s_weaponAim)) {
+                if (ImGui::Checkbox("Use weapon Aiming (decoupled VR Head aim)", &s_weaponAim)) {
                     OpenXRManager::Get().SetWeaponAimEnable(s_weaponAim ? 1 : 0);
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Shots follow where the WEAPON points (your controller), not the\n"
                                       "camera crosshair. Works for guns and projectiles. Free-look while aiming.");
                 }
-                ImGui::Checkbox("Barrel crosshair dot (where the bullet goes)", &g_drawBarrelCross);
+                ImGui::Checkbox("Weapon Aim lasewr dot (where the bullet hits)", &g_drawBarrelCross);
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Red dot projected from the actual weapon muzzle direction through the\n"
                                       "game camera -- marks exactly where the bullet will fly.");
