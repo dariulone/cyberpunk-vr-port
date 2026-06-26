@@ -1,7 +1,0 @@
-@PACKAGE_INIT@
-
-include("${CMAKE_CURRENT_LIST_DIR}/@RED4EXT_EXPORT_TARGETS@.cmake")
-
-add_library(RED4ext::SDK ALIAS RED4ext::RED4ext.SDK)
-
-check_required_components(RED4ext.SDK)

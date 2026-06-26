@@ -3455,6 +3455,13 @@ DWORD OpenXRManager::FrameThreadMain() {
                     constexpr uint16_t XB_LEFT_THUMB     = 0x0040;
                     constexpr uint16_t XB_RIGHT_THUMB    = 0x0080;
 
+                    // --- AGGIUNTA: Costanti per il D-Pad (XInput) ---
+                    constexpr uint16_t XB_DPAD_UP        = 0x0001;
+                    constexpr uint16_t XB_DPAD_DOWN      = 0x0002;
+                    constexpr uint16_t XB_DPAD_LEFT      = 0x0004;
+                    constexpr uint16_t XB_DPAD_RIGHT     = 0x0008;
+
+
                     if (i == 0) {
                         ctrl.leftTrigger = trig;
                         ctrl.leftGrip    = grip;
@@ -3472,6 +3479,24 @@ DWORD OpenXRManager::FrameThreadMain() {
                         if (sclick) ctrl.buttons |= XB_RIGHT_THUMB;
                         if (prim)   ctrl.buttons |= XB_A;
                         if (sec)    ctrl.buttons |= XB_B;
+
+
+                        // --- AGGIUNTA: Emulazione D-Pad con Grip Destro + Levette ---
+                        if (grip >= 0.7f) {
+                            constexpr float threshold = 0.5f; // Deadzone per considerare la direzione
+                            
+                            if (sy > threshold)  ctrl.buttons |= XB_DPAD_UP;
+                            if (sy < -threshold) ctrl.buttons |= XB_DPAD_DOWN;
+                            if (sx < -threshold) ctrl.buttons |= XB_DPAD_LEFT;
+                            if (sx > threshold)  ctrl.buttons |= XB_DPAD_RIGHT;
+                            
+                            // Azzera l'input analogico destro per evitare che la telecamera 
+                            // (o altre funzioni) si muovano mentre usi il D-Pad
+                            ctrl.rightThumbX = 0.0f;
+                            ctrl.rightThumbY = 0.0f;
+                        }
+
+
                         // Right grip is RESERVED for the hand-to-holster equip system: a CET mod reads
                         // the grip value (shared[31] or similar) and the controller pose, and equips the
                         // weapon whose visual holster the hand is touching. Do NOT merge into XInput as

@@ -13,6 +13,11 @@
 #include "launcher_dialog.h"
 #include "openxr_manager.h"
 #include "runtime_fov_correction.h"
+#include <RED4ext/RED4ext.hpp>
+#include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
+#include <iostream>
+#include <MinHook.h>
+
 
 #define CreateDXGIFactory RealDXGIHeader_CreateDXGIFactory
 #define CreateDXGIFactory1 RealDXGIHeader_CreateDXGIFactory1
@@ -204,6 +209,8 @@ static void InitRuntimePaths() {
         }
     }
 }
+
+
 
 static void EnsureLiveControlFileExists() {
     InitRuntimePaths();
@@ -401,6 +408,10 @@ extern "C" float GetAerOcclusionSharp(); extern "C" void SetAerOcclusionSharp(fl
 extern "C" float GetAerFoveation();      extern "C" void SetAerFoveation(float);
 extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(float);
 extern "C" float GetHandTrackingSmooth(); extern "C" void SetHandTrackingSmooth(float);
+
+extern "C" __declspec(dllexport) bool GetWeaponAimEnabled() {
+    return OpenXRManager::Get().GetWeaponAimEnable();
+}
 
 static void PollLiveControls() {
     InitRuntimePaths();
@@ -1822,7 +1833,9 @@ static float* GetShotShared();  // shared-mem accessor (defined below)
 // the map's UI projection so pins track the background correctly.
 static void ApplySettingsResolutionOverride(uintptr_t settingsPtr) {
     const UINT forcedWidth = GetForcedWindowWidthValue();
-    const UINT forcedHeight = GetForcedRenderHeightForAspect();
+    //const UINT forcedHeight = GetForcedRenderHeightForAspect();
+    const UINT forcedHeight = GetForcedWindowHeightValue();
+
     if (!settingsPtr || forcedWidth == 0 || forcedHeight == 0) {
         return;
     }
@@ -1855,9 +1868,8 @@ static void ApplySettingsResolutionOverride(uintptr_t settingsPtr) {
 }
 
 static void ApplyDLSSResolutionOverride(uintptr_t dlssPtr) {
-    const UINT forcedWidth = GetForcedWindowWidthValue();
-    const UINT forcedHeight = GetForcedRenderHeightForAspect();
-    if (!dlssPtr || forcedWidth == 0 || forcedHeight == 0) {
+    const UINT forcedSquare = GetForcedSquareResolutionValue();
+    if (!dlssPtr || forcedSquare == 0) {
         return;
     }
 
@@ -1872,12 +1884,9 @@ static void ApplyDLSSResolutionOverride(uintptr_t dlssPtr) {
         }
     }
 
-    // Non-square: width and height carry the runtime per-eye aspect so the game's
-    // render (and the vertical FOV it derives from this aspect) matches the lens.
-    // +0x18/+0x1C are the width/height pair; +0x04 is the width base.
-    WriteU32Safe(dlssPtr + 0x04, forcedWidth);
-    WriteU32Safe(dlssPtr + 0x18, forcedWidth);
-    WriteU32Safe(dlssPtr + 0x1C, forcedHeight);
+    WriteU32Safe(dlssPtr + 0x04, forcedSquare);
+    WriteU32Safe(dlssPtr + 0x18, forcedSquare);
+    WriteU32Safe(dlssPtr + 0x1C, forcedSquare);
 }
 
 static void ApplyKnownResolutionOverrides() {
@@ -2206,7 +2215,54 @@ static float* GetShotShared() {
     return g_shotShared;
 }
 
+
+// ============================================
+// VARIABILI GLOBALI PER LA CACHE
+// ============================================
+static RED4ext::CProperty* g_mountedVehicleProp = nullptr;
+static RED4ext::CProperty* g_isAimingProp = nullptr;
+static RED4ext::CProperty* g_equippedWeaponProp = nullptr;
+static bool g_isRTTIInitialized = false;
+
+
+
+// ============================================
+// INIZIALIZZAZIONE RTTI
+// ============================================
+void InitializeMountedVehicleCache() {
+    if (g_isRTTIInitialized) return;
+
+    auto rtti = RED4ext::CRTTISystem::Get();
+    auto playerPuppetCls = rtti->GetClass("PlayerPuppet");
+    
+    if (playerPuppetCls) {
+        g_mountedVehicleProp = playerPuppetCls->GetProperty("mountedVehicle");
+        g_isAimingProp = playerPuppetCls->GetProperty("isAiming");
+        g_equippedWeaponProp = playerPuppetCls->GetProperty("equippedRightHandWeapon");
+
+        if (g_mountedVehicleProp) {
+            std::cout << "[VR] Found property: mountedVehicle (type: " 
+                      << g_mountedVehicleProp->type->GetName().ToString() << ")" << std::endl;
+        } 
+
+        if (g_isAimingProp) {
+            std::cout << "[VR] Found property: isAiming" << std::endl;
+        }
+
+        if (g_equippedWeaponProp) {
+            std::cout << "[VR] Found property: equippedRightHandWeapon" << std::endl;
+        }
+
+    }
+
+    g_isRTTIInitialized = true;
+}
+
+
 static uint64_t g_locateCameraHits = 0;
+bool g_isInVehicle = false;
+bool g_isAiming = false;
+bool g_hasWeaponEquipped = false;
 extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val) {
     (void)xmm0_val;
     g_locateCameraHits++;
@@ -2223,10 +2279,43 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     float dummy;
     if (!ReadFloatSafe(reinterpret_cast<uintptr_t>(quat), &dummy)) return;
 
-    float qx = quat[0];
-    float qy = quat[1];
-    float qz = quat[2];
-    float qw = quat[3];
+    // 1. Inizializza la cache RTTI solo al primissimo frame
+    if (!g_isRTTIInitialized) {
+        InitializeMountedVehicleCache();
+    }
+
+  
+    // 2. Ottieni il PlayerPuppet
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> playerHandle;
+    RED4ext::ExecuteGlobalFunction("GetPlayer;GameInstance", &playerHandle, gameInstance);
+
+    // 3. Controlla se mountedVehicle è diverso da null
+    if (playerHandle && g_mountedVehicleProp) {
+        auto mountedVehicle = g_mountedVehicleProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
+        g_isInVehicle = (mountedVehicle.instance != nullptr);
+    }
+   
+    if (g_isAimingProp) {
+        g_isAiming = g_isAimingProp->GetValue<bool>(playerHandle.instance);
+    }
+    
+    if (g_equippedWeaponProp) {
+        auto equippedWeapon = g_equippedWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
+        g_hasWeaponEquipped = (equippedWeapon.instance != nullptr);
+    }
+    
+    if(g_hasWeaponEquipped){
+        OpenXRManager::Get().SetSharedSlot(126, 1.0f);
+    }else{
+        OpenXRManager::Get().SetSharedSlot(126, 0.0f);
+    }
+    
+
+    float camera_qx = quat[0];
+    float camera_qy = quat[1];
+    float camera_qz = quat[2];
+    float camera_qw = quat[3];
 
     // SKIP-HMD test (decoupled-aim experiment): the plugin publishes a shot-frame flag
     // [57] and a master mode [58] to shared mem. mode 1 = always skip the HMD orientation
@@ -2253,10 +2342,10 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     }
     if (menuOpen) skipHmdOrientation = true;
 
-    const float baseQx = qx;
-    const float baseQy = qy;
-    const float baseQz = qz;
-    const float baseQw = qw;
+    const float baseQx = camera_qx;
+    const float baseQy = camera_qy;
+    const float baseQz = camera_qz;
+    const float baseQw = camera_qw;
 
     // In this camera path the game-local basis is effectively:
     // X = right, Y = forward, Z = up.
@@ -2307,7 +2396,6 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         // Keep mouse/controller yaw as the body heading, but do not add mouse-Y pitch
         // on top of HMD pitch. The headset supplies vertical look in VR.
         const float gameYaw = atan2f(-bodyGameForwardX, bodyGameForwardY);
-
         const float cy = cosf(gameYaw * 0.5f);
         const float sy = sinf(gameYaw * 0.5f);
 
@@ -2316,9 +2404,41 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         const float xrGameZ = xrPose.oriY;
         const float xrGameW = xrPose.oriW;
 
-        // Apply game yaw, then VR headset rotation. Mouse-Y pitch is intentionally ignored.
+        // Rimuovi lo yaw da xrGame, mantieni solo pitch e roll
+        // 1. Estrai lo yaw da xrGame
+        float xrFwdX = 2.0f * (xrGameX * xrGameY - xrGameZ * xrGameW);
+        float xrFwdY = 1.0f - 2.0f * (xrGameX * xrGameX + xrGameZ * xrGameZ);
+        float xrYaw = atan2f(-xrFwdX, xrFwdY);
+
+        // 2. Crea quaternione yaw-only
+        float halfXrYaw = xrYaw * 0.5f;
+        float xrYawOnlyX = 0.0f;
+        float xrYawOnlyY = 0.0f;
+        float xrYawOnlyZ = sinf(halfXrYaw);
+        float xrYawOnlyW = cosf(halfXrYaw);
+
+        // 3. Inverti il quaternione yaw-only
+        float invXrYawOnlyX = -xrYawOnlyX;
+        float invXrYawOnlyY = -xrYawOnlyY;
+        float invXrYawOnlyZ = -xrYawOnlyZ;
+        float invXrYawOnlyW = xrYawOnlyW;
+
+        // 4. Calcola pitch+roll = inv(yaw-only) * xrGame
+        float xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW;
+        MulQuat(invXrYawOnlyX, invXrYawOnlyY, invXrYawOnlyZ, invXrYawOnlyW,
+                xrGameX, xrGameY, xrGameZ, xrGameW,
+                xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW);
+
+
+
+        // 5. Applica gameYaw + xrPitchRoll (no yaw HMD)
         float tmpX, tmpY, tmpZ, tmpW;
-        MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
+        
+        if(!g_isInVehicle && !g_isAiming && !g_hasWeaponEquipped){
+            MulQuat(0.0f, 0.0f, sy, cy, xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW, tmpX, tmpY, tmpZ, tmpW);
+        }else{
+            MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
+        }
 
         float outX = tmpX;
         float outY = tmpY;
@@ -2357,7 +2477,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             }
         }
 
-        if (false) {
+        /*if (false) {
             // Extract total Yaw and Pitch, discarding Roll
             const float fx = 2.0f * (outX * outZ + outY * outW);
             const float fy = 2.0f * (outY * outZ - outX * outW);
@@ -2375,20 +2495,21 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             outY = fsy * fsp;
             outZ = fsy * fcp;
             outW = fcy * fcp;
-        }
+        }*/
 
         NormalizeQuat(outX, outY, outZ, outW);
-        qx = outX;
-        qy = outY;
-        qz = outZ;
-        qw = outW;
+        camera_qx = outX;
+        camera_qy = outY;
+        camera_qz = outZ;
+        camera_qw = outW;
+
         // Skip the HMD orientation write on the shot frame (or always, mode 1) so the game's
         // native aim/snap drives the camera -> the bullet follows the controller/stick aim.
         if (!skipHmdOrientation) {
-            quat[0] = qx;
-            quat[1] = qy;
-            quat[2] = qz;
-            quat[3] = qw;
+            quat[0] = camera_qx;
+            quat[1] = camera_qy;
+            quat[2] = camera_qz;
+            quat[3] = camera_qw;
         }
     }
 
@@ -4200,9 +4321,70 @@ static volatile LONG g_pendingSnapYawDeltaBits = 0;
 // Index of the yaw float inside the delta buffer (default 1). Overridable via
 // xr_snap_turn_yaw_index in vrport.ini for quick experimentation if [1] is wrong.
 extern "C" int GetSnapTurnYawIndex();
+static float g_lastBodyYaw = 0.0f;
 
 extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
+    
     if (!deltaHead) return;
+    if(g_isInVehicle) return;
+
+    int idx = GetSnapTurnYawIndex();
+    if (idx < 0) idx = 0;
+    if (idx > 3) idx = 3;
+    float deltaYawDegrees = 0.0f;
+    
+    // 2. Aggiungi lo snap yaw se presente
+    const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
+    float snap = 0.0f;
+    if (bits != 0) {
+        memcpy(&snap, &bits, sizeof(float));
+    }
+
+    if(g_isAiming || g_hasWeaponEquipped){
+        int idx = GetSnapTurnYawIndex();
+        if (idx < 0) idx = 0;
+        if (idx > 3) idx = 3;
+        deltaHead[idx] += snap;
+        return;
+    }
+
+
+    // 1. Calcola il delta yaw continuo dal visore (in GRADI)
+    OpenXRHeadPose xrPose{};
+    bool hasXR = OpenXRManager::Get().GetHeadPose(&xrPose);
+    if (hasXR && xrPose.valid) {
+        const float xrGameX = xrPose.oriX;
+        const float xrGameY = -xrPose.oriZ;
+        const float xrGameZ = xrPose.oriY;
+        const float xrGameW = xrPose.oriW;
+ 
+        float fwdX = 2.0f * (xrGameX * xrGameY - xrGameZ * xrGameW);
+        float fwdY = 1.0f - 2.0f * (xrGameX * xrGameX + xrGameZ * xrGameZ);
+        
+        float currentYaw = atan2f(-fwdX, fwdY);
+        
+        
+        float deltaYawRadians = currentYaw - g_lastBodyYaw;
+        while (deltaYawRadians > 3.14159265f) deltaYawRadians -= 2.0f * 3.14159265f;
+        while (deltaYawRadians < -3.14159265f) deltaYawRadians += 2.0f * 3.14159265f;
+            
+        deltaYawDegrees = deltaYawRadians * 57.2957795f;
+            
+        if (fabsf(deltaYawDegrees) < 0.05f) {
+            deltaYawDegrees = 0.0f;
+        }
+        g_lastBodyYaw = currentYaw;
+
+
+        // 3. Applica il delta totale (tracking continuo + snap)
+        float totalDelta = deltaYawDegrees + snap;
+        if (totalDelta != 0.0f) {
+            deltaHead[idx] += totalDelta;
+        }
+      
+    }
+
+    /*if (!deltaHead) return;
     const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
     if (bits == 0) return;
     float snap = 0.0f;
@@ -4212,7 +4394,7 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     int idx = GetSnapTurnYawIndex();
     if (idx < 0) idx = 0;
     if (idx > 3) idx = 3;
-    deltaHead[idx] += snap;
+    deltaHead[idx] += snap;*/
 }
 
 bool InstallOnFootDeltaHeadHook() {
@@ -4881,7 +5063,12 @@ bool InstallFreeDeltaHeadHook() {
 // (forward). Only active in HMD movement mode and outside menus; the vehicle path
 // never hits OnFootMoveXY so driving is untouched.
 extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
-    const int src = g_liveControls.xrMovementSource;
+    int src = g_liveControls.xrMovementSource;
+
+    if(g_isAiming || g_hasWeaponEquipped){
+       src = 1; 
+    }
+
     if (src <= 0) return; // 0 = Game (no rotation)
     if (g_menuModeValue != 0) return;
     if (!moveStruct) return;
@@ -5801,3 +5988,5 @@ extern "C" __declspec(dllexport) HRESULT WINAPI CreateDXGIFactory2(UINT Flags, R
         return p ? p(arg) : E_FAIL;
     }
 }
+
+

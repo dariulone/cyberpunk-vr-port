@@ -20,6 +20,15 @@ if(NOT imgui_POPULATED)
   FetchContent_Populate(imgui)
 endif()
 
+set(MINHOOK_SOURCES
+    externals/minhook/src/buffer.c
+    externals/minhook/src/hook.c
+    externals/minhook/src/trampoline.c
+    externals/minhook/src/hde/hde32.c
+    externals/minhook/src/hde/hde64.c
+)
+
+
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -27,6 +36,7 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
+    ${MINHOOK_SOURCES}
 )
 target_include_directories(imgui PUBLIC
     ${imgui_SOURCE_DIR}
@@ -60,15 +70,27 @@ add_library(dxgi SHARED
 add_library(d3d12 SHARED
     src/d3d12_proxy.cpp
 )
+add_subdirectory(externals/RED4ext.SDK)
+
 
 target_compile_features(dxgi PRIVATE cxx_std_20)
 target_compile_definitions(dxgi PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
-target_link_libraries(dxgi PRIVATE openxr_loader imgui d3d12 d3dcompiler)
+target_link_libraries(dxgi PRIVATE 
+    openxr_loader 
+    imgui 
+    d3d12 
+    d3dcompiler
+    RED4ext::SDK
+)
 target_include_directories(dxgi PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/im3d
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/Optical_Flow_SDK_5.0.7/Common/NvOFBase
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/Optical_Flow_SDK_5.0.7/NvOFInterface
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aer_v2
+    ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/src/hde
 )
 
 # ---- Optional CUDA / NvOF CUDA backend (AER V2 "эталон" path) ----

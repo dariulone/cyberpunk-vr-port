@@ -90,6 +90,12 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | Left thumb click / Right thumb click | Sprint (L3) / Crouch (R3) |
 | Left menu button | Pause menu |
 | Swing a melee weapon | VR motion melee (native attack along the blade) |
+| DPAD EMULATION |
+| Right Grip + RightThumb UP | DPAD UP |
+| Right Grip + RightThumb DOWN | DPAD DOWN |
+| Right Grip + RightThumb LEFT | DPAD LEFT |
+| Right Grip + RightThumb RIFHT | DPAD RIGHT |
+
 
 Buttons follow each runtime's interaction profile (Touch / Index / Vive / WMR);
 customise the actual actions in the game's *Settings → Key Bindings → Controller*.

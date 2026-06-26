@@ -32,7 +32,10 @@ struct ResolutionPreset {
 };
 
 static const ResolutionPreset kResolutionPresets[] = {
+    {1280, 1280, L"1280 x 1280"},
+    {1440, 1440, L"1440 x 1440"},
     {2048, 2048, L"2048 x 2048"},
+    {2160, 2160, L"2160 x 2160"},
     {2560, 2560, L"2560 x 2560"},
     {3072, 3072, L"3072 x 3072"},
     {3584, 3584, L"3584 x 3584"},

@@ -1,6 +1,0 @@
-Name: @PROJECT_NAME@
-Description: A library to create C++ mods for REDengine 4.
-URL: https://github.com/WopsS/RED4ext.SDK
-Version: @PROJECT_VERSION@
-Cflags: -I@RED4EXT_PKG_CONFIG_INCLUDE_DIR@
-Libs: -L@RED4EXT_PKG_CONFIG_LIB_DIR@ -l@PROJECT_NAME@

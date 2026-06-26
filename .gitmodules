@@ -1,0 +1,9 @@
+[submodule "externals/RED4ext.SDK"]
+	path = externals/RED4ext.SDK
+	url = https://github.com/marklove5102/RED4ext.SDK.git
+[submodule "externals/externals/RED4ext.SDK"]
+	path = externals/externals/RED4ext.SDK
+	url = https://github.com/marklove5102/RED4ext.SDK.git
+[submodule "externals/minhook"]
+	path = externals/minhook
+	url = https://github.com/TsudaKageyu/minhook.git
