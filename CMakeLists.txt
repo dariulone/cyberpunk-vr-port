@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CyberpunkVRPort LANGUAGES CXX)
+project(CyberpunkVRPort LANGUAGES CXX C)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -67,18 +67,15 @@ add_library(dxgi SHARED
     externals/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOFD3DCommon.cpp
 )
 
-add_library(d3d12 SHARED
-    src/d3d12_proxy.cpp
-)
 add_subdirectory(externals/RED4ext.SDK)
 
 
 target_compile_features(dxgi PRIVATE cxx_std_20)
 target_compile_definitions(dxgi PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
-target_link_libraries(dxgi PRIVATE 
-    openxr_loader 
-    imgui 
-    d3d12 
+target_link_libraries(dxgi PRIVATE
+    openxr_loader
+    imgui
+    d3d12.lib       # system D3D12 import lib (real d3d12.dll the game already loads)
     d3dcompiler
     RED4ext::SDK
 )
@@ -141,20 +138,11 @@ if(AER_V2_NVOF)
     endif()
 endif()
 
-target_compile_features(d3d12 PRIVATE cxx_std_20)
-target_compile_definitions(d3d12 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-
 if(MSVC)
     target_compile_options(dxgi PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /permissive- /EHsc>)
-    target_compile_options(d3d12 PRIVATE /W4 /permissive- /EHsc)
 endif()
 
 set_target_properties(dxgi PROPERTIES
     OUTPUT_NAME dxgi
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-)
-
-set_target_properties(d3d12 PROPERTIES
-    OUTPUT_NAME d3d12
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
