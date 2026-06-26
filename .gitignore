@@ -4,6 +4,7 @@
 /build-cuda/
 /build-cuda-vs/
 /.vs/
+/.vscode/
 /out/
 *.suo
 *.user
