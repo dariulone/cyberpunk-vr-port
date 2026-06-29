@@ -699,6 +699,24 @@ void DrawVRHandsControls() {
     }
 
     ImGui::Separator();
+    // Physical body rotation (default OFF). Self-contained: read/flip/persist via the
+    // LiveControls bridge so it survives restarts (vrport.ini xr_physical_body_rotation).
+    {
+        LiveControlsUiState st{};
+        GetLiveControlsUiState(&st);
+        bool bodyRot = st.xrPhysicalBodyRotation != 0;
+        if (ImGui::Checkbox("Physical body rotation", &bodyRot)) {
+            st.xrPhysicalBodyRotation = bodyRot ? 1 : 0;
+            SetLiveControlsUiState(&st, 1);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("OFF (default): classic VR heading -- turn with stick / snap-turn, the head only looks.\n"
+                              "ON: your avatar's body physically rotates to follow your head; aiming or holding a\n"
+                              "weapon switches to full head-look + head-relative movement. Vehicles are unaffected.");
+        }
+    }
+
+    ImGui::Separator();
     ImGui::TextUnformatted("Hand IK Calibration (per hand: R = right, L = left)");
 
     // Defaults mirror the plugin's baked calibration (main.cpp globals).

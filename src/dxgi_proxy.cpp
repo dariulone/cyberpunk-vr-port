@@ -135,6 +135,7 @@ struct LiveControls {
     volatile int xrMonoDepthCapture; // 1 = mono path runs depth capture (legacy, hangs on CP2077). 0 = skip depth capture entirely in mono mode.
     volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
     volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
+    volatile int xrPhysicalBodyRotation; // 1 = physical body rotation (avatar body follows HMD/aim heading). 0 (default) = classic stick/snap heading. Gates the aiming/weapon body-turn paths; vehicles unaffected.
 };
 
 static constexpr int kEnablePatchBufferTracer = 0;
@@ -508,6 +509,7 @@ static void PollLiveControls() {
     int xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
     int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
     int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
+    int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -766,6 +768,11 @@ static void PollLiveControls() {
             xrMovementSource = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_physical_body_rotation=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_physical_body_rotation = %d", &intValue) == 1) {
+            xrPhysicalBodyRotation = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
             xrXInputInstall = intValue;
@@ -882,6 +889,7 @@ static void PollLiveControls() {
     if (xrMovementSource < 0 || xrMovementSource > 3) xrMovementSource = xrMovementControl != 0 ? 1 : 0;
     g_liveControls.xrMovementSource = xrMovementSource;
     g_liveControls.xrMovementControl = xrMovementSource != 0 ? 1 : 0;
+    g_liveControls.xrPhysicalBodyRotation = xrPhysicalBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrDisableMouseY = xrDisableMouseY != 0 ? 1 : 0;
     g_liveControls.xrXInputHook = xrXInputHook != 0 ? 1 : 0;
     g_liveControls.xrSnapTurn = xrSnapTurn != 0 ? 1 : 0;
@@ -960,6 +968,7 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrSnapTurn = g_liveControls.xrSnapTurn;
     state.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg;
     state.xrMovementSource = g_liveControls.xrMovementSource;
+    state.xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
     state.xrXInputInstall = g_liveControls.xrXInputInstall;
     state.xrInputActions = g_liveControls.xrInputActions;
     state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
@@ -1021,6 +1030,7 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn=%d\n", state.xrSnapTurn != 0 ? 1 : 0);
     fprintf(file, "xr_snap_turn_angle_deg=%.2f\n", state.xrSnapTurnAngleDeg > 0.0f ? state.xrSnapTurnAngleDeg : 30.0f);
     fprintf(file, "xr_movement_source=%d\n", state.xrMovementSource < 0 ? 0 : (state.xrMovementSource > 3 ? 3 : state.xrMovementSource));
+    fprintf(file, "xr_physical_body_rotation=%d\n", state.xrPhysicalBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_xinput_install=%d\n", state.xrXInputInstall != 0 ? 1 : 0);
     fprintf(file, "xr_input_actions=%d\n", state.xrInputActions != 0 ? 1 : 0);
     fprintf(file, "xr_mono_xqueue_wait=%d\n", state.xrMonoXQueueWait != 0 ? 1 : 0);
@@ -1090,6 +1100,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         g_liveControls.xrMovementSource = src;
         g_liveControls.xrMovementControl = src != 0 ? 1 : 0;
     }
+    g_liveControls.xrPhysicalBodyRotation = state->xrPhysicalBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrDisableMouseY = state->xrDisableMouseY != 0 ? 1 : 0;
     g_liveControls.xrXInputHook = state->xrXInputHook != 0 ? 1 : 0;
     g_liveControls.xrSnapTurn = state->xrSnapTurn != 0 ? 1 : 0;
@@ -2481,7 +2492,16 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         // 5. Applica gameYaw + xrPitchRoll (no yaw HMD)
         float tmpX, tmpY, tmpZ, tmpW;
         
-        if(!g_isInVehicle && !g_isAiming && !g_hasWeaponEquipped){
+        // Physical body rotation (vrport.ini xr_physical_body_rotation, F10 -> VRIK).
+        // The heading-yaw + HMD-pitch/roll path (xrPitchRoll) is ONLY valid while the
+        // body-yaw tracker (OnOnFootDeltaHeadCallback) is feeding HMD yaw into the game
+        // heading -- otherwise the head yaw is dropped and the view inverts on head turn.
+        // That tracker runs only when bodyRot is ON and we're on foot, not aiming and
+        // unarmed, so gate this branch on EXACTLY that. Every other case (feature OFF,
+        // aiming, armed, or in a vehicle) uses the full HMD orientation (xrGame) =
+        // classic head-look, where the heading is static and the HMD supplies the yaw.
+        const bool bodyRot = g_liveControls.xrPhysicalBodyRotation != 0;
+        if(bodyRot && !g_isInVehicle && !g_isAiming && !g_hasWeaponEquipped){
             MulQuat(0.0f, 0.0f, sy, cy, xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW, tmpX, tmpY, tmpZ, tmpW);
         }else{
             MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
@@ -4286,6 +4306,10 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     if (!deltaHead) return;
     if(g_isInVehicle) return;
 
+    // Physical body rotation (F10 -> VRIK). OFF (default): no continuous body-yaw
+    // tracking from the HMD -- only the discrete snap-turn is applied (classic heading).
+    const bool bodyRot = g_liveControls.xrPhysicalBodyRotation != 0;
+
     int idx = GetSnapTurnYawIndex();
     if (idx < 0) idx = 0;
     if (idx > 3) idx = 3;
@@ -4298,7 +4322,9 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
         memcpy(&snap, &bits, sizeof(float));
     }
 
-    if(g_isAiming || g_hasWeaponEquipped){
+    // bodyRot OFF -> snap-turn only (no HMD yaw -> body). bodyRot ON but aiming/armed
+    // -> also snap-only (the body is steered by aim, not free head tracking).
+    if(!bodyRot || g_isAiming || g_hasWeaponEquipped){
         int idx = GetSnapTurnYawIndex();
         if (idx < 0) idx = 0;
         if (idx > 3) idx = 3;
@@ -5133,8 +5159,10 @@ bool InstallFreeDeltaHeadHook() {
 extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
     int src = g_liveControls.xrMovementSource;
 
-    if(g_isAiming || g_hasWeaponEquipped){
-       src = 1; 
+    // Physical body rotation (F10 -> VRIK): when ON, aiming / holding a weapon forces
+    // head-relative locomotion. OFF (default) keeps the configured Move source.
+    if(g_liveControls.xrPhysicalBodyRotation && (g_isAiming || g_hasWeaponEquipped)){
+       src = 1;
     }
 
     if (src <= 0) return; // 0 = Game (no rotation)
