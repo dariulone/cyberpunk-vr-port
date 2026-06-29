@@ -19,6 +19,7 @@ extern "C" UINT GetForcedDisplayModeHeight();
 extern "C" UINT GetForcedWindowWidth();
 extern "C" UINT GetForcedWindowHeight();
 extern "C" int GetMenuMode();
+extern "C" UINT GetForcedRenderHeightForAspect();
 
 namespace {
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
@@ -1303,7 +1304,9 @@ HRESULT STDMETHODCALLTYPE HookedSetFullscreenState(IDXGISwapChain* swapChain, BO
 
 HRESULT STDMETHODCALLTYPE HookedResizeBuffers(IDXGISwapChain* swapChain, UINT bufferCount, UINT width, UINT height, DXGI_FORMAT newFormat, UINT flags) {
     const UINT forcedWidth = GetForcedSwapchainWidth();
-    const UINT forcedHeight = GetForcedSwapchainHeight();
+    //const UINT forcedHeight = GetForcedSwapchainHeight();
+    const UINT forcedHeight = GetForcedRenderHeightForAspect();
+
     const UINT outWidth = forcedWidth != 0 ? forcedWidth : width;
     const UINT outHeight = forcedHeight != 0 ? forcedHeight : height;
     if (outWidth != width || outHeight != height) {
@@ -1318,7 +1321,9 @@ HRESULT STDMETHODCALLTYPE HookedResizeBuffers(IDXGISwapChain* swapChain, UINT bu
 
 HRESULT STDMETHODCALLTYPE HookedResizeBuffers1(IDXGISwapChain3* swapChain, UINT bufferCount, UINT width, UINT height, DXGI_FORMAT format, UINT flags, const UINT* creationNodeMask, IUnknown* const* presentQueue) {
     const UINT forcedWidth = GetForcedSwapchainWidth();
-    const UINT forcedHeight = GetForcedSwapchainHeight();
+    //const UINT forcedHeight = GetForcedSwapchainHeight();
+    const UINT forcedHeight = GetForcedRenderHeightForAspect();
+    
     const UINT outWidth = forcedWidth != 0 ? forcedWidth : width;
     const UINT outHeight = forcedHeight != 0 ? forcedHeight : height;
     if (outWidth != width || outHeight != height) {

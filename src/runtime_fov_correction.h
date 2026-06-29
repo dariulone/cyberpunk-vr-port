@@ -30,7 +30,7 @@ inline RuntimeFovCorrection ComputeRuntimeFovCorrection(const XrFovf& left, cons
     const float downR = -right.angleDown;
     const float deltaV = ((upL + upR) - (downL + downR)) * 0.25f;
     if (std::fabs(deltaV) > kRuntimeFovDeltaThresholdRad) {
-        out.pitchEnabled = true;
+        out.pitchEnabled = false;
         out.pitchDeltaRad = deltaV;
         out.eye[0].angleUp -= deltaV;
         out.eye[0].angleDown -= deltaV;
@@ -44,7 +44,7 @@ inline RuntimeFovCorrection ComputeRuntimeFovCorrection(const XrFovf& left, cons
     const float rightR = right.angleRight;
     const float deltaH = ((leftL + rightR) - (leftR + rightL)) * 0.25f;
     if (std::fabs(deltaH) > kRuntimeFovDeltaThresholdRad) {
-        out.yawEnabled = true;
+        out.yawEnabled = false;
         out.yawDeltaRad = deltaH;
         out.eye[0].angleLeft += deltaH;
         out.eye[0].angleRight += deltaH;

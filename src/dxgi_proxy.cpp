@@ -151,6 +151,7 @@ static LiveControls g_liveControls = {};
 volatile int g_verboseLog = 0;
 static int g_launcherWidth = 2048;
 static int g_launcherHeight = 2048;
+static int g_launcherHmdType = 0;
 
 static void InitRuntimePaths() {
     if (g_gameDir[0] != '\0') return;
@@ -286,6 +287,7 @@ static void LoadLauncherConfig() {
     InitRuntimePaths();
     g_launcherWidth = 2048;
     g_launcherHeight = 2048;
+    g_launcherHmdType = 0;
 
     FILE* file = _fsopen(g_launcherConfigPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -303,6 +305,12 @@ static void LoadLauncherConfig() {
             g_launcherHeight = intValue > 0 ? intValue : g_launcherHeight;
             continue;
         }
+        // <-- NUOVO: parsing hmd_type
+        if (sscanf_s(line, "hmd_type=%d", &intValue) == 1 ||
+            sscanf_s(line, "hmd_type = %d", &intValue) == 1) {
+            g_launcherHmdType = intValue;
+            continue;
+        }
     }
     fclose(file);
 }
@@ -316,6 +324,7 @@ static void SaveLauncherConfig(int width, int height) {
     if (!file) return;
     fprintf(file, "width=%d\n", g_launcherWidth);
     fprintf(file, "height=%d\n", g_launcherHeight);
+    fprintf(file, "hmd_type=%d\n", g_launcherHmdType);
     fclose(file);
 }
 
@@ -1158,6 +1167,16 @@ extern "C" void SetWindowResolutionAndPersist(int width, int height) {
     SaveLauncherConfig(width, height);
 }
 
+extern "C" void SetHmdTypeAndPersist(int hmdType) {
+    g_launcherHmdType = hmdType;
+    // Persiste insieme a width/height già in memoria
+    SaveLauncherConfig(g_launcherWidth, g_launcherHeight);
+}
+
+extern "C" int GetCurrentHmdType() {
+    return g_launcherHmdType;
+}
+
 // Persist the VR runtime choice (0 = OpenXR default runtime, 1 = SteamVR/OpenVR)
 // into vrport.ini. Applied on the next OpenXR init, which happens AFTER the
 // launcher closes — so picking it here takes effect for this launch.
@@ -1210,6 +1229,29 @@ static float GetDisplayAspectWoverH() {
     return 0.0f;
 }
 
+/*static float GetDisplayAspectWoverH() {
+    // Usa i valori del FOV già calcolati dal runtime
+    float hfovDeg = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
+    float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
+    
+    if (hfovDeg > 1.0f && vfovDeg > 1.0f) {
+        float hfovRad = hfovDeg * 3.1415926535f / 180.0f;
+        float vfovRad = vfovDeg * 3.1415926535f / 180.0f;
+        float aspect = tanf(hfovRad * 0.5f) / tanf(vfovRad * 0.5f);
+        if (aspect > 0.05f && aspect < 20.0f) {
+            return aspect;
+        }
+    }
+    
+    // Fallback: usa l'aspect ratio della risoluzione raccomandata
+    uint32_t w = 0, h = 0;
+    if (OpenXRManager::Get().GetRecommendedRenderTargetSize(&w, &h) && w > 0 && h > 0) {
+        return static_cast<float>(w) / static_cast<float>(h);
+    }
+    return 0.0f;
+}*/
+
+
 static UINT GetForcedWindowHeightValue() {
     if (g_launcherHeight > 0) {
         return static_cast<UINT>(g_launcherHeight);
@@ -1223,7 +1265,7 @@ static UINT GetForcedWindowHeightValue() {
 // instead of the runtime VFOV -> vertical zoom / "world too big". On a ~square HMD
 // (Pico, aspect ~1.0) this equals the width = no change. Only the RENDER override
 // uses this; window/swapchain getters keep the launcher value.
-static UINT GetForcedRenderHeightForAspect() {
+extern "C" UINT GetForcedRenderHeightForAspect() {
     const UINT width = GetForcedWindowWidthValue();
     const float aspect = GetDisplayAspectWoverH();
     if (width > 0 && aspect > 0.05f && aspect < 20.0f) {
@@ -1868,8 +1910,10 @@ static void ApplySettingsResolutionOverride(uintptr_t settingsPtr) {
 }
 
 static void ApplyDLSSResolutionOverride(uintptr_t dlssPtr) {
+    const UINT forcedWidth = GetForcedWindowWidthValue();
+    const UINT forcedHeight = GetForcedRenderHeightForAspect();
     const UINT forcedSquare = GetForcedSquareResolutionValue();
-    if (!dlssPtr || forcedSquare == 0) {
+    if (!dlssPtr || forcedWidth == 0 || forcedHeight == 0) {
         return;
     }
 
@@ -1884,9 +1928,12 @@ static void ApplyDLSSResolutionOverride(uintptr_t dlssPtr) {
         }
     }
 
-    WriteU32Safe(dlssPtr + 0x04, forcedSquare);
-    WriteU32Safe(dlssPtr + 0x18, forcedSquare);
-    WriteU32Safe(dlssPtr + 0x1C, forcedSquare);
+    // Non-square: width and height carry the runtime per-eye aspect so the game's
+    // render (and the vertical FOV it derives from this aspect) matches the lens.
+    // +0x18/+0x1C are the width/height pair; +0x04 is the width base.
+    WriteU32Safe(dlssPtr + 0x04, forcedWidth);
+    WriteU32Safe(dlssPtr + 0x18, forcedWidth);
+    WriteU32Safe(dlssPtr + 0x1C, forcedHeight);
 }
 
 static void ApplyKnownResolutionOverrides() {
@@ -2450,54 +2497,9 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         // slightly asymmetric per-eye frusta. Recenter those frusta with a
         // quarter-angle correction and apply matching pitch/yaw quaternions so the
         // visible image stays 1:1 with the runtime.
-        XrFovf leftFov{}, rightFov{};
-        if (OpenXRManager::Get().GetCurrentEyeFov(0, &leftFov) &&
-            OpenXRManager::Get().GetCurrentEyeFov(1, &rightFov)) {
-            const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(leftFov, rightFov);
-            if (corr.pitchEnabled || corr.yawEnabled) {
-                float cX = outX, cY = outY, cZ = outZ, cW = outW;
-                if (corr.pitchEnabled) {
-                    const float hp = corr.pitchDeltaRad * 0.5f;
-                    float tX, tY, tZ, tW;
-                    MulQuat(cX, cY, cZ, cW,
-                            sinf(hp), 0.0f, 0.0f, cosf(hp),
-                            tX, tY, tZ, tW);
-                    cX = tX; cY = tY; cZ = tZ; cW = tW;
-                }
-                if (corr.yawEnabled) {
-                    const float yaw = (renderEye == 0) ? corr.yawDeltaRad : -corr.yawDeltaRad;
-                    const float hy = yaw * 0.5f;
-                    float tX, tY, tZ, tW;
-                    MulQuat(cX, cY, cZ, cW,
-                            0.0f, 0.0f, sinf(hy), cosf(hy),
-                            tX, tY, tZ, tW);
-                    cX = tX; cY = tY; cZ = tZ; cW = tW;
-                }
-                outX = cX; outY = cY; outZ = cZ; outW = cW;
-            }
-        }
-
-        /*if (false) {
-            // Extract total Yaw and Pitch, discarding Roll
-            const float fx = 2.0f * (outX * outZ + outY * outW);
-            const float fy = 2.0f * (outY * outZ - outX * outW);
-            const float fz = 1.0f - 2.0f * (outX * outX + outY * outY);
-
-            float finalPitch = asinf(fz < -1.0f ? -1.0f : (fz > 1.0f ? 1.0f : fz));
-            float finalYaw = atan2f(-fx, fy);
-
-            const float fcy = cosf(finalYaw * 0.5f);
-            const float fsy = sinf(finalYaw * 0.5f);
-            const float fcp = cosf(finalPitch * 0.5f);
-            const float fsp = sinf(finalPitch * 0.5f);
-
-            outX = fcy * fsp;
-            outY = fsy * fsp;
-            outZ = fsy * fcp;
-            outW = fcy * fcp;
-        }*/
-
+        
         NormalizeQuat(outX, outY, outZ, outW);
+
         camera_qx = outX;
         camera_qy = outY;
         camera_qz = outZ;
@@ -2595,51 +2597,28 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // unchanged (the final camera ends up at the same place); only the IK/physics
     // head now stays at the stable center.
     int32_t ipdShiftFP[3] = {0, 0, 0};
-    if (hasXR && OpenXRManager::Get().IsAERSubmitEnabled()) {
-        const int renderEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
-        XrVector3f eyeLocalXR{};
-        bool usedRuntimeEyeOffset = false;
-        if (OpenXRManager::Get().GetCurrentEyeCenterOffset(renderEye, &eyeLocalXR)) {
-            float ipdScale = g_liveControls.xrIpdScale;
-            if (!(ipdScale > 0.0f)) ipdScale = 1.0f;
-            float stereoScale = g_liveControls.xrStereoScale;
-            if (!(stereoScale > 0.0f)) stereoScale = 1.0f;
-            const float eyeScale = GetWorldScale() * ipdScale * stereoScale;
-            const float localRight = eyeLocalXR.x * eyeScale;
-            const float localForward = -eyeLocalXR.z * eyeScale;
-            const float localUp = eyeLocalXR.y * eyeScale;
-            float basis[12] = {};
-            BuildGameViewRowsFromQuaternion(quat, basis);
-            const float worldDeltaX = basis[0] * localRight + basis[8] * localForward + basis[4] * localUp;
-            const float worldDeltaY = basis[1] * localRight + basis[9] * localForward + basis[5] * localUp;
-            const float worldDeltaZ = basis[2] * localRight + basis[10] * localForward + basis[6] * localUp;
-            ipdShiftFP[0] = static_cast<int32_t>(worldDeltaX * 65536.0f);
-            ipdShiftFP[1] = static_cast<int32_t>(worldDeltaY * 65536.0f);
-            ipdShiftFP[2] = static_cast<int32_t>(worldDeltaZ * 65536.0f);
-            usedRuntimeEyeOffset = true;
+    if (hasXR) {
+        const int renderEye = OpenXRManager::Get().IsAERSubmitEnabled() 
+            ? OpenXRManager::Get().GetCurrentRenderEyeIndex() 
+            : (g_locateCameraHits % 2);
+
+        float right[3] = {};
+        float hmdQuat[4] = { xrPose.oriX, -xrPose.oriZ, xrPose.oriY, xrPose.oriW };
+        ComputeRightVectorFromQuaternion(hmdQuat, right);
+
+        if (IsPlausibleUnitVector3(right)) {
+            const float halfIpd = GetDesiredHalfIpd();
+            //const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
+            const float eyeSign = (renderEye == 0) ? 1.0f : -1.0f;
+
+            const float ipdShift = halfIpd * eyeSign;
+            ipdShiftFP[0] = static_cast<int32_t>(right[0] * ipdShift * 65536.0f);
+            ipdShiftFP[1] = static_cast<int32_t>(right[1] * ipdShift * 65536.0f);
+            ipdShiftFP[2] = static_cast<int32_t>(right[2] * ipdShift * 65536.0f);
             if (g_verboseLog && (g_locateCameraHits % 600) == 1) {
-                Log("LocateCamera IPD (runtime-eye-offset): eye=%d localXR=(%.4f, %.4f, %.4f) scale=%.4f world=(%.4f, %.4f, %.4f)\n",
+                Log("LocateCamera IPD: eye=%d halfIpd=%.4f right=(%.3f, %.3f, %.3f) shift=%.4f\n",
                     renderEye,
-                    eyeLocalXR.x, eyeLocalXR.y, eyeLocalXR.z,
-                    eyeScale,
-                    worldDeltaX, worldDeltaY, worldDeltaZ);
-            }
-        }
-        if (!usedRuntimeEyeOffset) {
-            float right[3] = {};
-            ComputeRightVectorFromQuaternion(quat, right);
-            if (IsPlausibleUnitVector3(right)) {
-                const float halfIpd = GetDesiredHalfIpd();
-                const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
-                const float ipdShift = halfIpd * eyeSign;
-                ipdShiftFP[0] = static_cast<int32_t>(right[0] * ipdShift * 65536.0f);
-                ipdShiftFP[1] = static_cast<int32_t>(right[1] * ipdShift * 65536.0f);
-                ipdShiftFP[2] = static_cast<int32_t>(right[2] * ipdShift * 65536.0f);
-                if (g_verboseLog && (g_locateCameraHits % 600) == 1) {
-                    Log("LocateCamera IPD (fallback right*halfIpd): eye=%d halfIpd=%.4f right=(%.3f, %.3f, %.3f) shift=%.4f\n",
-                        renderEye,
-                        halfIpd, right[0], right[1], right[2], ipdShift);
-                }
+                    halfIpd, right[0], right[1], right[2], ipdShift);
             }
         }
     }
@@ -3007,32 +2986,11 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
         // vision (unlike rotating only the submit pose, which desynced overlay).
         // No-op on symmetric HMDs (Pico: cant==0). Applied with the matching submit
         // pose cant in OnPresent so render and submit agree.
+        // Il display-cant è già stato applicato in OnLocateCameraCallback alla camera base.
+        
+        // Non serve riapplicarlo qui: la skybox e i LOD lontani ora ereditano la stessa rotazione.
         float renderQuat[4] = { locateQuat[0], locateQuat[1], locateQuat[2], locateQuat[3] };
-        {
-            XrFovf lf{}, rf{};
-            if (OpenXRManager::Get().GetCurrentEyeFov(0, &lf) &&
-                OpenXRManager::Get().GetCurrentEyeFov(1, &rf)) {
-                const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(lf, rf);
-                if (corr.yawEnabled || corr.pitchEnabled) {
-                    const int re = g_renderedEye & 1;
-                    const float yaw   = corr.yawEnabled   ? (re == 0 ? corr.yawDeltaRad : -corr.yawDeltaRad) : 0.0f;
-                    const float pitch = corr.pitchEnabled ? corr.pitchDeltaRad : 0.0f;
-                    // game-camera local axes: Z = up (yaw), X = right (pitch).
-                    float cX, cY, cZ, cW;
-                    MulQuat(0.0f, 0.0f, sinf(yaw * 0.5f), cosf(yaw * 0.5f),
-                            sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f),
-                            cX, cY, cZ, cW);
-                    float oX, oY, oZ, oW;
-                    MulQuat(locateQuat[0], locateQuat[1], locateQuat[2], locateQuat[3],
-                            cX, cY, cZ, cW, oX, oY, oZ, oW);
-                    renderQuat[0] = oX; renderQuat[1] = oY; renderQuat[2] = oZ; renderQuat[3] = oW;
-                    if (g_verboseLog && (g_finalCameraHits % 600) == 1) {
-                        Log("FinalCamera CANT(render): eye=%d yaw=%.3fdeg pitch=%.3fdeg\n",
-                            re, yaw * 57.29578f, pitch * 57.29578f);
-                    }
-                }
-            }
-        }
+
         if (IsPlausibleUnitQuaternion(renderQuat)) {
             ApplyFinalCameraOrientationFromQuat(rsiPtr, renderQuat);
         }
@@ -4850,6 +4808,60 @@ static void LogDLSSMatricesStateWindow(uintptr_t state) {
     }
 }
 
+// Genera una matrice di proiezione SIMMETRICA che contiene l'intero frustum asimmetrico.
+// Questo evita il mismatch della skybox in RED Engine. Il runtime OpenXR gestirà 
+// automaticamente il display-cant (warping delle lenti) in fase di composizione.
+static void BuildSymmetricProjectionMatrix(const XrFovf& fov, float width, float height,
+                                           float nearZ, float farZ, float* outMatrix) {
+    memset(outMatrix, 0, sizeof(float) * 16);
+    
+    const float tanL = tanf(fov.angleLeft);
+    const float tanR = tanf(fov.angleRight);
+    const float tanU = tanf(fov.angleUp);
+    const float tanD = tanf(fov.angleDown);
+
+    // Calcola i tangent simmetrici massimi per racchiudere il frustum asimmetrico
+    const float maxTanH = std::max(fabsf(tanL), fabsf(tanR));
+    const float maxTanV = std::max(fabsf(tanU), fabsf(tanD));
+
+    const float symTanL = -maxTanH;
+    const float symTanR =  maxTanH;
+    const float symTanD = -maxTanV;
+    const float symTanU =  maxTanV;
+
+    outMatrix[0]  =  2.0f / (symTanR - symTanL); // X scale
+    outMatrix[5]  =  2.0f / (symTanU - symTanD); // Y scale
+    outMatrix[8]  =  0.0f;                       // X shift (0 = simmetrico, NIENTE off-axis)
+    outMatrix[9]  =  0.0f;                       // Y shift (0 = simmetrico, NIENTE off-axis)
+    outMatrix[10] = -(farZ + nearZ) / (farZ - nearZ); // Z scale
+    outMatrix[11] = -1.0f;                       // W translation
+    outMatrix[14] = -2.0f * farZ * nearZ / (farZ - nearZ); // Z translation
+}
+
+// Genera una matrice di proiezione ASIMMETRICA (off-axis).
+// Questo è FONDAMENTALE per il Quest 3: le lenti sono inclinate e il runtime 
+// si aspetta un frustum asimmetrico. NON ruotare la camera per compensare il cant.
+static void BuildAsymmetricProjectionMatrix(const XrFovf& fov, float width, float height,
+                                            float nearZ, float farZ, float* outMatrix) {
+    memset(outMatrix, 0, sizeof(float) * 16);
+    
+    const float tanL = tanf(fov.angleLeft);
+    const float tanR = tanf(fov.angleRight);
+    const float tanU = tanf(fov.angleUp);
+    const float tanD = tanf(fov.angleDown);
+
+    outMatrix[0]  =  2.0f / (tanR - tanL); // X scale
+    outMatrix[5]  =  2.0f / (tanU - tanD); // Y scale
+    
+    // Questi due valori gestiscono il "cant" delle lenti. DEVONO essere diversi da zero!
+    outMatrix[8]  =  (tanR + tanL) / (tanR - tanL); // X shift (asimmetrico)
+    outMatrix[9]  =  (tanU + tanD) / (tanU - tanD); // Y shift (asimmetrico)
+    
+    outMatrix[10] = -(farZ + nearZ) / (farZ - nearZ); // Z scale
+    outMatrix[11] = -1.0f;                            // W translation
+    outMatrix[14] = -2.0f * farZ * nearZ / (farZ - nearZ); // Z translation
+}
+
 extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matrixState, uint32_t matrixSlot) {
     uint32_t adjustedSlot = matrixSlot;
     const int eye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
@@ -4922,6 +4934,62 @@ extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matr
     }
 
     LogDLSSMatricesStateWindow(state);
+
+    // FIX: Inject correct VR projection matrices for DLSS/AER
+    // This is critical for temporal accumulation and optical flow to work correctly
+    if (g_liveControls.xrDLSSMatrixHook != 0 && state >= 0x10000) {
+        // Get the current eye's projection matrix from OpenXR
+        XrFovf fovLeft = {}, fovRight = {};
+        if (OpenXRManager::Get().GetCurrentEyeFov(0, &fovLeft) &&
+            OpenXRManager::Get().GetCurrentEyeFov(1, &fovRight)) {
+            
+            const int currentEye = OpenXRManager::Get().GetCurrentRenderEyeIndex();
+            const XrFovf& fov = (currentEye == 0) ? fovLeft : fovRight;
+            //const XrFovf& fov = (currentEye == 0) ? fovRight : fovLeft;
+            
+            // Build asymmetric projection matrix for this eye
+            // This must match the submit FOV exactly
+            const float width = static_cast<float>(GetForcedWindowWidthValue());
+            const float height = static_cast<float>(GetForcedRenderHeightForAspect());
+            const float nearZ = 0.1f; // Match game's near plane
+            const float farZ = 10000.0f; // Match game's far plane
+            
+            float projMatrix[16];
+            XrFovf lf{}, rf{};
+            if (OpenXRManager::Get().GetCurrentEyeFov(0, &lf) && OpenXRManager::Get().GetCurrentEyeFov(1, &rf)) {
+                const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(lf, rf);
+                if (corr.yawEnabled && corr.pitchEnabled) {
+                    BuildSymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
+                } else {
+                    BuildAsymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
+                }
+            }
+
+            // Inject the matrix into DLSS state
+            // Common offsets (you may need to adjust these based on your reverse engineering):
+            // Offset 0x140-0x17F: Previous frame projection
+            // Offset 0x180-0x1BF: Current frame projection  
+            // Offset 0x1C0-0x1FF: Next frame projection
+            
+            // Write to current frame projection (offset 0x180)
+            WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x180), projMatrix, 16);
+
+            // Also write to next frame to prevent tearing
+            WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x1C0), projMatrix, 16);
+                        
+            if (periodicLog) {
+                Log("DLSSMatrices INJECTED: eye=%d FOV=(%.2f,%.2f,%.2f,%.2f) res=%.0fx%.0f\n",
+                    currentEye,
+                    fov.angleLeft, fov.angleRight, fov.angleUp, fov.angleDown,
+                    width, height);
+                LogMatrix4x4("DLSSMatrices injected projection:", projMatrix);
+            }
+        }
+    }
+
+
+
+
     return adjustedSlot;
 }
 

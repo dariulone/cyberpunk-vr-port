@@ -552,47 +552,30 @@ static int64_t PickMonoSwapchainFormat(const std::vector<int64_t>& runtimeFormat
 static XrFovf ApplyForcedProjectionFov(const XrFovf& sourceFov, const XrFovf* pairFovs, int eyeIndex, float width, float height) {
     float forceFov = GetForcedFov();
     if (forceFov <= 1.0f || forceFov >= 170.0f) {
-        // THE FIX (proven by the "tunnel" test = no stretch): the SUBMITTED FOV must
-        // equal the FOV the game actually RENDERED the present frame with = the gameplay
-        // camera FOV (+0x410), exposed as GetGameRenderFovDeg(). Submitting the lens/
-        // m_views FOV while the game renders a DIFFERENT FOV makes the compositor
-        // reproject a mismatch -> world stretches/zooms on head turn. Anchoring submit
-        // == render makes reprojection 1:1 -> NO stretch. The gameplay FOV is forced
-        // wide (~lens) in OnNormalFovHookCallback so this also FILLS the lens (no
-        // tunnel). horizontal = gameFov; vertical from render aspect (square -> symm).
         if (pairFovs && eyeIndex >= 0 && eyeIndex <= 1) {
-            // DE-CANT first: corr.eye[] is the symmetric (de-canted) per-eye FOV. On a
-            // canted HMD (Quest 3, Pimax) this removes the lens cant from the FOV (the
-            // cant is carried by the render+submit POSE instead, ApplyCantToPose /
-            // OnFinalCameraCallback). On a symmetric HMD (Pico) corr.eye == raw -> no-op.
             const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(pairFovs[0], pairFovs[1]);
             XrFovf fov = corr.eye[eyeIndex];
-
-            // Anchor the submitted HORIZONTAL span to the FOV the game actually renders
-            // (GetGameRenderFovDeg, = the forced +0x410 the engine renders with), keep
-            // the de-cant center (0 on symmetric), and derive the VERTICAL from the
-            // real RENDER ASPECT. Self-balancing: on a square render + square lens (Pico)
-            // atan(tan(H/2)/1) == H/2 -> submit == render -> no stretch; on a non-square
-            // lens (Quest 99 vs 94, Pimax 104 vs 93) the vertical follows the render
-            // aspect so the image is NOT stretched/letterboxed on those HMDs (this is the
-            // build homard confirmed "FOV is good" on Quest 3).
+            
             const float gameFovDeg = GetGameRenderFovDeg();
-            const float aspect = (height > 1.0f) ? (width / height) : 0.0f;
-            if (gameFovDeg > 1.0f && aspect > 0.01f && aspect < 10.0f) {
+            if (gameFovDeg > 1.0f) {
                 const float wantHalfH = (gameFovDeg * 3.1415926535f / 180.0f) * 0.5f;
-                const float hCenter = (fov.angleRight + fov.angleLeft) * 0.5f; // de-cant center (0 if symmetric)
+                const float hCenter = (fov.angleRight + fov.angleLeft) * 0.5f;
+                
+                // FIX: Usa il lensVFov REALE del runtime, NON ricalcolarlo dall'aspect
+                const float realHalfV = (fov.angleUp - fov.angleDown) * 0.5f;
                 const float vCenter = (fov.angleUp + fov.angleDown) * 0.5f;
-                const float halfV = atanf(tanf(wantHalfH) / aspect);
+                
                 fov.angleLeft  = hCenter - wantHalfH;
                 fov.angleRight = hCenter + wantHalfH;
-                fov.angleUp    = vCenter + halfV;
-                fov.angleDown  = vCenter - halfV;
+                fov.angleUp    = vCenter + realHalfV;  // ← USA lensVFov reale
+                fov.angleDown  = vCenter - realHalfV;  // ← USA lensVFov reale
+                
                 static uint32_t s_sfLogN = 0;
                 if (g_verboseLog || (s_sfLogN++ % 200) == 0) {
                     const float hfovDeg = (fov.angleRight - fov.angleLeft) * (180.0f / 3.1415926535f);
                     const float vfovDeg = (fov.angleUp - fov.angleDown) * (180.0f / 3.1415926535f);
-                    Log("OpenXRManager[SUBMITFOV]: eye=%d gameFov=%.2f aspect=%.3f -> submitHFov=%.2f submitVFov=%.2f (lensHFov=%.2f lensVFov=%.2f decantYaw=%d)\n",
-                        eyeIndex, gameFovDeg, aspect, hfovDeg, vfovDeg,
+                    Log("OpenXRManager[SUBMITFOV]: eye=%d gameFov=%.2f -> submitHFov=%.2f submitVFov=%.2f (lensHFov=%.2f lensVFov=%.2f decantYaw=%d)\n",
+                        eyeIndex, gameFovDeg, hfovDeg, vfovDeg,
                         (sourceFov.angleRight - sourceFov.angleLeft) * (180.0f / 3.1415926535f),
                         (sourceFov.angleUp - sourceFov.angleDown) * (180.0f / 3.1415926535f),
                         corr.yawEnabled ? 1 : 0);
@@ -644,6 +627,7 @@ static XrQuaternionf ComputeCantPoseDelta(const XrFovf* pairFovs, int eye) {
     if (!corr.yawEnabled && !corr.pitchEnabled) return identity;
     const float yaw   = corr.yawEnabled   ? (eye == 0 ? corr.yawDeltaRad : -corr.yawDeltaRad) : 0.0f;
     const float pitch = corr.pitchEnabled ? corr.pitchDeltaRad : 0.0f;
+    
     const XrQuaternionf qYaw{0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};       // about +Y (up)
     const XrQuaternionf qPitch{sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)}; // about +X (right)
     return MultiplyQuat(qYaw, qPitch);
