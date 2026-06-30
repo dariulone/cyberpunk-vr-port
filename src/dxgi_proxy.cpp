@@ -2623,13 +2623,16 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             : (g_locateCameraHits % 2);
 
         float right[3] = {};
-        float hmdQuat[4] = { xrPose.oriX, -xrPose.oriZ, xrPose.oriY, xrPose.oriW };
-        ComputeRightVectorFromQuaternion(hmdQuat, right);
+        //float hmdQuat[4] = { xrPose.oriX, -xrPose.oriZ, xrPose.oriY, xrPose.oriW };
+        //ComputeRightVectorFromQuaternion(hmdQuat, right);
+
+        float cameraQuat[4] = { camera_qx, camera_qy, camera_qz, camera_qw };
+        ComputeRightVectorFromQuaternion(cameraQuat, right);
 
         if (IsPlausibleUnitVector3(right)) {
             const float halfIpd = GetDesiredHalfIpd();
-            //const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
-            const float eyeSign = (renderEye == 0) ? 1.0f : -1.0f;
+            const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
+            //const float eyeSign = (renderEye == 0) ? 1.0f : -1.0f;
 
             const float ipdShift = halfIpd * eyeSign;
             ipdShiftFP[0] = static_cast<int32_t>(right[0] * ipdShift * 65536.0f);
@@ -3012,7 +3015,7 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
         float renderQuat[4] = { locateQuat[0], locateQuat[1], locateQuat[2], locateQuat[3] };
 
         if (IsPlausibleUnitQuaternion(renderQuat)) {
-            ApplyFinalCameraOrientationFromQuat(rsiPtr, renderQuat);
+           //ApplyFinalCameraOrientationFromQuat(rsiPtr, renderQuat);
         }
     }
 
@@ -3595,36 +3598,60 @@ extern "C" void __fastcall OnProjAspectCopyCallback(void* dst, const void* src) 
     g_projAspectCopyHits++;
     if (!dst || !src)
         return;
-
     __try {
         const uintptr_t srcAddr = reinterpret_cast<uintptr_t>(src);
         const uintptr_t dstAddr = reinterpret_cast<uintptr_t>(dst);
-
         const float srcFov = *reinterpret_cast<const float*>(srcAddr + 0x80);
         const float srcAspect = *reinterpret_cast<const float*>(srcAddr + 0x84);
         float dstFov = *reinterpret_cast<float*>(dstAddr + 0x80);
         float dstAspect = *reinterpret_cast<float*>(dstAddr + 0x84);
-
         g_projAspectLastSrcFov = srcFov;
         g_projAspectLastSrcAspect = srcAspect;
         g_projAspectLastDstFov = dstFov;
         g_projAspectLastDstAspect = dstAspect;
         g_projAspectLastPatched = false;
-
+        
         const bool aspectLooks16x9 = (srcAspect > 1.70f && srcAspect < 1.85f);
         const bool fovLooksValid = (srcFov > 30.0f && srcFov < 180.0f);
         const bool looksLikeView = aspectLooks16x9 && fovLooksValid;
-
-        if (looksLikeView) {
+        
+        // === NUOVO: Rileva shadow map e saltale ===
+        bool isShadowMap = false;
+        
+        // Shadow map tipiche: FOV molto piccolo (ortografiche) o molto ampio
+        if (srcFov <= 1.0f || srcFov >= 179.0f) {
+            isShadowMap = true;
+        }
+        
+        // Se aspect non è 16:9, probabilmente non è la camera principale
+        if (!isShadowMap && !aspectLooks16x9) {
+            // Shadow map spesso usano aspect 1:1, 2:1, o altri valori non standard
+            if (srcAspect < 1.5f || srcAspect > 2.0f) {
+                isShadowMap = true;
+            }
+        }
+        
+        // Se FOV è nel range "camera VR" (~80-110°) e aspect è 16:9, è la camera principale
+        if (!isShadowMap && looksLikeView) {
+            if (srcFov > 80.0f && srcFov < 110.0f) {
+                isShadowMap = false; // Confermato: camera principale
+            } else if (srcFov > 120.0f && srcFov < 170.0f) {
+                // FOV 16:9-horizontal (~132.5°) → probabilmente camera principale
+                isShadowMap = false;
+            } else {
+                // FOV fuori range camera VR ma aspect 16:9 → sospetto shadow map
+                isShadowMap = true;
+            }
+        }
+        
+        if (looksLikeView && !isShadowMap) {
             float patchedFov = srcFov;
-
-            // If the copied FOV is already the square/VFOV (~104), keep it.
-            // If it's the 16:9-horizontal (~132.5), convert to the square VFOV.
+            // Se il FOV copiato è già il VFOV quadrato (~104), mantienilo
+            // Se è l'orizzontale 16:9 (~132.5), converti nel VFOV quadrato
             if (srcFov > 120.0f && srcFov < 170.0f) {
                 const float halfH = srcFov * 0.5f * 3.1415926535f / 180.0f;
                 patchedFov = std::atan(std::tan(halfH) * (9.0f / 16.0f)) * 2.0f * 180.0f / 3.1415926535f;
             }
-
             *reinterpret_cast<float*>(dstAddr + 0x80) = patchedFov;
             *reinterpret_cast<float*>(dstAddr + 0x84) = 1.0f;
             dstFov = patchedFov;
@@ -3633,15 +3660,16 @@ extern "C" void __fastcall OnProjAspectCopyCallback(void* dst, const void* src) 
             g_projAspectLastDstFov = dstFov;
             g_projAspectLastDstAspect = dstAspect;
         }
-
-        if (g_projAspectCopyHits <= 20 || (g_projAspectCopyHits % 600) == 0 || g_projAspectLastPatched) {
-            Log("ProjAspect: hits=%llu srcFov=%.6f srcAspect=%.6f -> dstFov=%.6f dstAspect=%.6f patched=%d\n",
+        
+        if (g_projAspectCopyHits <= 20 || (g_projAspectCopyHits % 600) == 0 || g_projAspectLastPatched || isShadowMap) {
+            Log("ProjAspect: hits=%llu srcFov=%.6f srcAspect=%.6f -> dstFov=%.6f dstAspect=%.6f patched=%d isShadowMap=%d\n",
                 static_cast<unsigned long long>(g_projAspectCopyHits),
                 srcFov,
                 srcAspect,
                 dstFov,
                 dstAspect,
-                g_projAspectLastPatched ? 1 : 0);
+                g_projAspectLastPatched ? 1 : 0,
+                isShadowMap ? 1 : 0);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -3764,10 +3792,8 @@ extern "C" void __fastcall OnProjAspectCallCallback(void* src, uint32_t fovOff, 
     g_projAspectCallLastPatched = false;
     g_projAspectCallLastFovOff = fovOff;
     g_projAspectCallLastAspectOff = aspectOff;
-
     if (!src)
         return;
-
     __try {
         const uintptr_t base = reinterpret_cast<uintptr_t>(src);
         float* fovPtr = reinterpret_cast<float*>(base + fovOff);
@@ -3776,11 +3802,39 @@ extern "C" void __fastcall OnProjAspectCallCallback(void* src, uint32_t fovOff, 
         const float aspect = *aspectPtr;
         g_projAspectCallLastFov = fov;
         g_projAspectCallLastAspect = aspect;
-
+        
         const bool fovLooksValid = std::isfinite(fov) && (fov > 30.0f) && (fov < 180.0f);
         const bool aspectLooks16x9 = std::isfinite(aspect) && (aspect > 1.70f) && (aspect < 1.85f);
-
-        if (fovLooksValid && aspectLooks16x9) {
+        
+        // === NUOVO: Rileva shadow map e saltale ===
+        bool isShadowMap = false;
+        
+        // Shadow map tipiche: FOV molto piccolo (ortografiche) o molto ampio
+        if (fov <= 1.0f || fov >= 179.0f) {
+            isShadowMap = true;
+        }
+        
+        // Se aspect non è 16:9, probabilmente non è la camera principale
+        if (!isShadowMap && !aspectLooks16x9) {
+            if (aspect < 1.5f || aspect > 2.0f) {
+                isShadowMap = true;
+            }
+        }
+        
+        // Se FOV è nel range "camera VR" (~80-110°) e aspect è 16:9, è la camera principale
+        if (!isShadowMap && fovLooksValid && aspectLooks16x9) {
+            if (fov > 80.0f && fov < 110.0f) {
+                isShadowMap = false; // Confermato: camera principale
+            } else if (fov > 120.0f && fov < 170.0f) {
+                // FOV 16:9-horizontal (~132.5°) → probabilmente camera principale
+                isShadowMap = false;
+            } else {
+                // FOV fuori range camera VR ma aspect 16:9 → sospetto shadow map
+                isShadowMap = true;
+            }
+        }
+        
+        if (fovLooksValid && aspectLooks16x9 && !isShadowMap) {
             float patchedFov = fov;
             if (patchedFov > 120.0f && patchedFov < 170.0f) {
                 const float halfH = patchedFov * 0.5f * 3.1415926535f / 180.0f;
@@ -3792,15 +3846,16 @@ extern "C" void __fastcall OnProjAspectCallCallback(void* src, uint32_t fovOff, 
             g_projAspectCallLastAspect = 1.0f;
             g_projAspectCallLastPatched = true;
         }
-
-        if (g_projAspectCallHits <= 20 || (g_projAspectCallHits % 600) == 0 || g_projAspectCallLastPatched) {
-            Log("ProjAspectCall: hits=%llu fovOff=0x%X aspectOff=0x%X fov=%.6f aspect=%.6f patched=%d\n",
+        
+        if (g_projAspectCallHits <= 20 || (g_projAspectCallHits % 600) == 0 || g_projAspectCallLastPatched || isShadowMap) {
+            Log("ProjAspectCall: hits=%llu fovOff=0x%X aspectOff=0x%X fov=%.6f aspect=%.6f patched=%d isShadowMap=%d\n",
                 static_cast<unsigned long long>(g_projAspectCallHits),
                 fovOff,
                 aspectOff,
                 g_projAspectCallLastFov,
                 g_projAspectCallLastAspect,
-                g_projAspectCallLastPatched ? 1 : 0);
+                g_projAspectCallLastPatched ? 1 : 0,
+                isShadowMap ? 1 : 0);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -3930,30 +3985,54 @@ bool InstallProjAspectCallHooks() {
 extern "C" void __fastcall OnProjStageCallback(const void* src) {
     g_projStageHits++;
     g_projStagePatched = false;
-    if (!src)
-        return;
+    if (!src) return;
 
     __try {
         const uintptr_t base = reinterpret_cast<uintptr_t>(src);
         const float fov = *reinterpret_cast<const float*>(base + 0x80);
         const float aspect = *reinterpret_cast<const float*>(base + 0x84);
         const float extra = *reinterpret_cast<const float*>(base + 0x88);
+
         g_projStageFov = fov;
         g_projStageAspect = aspect;
         g_projStageExtra = extra;
 
-        if (std::isfinite(fov) && std::isfinite(aspect) && (fov > 30.0f) && (fov < 180.0f) && (aspect > 1.70f) && (aspect < 1.85f)) {
+        // === NUOVO: Rileva e salta le shadow map ===
+        bool isShadowMap = false;
+
+        // Shadow map tipiche: FOV molto piccolo o zero
+        if (fov <= 1.0f || fov >= 179.0f) {
+            isShadowMap = true;
+        }
+
+        // Oppure aspect non compatibile con la camera VR (es. != 1.0)
+        // In VR forziamo aspect=1.0, ma le shadow map possono essere 1:1, 2:1, etc.
+        // Tuttavia, se aspect è ~16:9 MA il FOV è anomalo, potrebbe essere una shadow map
+        if (!isShadowMap && (aspect > 1.70f && aspect < 1.85f)) {
+            // Se FOV è plausibile per la camera VR (~93°), allora è la camera principale
+            if (fov > 80.0f && fov < 110.0f) {
+                isShadowMap = false;
+            } else {
+                // Aspect 16:9 ma FOV non da camera VR → probabilmente shadow map
+                isShadowMap = true;
+            }
+        }
+
+        if (!isShadowMap && std::isfinite(fov) && std::isfinite(aspect) 
+            && (fov > 30.0f) && (fov < 180.0f) 
+            && (aspect > 1.70f) && (aspect < 1.85f)) {
             g_projStageAspect = 1.0f;
             g_projStagePatched = true;
         }
 
         if (g_projStageHits <= 20 || (g_projStageHits % 600) == 0 || g_projStagePatched) {
-            Log("ProjStage: hits=%llu fov=%.6f aspect=%.6f extra=%.6f patched=%d\n",
+            Log("ProjStage: hits=%llu fov=%.6f aspect=%.6f extra=%.6f patched=%d isShadowMap=%d\n",
                 static_cast<unsigned long long>(g_projStageHits),
                 g_projStageFov,
                 g_projStageAspect,
                 g_projStageExtra,
-                g_projStagePatched ? 1 : 0);
+                g_projStagePatched ? 1 : 0,
+                isShadowMap ? 1 : 0);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -4058,23 +4137,29 @@ bool InstallProjStageHook() {
 static uint64_t g_fixLoDHits = 0;
 extern "C" float __fastcall OnFixLoDCallback(float* rbxPtr, float originalVal) {
     g_fixLoDHits++;
-
-    // Legitimate camera views have FOV > 30 degrees (e.g. 50, 75, 103 degrees).
-    // Auxiliary views like shadow maps and reflections have 0.0f original FOV and
-    // must NOT be overridden, otherwise culling for depth/reflections gets corrupted.
+    
     float result = originalVal;
-    if (originalVal > 30.0f) {
-        // Default VR Mod behavior: Trick the LOD system into thinking the FOV is extremely narrow.
-        // This prevents the engine from aggressively culling high-detail meshes under the feet.
-        result = 3.04639287f; // Becomes 1.04719755f (approx 60 deg in radians) after mulss 0.34375f
+    
+    // PATCHA SOLO la camera principale VR (FOV ~93°)
+    // Le shadow map hanno FOV diversi (es. 75°) e NON devono essere patchate
+    const float targetVrFov = g_normalFovOverrideValue; // ~93.306°
+    const float fovTolerance = 5.0f; // Accetta FOV tra 88° e 98°
+    
+    if (originalVal > (targetVrFov - fovTolerance) && 
+        originalVal < (targetVrFov + fovTolerance)) {
+        // Questa è la camera principale VR, patcha il LOD
+        result = 3.04639287f;
     }
-
+    // Altrimenti lascia il FOV originale (shadow map, reflection, etc.)
+    
     if (g_fixLoDHits % 600 == 1) {
-        Log("FixLoD: hits=%llu rbx=%p originalVal=%.6f result=%.6f\n",
+        Log("FixLoD: hits=%llu rbx=%p originalVal=%.6f result=%.6f isVRCamera=%d\n",
             static_cast<unsigned long long>(g_fixLoDHits),
             rbxPtr,
             originalVal,
-            result);
+            result,
+            (originalVal > (targetVrFov - fovTolerance) && 
+             originalVal < (targetVrFov + fovTolerance)) ? 1 : 0);
     }
     return result;
 }
@@ -4977,9 +5062,13 @@ extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matr
             // This must match the submit FOV exactly
             const float width = static_cast<float>(GetForcedWindowWidthValue());
             const float height = static_cast<float>(GetForcedRenderHeightForAspect());
-            const float nearZ = 0.1f; // Match game's near plane
-            const float farZ = 10000.0f; // Match game's far plane
-            
+
+            float nearZ = 0.066f; // Default CP2077 near plane
+            float farZ = 10000.0f; // Far plane grande per coprire l'intera scena e le shadow cascades
+        
+            ReadFloatSafe(state + 0x1B0, &nearZ);
+            if (nearZ <= 0.0f || nearZ > 1.0f) nearZ = 0.066f;
+        
             float projMatrix[16];
             XrFovf lf{}, rf{};
             if (OpenXRManager::Get().GetCurrentEyeFov(0, &lf) && OpenXRManager::Get().GetCurrentEyeFov(1, &rf)) {
@@ -4987,7 +5076,9 @@ extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matr
                 if (corr.yawEnabled && corr.pitchEnabled) {
                     BuildSymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
                 } else {
-                    BuildAsymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
+
+                    BuildSymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
+                    //BuildAsymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
                 }
             }
 
@@ -4997,12 +5088,12 @@ extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matr
             // Offset 0x180-0x1BF: Current frame projection  
             // Offset 0x1C0-0x1FF: Next frame projection
             
-            // Write to current frame projection (offset 0x180)
-            WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x180), projMatrix, 16);
-
-            // Also write to next frame to prevent tearing
-            WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x1C0), projMatrix, 16);
-                        
+            float testFov = 0.0f;
+            ReadFloatSafe(state + 0x1B0, &testFov);
+            if (testFov > 1.0f && testFov < 150.0f) { 
+                WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x180), projMatrix, 16);
+                WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x1C0), projMatrix, 16);
+            }
             if (periodicLog) {
                 Log("DLSSMatrices INJECTED: eye=%d FOV=(%.2f,%.2f,%.2f,%.2f) res=%.0fx%.0f\n",
                     currentEye,
@@ -5671,8 +5762,10 @@ DWORD WINAPI WorkerThread(LPVOID) {
     g_normalFovHookInstalled = h_fov;
     if (g_verboseLog || !h_fov) Log("NormalFOV hook result: %s\n", h_fov ? "SUCCESS" : "FAILED");
 
+    //bool copyH = InstallProjAspectCopyHook();
     g_projAspectCopyHookInstalled = false;
 
+    //bool aspecCall = InstallProjAspectCallHooks();
     g_projAspectCallHookInstalled = false;
 
     bool h_proj_stage = InstallProjStageHook();
