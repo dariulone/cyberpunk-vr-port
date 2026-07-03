@@ -1400,6 +1400,36 @@ extern "C" inline void* Hooked_AnimPoseApply(void* a1, void* a2, void* a3, unsig
                     // from the seqlock snapshot (local array so callees take a ptr).
                     const float hmdRelBuf[4] = { SharedPose(16), SharedPose(17), SharedPose(18), SharedPose(19) };
                     const float* hmdRel = hmdRelBuf;
+                    // [BODY-FOLLOW YAW FIX] shared[125] = 1 when on foot, unarmed, not aiming.
+                    // In that mode dxgi strips the HMD yaw from the camera quat and injects it
+                    // into the player HEADING instead (OnOnFootDeltaHead) -> the entity/model
+                    // frame rotates WITH the head. Mapping the controller offset with the FULL
+                    // hmdRel into model axes then double-rotates it: the hands swing with the
+                    // body when the user turns their head. Strip the SAME yaw here (identical
+                    // math to the dxgi camera composition: yaw-first decomposition about game
+                    // +Z) so the hand offset composes exactly like the rendered view and the
+                    // hands stay planted on the physical controllers. Slot [125] is read raw
+                    // (not SharedPose) because the seqlock snapshot only covers [0..93]; a
+                    // single aligned float read is safe and 0 (old dxgi) keeps old behaviour.
+                    float hmdRelNoYaw[4];
+                    if (g_pSharedHands && g_pSharedHands[125] > 0.5f) {
+                        // hmdRel in game axes: (i, -k, j, r) — same map used everywhere.
+                        float g[4] = { hmdRelBuf[0], -hmdRelBuf[2], hmdRelBuf[1], hmdRelBuf[3] };
+                        // Yaw about game +Z, same formula dxgi uses for camera/heading.
+                        float fwdX = 2.0f * (g[0]*g[1] - g[2]*g[3]);
+                        float fwdY = 1.0f - 2.0f * (g[0]*g[0] + g[2]*g[2]);
+                        float yaw  = std::atan2(-fwdX, fwdY);
+                        float h    = -yaw * 0.5f;
+                        float qc[4] = { 0.0f, 0.0f, std::sin(h), std::cos(h) };  // Rz(-yaw)
+                        float gc[4]; VRIK_QuatMul(qc, g, gc);                    // pitch+roll only
+                        // Back to XR axes (inverse map: x, z, -y, w).
+                        hmdRelNoYaw[0] = gc[0];
+                        hmdRelNoYaw[1] = gc[2];
+                        hmdRelNoYaw[2] = -gc[1];
+                        hmdRelNoYaw[3] = gc[3];
+                        VRIK_QuatNorm(hmdRelNoYaw);
+                        hmdRel = hmdRelNoYaw;
+                    }
                     if (headModelPos) {
                         // Fallback body frame. Once camera pose is available below, this is replaced
                         // by HMD/body yaw. Never let animated weapon-stance shoulders define IK axes.

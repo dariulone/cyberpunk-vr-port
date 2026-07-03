@@ -657,6 +657,25 @@ OpenXRManager& OpenXRManager::Get() {
     return instance;
 }
 
+void OpenXRManager::RotateBaseYaw(float radians) {
+    // See openxr_manager.h: rotates the recenter base about vertical (XR +Y) so the
+    // HMD's base-relative yaw shifts by -radians. Called by the dxgi body-realign
+    // logic together with an equal heading injection; the pair leaves the rendered
+    // view and the HMD-local hand poses stationary while the body turns underneath.
+    if (radians == 0.0f) return;
+    std::lock_guard<std::mutex> lock(m_renderPoseMutex);
+    if (!m_basePoseSet) return;
+    const float h = radians * 0.5f;
+    const XrQuaternionf ry{0.0f, sinf(h), 0.0f, cosf(h)};
+    XrQuaternionf q = MultiplyQuat(m_basePose.orientation, ry);
+    const float n = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (n > 1e-8f) {
+        const float inv = 1.0f / n;
+        q.x *= inv; q.y *= inv; q.z *= inv; q.w *= inv;
+    }
+    m_basePose.orientation = q;
+}
+
 void OpenXRManager::RequestRecenter() {
     m_recenterRequested.store(true, std::memory_order_relaxed);
 }
@@ -3150,6 +3169,12 @@ DWORD OpenXRManager::FrameThreadMain() {
         uint32_t viewCountOutput = 0;
         const bool monoEnabled = m_monoSubmitEnabled.load(std::memory_order_relaxed);
         const bool menuRectActive = (GetMenuRectMode() != 0) || (GetMenuMode() != 0);
+        // Menu closed -> drop the latched panel anchors so the NEXT menu re-anchors
+        // in front of wherever the player is looking at open time.
+        if (!menuRectActive) {
+            m_menuAnchorValid = false;
+            m_menuEyeAnchorValid = false;
+        }
         const bool aerEnabled = monoEnabled && IsAERSubmitEnabled();
         bool useAerSubmit = aerEnabled && !menuRectActive;
         const bool monoReady = monoEnabled && EnsureMonoSubmitResources() && !m_eyeSwapchains.empty();
@@ -4521,30 +4546,41 @@ DWORD OpenXRManager::FrameThreadMain() {
                             layerQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
                             layerQuad.subImage = projectionViews[0].subImage;
 
-                            XrPosef menuPose{};
-                            menuPose.orientation.w = 1.0f;
-                            if (headPoseLocated) {
-                                menuPose = location.pose;
-                            } else if (m_basePoseSet) {
-                                menuPose = m_basePose;
+                            // WORLD-LATCHED panel: anchor ONCE when the menu opens
+                            // (1.5 m ahead of the gaze, yaw-flattened so it hangs
+                            // vertical) and reuse that pose until the menu closes.
+                            // Re-deriving it from the LIVE head pose every frame
+                            // yaw-locked the panel to the head: corners could never
+                            // be looked at and the UI dragging with every head turn
+                            // caused motion sickness. The map stays consistent:
+                            // background + POI pins live in the same rendered
+                            // picture, only where the picture hangs is anchored.
+                            if (!m_menuAnchorValid) {
+                                XrPosef menuPose{};
+                                menuPose.orientation.w = 1.0f;
+                                if (headPoseLocated) {
+                                    menuPose = location.pose;
+                                } else if (m_basePoseSet) {
+                                    menuPose = m_basePose;
+                                }
+                                XrQuaternionf baseOri = menuPose.orientation;
+
+                                // Flatten the orientation to pure yaw to keep the menu perfectly vertical
+                                float fx = -2.0f * (baseOri.x * baseOri.z + baseOri.y * baseOri.w);
+                                float fz = 2.0f * (baseOri.x * baseOri.x + baseOri.y * baseOri.y) - 1.0f;
+                                float flatYaw = atan2f(-fx, -fz);
+                                XrQuaternionf qYaw = {0.0f, sinf(flatYaw * 0.5f), 0.0f, cosf(flatYaw * 0.5f)};
+
+                                XrVector3f fwd = {0.0f, 0.0f, -1.5f};
+                                XrVector3f rotatedFwd = RotateVector(qYaw, fwd);
+
+                                m_menuQuadPose.orientation = qYaw;
+                                m_menuQuadPose.position.x = menuPose.position.x + rotatedFwd.x;
+                                m_menuQuadPose.position.y = menuPose.position.y + rotatedFwd.y;
+                                m_menuQuadPose.position.z = menuPose.position.z + rotatedFwd.z;
+                                m_menuAnchorValid = true;
                             }
-                            XrQuaternionf baseOri = menuPose.orientation;
-                             
-                            // Flatten the orientation to pure yaw to keep the menu perfectly vertical
-                            float fx = -2.0f * (baseOri.x * baseOri.z + baseOri.y * baseOri.w);
-                            float fz = 2.0f * (baseOri.x * baseOri.x + baseOri.y * baseOri.y) - 1.0f;
-                            float flatYaw = atan2f(-fx, -fz);
-                            XrQuaternionf qYaw = {0.0f, sinf(flatYaw * 0.5f), 0.0f, cosf(flatYaw * 0.5f)};
-
-                            XrQuaternionf menuOri = qYaw;
-
-                            XrVector3f fwd = {0.0f, 0.0f, -1.5f};
-                            XrVector3f rotatedFwd = RotateVector(qYaw, fwd);
-
-                            layerQuad.pose.orientation = menuOri;
-                            layerQuad.pose.position.x = menuPose.position.x + rotatedFwd.x;
-                            layerQuad.pose.position.y = menuPose.position.y + rotatedFwd.y;
-                            layerQuad.pose.position.z = menuPose.position.z + rotatedFwd.z;
+                            layerQuad.pose = m_menuQuadPose;
 
                             float quadWidth = 2.0f * 1.5f * tanf(GetMenuFov() * 3.14159f / 180.0f * 0.5f);
                             layerQuad.size = {quadWidth, quadWidth};
@@ -4811,17 +4847,26 @@ DWORD OpenXRManager::FrameThreadMain() {
                         projectionViews[eye].pose = monoPoses[eye];
                         projectionViews[eye].fov = monoFovs[eye];
                         if (menuRectActive) {
-                            // Head-locked menus. The menu/
-                            // world-map image is screen-space UI; submitting it with the
-                            // captured (lagged, HMD-oriented) pose makes the compositor
-                            // reproject it, so the map SWIMS/slides as you turn your head.
-                            // Submit at the CURRENT eye pose instead -> no reprojection ->
-                            // the menu stays fixed in front of the head (stable flat panel).
+                            // WORLD-LATCHED menus. Submitting at the LIVE eye pose (the
+                            // old "head-locked" approach) glued the menu to the head:
+                            // yaw turns dragged the whole UI along (unreachable corners +
+                            // motion sickness). Instead LATCH the eye poses once when the
+                            // menu opens and submit the static image at those static
+                            // poses: no per-frame pose churn -> no reprojection wobble
+                            // (the SWIM the old comment feared came from submitting a
+                            // CHANGING, lagged pose, not a frozen one), and the panel
+                            // hangs world-fixed where the player was looking. Map POIs
+                            // cannot misalign: pins + background are one rendered image.
                             {
                                 std::lock_guard<std::mutex> vl(m_viewMutex);
-                                if (static_cast<size_t>(eye) < m_views.size()) {
-                                    projectionViews[eye].pose = m_views[eye].pose;
+                                if (!m_menuEyeAnchorValid && m_views.size() >= 2) {
+                                    m_menuEyePoses[0] = m_views[0].pose;
+                                    m_menuEyePoses[1] = m_views[1].pose;
+                                    m_menuEyeAnchorValid = true;
                                 }
+                            }
+                            if (m_menuEyeAnchorValid && eye < 2) {
+                                projectionViews[eye].pose = m_menuEyePoses[eye];
                             }
                             const float menuFovDeg = GetMenuFov();
                             if (menuFovDeg > 1.0f && menuFovDeg < 170.0f) {
@@ -5000,30 +5045,35 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 layerQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
                                 layerQuad.subImage = projectionViews[0].subImage;
 
-                            XrPosef menuPose{};
-                            menuPose.orientation.w = 1.0f;
-                            if (headPoseLocated) {
-                                menuPose = location.pose;
-                            } else if (m_basePoseSet) {
-                                menuPose = m_basePose;
-                            }
-                            XrQuaternionf baseOri = menuPose.orientation;
-                             
-                            // Flatten the orientation to pure yaw to keep the menu perfectly vertical
-                            float fx = -2.0f * (baseOri.x * baseOri.z + baseOri.y * baseOri.w);
-                            float fz = 2.0f * (baseOri.x * baseOri.x + baseOri.y * baseOri.y) - 1.0f;
-                            float flatYaw = atan2f(-fx, -fz);
-                            XrQuaternionf qYaw = {0.0f, sinf(flatYaw * 0.5f), 0.0f, cosf(flatYaw * 0.5f)};
+                                // WORLD-LATCHED panel: anchor once at menu open and
+                                // reuse (see the twin quad path above for the full
+                                // rationale — live-pose re-derive = head-locked menu).
+                                if (!m_menuAnchorValid) {
+                                    XrPosef menuPose{};
+                                    menuPose.orientation.w = 1.0f;
+                                    if (headPoseLocated) {
+                                        menuPose = location.pose;
+                                    } else if (m_basePoseSet) {
+                                        menuPose = m_basePose;
+                                    }
+                                    XrQuaternionf baseOri = menuPose.orientation;
 
-                            XrQuaternionf menuOri = qYaw;
+                                    // Flatten the orientation to pure yaw to keep the menu perfectly vertical
+                                    float fx = -2.0f * (baseOri.x * baseOri.z + baseOri.y * baseOri.w);
+                                    float fz = 2.0f * (baseOri.x * baseOri.x + baseOri.y * baseOri.y) - 1.0f;
+                                    float flatYaw = atan2f(-fx, -fz);
+                                    XrQuaternionf qYaw = {0.0f, sinf(flatYaw * 0.5f), 0.0f, cosf(flatYaw * 0.5f)};
 
-                            XrVector3f fwd = {0.0f, 0.0f, -1.5f};
-                            XrVector3f rotatedFwd = RotateVector(qYaw, fwd);
+                                    XrVector3f fwd = {0.0f, 0.0f, -1.5f};
+                                    XrVector3f rotatedFwd = RotateVector(qYaw, fwd);
 
-                            layerQuad.pose.orientation = menuOri;
-                            layerQuad.pose.position.x = menuPose.position.x + rotatedFwd.x;
-                            layerQuad.pose.position.y = menuPose.position.y + rotatedFwd.y;
-                            layerQuad.pose.position.z = menuPose.position.z + rotatedFwd.z;
+                                    m_menuQuadPose.orientation = qYaw;
+                                    m_menuQuadPose.position.x = menuPose.position.x + rotatedFwd.x;
+                                    m_menuQuadPose.position.y = menuPose.position.y + rotatedFwd.y;
+                                    m_menuQuadPose.position.z = menuPose.position.z + rotatedFwd.z;
+                                    m_menuAnchorValid = true;
+                                }
+                                layerQuad.pose = m_menuQuadPose;
 
                                 float quadWidth = 2.0f * 1.5f * tanf(GetMenuFov() * 3.14159f / 180.0f * 0.5f);
                                 layerQuad.size = {quadWidth, quadWidth};
@@ -5150,6 +5200,38 @@ float OpenXRManager::GetHandYawRelToBody(int side) const {
         return GetHmdYawRelToBody();
     }
     return m_handYawRelToBody[side].load(std::memory_order_relaxed);
+}
+
+bool OpenXRManager::GetBodyYawFromHands(float* outYaw) const {
+    if (!outYaw) return false;
+    OpenXRHeadPose l{}, r{};
+    {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
+        l = m_hands[0];
+        r = m_hands[1];
+    }
+    if (!l.valid || !r.valid) return false;
+
+    // Hand poses are HMD-local; rotate them into the recenter-base frame with the
+    // HMD's base-relative orientation so the line is measured in body space.
+    const XrQuaternionf rel{
+        m_oriX.load(std::memory_order_relaxed),
+        m_oriY.load(std::memory_order_relaxed),
+        m_oriZ.load(std::memory_order_relaxed),
+        m_oriW.load(std::memory_order_relaxed)};
+    const XrVector3f pl = RotateVector(rel, XrVector3f{l.posX, l.posY, l.posZ});
+    const XrVector3f pr = RotateVector(rel, XrVector3f{r.posX, r.posY, r.posZ});
+
+    // Horizontal left->right hand line (XR base frame: +Y up, -Z forward at yaw 0).
+    const float dx = pr.x - pl.x;
+    const float dz = pr.z - pl.z;
+    if ((dx * dx + dz * dz) < 0.12f * 0.12f) return false; // hands together: no line
+
+    // Chest forward = the line rotated +90 deg about +Y -> (dz, 0, -dx). Yaw with the
+    // same convention as GetHmdYawRelToBody (facing -Z = 0, left = positive):
+    // yaw = atan2(-fwd.x, -fwd.z) = atan2(-dz, dx).
+    *outYaw = atan2f(-dz, dx);
+    return true;
 }
 
 bool OpenXRManager::GetControllerState(VRControllerState* out) const {

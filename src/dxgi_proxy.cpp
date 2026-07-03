@@ -2357,7 +2357,16 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     }else{
         OpenXRManager::Get().SetSharedSlot(126, 0.0f);
     }
-    
+
+    // [125] body-follow flag for the VRIK plugin. The continuous "heading glued to the
+    // HMD yaw" unarmed mode was REMOVED: the camera now composes heading * full HMD
+    // orientation in every on-foot mode, and body realign (OnOnFootDeltaHeadCallback)
+    // rotates the recenter base in step with the heading, which keeps the plugin's
+    // hmdRel->model mapping valid as-is. So the plugin must never yaw-strip hmdRel:
+    // write 0 explicitly to clear any stale value in the shared block.
+    OpenXRManager::Get().SetSharedSlot(125, 0.0f);
+
+
 
     float camera_qx = quat[0];
     float camera_qy = quat[1];
@@ -2451,41 +2460,17 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         const float xrGameZ = xrPose.oriY;
         const float xrGameW = xrPose.oriW;
 
-        // Rimuovi lo yaw da xrGame, mantieni solo pitch e roll
-        // 1. Estrai lo yaw da xrGame
-        float xrFwdX = 2.0f * (xrGameX * xrGameY - xrGameZ * xrGameW);
-        float xrFwdY = 1.0f - 2.0f * (xrGameX * xrGameX + xrGameZ * xrGameZ);
-        float xrYaw = atan2f(-xrFwdX, xrFwdY);
-
-        // 2. Crea quaternione yaw-only
-        float halfXrYaw = xrYaw * 0.5f;
-        float xrYawOnlyX = 0.0f;
-        float xrYawOnlyY = 0.0f;
-        float xrYawOnlyZ = sinf(halfXrYaw);
-        float xrYawOnlyW = cosf(halfXrYaw);
-
-        // 3. Inverti il quaternione yaw-only
-        float invXrYawOnlyX = -xrYawOnlyX;
-        float invXrYawOnlyY = -xrYawOnlyY;
-        float invXrYawOnlyZ = -xrYawOnlyZ;
-        float invXrYawOnlyW = xrYawOnlyW;
-
-        // 4. Calcola pitch+roll = inv(yaw-only) * xrGame
-        float xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW;
-        MulQuat(invXrYawOnlyX, invXrYawOnlyY, invXrYawOnlyZ, invXrYawOnlyW,
-                xrGameX, xrGameY, xrGameZ, xrGameW,
-                xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW);
-
-
-
-        // 5. Applica gameYaw + xrPitchRoll (no yaw HMD)
+        // Camera = heading * FULL HMD orientation in EVERY on-foot mode (armed and
+        // unarmed alike). The old unarmed branch stripped the HMD yaw here and glued
+        // the heading to it (OnOnFootDeltaHead injected every head-yaw delta), which
+        // made the body — and everything mapped through model space — rotate whenever
+        // the player merely turned their head. The body is now realigned to the head
+        // only when a PHYSICAL body turn is detected (body-realign logic in
+        // OnOnFootDeltaHeadCallback); that realign rotates the recenter base by the
+        // same angle it injects into the heading, so this composition keeps the view
+        // perfectly stationary while the body catches up underneath.
         float tmpX, tmpY, tmpZ, tmpW;
-        
-        if(!g_isInVehicle && !g_isAiming && !g_hasWeaponEquipped){
-            MulQuat(0.0f, 0.0f, sy, cy, xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW, tmpX, tmpY, tmpZ, tmpW);
-        }else{
-            MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
-        }
+        MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
 
         float outX = tmpX;
         float outY = tmpY;
@@ -4364,80 +4349,152 @@ static volatile LONG g_pendingSnapYawDeltaBits = 0;
 // Index of the yaw float inside the delta buffer (default 1). Overridable via
 // xr_snap_turn_yaw_index in vrport.ini for quick experimentation if [1] is wrong.
 extern "C" int GetSnapTurnYawIndex();
-static float g_lastBodyYaw = 0.0f;
 
 extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
-    
+
     if (!deltaHead) return;
+
+    // One-shot banner: proves BOTH that this build of dxgi.dll is the one loaded and
+    // that the engine actually calls the on-foot heading hook in this game version.
+    static bool s_bannerLogged = false;
+    if (!s_bannerLogged) {
+        s_bannerLogged = true;
+        Log("[BODY-REALIGN] OnFootDeltaHead callback ACTIVE (body-realign build " __DATE__ " " __TIME__ ")\n");
+    }
+
     if(g_isInVehicle) return;
 
     int idx = GetSnapTurnYawIndex();
     if (idx < 0) idx = 0;
     if (idx > 3) idx = 3;
-    float deltaYawDegrees = 0.0f;
-    
-    // 2. Aggiungi lo snap yaw se presente
+
+    // Snap yaw (right-stick flick), applied in every on-foot mode.
     const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
     float snap = 0.0f;
     if (bits != 0) {
         memcpy(&snap, &bits, sizeof(float));
     }
 
-    if(g_isAiming || g_hasWeaponEquipped){
-        int idx = GetSnapTurnYawIndex();
-        if (idx < 0) idx = 0;
-        if (idx > 3) idx = 3;
-        deltaHead[idx] += snap;
-        return;
+    // BODY REALIGN — on foot, ARMED and UNARMED alike (vehicles returned above; the
+    // vehicle heading path never reaches this on-foot hook). The heading is no longer
+    // glued to the HMD yaw (that rotated the body — and the model space the VRIK hands
+    // live in — on every head turn). The camera composes heading * FULL HMD
+    // orientation, so:
+    //   * head-only turn  -> body stays, view turns, hands stay on the controllers;
+    //   * PHYSICAL body turn -> detected here, the heading is rotated toward the head.
+    // Detection: we cannot track the player's real hips, so we use the controllers as
+    // a chest proxy (signals differ armed vs unarmed, see below). A neck-limit
+    // override drags the body regardless of the hands so it can never stay twisted
+    // more than ~70 deg from the head.
+    // Weapon safety: the shot/aim math is HMD-relative and the composed camera quat is
+    // invariant under the realign pair (heading +delta, base +delta), so bullets, the
+    // laser and the reticle do not move while the body squares up; the game's own
+    // aim-heading writes are already suppressed by the ForceHeadingUpdate patch.
+    // CRITICAL: every degree injected into the heading is ALSO applied to the recenter
+    // base (RotateBaseYaw). heading and hmdRel-yaw change by opposite amounts, so the
+    // rendered view (heading * hmdRel) and the HMD-local hand poses do NOT move — only
+    // the body turns underneath, and the VRIK hmdRel->model mapping stays valid.
+    if (g_menuModeValue == 0) {
+        OpenXRManager& xr = OpenXRManager::Get();
+        const float hmdYaw = xr.GetHmdYawRelToBody();   // head vs body/base yaw (rad)
+        auto wrapPi = [](float a) {
+            while (a >  3.14159265f) a -= 6.28318531f;
+            while (a < -3.14159265f) a += 6.28318531f;
+            return a;
+        };
+        // Physical-body yaw estimate, per mode:
+        //   UNARMED — PRIMARY: the left->right hand line built from the controller
+        //   POSITIONS (GetBodyYawFromHands) — it tracks the chest no matter where the
+        //   wrists point. (A relaxed grip aims the controllers DOWN, so the aim-pose
+        //   YAW is pure wrist noise; the first aim-yaw-based detector never fired on a
+        //   real body turn.) FALLBACK: both aim yaws agreeing with the head.
+        //   ARMED/AIMING — a gripped controller points level, so the WEAPON (right)
+        //   hand aim yaw is finally meaningful, while the hand LINE is not (a
+        //   two-handed rifle grip lays the hands along the barrel, not the shoulders).
+        //   Accept EITHER the weapon aim yaw OR the hand line agreeing with the head:
+        //   covers two-handed grips (aim agrees) and a lowered sidearm (line agrees).
+        // If nothing is available (controllers off), treat as aligned -> the body
+        // follows the head like the legacy behaviour.
+        // All tolerances MUST stay below kStartBand, or a head-only glance of
+        // (tol..startBand] degrees would count as aligned AND past the start band and
+        // self-trigger a realign.
+        constexpr float kAlignTol  = 0.3491f;   // 20 deg: body estimate agrees with the head
+        constexpr float kAlignHold = 0.25f;     // s of sustained alignment before turning
+        constexpr float kStartBand = 0.3665f;   // 21 deg: head-body offset needed to start
+        constexpr float kStopBand  = 0.0524f;   // 3 deg: offset where the realign stops
+        constexpr float kNeckLimit = 1.2217f;   // 70 deg: drag the body regardless of hands
+        constexpr float kTurnRate  = 2.6f;      // rad/s catch-up speed (~150 deg/s)
+
+        const bool weaponMode = (g_isAiming || g_hasWeaponEquipped);
+        float bodyLineYaw = 0.0f;
+        const bool haveLine = xr.GetBodyYawFromHands(&bodyLineYaw);
+        const float lineErr = haveLine ? wrapPi(bodyLineYaw - hmdYaw) : 3.14159265f;
+        float alignErr;   // head-vs-body-estimate mismatch (smallest available, for log)
+        bool handsAligned;
+        if (weaponMode) {
+            const float aimErr = wrapPi(xr.GetHandYawRelToBody(1) - hmdYaw);
+            handsAligned = (fabsf(aimErr) < kAlignTol) || (haveLine && fabsf(lineErr) < kAlignTol);
+            alignErr = (fabsf(aimErr) < fabsf(lineErr)) ? aimErr : lineErr;
+        } else if (haveLine) {
+            handsAligned = fabsf(lineErr) < kAlignTol;
+            alignErr = lineErr;
+        } else {
+            const float dL = wrapPi(xr.GetHandYawRelToBody(0) - hmdYaw);
+            const float dR = wrapPi(xr.GetHandYawRelToBody(1) - hmdYaw);
+            alignErr = (fabsf(dL) > fabsf(dR)) ? dL : dR;   // worst hand decides
+            handsAligned = fabsf(alignErr) < kAlignTol;
+        }
+
+        static bool     s_turning   = false;
+        static float    s_alignTime = 0.0f;
+        static uint64_t s_lastQpc   = 0;
+        LARGE_INTEGER qf, qn;
+        QueryPerformanceFrequency(&qf);
+        QueryPerformanceCounter(&qn);
+        float dt = 0.0f;
+        if (s_lastQpc != 0) dt = static_cast<float>(qn.QuadPart - s_lastQpc) / static_cast<float>(qf.QuadPart);
+        s_lastQpc = qn.QuadPart;
+        if (dt < 0.0f) dt = 0.0f;
+        if (dt > 0.05f) dt = 0.05f;   // pause/hitch: don't integrate a huge step
+
+        s_alignTime = handsAligned ? (s_alignTime + dt) : 0.0f;
+
+        const float absYaw = fabsf(hmdYaw);
+        if (!s_turning) {
+            const bool bodyTurned = handsAligned && (s_alignTime >= kAlignHold) && (absYaw > kStartBand);
+            if (bodyTurned || absYaw > kNeckLimit) {
+                s_turning = true;
+                Log("[BODY-REALIGN] START hmdYaw=%.1f bodyLine=%.1f (line=%d) alignErr=%.1f neck=%d wpn=%d\n",
+                    hmdYaw * 57.2957795f, bodyLineYaw * 57.2957795f, haveLine ? 1 : 0,
+                    alignErr * 57.2957795f, (absYaw > kNeckLimit) ? 1 : 0, weaponMode ? 1 : 0);
+            }
+        } else if (absYaw < kStopBand) {
+            s_turning = false;   // aligned: done (finish the turn even if a hand strays)
+            Log("[BODY-REALIGN] DONE hmdYaw=%.1f\n", hmdYaw * 57.2957795f);
+        }
+
+        if (s_turning && dt > 0.0f) {
+            float step = kTurnRate * dt;
+            if (step > absYaw) step = absYaw;
+            if (hmdYaw < 0.0f) step = -step;
+            if (step != 0.0f) {
+                deltaHead[idx] += step * 57.2957795f;   // heading toward the head (deg)
+                xr.RotateBaseYaw(step);                 // base follows -> view + hands stay put
+            }
+        }
+
+        // 1 Hz state trace so a silent failure is visible in cyberpunkvrport.log.
+        static float s_logTimer = 0.0f;
+        s_logTimer += dt;
+        if (s_logTimer >= 1.0f) {
+            s_logTimer = 0.0f;
+            Log("[BODY-REALIGN] hmdYaw=%.1f bodyLine=%.1f line=%d alignErr=%.1f aligned=%d hold=%.2f turning=%d wpn=%d\n",
+                hmdYaw * 57.2957795f, bodyLineYaw * 57.2957795f, haveLine ? 1 : 0,
+                alignErr * 57.2957795f, handsAligned ? 1 : 0, s_alignTime, s_turning ? 1 : 0, weaponMode ? 1 : 0);
+        }
     }
 
-
-    // 1. Calcola il delta yaw continuo dal visore (in GRADI)
-    OpenXRHeadPose xrPose{};
-    bool hasXR = OpenXRManager::Get().GetHeadPose(&xrPose);
-    if (hasXR && xrPose.valid) {
-        const float xrGameX = xrPose.oriX;
-        const float xrGameY = -xrPose.oriZ;
-        const float xrGameZ = xrPose.oriY;
-        const float xrGameW = xrPose.oriW;
- 
-        float fwdX = 2.0f * (xrGameX * xrGameY - xrGameZ * xrGameW);
-        float fwdY = 1.0f - 2.0f * (xrGameX * xrGameX + xrGameZ * xrGameZ);
-        
-        float currentYaw = atan2f(-fwdX, fwdY);
-        
-        
-        float deltaYawRadians = currentYaw - g_lastBodyYaw;
-        while (deltaYawRadians > 3.14159265f) deltaYawRadians -= 2.0f * 3.14159265f;
-        while (deltaYawRadians < -3.14159265f) deltaYawRadians += 2.0f * 3.14159265f;
-            
-        deltaYawDegrees = deltaYawRadians * 57.2957795f;
-            
-        if (fabsf(deltaYawDegrees) < 0.05f) {
-            deltaYawDegrees = 0.0f;
-        }
-        g_lastBodyYaw = currentYaw;
-
-
-        // 3. Applica il delta totale (tracking continuo + snap)
-        float totalDelta = deltaYawDegrees + snap;
-        if (totalDelta != 0.0f) {
-            deltaHead[idx] += totalDelta;
-        }
-      
-    }
-
-    /*if (!deltaHead) return;
-    const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
-    if (bits == 0) return;
-    float snap = 0.0f;
-    memcpy(&snap, &bits, sizeof(snap));
-    if (snap == 0.0f) return;
-
-    int idx = GetSnapTurnYawIndex();
-    if (idx < 0) idx = 0;
-    if (idx > 3) idx = 3;
-    deltaHead[idx] += snap;*/
+    if (snap != 0.0f) deltaHead[idx] += snap;
 }
 
 bool InstallOnFootDeltaHeadHook() {
@@ -5225,10 +5282,19 @@ extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
     int src = g_liveControls.xrMovementSource;
 
     if(g_isAiming || g_hasWeaponEquipped){
-       src = 1; 
+       src = 1;
     }
 
-    if (src <= 0) return; // 0 = Game (no rotation)
+    // Body-realign redesign: the heading no longer tracks the head continuously, so
+    // "Game" (0) — which used to inherit head-following THROUGH the glued heading —
+    // would now walk in the direction of the (deliberately slow) BODY and lag every
+    // head turn by the realign. Movement must follow the gaze IMMEDIATELY and be
+    // independent of the body, so Game falls back to HMD-relative on foot. The move
+    // vector is heading-relative and hmdYawRel is head-vs-heading, so the rotated
+    // vector equals the gaze direction exactly, even mid-realign (heading and
+    // hmdYawRel change by opposite amounts -> their sum, the world direction, is
+    // invariant). Hand sources (2/3) stay as explicit user choices.
+    if (src <= 0) src = 1;
     if (g_menuModeValue != 0) return;
     if (!moveStruct) return;
     float* p = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(moveStruct) + 0x90);
@@ -5506,6 +5572,27 @@ static DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState
     // Buttons: OR (so a physical pad can still augment, and vice versa).
     pState->Gamepad.wButtons |= vr.buttons;
 
+    // MENU-ONLY: right grip = RB (right shoulder) for tab navigation to the RIGHT,
+    // symmetric with the left grip's LB (merged unconditionally in the frame loop).
+    // The right grip is deliberately NEVER merged as RB in gameplay — there it is
+    // reserved for the hand-to-holster equip (published as shared[49] below) and as
+    // the D-pad modifier, and RB is a gameplay action that would misfire on every
+    // holster reach. Menus run no holster logic and can't fire gameplay actions, so
+    // the grip is safe to act as RB while one is open. Menu state = the native
+    // menu-mode hook OR the redscript world-map bridge flag (shared[81]), the same
+    // pair the camera path uses.
+    {
+        bool menuOpenForRb = (g_menuModeValue != 0);
+        if (!menuOpenForRb) {
+            if (float* sh = GetShotShared()) {
+                if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenForRb = true;
+            }
+        }
+        if (menuOpenForRb && vr.rightGrip >= 0.7f) {
+            pState->Gamepad.wButtons |= 0x0200; // XINPUT_GAMEPAD_RIGHT_SHOULDER
+        }
+    }
+
     // Triggers: take the max so a physical squeeze isn't lost.
     BYTE lt = FloatToBYTE(vr.leftTrigger);
     BYTE rt = FloatToBYTE(vr.rightTrigger);
@@ -5759,7 +5846,9 @@ DWORD WINAPI WorkerThread(LPVOID) {
     if (g_verboseLog || !h_heading_force) Log("ForceHeadingUpdate hook result: %s\n", h_heading_force ? "SUCCESS" : "FAILED");
 
     bool h4 = InstallOnFootDeltaHeadHook();
-    if (g_verboseLog || !h4) Log("OnFootDeltaHead hook result: %s\n", h4 ? "SUCCESS" : "FAILED");
+    // Always logged: body-realign depends on this hook, so a pattern-match failure
+    // (game patch) must be visible in the log even without verbose mode.
+    Log("OnFootDeltaHead hook result: %s\n", h4 ? "SUCCESS" : "FAILED");
 
     bool h5 = InstallOnFootMoveXYHook();
     if (g_verboseLog || !h5) Log("OnFootMoveXY hook result: %s\n", h5 ? "SUCCESS" : "FAILED");

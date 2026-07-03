@@ -204,6 +204,21 @@ public:
     // 0 if the controller pose isn't valid this frame.
     float GetHandYawRelToBody(int side) const;
 
+    // Body-realign support: rotate the recenter base about the vertical axis by
+    // `radians`, IN STEP with an equal heading injection (dxgi OnOnFootDeltaHead).
+    // relOri/relPos are conj(base)*head, so base*Ry(a) shifts the HMD's relative yaw
+    // by -a while the reconstructed raw pose (base*rel) is unchanged: the rendered
+    // view and the HMD-local hand poses stay put while the body turns underneath.
+    void RotateBaseYaw(float radians);
+
+    // Physical-body yaw estimate (radians, rel recenter base, same convention as
+    // GetHmdYawRelToBody) from the CONTROLLER POSITIONS: the left->right hand line
+    // approximates the shoulder line, so its perpendicular is where the chest faces —
+    // robust no matter where the wrists point (a relaxed grip aims the controllers
+    // down, which makes the aim-pose YAW pure wrist noise). False if either hand is
+    // untracked or the hands are too close together to define a line.
+    bool GetBodyYawFromHands(float* outYaw) const;
+
     // Per-frame snapshot of all controller buttons/axes (OpenXR action state).
     // Filled by the frame thread under m_inputMutex; copied out by readers.
     bool GetControllerState(VRControllerState* out) const;
@@ -692,4 +707,16 @@ private:
 
     bool m_basePoseSet = false;
     XrPosef m_basePose{};
+
+    // MENU PANEL ANCHOR. The menu/map panel pose is LATCHED once when a menu opens
+    // and reused until it closes, so the panel hangs WORLD-FIXED in front of where
+    // the player was looking. Re-deriving it from the live head pose every frame
+    // (the old behaviour) yaw-locked the panel to the head: menu corners could
+    // never be looked at and the whole UI dragging with the head caused motion
+    // sickness. m_menuAnchorValid is reset by the frame loop whenever no menu is
+    // active. Frame-thread only (latched and consumed in the submit paths).
+    bool m_menuAnchorValid = false;     // quad-layer anchor latched
+    bool m_menuEyeAnchorValid = false;  // projection-path per-eye anchor latched
+    XrPosef m_menuQuadPose{};       // latched quad-layer pose (m_localSpace)
+    XrPosef m_menuEyePoses[2]{};    // latched per-eye poses for the projection path
 };
