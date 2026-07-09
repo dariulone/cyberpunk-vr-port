@@ -1,8 +1,10 @@
 // CyberpunkVRPort — VR motion melee. Treat the weapon's blade as a real collider: a segment from
 // the grip to the tip, with a radius "hit zone" around it. Every frame the CET weapon mod passes the
 // current blade segment; we find NPCs whose body is within that radius of the segment and fire the
-// game's OWN native melee attack precisely on the touched enemy, so collision/damage/reaction/stamina
-// behave like the flat game. Driven by the real VR swing, not the camera/animation.
+// game's OWN native melee Attack_GameEffect precisely on the touched enemy — native hit REACTIONS,
+// material impact VFX (blood), SFX, impulse — while the CalculateDamageVariants wrap re-injects the
+// weapon's real damage (native compute zeroes script melee hits out of combat state), so damage
+// numbers / hit markers / armor / crit run natively too. Driven by the real VR swing, not the camera.
 //
 // Called from CET each frame while swinging a melee weapon:
 //   Game.GetPlayer():VRMeleeBladeHit(weapon, bladeStart, bladeEnd, hitRadius, strong)
@@ -118,14 +120,14 @@ public func VRMeleeBladeHit(weapon: wref<WeaponObject>, bladeStart: Vector4, bla
   //   * CET gates THIS call by a "swing speed" threshold on the weapon vs player — so a stationary
   //     controller (blade resting in an NPC body, body micro-motion only) is NEVER a hit. It also means
   //     a real swing (>1.5 m/s) is required to register, even if the blade is on contact.
-  //   * This function fires a hit IF the per-NPC cooldown (0.2s on the same NPC) has elapsed.
+  //   * This function fires a hit IF the per-NPC cooldown (0.1s on the same NPC) has elapsed.
   //   * Fast slash through NPC1 -> NPC2 -> NPC3 -> 3 hits (each is a different ID, no cooldown applies).
-  //   * Repeated slashes on the same NPC -> 1 hit every 0.2s (5 hits/sec max on one target).
+  //   * Repeated slashes on the same NPC -> 1 hit every 0.1s (10 hits/sec max on one target).
   if !IsDefined(bestEnemy) { return 0; }
   let curId = bestEnemy.GetEntityID();
   let now = EngineTime.ToFloat(GameInstance.GetSimTime(this.GetGame()));
   let sameNpc = EntityID.IsDefined(this.m_vrMeleeLastTouched) && this.m_vrMeleeLastTouched == curId;
-  if sameNpc && (now - this.m_vrMeleeLastHitTime) < 0.2 {
+  if sameNpc && (now - this.m_vrMeleeLastHitTime) < 0.1 {
     return 0;
   }
   this.m_vrMeleeLastTouched = curId;
@@ -139,13 +141,63 @@ public func VRMeleeBladeHit(weapon: wref<WeaponObject>, bladeStart: Vector4, bla
   if dmg <= 0.0 { dmg = 50.0; };
   if strong { dmg *= 2.0; };
 
-  // Build a real hit on the touched enemy and queue it through the native DamageSystem. The native
-  // compute zeroes the attackComputed of a script hit (a plain melee record carries no damage value out
-  // of combat state — diag proved this: we filled 8429, it came back 0). So we re-inject `dmg` in the
-  // CalculateDamageVariants wrap below — that runs AFTER the native compute but BEFORE the pipeline flags
-  // DealNoDamage — and the native stages (armor / crit / damage numbers / hit markers / ApplyDamage) then
-  // run on our value. THIS is what makes the damage fully native (real numbers, markers, armor, crit) on
-  // blade contact, for the exact NPC the blade touched.
+  // Fire the game's OWN melee Attack_GameEffect along the blade INTO the touched enemy — the exact
+  // pattern of the flat game's SpawnQuickMeleeGameEffect / SpawnAttackGameEffect (weaponTransitions /
+  // meleeTransitions.script), only aimed by the REAL blade contact instead of the camera. The native
+  // effect stage is what plays everything the manual QueueHitEvent path lost: NPC hit REACTIONS
+  // (flinch/stagger via the reaction system), impact VFX by material (fxPackage -> blood), impact SFX
+  // and physical impulse. Its hit then flows into the SAME DamageSystem pipeline, where the
+  // CalculateDamageVariants wrap below re-injects `dmg` (the native compute zeroes script-initiated
+  // melee damage out of combat state — old diag: we filled 8429, it came back 0), so armor / crit /
+  // damage numbers / hit markers / ApplyDamage all run natively on our value. One hit source:
+  // reactions + effects + damage from a single native attack.
+  //
+  // The sweep is aimed at the touched NPC's nearest body sample (centerline through the body), with a
+  // tight box and a range capped just past the target so neighbours don't get clipped — the touch
+  // decision stays OURS (blade-segment test above), the native effect only executes it.
+  let fired = false;
+  let initCtx: AttackInitContext;
+  initCtx.record = meleeAttack.GetRecord();
+  initCtx.instigator = this;
+  initCtx.source = this;
+  initCtx.weapon = weapon;
+  let atk = IAttack.Create(initCtx) as Attack_GameEffect;
+  if IsDefined(atk) {
+    let effect = atk.PrepareAttack(this);
+    if IsDefined(effect) {
+      let toEnemy = new Vector4(bestPos.X - bladeStart.X, bestPos.Y - bladeStart.Y, bestPos.Z - bladeStart.Z, 0.0);
+      let sweepDir = Vector4.Normalize(toEnemy);
+      let sweepRange = Vector4.Length(toEnemy) + 0.5;
+      let atkPos = new Vector4(bladeStart.X, bladeStart.Y, bladeStart.Z, 0.0);
+      EffectData.SetVector(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.box, new Vector4(0.35, 0.35, 0.35, 0.0));
+      EffectData.SetFloat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.duration, 0.15);
+      EffectData.SetVector(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.position, atkPos);
+      EffectData.SetQuat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.rotation, weapon.GetWorldOrientation());
+      EffectData.SetVector(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.forward, sweepDir);
+      EffectData.SetFloat(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.range, sweepRange);
+      if strong { EffectData.SetBool(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.meleeCleave, true); };
+      EffectData.SetVariant(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.fxPackage, ToVariant(weapon.GetFxPackage()));
+      EffectData.SetBool(effect.GetSharedData(), GetAllBlackboardDefs().EffectSharedData.playerOwnedWeapon, true);
+      // tag BEFORE StartAttack: the effect can process its hits synchronously. COUNTER (not bool) so
+      // hits in flight across frames all get the damage; the wrap decrements per processed hit.
+      this.m_vrMeleeDmg = dmg;
+      this.m_vrMeleePending += 1;
+      fired = atk.StartAttack();
+      if !fired { this.m_vrMeleePending -= 1; };
+    };
+  };
+  if fired {
+    // IMPACT SOUND. In the flat game the melee impact audio rides on the player's attack
+    // ANIMATION events — which a VR swing never plays; and the NPC-side hit feedback sound
+    // (hitReactionComponent.GetHitSoundName: 'w_feedback_hit_npc' family) is gated to
+    // isBulletAttack = IsRangedOrDirect, so melee hits stay SILENT. Play the game's own hit
+    // feedback event on the touched NPC (positional) — same audio language as gun hits.
+    GameObject.PlaySoundEvent(bestEnemy, n"w_feedback_hit_npc");
+    return 1;
+  };
+
+  // FALLBACK (effect creation failed): queue a bare hit through the DamageSystem — damage / numbers /
+  // markers only, no reaction/VFX stage. Same re-injection wrap applies.
   let hitEvent = new gameHitEvent();
   hitEvent.attackData = new AttackData();
   let ctx: AttackInitContext;
@@ -164,22 +216,228 @@ public func VRMeleeBladeHit(weapon: wref<WeaponObject>, bladeStart: Vector4, bla
   hitEvent.target = bestEnemy;
   hitEvent.hitPosition = bestPos;
   hitEvent.hitDirection = dir;
-
-  // tag the hit as ours (the pipeline wrap re-injects dmg for it). COUNTER (not bool) so multiple in-flight
-  // hits — e.g. fast slash through several NPCs in the same frame — all get the damage; the wrap
-  // decrements per processed hit. The dmg value itself is stored on the player too (per-weapon, stable).
   this.m_vrMeleeDmg = dmg;
   this.m_vrMeleePending += 1;
-
   GameInstance.GetDamageSystem(this.GetGame()).QueueHitEvent(hitEvent, bestEnemy);
+  GameObject.PlaySoundEvent(bestEnemy, n"w_feedback_hit_npc");   // impact audio (see above)
   return 1;
+}
+
+// SWING WHOOSH (VR). In the flat game the whoosh rides on the attack ANIMATION's audio events,
+// resolved through the weapon's cooked audio metadata (audioMeleeSettings: normalWhoosh /
+// fastWhoosh / slowWhoosh event lists per weapon family) — a VR swing plays no attack anim, so
+// swings are dead silent. Scripts can't read cooked audio metadata, so this replicates the SAME
+// selection with the exact event names from the game's audio configs (dumped from
+// base\sound\metadata: audio_melee_metadata_* for every melee family + cyberware banks):
+// family = weapon ItemType, variant = fast/normal by real swing speed, heavy on strong swings.
+// Played positionally on the WEAPON object — same audio language as the vanilla whoosh
+// (weapon emitter), and the same "main whoosh + detail layer" pairing the configs use.
+@addMethod(PlayerPuppet)
+public func VRMeleeWhoosh(weapon: wref<WeaponObject>, fast: Bool, strong: Bool) -> Void {
+  if !IsDefined(weapon) { return; };
+  let rec = weapon.GetWeaponRecord();
+  if !IsDefined(rec) { return; };
+  let t = rec.ItemType().Type();
+  let a: CName = n"";  // main whoosh
+  let b: CName = n"";  // detail layer (knife ring / tomahawk head / sledge ring), as in the configs
+  switch t {
+    case gamedataItemType.Wea_Katana:
+    case gamedataItemType.Wea_Sword:
+    case gamedataItemType.Wea_LongBlade:
+      a = n"w_melee_katana_whoosh";                                        // katana config: normalWhoosh only
+      break;
+    case gamedataItemType.Wea_ShortBlade:
+    case gamedataItemType.Wea_Knife:
+    case gamedataItemType.Wea_Machete:
+      a = fast ? n"w_melee_blade_whoosh_fast" : n"w_melee_blade_whoosh_normal";
+      b = n"w_melee_detail_knife_ring";
+      break;
+    case gamedataItemType.Wea_Axe:
+      a = fast ? n"w_melee_blade_whoosh_fast" : n"w_melee_blade_whoosh_normal";
+      b = n"w_melee_detail_tomahawk";                                      // tomahawk/vb_axe configs
+      break;
+    case gamedataItemType.Wea_Chainsword:
+      a = fast ? n"w_melee_blade_whoosh_fast" : n"w_melee_blade_whoosh_normal";
+      b = fast ? n"w_melee_cut_o_matic_whoosh_fast" : n"w_melee_cut_o_matic_whoosh";
+      break;
+    case gamedataItemType.Wea_Hammer:
+      a = fast ? n"w_melee_sledgehammer_whoosh_fast" : n"w_melee_sledgehammer_whoosh";
+      b = fast ? n"w_melee_sledgehammer_detail_ring" : n"w_melee_sledgehammer_detail_ring_sharp";
+      break;
+    case gamedataItemType.Wea_OneHandedClub:
+    case gamedataItemType.Wea_TwoHandedClub:
+    case gamedataItemType.Wea_Melee:
+      if strong { a = n"w_melee_blunt_whoosh_heavy"; }
+      else { a = fast ? n"w_melee_blunt_whoosh_fast" : n"w_melee_blunt_whoosh_low"; };
+      break;
+    case gamedataItemType.Cyb_MantisBlades:
+      if strong { a = n"w_cyb_mantis_whoosh_heavy"; }
+      else { a = fast ? n"w_cyb_mantis_whoosh_fast" : n"w_cyb_mantis_whoosh"; };
+      b = n"w_cyb_mantis_whoosh_ring";
+      break;
+    case gamedataItemType.Cyb_NanoWires:
+      a = fast ? n"w_cyb_nano_wire_whoosh_swirl" : n"w_cyb_nano_wire_whoosh";
+      break;
+    case gamedataItemType.Cyb_StrongArms:
+    case gamedataItemType.Wea_Fists:
+      a = fast ? n"w_melee_fist_whoosh_fast" : n"w_melee_fist_whoosh_heavy";  // fists config naming
+      break;
+    default:
+      a = fast ? n"w_melee_fist_whoosh_fast" : n"w_melee_fist_whoosh_heavy";  // neutral air whoosh
+      break;
+  }
+  if NotEquals(a, n"") { GameObject.PlaySoundEvent(weapon, a); };
+  if NotEquals(b, n"") { GameObject.PlaySoundEvent(weapon, b); };
+}
+
+// WEAPON DRAW SOUND (VR). Draw/equip sounds ride on the draw ANIMATION's audio events, which the
+// VR rig never plays — so every draw is silent. Same replication approach as the whoosh:
+//   melee — the equipSound lists from audio_melee_metadata_* per family (incl. detail layers);
+//   guns  — audio family names live only in cooked entity data (scripts can't read it, TweakDB
+//           has none of them), so the full set of player '*_equip' events from the sound banks
+//           is embedded and matched by the gun's name token from its TweakDB id
+//           ("Items.Preset_Lexington_Wilson" -> "lexington" -> w_gun_pistol_power_lexington_equip);
+//           unmatched guns degrade to the game's own generic draws by weight class
+//           (w_gun_npc_equip_light/medium/heavy — what NPC draws play).
+// Played positionally on the weapon entity, like the whoosh and the hit feedback.
+@addMethod(PlayerPuppet)
+public func VREquipSound(weapon: wref<WeaponObject>) -> Void {
+  if !IsDefined(weapon) { return; };
+  let rec = weapon.GetWeaponRecord();
+  if !IsDefined(rec) { return; };
+  let t = rec.ItemType().Type();
+  let a: CName = n"";
+  let b: CName = n"";
+  switch t {
+    case gamedataItemType.Wea_Katana:
+    case gamedataItemType.Wea_Sword:
+    case gamedataItemType.Wea_LongBlade:
+      a = n"w_melee_katana_equip";
+      break;
+    case gamedataItemType.Wea_ShortBlade:
+    case gamedataItemType.Wea_Knife:
+      a = n"w_melee_knife_additional_equip";
+      b = n"w_melee_detail_knife_ring";
+      break;
+    case gamedataItemType.Wea_Machete:
+      a = n"w_melee_knife_additional_equip";
+      break;
+    case gamedataItemType.Wea_Axe:
+      a = n"w_melee_detail_tomahawk";
+      b = n"w_melee_knife_additional_equip";
+      break;
+    case gamedataItemType.Wea_Chainsword:
+      a = n"w_melee_cut_o_matic_equip";
+      break;
+    case gamedataItemType.Wea_Hammer:
+      break;                                        // sledgehammer config: equipSound "None"
+    case gamedataItemType.Wea_OneHandedClub:
+    case gamedataItemType.Wea_TwoHandedClub:
+    case gamedataItemType.Wea_Melee:
+      a = n"w_melee_detail_bat_equip";
+      break;
+    case gamedataItemType.Wea_Fists:
+      a = n"lcm_mvs_leather_jacket_fast_light";     // fists config: cloth swish
+      break;
+    case gamedataItemType.Cyb_MantisBlades:
+      a = n"w_cyb_mantis_equip";
+      break;
+    case gamedataItemType.Cyb_StrongArms:
+      a = n"w_cyb_strongarms_equip";
+      break;
+    case gamedataItemType.Cyb_NanoWires:
+      a = n"w_cyb_nano_wire_out";                   // wire deploy
+      break;
+    default:
+      break;
+  }
+  if NotEquals(a, n"") || NotEquals(b, n"") {
+    if NotEquals(a, n"") { GameObject.PlaySoundEvent(weapon, a); };
+    if NotEquals(b, n"") { GameObject.PlaySoundEvent(weapon, b); };
+    return;
+  };
+  if Equals(t, gamedataItemType.Wea_Hammer) { return; };
+
+  // guns: match the item-id name token against the sound banks' player equip events
+  let idStr = StrLower(TDBID.ToStringDEBUG(ItemID.GetTDBID(weapon.GetItemID())));
+  let parts = StrSplit(idStr, "_");
+  if ArraySize(parts) >= 2 {
+    let name = parts[1];
+    let evts: array<String> = [
+      "w_gun_pistol_power_lexington_equip", "w_gun_pistol_power_liberty_equip",
+      "w_gun_pistol_power_unity_equip", "w_gun_pistol_power_nue_equip",
+      "w_gun_pistol_power_slaughtomatic_equip", "w_gun_pistol_power_silverhand_equip",
+      "w_gun_pistol_tech_omaha_equip", "w_gun_pistol_tech_kenshin_equip",
+      "w_gun_grit_equip", "w_gun_ticon_equip", "w_gun_pistol_toygun_equip",
+      "w_gun_pistol_smart_chao_equip", "w_gun_pistol_smart_kappa_equip",
+      "w_gun_pistol_smart_yukimura_equip",
+      "w_gun_revol_power_overture_equip", "w_gun_revol_power_crusher_equip",
+      "w_gun_revol_power_nova_equip", "w_gun_metel_equip",
+      "w_gun_revol_tech_burya_equip", "w_gun_revol_tech_quasar_equip",
+      "w_gun_smg_power_saratoga_equip", "w_gun_smg_power_guillotine_equip",
+      "w_gun_smg_power_pulsar_equip", "w_gun_borg4a_equip", "w_gun_warden_equip",
+      "w_gun_smg_tech_senkoh_equip", "w_gun_smg_smart_shingen_equip",
+      "w_gun_smg_smart_sidewinder_equip", "w_gun_smg_smart_dian_equip",
+      "w_gun_rifle_power_ajax_equip", "w_gun_rifle_power_copperhead_equip",
+      "w_gun_rifle_power_masamune_equip", "w_gun_rifle_power_nowaki_equip",
+      "w_gun_rifle_power_pozhar_equip", "w_gun_rifle_power_sor22_equip",
+      "w_gun_rifle_power_kolac_equip", "w_gun_rifle_tech_achilles_equip",
+      "w_gun_shotgun_power_carnage_equip", "w_gun_shotgun_power_tactician_equip",
+      "w_gun_shotgun_power_igla_equip", "w_gun_shotgun_power_testera_equip",
+      "w_gun_shotgun_tech_satara_equip", "w_gun_shotgun_smart_zhuo_equip",
+      "w_gun_shotgun_smart_palica_equip",
+      "w_gun_sniper_power_grad_equip", "w_gun_osprey_equip",
+      "w_gun_sniper_tech_rasetsu_equip", "w_gun_sniper_tech_nekomata_equip",
+      "w_gun_sniper_smart_ashura_equip",
+      "w_gun_lmg_power_ma70_equip", "w_gun_lmg_power_defender_equip",
+      "w_gun_hmg_militech_equip", "w_gun_hercules3ax_equip"
+    ];
+    let i = 0;
+    while i < ArraySize(evts) {
+      if StrContains(evts[i], "_" + name) {
+        GameObject.PlaySoundEvent(weapon, StringToName(evts[i]));
+        return;
+      };
+      i += 1;
+    };
+  };
+
+  // no bank event matched: the game's generic draw foley by weight class
+  switch t {
+    case gamedataItemType.Wea_Handgun:
+    case gamedataItemType.Wea_Revolver:
+    case gamedataItemType.Wea_SubmachineGun:
+      a = n"w_gun_npc_equip_light";
+      break;
+    case gamedataItemType.Wea_SniperRifle:
+    case gamedataItemType.Wea_LightMachineGun:
+    case gamedataItemType.Wea_HeavyMachineGun:
+      a = n"w_gun_npc_equip_heavy";
+      break;
+    default:
+      a = n"w_gun_npc_equip_medium";
+      break;
+  }
+  GameObject.PlaySoundEvent(weapon, a);
+}
+
+// NO IDLE AUTO-UNEQUIP FOR MELEE. The melee PSM's PublicSafe state arms a 15s timer
+// (timeToAutoUnequipWeapon in public zones / timeToUnequipMeleeware for arm cyberware) and its
+// OnTick sends UnequipWeapon when it expires. The timer resets only on ATTACK INPUT — which a VR
+// swing never presses, so the blade kept holstering itself mid-use ("idle" by the game's book
+// while the player is physically swinging it). Guns don't idle-unequip; give melee the same
+// behavior by neutralizing the timer right before the vanilla check reads it.
+@wrapMethod(MeleePublicSafeEvents)
+protected func OnTick(timeDelta: Float, stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void {
+  this.m_unequipTime = -1.0;
+  wrappedMethod(timeDelta, stateContext, scriptInterface);
 }
 
 // VR-melee state on the player:
 //   m_vrMeleeDmg          - raw damage to re-inject for the next N pipeline runs (per-weapon, stable)
 //   m_vrMeleePending      - COUNT of in-flight hits we queued and haven't seen at PreProcess yet
 //   m_vrMeleeLastTouched  - last NPC the blade was touching (per-NPC cooldown key)
-//   m_vrMeleeLastHitTime  - sim time of the last hit on m_vrMeleeLastTouched (drives the 0.2s cooldown)
+//   m_vrMeleeLastHitTime  - sim time of the last hit on m_vrMeleeLastTouched (drives the 0.1s cooldown)
 @addField(PlayerPuppet) let m_vrMeleeDmg: Float;
 @addField(PlayerPuppet) let m_vrMeleePending: Int32;
 @addField(PlayerPuppet) let m_vrMeleeLastTouched: EntityID;

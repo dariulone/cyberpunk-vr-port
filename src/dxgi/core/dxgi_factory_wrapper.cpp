@@ -814,6 +814,11 @@ std::atomic<UINT> g_sceneDepthFmt{0};
 std::atomic<uint64_t> g_sceneDepthArea{0};
 std::atomic<UINT> g_sceneDepthState{0}; // D3D12_RESOURCE_STATE_COMMON until an explicit transition is observed
 std::atomic<uint64_t> g_omSetRtCalls{0};
+// The command list that last bound the scene-depth DSV, and the queue that executed
+// it = the game's depth-writer queue. Recording our depth resolve on THAT queue makes
+// it FIFO-ordered after the game's depth write (no cross-queue Wait -> no CP2077 hang).
+std::atomic<ID3D12CommandList*> g_sceneDepthBinderList{nullptr};
+std::atomic<ID3D12CommandQueue*> g_sceneDepthWriterQueue{nullptr};
 std::mutex g_cmdVtMutex;
 std::unordered_set<void**> g_patchedCmdVtables;
 std::atomic<uint32_t> g_distinctCmdVtables{0};
@@ -855,6 +860,11 @@ void STDMETHODCALLTYPE HookedOMSetRenderTargets(ID3D12GraphicsCommandList* list,
             if (it != g_dsvMap.end()) { info = it->second; found = true; }
         }
         if (found) {
+            // If this bind targets the current scene depth, remember the command list:
+            // when it is later executed, the executing queue is the depth-writer queue.
+            if (info.resource && info.resource == g_sceneDepthRes.load(std::memory_order_relaxed)) {
+                g_sceneDepthBinderList.store(static_cast<ID3D12CommandList*>(list), std::memory_order_relaxed);
+            }
             // Scene depth = the largest depth-stencil ever bound to OM (the main
             // geometry pass). HUD / shadow / UI depths are smaller or never bound here.
             const uint64_t area = static_cast<uint64_t>(info.width) * static_cast<uint64_t>(info.height);
@@ -947,8 +957,13 @@ void STDMETHODCALLTYPE HookedExecuteCommandLists(ID3D12CommandQueue* queue, UINT
     // uses will eventually run something through here.
     TryHookQueueSignalVtable(queue);
     if (lists) {
+        ID3D12CommandList* depthBinder = g_sceneDepthBinderList.load(std::memory_order_relaxed);
         for (UINT i = 0; i < numLists; ++i) {
             TryHookCmdListVtable(lists[i]);
+            // The queue that submits the scene-depth binder list = depth-writer queue.
+            if (depthBinder && lists[i] == depthBinder) {
+                g_sceneDepthWriterQueue.store(queue, std::memory_order_relaxed);
+            }
         }
     }
     if (g_verboseLog && (g_eclTotalCalls.load(std::memory_order_relaxed) % 600) == 1) {
@@ -1237,6 +1252,9 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
 
     OverlayRender(swapChain);
     OpenXRManager::Get().OnPresent(swapChain);
+    // Drive one XR frame inline on the Present thread to avoid the old
+    // cross-thread submit drift while keeping the rest of the pipeline at HEAD.
+    OpenXRManager::Get().PumpInlineFrame();
     void** vtable = *reinterpret_cast<void***>(swapChain);
     PresentFn originalFn = GetOriginalMethod<PresentFn>(vtable, 8);
     const HRESULT hr = originalFn ? originalFn(swapChain, syncInterval, flags) : DXGI_ERROR_INVALID_CALL;
@@ -1599,6 +1617,7 @@ HRESULT STDMETHODCALLTYPE DXGIFactoryWrapper::UnregisterAdaptersChangedEvent(DWO
 // [DEPTH] Accessors for the submit path (openxr_manager) to snapshot the game's
 // scene depth with the correct (observed) resource state.
 extern "C" ID3D12Resource* OmoGetSceneDepthResource() { return g_sceneDepthRes.load(std::memory_order_relaxed); }
+extern "C" ID3D12CommandQueue* OmoGetSceneDepthWriterQueue() { return g_sceneDepthWriterQueue.load(std::memory_order_relaxed); }
 extern "C" unsigned int OmoGetSceneDepthState() { return g_sceneDepthState.load(std::memory_order_relaxed); }
 extern "C" unsigned int OmoGetSceneDepthWidth() { return g_sceneDepthW.load(std::memory_order_relaxed); }
 extern "C" unsigned int OmoGetSceneDepthHeight() { return g_sceneDepthH.load(std::memory_order_relaxed); }

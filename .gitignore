@@ -4,6 +4,7 @@
 /build-cuda/
 /build-cuda-vs/
 /.vs/
+/.vscode/
 /out/
 *.suo
 *.user
@@ -52,3 +53,10 @@ mods/cet/**/vrik_recenter.ini
 /engine_re/
 /render_camera_RE/
 /weapons_RE/
+
+# Testbed harness + its build output (kept out of the release repo)
+/build-testbed/
+/testbed/
+
+# Large third-party reference PDFs (GDC / SIGGRAPH talks; kept out of the repo)
+/docs/external/

@@ -16,6 +16,23 @@ local chunkDebugBit1 = -1
 local chunkDebugBit2 = -1
 local chunkDebugBit3 = -1
 local needRestoreArms = true
+-- SPRINT-ANIM KILL (VR). Zero the anim-graph 'sprint' input every frame: the sprint
+-- animation layer carries the arm pump AND the ~20cm forward camera lead (rig Up-GRPs
+-- keep Z constant, hence the flat 1.6) -- measured source of the sprint start/stop
+-- body/hands dive and the sprint snap-turn "double". The game itself uses this exact
+-- input to run sprint WITHOUT the animation (shoot-while-sprinting perk path in
+-- SprintEvents.OnUpdate), so speed, stamina and state logic stay fully intact.
+local killSprintAnim = true
+
+-- [CAMWRITE] engine-native camera orientation (dxgi xr_cam_write_mode=1):
+-- dxgi publishes the desired WORLD camera quat in shared [100..103] with a
+-- publish seq [151] (mode flag [84]). Each sim frame we convert it to camera-
+-- LOCAL against the live parent orientation and write it through
+-- FPPCameraComponent:SetLocalOrientation -- the exact path mouse input takes,
+-- so every camera builder consumes ONE quat in-phase instead of racing the
+-- locate-stomp (the intermittent head-turn jitter). SetVRCamAck(seq) tells
+-- dxgi the path is alive; if we die, dxgi falls back to the legacy stomp.
+local camWriteLastSeq = -1.0
 
 -- VR hand tracking activation + IK calibration now live in the F10 in-headset
 -- overlay (VRIK tab), published to the plugin via shared memory. This CET mod
@@ -370,6 +387,8 @@ end)
 local lastCamPos = nil
 local lastCamQuat = nil
 
+
+
 registerHotkey('LogVRDiag', 'Log VR Hand Diagnostic', function()
     if type(SetVRDiagCapture) == 'function' then pcall(function() SetVRDiagCapture(1) end) end
     if type(LogVRDiag) == 'function' and lastCamPos and lastCamQuat then
@@ -401,6 +420,43 @@ registerForEvent('onUpdate', function(dt)
 
     local player = Game.GetPlayer()
     if not player then return end
+
+    -- [CAMWRITE] apply the dxgi-published desired camera quat via the engine's
+    -- own component path (see the comment at camWriteLastSeq).
+    if type(GetVRSharedSlot) == 'function' and type(SetVRCamAck) == 'function' then
+        pcall(function()
+            if GetVRSharedSlot(84) ~= 1.0 then return end
+            local s1 = GetVRSharedSlot(151)
+            if s1 == 0.0 or s1 == camWriteLastSeq then return end
+            local qx = GetVRSharedSlot(100); local qy = GetVRSharedSlot(101)
+            local qz = GetVRSharedSlot(102); local qw = GetVRSharedSlot(103)
+            -- Torn-publish guard: seq is written LAST on the dxgi side, so a
+            -- changed re-read means the quat spans two publishes -> skip frame.
+            if GetVRSharedSlot(151) ~= s1 then return end
+            local cam = player:GetFPPCameraComponent()
+            if not cam then return end
+            local pw = player:GetWorldOrientation()
+            if not pw or type(pw.i) ~= 'number' then return end
+            -- local = conj(parent_world) * desired_world (Hamilton, game axes).
+            local ci, cj, ck, cr = -pw.i, -pw.j, -pw.k, pw.r
+            local li = cr*qx + ci*qw + cj*qz - ck*qy
+            local lj = cr*qy - ci*qz + cj*qw + ck*qx
+            local lk = cr*qz + ci*qy - cj*qx + ck*qw
+            local lr = cr*qw - ci*qx - cj*qy - ck*qz
+            local n = math.sqrt(li*li + lj*lj + lk*lk + lr*lr)
+            if n < 1e-6 then return end
+            cam:SetLocalOrientation(Quaternion.new(li/n, lj/n, lk/n, lr/n))
+            camWriteLastSeq = s1
+            SetVRCamAck(s1)
+        end)
+    end
+
+    -- Per-frame: the PSM re-asserts anim inputs on sprint entry, so keep forcing it.
+    if killSprintAnim then
+        pcall(function()
+            AnimationControllerComponent.SetInputFloat(player, 'sprint', 0.0)
+        end)
+    end
 
     if mouseDisableEnabled then
         local cam = player:GetFPPCameraComponent()
