@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <psapi.h>
 #include <xinput.h>
+#include "shared_slots.h"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
 #include <cstdint>
 #include <cstddef>
 #include <cstdio>
@@ -99,6 +100,7 @@ struct LiveControls {
     volatile float xrForceFov;
     volatile int xrMenuRect;
     volatile float xrMenuFov;
+    volatile float xrMenuFollowDeg; // head-vs-panel yaw offset (deg) that starts the lazy menu re-center
     volatile int xr3DofMovement;
     volatile int xrDLSSMatrixHook;
     volatile int xrDLSSSlotMode;
@@ -132,7 +134,7 @@ struct LiveControls {
     volatile int xrMonoXQueueWait;  // 1 = mono path inserts cross-queue Wait before depth capture (legacy). 0 = skip it -- avoids CP2077 async-compute Wait cycle that froze present thread.
     volatile int xrAerXQueueWait;   // 1 = AER path inserts cross-queue Wait + depth capture every present (safe vs save/load depth race). 0 = skip both (default, smooth) -- AER V2 warp falls back to NvOF-only.
     volatile int xrSnapTurnPulseMs; // duration of the discrete snap turn pulse pushed into the right stick (ms)
-    volatile int xrMonoDepthCapture; // 1 = mono path runs depth capture (legacy, hangs on CP2077). 0 = skip depth capture entirely in mono mode.
+    volatile int xrMonoDepthCapture; // 1 (default) = mono scene-depth for XR_KHR_composition_layer_depth. The resolve reads the game depth as an SRV WITHOUT transitioning it (D3D12 state is global -> barriering the game's resource device-removes CP2077), on our own capture queue (FIFO before the submit's depth copy, no cross-queue Wait), and only once the scene depth has been a stable shader-readable resource with menus closed for a warmup window (skips the intro/menu-load transient). 0 = no depth in mono.
     volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
     volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
     volatile int xrPhysicalBodyRotation; // 1 = physical body rotation (avatar body follows HMD/aim heading). 0 (default) = classic stick/snap heading. Gates the aiming/weapon body-turn paths; vehicles unaffected.
@@ -228,10 +230,11 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_head_offset_z=0.000\n");
     fprintf(file, "xr_recenter=0\n");
     fprintf(file, "xr_mono_submit=1\n");
-    fprintf(file, "xr_aer_submit=1\n");
+    fprintf(file, "xr_aer_submit=0\n");
     fprintf(file, "xr_force_fov=0\n");
     fprintf(file, "xr_menu_rect=0\n");
     fprintf(file, "xr_menu_fov=65.0\n");
+    fprintf(file, "xr_menu_follow_deg=60.0\n");
     fprintf(file, "xr_3dof_movement=1\n");
     fprintf(file, "xr_dlss_matrix_hook=1\n");
     fprintf(file, "xr_dlss_slot_mode=0\n");
@@ -280,7 +283,7 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_input_actions=1\n");
     fprintf(file, "xr_mono_xqueue_wait=0\n");
     fprintf(file, "xr_snap_turn_pulse_ms=30\n");
-    fprintf(file, "xr_mono_depth_capture=0\n");
+    fprintf(file, "xr_mono_depth_capture=1\n");
     fclose(file);
 }
 
@@ -443,12 +446,13 @@ static void PollLiveControls() {
     float xrHeadOffsetZ = 0.0f;
     int xrRecenter = 0;
     int xrMonoSubmit = 1;
-    int xrAERSubmit = 1;
+    int xrAERSubmit = 0;
     int xrWindowWidth = 0;
     int xrWindowHeight = 0;
     float xrForceFov = 0.0f;
     int xrMenuRect = 0;
     float xrMenuFov = 65.0f;
+    float xrMenuFollowDeg = 60.0f;
     float xrPitchSign = 1.0f;
     float xrPitchScale = 1.35f;
     int xrSyncSequential = 1;
@@ -574,6 +578,11 @@ static void PollLiveControls() {
         if (sscanf_s(line, "xr_menu_fov=%f", &value) == 1 ||
             sscanf_s(line, "xr_menu_fov = %f", &value) == 1) {
             xrMenuFov = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_menu_follow_deg=%f", &value) == 1 ||
+            sscanf_s(line, "xr_menu_follow_deg = %f", &value) == 1) {
+            xrMenuFollowDeg = value;
             continue;
         }
         if (sscanf_s(line, "xr_pitch_sign=%f", &value) == 1 ||
@@ -830,6 +839,7 @@ static void PollLiveControls() {
         g_liveControls.xrForceFov != xrForceFov ||
         g_liveControls.xrMenuRect != xrMenuRect ||
         g_liveControls.xrMenuFov != xrMenuFov ||
+        g_liveControls.xrMenuFollowDeg != xrMenuFollowDeg ||
         g_liveControls.xr3DofMovement != xr3DofMovement ||
         g_liveControls.xrDLSSMatrixHook != xrDLSSMatrixHook ||
         g_liveControls.xrDLSSSlotMode != xrDLSSSlotMode ||
@@ -861,6 +871,7 @@ static void PollLiveControls() {
     g_liveControls.xrForceFov = xrForceFov;
     g_liveControls.xrMenuRect = xrMenuRect;
     g_liveControls.xrMenuFov = xrMenuFov;
+    g_liveControls.xrMenuFollowDeg = xrMenuFollowDeg;
     g_liveControls.xr3DofMovement = xr3DofMovement;
     g_liveControls.xrDLSSMatrixHook = xrDLSSMatrixHook;
     g_liveControls.xrDLSSSlotMode = xrDLSSSlotMode;
@@ -941,6 +952,7 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrForceFov = g_liveControls.xrForceFov;
     state.xrMenuRect = g_liveControls.xrMenuRect;
     state.xrMenuFov = g_liveControls.xrMenuFov;
+    state.xrMenuFollowDeg = g_liveControls.xrMenuFollowDeg;
     state.xr3DofMovement = g_liveControls.xr3DofMovement;
     state.xrDLSSMatrixHook = g_liveControls.xrDLSSMatrixHook;
     state.xrDLSSSlotMode = g_liveControls.xrDLSSSlotMode;
@@ -997,6 +1009,7 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_force_fov=%.3f\n", state.xrForceFov);
     fprintf(file, "xr_menu_rect=%d\n", state.xrMenuRect != 0 ? 1 : 0);
     fprintf(file, "xr_menu_fov=%.3f\n", state.xrMenuFov);
+    fprintf(file, "xr_menu_follow_deg=%.3f\n", state.xrMenuFollowDeg >= 5.0f ? state.xrMenuFollowDeg : 60.0f);
     fprintf(file, "xr_3dof_movement=%d\n", state.xr3DofMovement != 0 ? 1 : 0);
     fprintf(file, "xr_dlss_matrix_hook=%d\n", state.xrDLSSMatrixHook != 0 ? 1 : 0);
     fprintf(file, "xr_dlss_slot_mode=%d\n", state.xrDLSSSlotMode);
@@ -1073,6 +1086,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrForceFov = state->xrForceFov > 0.0f ? state->xrForceFov : 0.0f;
     g_liveControls.xrMenuRect = state->xrMenuRect != 0 ? 1 : 0;
     g_liveControls.xrMenuFov = state->xrMenuFov > 1.0f ? state->xrMenuFov : 65.0f;
+    g_liveControls.xrMenuFollowDeg = (state->xrMenuFollowDeg >= 5.0f && state->xrMenuFollowDeg <= 90.0f) ? state->xrMenuFollowDeg : 60.0f;
     g_liveControls.xr3DofMovement = state->xr3DofMovement != 0 ? 1 : 0;
     g_liveControls.xrDLSSMatrixHook = state->xrDLSSMatrixHook != 0 ? 1 : 0;
     g_liveControls.xrDLSSSlotMode = state->xrDLSSSlotMode;
@@ -1329,6 +1343,11 @@ extern "C" float GetForcedFov() {
 
 extern "C" float GetMenuFov() {
     return g_liveControls.xrMenuFov;
+}
+
+extern "C" float GetMenuFollowDeg() {
+    const float v = g_liveControls.xrMenuFollowDeg;
+    return (v >= 5.0f && v <= 90.0f) ? v : 60.0f;
 }
 
 extern "C" int GetMenuRectMode() {
@@ -2185,10 +2204,18 @@ static void ApplyFinalCameraOrientationFromQuat(float* rsiPtr, const float* q) {
         viewPacket[14] = viewRows[10];
 
         const int32_t* finalPosFP = reinterpret_cast<const int32_t*>(rsiPtr);
-        const float posScale25 = 25.0f / 65536.0f;
-        viewPacket[8] = static_cast<float>(finalPosFP[0]) * posScale25;
-        viewPacket[9] = static_cast<float>(finalPosFP[1]) * posScale25;
-        viewPacket[10] = static_cast<float>(finalPosFP[2]) * posScale25;
+        // finalPosFP is the ABSOLUTE WorldPosition (engine base + the finalPos write
+        // above), stored at the true 131072 (17-bit) fixed-point scale. Written as
+        // 50/131072 -- NOT 25/65536 -- so the 131072 WorldPosition scale stays explicit
+        // and consistent with the rest of the file (the lone 65536 read like a leftover
+        // from the old wrong scale and invited a bogus "fix" to 25/131072, which would
+        // HALVE this row). 50/131072 is bit-identical to the old 25/65536; net effect is
+        // (world meters * 50) for the +0x330 view-position row. This line was never part
+        // of the 65536->131072 sweep -- that fixed only the additive worldDelta/ipdShift.
+        const float posScaleView = 50.0f / 131072.0f;
+        viewPacket[8] = static_cast<float>(finalPosFP[0]) * posScaleView;
+        viewPacket[9] = static_cast<float>(finalPosFP[1]) * posScaleView;
+        viewPacket[10] = static_cast<float>(finalPosFP[2]) * posScaleView;
 
         WriteFloatArraySafe(rsiPtr + 204, viewPacket, 16);
     }
@@ -2258,17 +2285,17 @@ static void MulQuat(float ax, float ay, float az, float aw,
 // EXACT same convention as the camera quat, to the shared memory the RED4ext plugin reads.
 // The plugin's ShotSnap hook then brackets the located camera around the player shot:
 // write controllerAimQuat -> bullet flies down the controller; restore HMD -> view stays.
-// Layout (float slots in "CyberpunkVR_Hands_Shared", 128 floats; [0..19] hands, [33..48]
-// calib are taken): [50] valid-seq, [51]/[52] locatedCamPtr lo/hi, [53..56] controllerAimQuat.
+// Layout: 256 floats -- FULL slot map + numbering rules live in src/shared_slots.h.
+// This bridge uses [50] valid-seq, [51]/[52] locatedCamPtr lo/hi, [53..56] controllerAimQuat.
 static float* g_shotShared = nullptr;
 static HANDLE g_shotSharedHandle = nullptr;
 static float* GetShotShared() {
     if (!g_shotShared) {
         g_shotSharedHandle = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, "CyberpunkVR_Hands_Shared");
         if (!g_shotSharedHandle)
-            g_shotSharedHandle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 512, "CyberpunkVR_Hands_Shared");
+            g_shotSharedHandle = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 1024, "CyberpunkVR_Hands_Shared");
         if (g_shotSharedHandle)
-            g_shotShared = static_cast<float*>(MapViewOfFile(g_shotSharedHandle, FILE_MAP_ALL_ACCESS, 0, 0, 512));
+            g_shotShared = static_cast<float*>(MapViewOfFile(g_shotSharedHandle, FILE_MAP_ALL_ACCESS, 0, 0, 1024));
     }
     return g_shotShared;
 }
@@ -2321,6 +2348,15 @@ static uint64_t g_locateCameraHits = 0;
 bool g_isInVehicle = false;
 bool g_isAiming = false;
 bool g_hasWeaponEquipped = false;
+// [dx-win]/[jerk] diag: ENGINE located camera captured at callback entry (pre-overwrite).
+static float g_dbgEntryYaw = 0.0f, g_dbgEntryPosX = 0.0f, g_dbgEntryPosY = 0.0f, g_dbgEntryPosZ = 0.0f;
+// [jerk] diag: the FOV the game LAST TRIED to set (pre-override) + the camera state
+// pointer, so the jerk window can check for a sprint FOV boost (render zoom).
+static volatile float g_dbgLastOriginalFov = 0.0f;
+static void* volatile g_dbgFovCamState = nullptr;
+// Snap one-tick view hold: yaw offset this locate renders with (0 when not holding).
+// Added into the published [141] so the plugin maps hands against the HELD heading.
+static float g_snapHold141 = 0.0f;
 extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val) {
     (void)xmm0_val;
     g_locateCameraHits++;
@@ -2336,6 +2372,34 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
 
     float dummy;
     if (!ReadFloatSafe(reinterpret_cast<uintptr_t>(quat), &dummy)) return;
+    // Raw ENGINE view at entry (yaw + pos), for the [dx-win] snap-window diag.
+    g_dbgEntryYaw = atan2f(2.0f * (quat[3] * quat[2] + quat[0] * quat[1]),
+                           1.0f - 2.0f * (quat[1] * quat[1] + quat[2] * quat[2]));
+    g_dbgEntryPosX = static_cast<float>(posFP[0]) / 131072.0f;
+    g_dbgEntryPosY = static_cast<float>(posFP[1]) / 131072.0f;
+    g_dbgEntryPosZ = static_cast<float>(posFP[2]) / 131072.0f;
+
+    // The real gameplay camera is heap-backed. The juddery second bake came from
+    // transient camera transforms built on the current thread stack, so reject those.
+    {
+        const NT_TIB* tib = reinterpret_cast<const NT_TIB*>(NtCurrentTeb());
+        const uintptr_t cp  = reinterpret_cast<uintptr_t>(rbxPtr);
+        const uintptr_t sLo = reinterpret_cast<uintptr_t>(tib->StackLimit);
+        const uintptr_t sHi = reinterpret_cast<uintptr_t>(tib->StackBase);
+        if (cp >= sLo && cp < sHi) {
+            static uint32_t s_scRej = 0;
+            static uint64_t s_scMs = 0;
+            ++s_scRej;
+            const uint64_t scNow = GetTickCount64();
+            if (s_scMs == 0) s_scMs = scNow;
+            if (scNow - s_scMs >= 1000) {
+                Log("[STACKCAM] rejected %u/s stack-temp camera locates (the foreign second bake)\n", s_scRej);
+                s_scRej = 0;
+                s_scMs = scNow;
+            }
+            return;
+        }
+    }
 
     // 1. Inizializza la cache RTTI solo al primissimo frame
     if (!g_isRTTIInitialized) {
@@ -2343,32 +2407,189 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     }
 
   
-    // 2. Ottieni il PlayerPuppet
-    RED4ext::ScriptGameInstance gameInstance;
-    RED4ext::Handle<RED4ext::IScriptable> playerHandle;
-    RED4ext::ExecuteGlobalFunction("GetPlayer;GameInstance", &playerHandle, gameInstance);
+    // 2. Player-state refresh (in-vehicle / aiming / weapon flags). PERF (audit,
+    // session 3): GetPlayer + 3 RTTI property reads used to run on EVERY locate
+    // call (2-3+ per frame). These are gameplay-rate flags, so refresh them once
+    // per entity tick (Lua push seq [99] bump), with an every-32nd-call fallback
+    // for sessions where the VRIK Lua entity push is not running.
+    {
+        static float s_lastEntSeqForPlayer = -1.0f;
+        bool refreshPlayer = ((g_locateCameraHits & 31) == 0);
+        if (float* shSeq = GetShotShared()) {
+            const float seq = shSeq[99];
+            if (seq != s_lastEntSeqForPlayer) { s_lastEntSeqForPlayer = seq; refreshPlayer = true; }
+        }
+        if (refreshPlayer) {
+            RED4ext::ScriptGameInstance gameInstance;
+            RED4ext::Handle<RED4ext::IScriptable> playerHandle;
+            RED4ext::ExecuteGlobalFunction("GetPlayer;GameInstance", &playerHandle, gameInstance);
 
-    // 3. Controlla se mountedVehicle è diverso da null
-    if (playerHandle && g_mountedVehicleProp) {
-        auto mountedVehicle = g_mountedVehicleProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
-        g_isInVehicle = (mountedVehicle.instance != nullptr);
-    }
-   
-    if (g_isAimingProp) {
-        g_isAiming = g_isAimingProp->GetValue<bool>(playerHandle.instance);
+            if (playerHandle && g_mountedVehicleProp) {
+                auto mountedVehicle = g_mountedVehicleProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
+                g_isInVehicle = (mountedVehicle.instance != nullptr);
+            }
+
+            if (playerHandle && g_isAimingProp) {
+                g_isAiming = g_isAimingProp->GetValue<bool>(playerHandle.instance);
+            }
+
+            if (playerHandle && g_equippedWeaponProp) {
+                auto equippedWeapon = g_equippedWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
+                g_hasWeaponEquipped = (equippedWeapon.instance != nullptr);
+            }
+
+            // Weapon flag lives in [144]. It used to be written to [126], COLLIDING with
+            // the OpenXR HMD position publish ([124..126] -- [126] is the HMD Z!) that
+            // VRIK reads as its head base and the overlay laser gate read as a weapon
+            // flag (audit find).
+            OpenXRManager::Get().SetSharedSlot(144, g_hasWeaponEquipped ? 1.0f : 0.0f);
+            // In-vehicle flag [31]: the VRIK hook disables the whole BODY chain
+            // (PlaceBodyUnderHMD / torso dampen / girdle pins / legs) while seated --
+            // the vehicle drives the puppet, body IK fights it and breaks the
+            // character/camera position. Arms-only in vehicles.
+            OpenXRManager::Get().SetSharedSlot(31, g_isInVehicle ? 1.0f : 0.0f);
+        }
     }
     
-    if (g_equippedWeaponProp) {
-        auto equippedWeapon = g_equippedWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
-        g_hasWeaponEquipped = (equippedWeapon.instance != nullptr);
+
+    // SNAP HOLDBACK, second life — now on the CLEAN baseline (its first test was polluted by
+    // the since-reverted re-yaw fixes flashing on their own). The snapdiag log proved: [141]
+    // jumps the FULL snap delta in one frame in sprint too, and standing snaps are clean —
+    // i.e. standing the solve consumes the event the same tick (ordering A). The SPRINT-only
+    // mirror-visible one-frame ghost = ordering B (solve ran BEFORE OnFootDeltaHead, missed
+    // the event) — the view renders the new heading over a body still solved at the old one.
+    // SNAP ONE-TICK VIEW HOLD (v3 -- mechanism MEASURED, not guessed). The two-sided
+    // snap trace proved: our composed view AND the engine located camera step to the
+    // post-snap heading on the SNAP TICK itself, while the ENTITY world yaw -- the
+    // transform the rendered puppet is placed with -- steps one tick LATER ([hk] trace:
+    // entYaw=PRE at the snap-tick solve, POST at the next). Standing that's invisible
+    // (turn-in-place deadband: the puppet doesn't jump; VRIK hands are controller-glued).
+    // Sprinting the puppet yaw is locomotion-LOCKED to the heading: it jumps the full
+    // snap one frame after the view -> the animated body+arms render one frame in the
+    // old orientation = the sprint-only body/hands ghost. So: hold the view yaw one
+    // snap-delta back for the LOCATES OF THE SNAP TICK, release when the entity tick
+    // [99] advances (the frame the puppet provably renders post-snap), budget 6 locates
+    // (menus / Lua stalled). The held yaw also goes into [141] (below) so the plugin's
+    // packet latch + deferred snap rotation ([150] tick stamp) stay consistent with
+    // what this frame actually renders. No repay: the quat is recomposed absolutely
+    // every locate. [149] ack remains as a diagnostic only.
+    {
+        float* shHb = GetShotShared();
+        static float s_hbLastCtr = -999.0f;
+        static float s_hbArmTick = -1.0f;
+        static int   s_hbLeft = 0;
+        static float s_hbDelta = 0.0f;
+        static int   s_hbHeld = 0;
+        static int   s_hbWinN = 0;      // [dx-win] diag: locates left to trace after an event
+        float snapHoldYaw = 0.0f;
+        if (shHb) {
+            const float ctr = shHb[147];
+            const float ack = shHb[149];
+            if (s_hbLastCtr < -900.0f) s_hbLastCtr = ctr;          // startup: no history
+            if (ctr != s_hbLastCtr) {
+                s_hbLastCtr = ctr;
+                s_hbWinN = 14;
+                // ONE-TICK VIEW HOLD REVERTED (user test: holding view+arms one tick put
+                // the ghost on STANDING snaps and amplified it -- baseline view/arms
+                // pairing was correct; only the puppet world transform lags in sprint).
+                s_hbLeft = 0;
+                s_hbDelta = shHb[146];
+                s_hbArmTick = shHb[99];
+                s_hbHeld = 0;
+                Log("[snap-hb] EVENT ctr=%.0f tick=%.0f delta=%.4f heading=%.4f (no hold)\n",
+                    ctr, s_hbArmTick, s_hbDelta, shHb[141]);
+            }
+            if (s_hbWinN > 0) {
+                --s_hbWinN;
+                // g_dbgEntryYaw/Pos = the ENGINE's located camera at callback ENTRY
+                // (pre-overwrite): the render-rate interpolated transform the SKELETON
+                // is welded to.
+                const float ourYaw = atan2f(2.0f * (quat[3] * quat[2] + quat[0] * quat[1]),
+                                            1.0f - 2.0f * (quat[1] * quat[1] + quat[2] * quat[2]));
+                Log("[dx-win] ms=%llu ctr=%.0f ack=%.0f tick=%.0f heading=%.4f hold=%.3f engYaw=%.4f ourYaw=%.4f engPos=(%.3f,%.3f) ent=(%.3f,%.3f)\n",
+                    (unsigned long long)GetTickCount64(), ctr, ack, shHb[99], shHb[141], snapHoldYaw,
+                    g_dbgEntryYaw, ourYaw, g_dbgEntryPosX, g_dbgEntryPosY,
+                    shHb[96], shHb[97]);
+            }
+        }
+        g_snapHold141 = snapHoldYaw;   // [141] must publish the RENDERED (held) heading
+        if (snapHoldYaw != 0.0f) {
+            // Rz(yaw) * quat, world-yaw premultiply (same expansion as the plugin's latch).
+            const float s = sinf(snapHoldYaw * 0.5f);
+            const float c = cosf(snapHoldYaw * 0.5f);
+            const float x = quat[0], y = quat[1], z = quat[2], w = quat[3];
+            quat[0] = c * x - s * y;
+            quat[1] = c * y + s * x;
+            quat[2] = c * z + s * w;
+            quat[3] = c * w - s * z;
+        }
     }
-    
-    if(g_hasWeaponEquipped){
-        OpenXRManager::Get().SetSharedSlot(126, 1.0f);
-    }else{
-        OpenXRManager::Get().SetSharedSlot(126, 0.0f);
+
+    // SPRINT-START JERK DETECTOR (temporary diag, option C). The Aim_JNT FULL freeze
+    // did NOT kill the sprint-start head jerk -> it is NOT rig camera-bone animation.
+    // Remaining suspect: the engine camera SYSTEM itself (procedural sprint offset /
+    // camera following the leaning spine), which passes 1:1 into the rendered view
+    // because the view translation base is RAW LOCATED. Measure it: dev = located -
+    // (tickEntity + cleanPair). cleanPair is EXACTLY (0,0,1.6) through sprint (proven),
+    // so dev isolates whatever the engine adds on top of the clean head anchor.
+    // Sampled once per entity tick (first locate after the [99] bump -> the v*dt
+    // render-vs-tick skew stays roughly constant sample-to-sample). Windows arm on:
+    // speed crossing UP through 4 m/s (sprint engage), DOWN through 3.5 m/s (sprint
+    // stop), or a vertical dev jump > 8 mm/tick (velocity-free kick channel).
+    // Profile answers: magnitude, direction, duration, and whether dev RETURNS to
+    // baseline (transient kick) or SETTLES at an offset (sprint lean) -- each implies
+    // a different fix.
+    {
+        float* shJ = GetShotShared();
+        static float s_jkLastTick = -1.0f;
+        static float s_jkPrevDev[3] = { 0.0f, 0.0f, 0.0f };
+        static bool  s_jkPrevValid = false;
+        static float s_jkPrevSp2 = 0.0f;
+        static int   s_jkWin = 0;
+        static uint64_t s_jkLastArmMs = 0;
+        if (shJ && !g_isInVehicle && shJ[131] != 0.0f) {
+            const float tickNow = shJ[99];
+            if (tickNow != s_jkLastTick) {
+                s_jkLastTick = tickNow;
+                const float devX = g_dbgEntryPosX - (shJ[96] + shJ[128]);
+                const float devY = g_dbgEntryPosY - (shJ[97] + shJ[129]);
+                const float devZ = g_dbgEntryPosZ - (shJ[98] + shJ[130]);
+                const float sp2 = shJ[132] * shJ[132] + shJ[133] * shJ[133];
+                const uint64_t nowMs = GetTickCount64();
+                const char* why = nullptr;
+                if (s_jkPrevSp2 < 16.0f && sp2 >= 16.0f)        why = "SPRINT-ENGAGE";
+                else if (s_jkPrevSp2 > 12.25f && sp2 <= 12.25f) why = "SPRINT-STOP";
+                else if (s_jkPrevValid) {
+                    const float dz = devZ - s_jkPrevDev[2];
+                    if ((dz > 0.008f || dz < -0.008f) && nowMs - s_jkLastArmMs > 1000)
+                        why = "Z-KICK";
+                }
+                s_jkPrevSp2 = sp2;
+                if (why && s_jkWin == 0) {
+                    s_jkWin = 45;
+                    s_jkLastArmMs = nowMs;
+                    Log("[jerk] ARM(%s) speed=%.2f dev=(%.4f,%.4f,%.4f)\n",
+                        why, sqrtf(sp2), devX, devY, devZ);
+                }
+                s_jkPrevDev[0] = devX; s_jkPrevDev[1] = devY; s_jkPrevDev[2] = devZ;
+                s_jkPrevValid = true;
+                if (s_jkWin > 0) {
+                    --s_jkWin;
+                    // FOV branch: origFov = what the game last TRIED to set (a sprint
+                    // FOV boost shows here even though the hook flattens it); storedH =
+                    // the actual +0x410 the render uses (must stay pinned to the lens).
+                    float storedH = 0.0f;
+                    if (void* cs = g_dbgFovCamState)
+                        ReadFloatSafe(reinterpret_cast<uintptr_t>(cs) + 0x410, &storedH);
+                    Log("[jerk] ms=%llu tick=%.0f dev=(%.4f,%.4f,%.4f) v=(%.2f,%.2f) origFov=%.3f storedH=%.3f\n",
+                        (unsigned long long)nowMs, tickNow,
+                        devX, devY, devZ,
+                        shJ[132], shJ[133],
+                        g_dbgLastOriginalFov, storedH);
+                }
+            }
+        }
     }
-    
 
     float camera_qx = quat[0];
     float camera_qy = quat[1];
@@ -2413,6 +2634,8 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     const float bodyGameForwardX = 2.0f * (baseQx * baseQy - baseQz * baseQw);
     const float bodyGameForwardY = 1.0f - 2.0f * (baseQx * baseQx + baseQz * baseQz);
 
+
+
     // POSE PAIR LOCKING: fetch the render eye FIRST, then take a pair-locked head
     // pose — eye0 samples live + freezes, eye1 replays eye0's pose. Both eyes of
     // the stereo pair therefore drive the camera (and below, VRIK) from ONE head
@@ -2428,6 +2651,10 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // xr_pair_lock (vrport.ini): 0 disables the pose-pair-lock and samples the LIVE
     // head pose every camera-locate instead of the per-pair frozen snapshot, trading
     // pair-consistent body alignment for a small per-eye skeleton tear.
+    // REVERTED (user order): live sampling exactly as the long-tested build. The
+    // one-sample-per-frame boundary freeze (20:08) did not remove the hand trail
+    // and made the snap double WORSE (frozen heading delayed the view a frame
+    // behind the game world). AER keeps the pair-locked snapshot; mono samples live.
     const bool pairLockOn = GetVrPairLock() != 0;
     const bool aerActiveForPose = OpenXRManager::Get().IsAERSubmitEnabled() && pairLockOn;
     const bool hasXR = aerActiveForPose
@@ -2462,68 +2689,20 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         const float xrGameZ = xrPose.oriY;
         const float xrGameW = xrPose.oriW;
 
-        // Rimuovi lo yaw da xrGame, mantieni solo pitch e roll
-        // 1. Estrai lo yaw da xrGame
-        float xrFwdX = 2.0f * (xrGameX * xrGameY - xrGameZ * xrGameW);
-        float xrFwdY = 1.0f - 2.0f * (xrGameX * xrGameX + xrGameZ * xrGameZ);
-        float xrYaw = atan2f(-xrFwdX, xrFwdY);
-
-        // 2. Crea quaternione yaw-only
-        float halfXrYaw = xrYaw * 0.5f;
-        float xrYawOnlyX = 0.0f;
-        float xrYawOnlyY = 0.0f;
-        float xrYawOnlyZ = sinf(halfXrYaw);
-        float xrYawOnlyW = cosf(halfXrYaw);
-
-        // 3. Inverti il quaternione yaw-only
-        float invXrYawOnlyX = -xrYawOnlyX;
-        float invXrYawOnlyY = -xrYawOnlyY;
-        float invXrYawOnlyZ = -xrYawOnlyZ;
-        float invXrYawOnlyW = xrYawOnlyW;
-
-        // 4. Calcola pitch+roll = inv(yaw-only) * xrGame
-        float xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW;
-        MulQuat(invXrYawOnlyX, invXrYawOnlyY, invXrYawOnlyZ, invXrYawOnlyW,
-                xrGameX, xrGameY, xrGameZ, xrGameW,
-                xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW);
-
-
-
-        // 5. Applica gameYaw + xrPitchRoll (no yaw HMD)
+        // Camera = heading * FULL HMD orientation in EVERY on-foot mode. With physical
+        // body rotation ON, body-realign (OnOnFootDeltaHead) turns the game HEADING only
+        // on a PHYSICAL body turn and rotates the recenter base by the same angle, so a
+        // head-only turn moves the VIEW but leaves the body/heading put. (The old unarmed
+        // branch stripped the HMD yaw and glued the heading to it, which rotated the body
+        // on every head turn -- replaced by the realign model.)
         float tmpX, tmpY, tmpZ, tmpW;
-        
-        // Physical body rotation (vrport.ini xr_physical_body_rotation, F10 -> VRIK).
-        // The heading-yaw + HMD-pitch/roll path (xrPitchRoll) is ONLY valid while the
-        // body-yaw tracker (OnOnFootDeltaHeadCallback) is feeding HMD yaw into the game
-        // heading -- otherwise the head yaw is dropped and the view inverts on head turn.
-        // That tracker runs only when bodyRot is ON and we're on foot, not aiming and
-        // unarmed, so gate this branch on EXACTLY that. Every other case (feature OFF,
-        // aiming, armed, or in a vehicle) uses the full HMD orientation (xrGame) =
-        // classic head-look, where the heading is static and the HMD supplies the yaw.
-        const bool bodyRot = g_liveControls.xrPhysicalBodyRotation != 0;
-        if(bodyRot && !g_isInVehicle && !g_isAiming && !g_hasWeaponEquipped){
-            MulQuat(0.0f, 0.0f, sy, cy, xrPitchRollX, xrPitchRollY, xrPitchRollZ, xrPitchRollW, tmpX, tmpY, tmpZ, tmpW);
-        }else{
-            MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
-        }
+        MulQuat(0.0f, 0.0f, sy, cy, xrGameX, xrGameY, xrGameZ, xrGameW, tmpX, tmpY, tmpZ, tmpW);
+        NormalizeQuat(tmpX, tmpY, tmpZ, tmpW);
 
-        float outX = tmpX;
-        float outY = tmpY;
-        float outZ = tmpZ;
-        float outW = tmpW;
-
-        // Runtime-frustum asymmetry compensation.
-        // The game camera path is scalar-FOV based, while runtimes often report
-        // slightly asymmetric per-eye frusta. Recenter those frusta with a
-        // quarter-angle correction and apply matching pitch/yaw quaternions so the
-        // visible image stays 1:1 with the runtime.
-        
-        NormalizeQuat(outX, outY, outZ, outW);
-
-        camera_qx = outX;
-        camera_qy = outY;
-        camera_qz = outZ;
-        camera_qw = outW;
+        camera_qx = tmpX;
+        camera_qy = tmpY;
+        camera_qz = tmpZ;
+        camera_qw = tmpW;
 
         // Skip the HMD orientation write on the shot frame (or always, mode 1) so the game's
         // native aim/snap drives the camera -> the bullet follows the controller/stick aim.
@@ -2544,54 +2723,111 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         const float posScale = allowGameCameraTranslation ? 1.0f * GetWorldScale() : 0.0f;
 
         // Map OpenXR local position into game-local camera space first:
-        // XR: X=right, Y=up, -Z=forward
-        // Game local here: X=right, Y=forward, Z=up
-        // The BAKED camera->head offset (auto-measured by the plugin, persisted) shifts the view
-        // back onto the avatar's head; the Head sliders are added ON TOP (they stay 0 after baking).
+        // XR: X=right, Y=up, -Z=forward; game local: X=right, Y=forward, Z=up.
+        // BAKED camera->head offset + Head sliders on top (sliders stay 0 after baking).
+        // IN VEHICLE both bakes are DROPPED: they were measured on the standing body
+        // (camera-mount vs foot centre / head bone); seated, the vehicle camera is
+        // already correct and the baked shift just pushes the view off the seat.
+        // The plugin mirrors this by not adding [91..93] to camModelPos in vehicle,
+        // and [120..123] below carries the same (bake-less) total, so the hands stay
+        // consistent with the view. Manual Tracking-Camera sliders stay live.
         float camBake[3] = { 0.0f, 0.0f, 0.0f };
-        if (allowGameCameraTranslation) OpenXRManager::Get().GetCameraOffset(camBake);
+        if (allowGameCameraTranslation && !g_isInVehicle) OpenXRManager::Get().GetCameraOffset(camBake);
+        // EYE-VIEW offset ("bake to eyes"): view-only, no feedback into the body solve.
+        float eyeBake[3] = { 0.0f, 0.0f, 0.0f };
+        if (float* shEye = GetShotShared()) {
+            if (allowGameCameraTranslation) {
+                if (!g_isInVehicle && shEye[119] == 1.0f) { eyeBake[0] = shEye[116]; eyeBake[1] = shEye[117]; eyeBake[2] = shEye[118]; }
+                // Publish the TOTAL view offset actually applied ([120..123]) so hand
+                // targets stay consistent with whatever the user tunes the view to.
+                shEye[120] = g_liveControls.xrHeadOffsetX + camBake[0] + eyeBake[0];
+                shEye[121] = g_liveControls.xrHeadOffsetY + camBake[1] + eyeBake[1];
+                shEye[122] = g_liveControls.xrHeadOffsetZ + camBake[2] + eyeBake[2];
+                shEye[123] = 1.0f;
+            } else {
+                shEye[123] = 0.0f;
+            }
+        }
         const float localRight = xrPose.posX * posScale +
-            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetX + camBake[0]) : 0.0f);
+            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetX + camBake[0] + eyeBake[0]) : 0.0f);
         const float localForward = -xrPose.posZ * posScale +
-            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetY + camBake[1]) : 0.0f);
+            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetY + camBake[1] + eyeBake[1]) : 0.0f);
         const float localUp = xrPose.posY * posScale +
-            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetZ + camBake[2]) : 0.0f);
+            (allowGameCameraTranslation ? (g_liveControls.xrHeadOffsetZ + camBake[2] + eyeBake[2]) : 0.0f);
 
-        // Use a perfectly level heading matrix for translation to avoid sliding into the floor if pitched
+        // Perfectly level heading matrix for translation (no sliding into the floor when pitched).
         const float flatYaw = atan2f(-bodyGameForwardX, bodyGameForwardY);
         const float flatCy = cosf(flatYaw);
         const float flatSy = sinf(flatYaw);
+        const float worldDeltaX = flatCy * localRight - flatSy * localForward;
+        const float worldDeltaY = flatSy * localRight + flatCy * localForward;
+        const float worldDeltaZ = localUp;
 
-        const float flatRightX = flatCy;
-        const float flatRightY = flatSy;
-        const float flatRightZ = 0.0f;
+        // WorldPosition fixed-point is int32 * (2<<16) = 131072 (17 fractional bits) --
+        // CONFIRMED against RED4ext SDK WorldPosition.hpp after the published absolute
+        // position measured EXACTLY 2x the real camera. The old 65536 multiplier injected
+        // only HALF of every offset here (head translation 0.5:1, half-applied bakes and
+        // sliders). Now 1:1: real meters in, real meters rendered.
+        //
+        // NATIVE-VR VIEW BASE (on foot). The user's directive, verbatim: "HMD = Camera,
+        // перезаписывается каждый раз, игра не должна её трогать; всё идёт от HMD и
+        // контроллеров как в нативных играх". So the main FPP camera's translation is
+        // REPLACED outright: view = entity + clean pair + worldDelta -- the EXACT
+        // expression the hand/body anchors use (ResolveViewPos), same push, same tick.
+        // The engine's located translation (procedural lean/bob/kick/neck-pivot) does
+        // not participate at all; the real head translation arrives via worldDelta.
+        // No filters, no easing, no chase -- the previous per-tick 0.35 easing chase is
+        // what produced the left-hand head-turn ghost. The located value is used ONLY
+        // to IDENTIFY the main FPP camera (generous ball around entity+pair: kicks are
+        // cm-scale; the armed AIM camera sits 0.3-0.4m BELOW and fails the qz band).
+        // Vehicles / cinematics (pair stale or camera far): raw located + worldDelta,
+        // nothing else.
+        // VIEW TRANSLATION = raw located + worldDelta. THE FINAL BASE, reasoned:
+        // the renderer places the SKELETON with a per-render-frame INTERPOLATED
+        // entity transform; located is built from that same render-rate entity.
+        // Any view term anchored to the TICK entity instead (the old stabilizer's
+        // per-tick latched correction, then the synthetic entity+pair base) drifts
+        // from the body by v*dt during locomotion -- THE strafe/sprint/shot body
+        // shift, and the tick-vs-render beat was the walking body tremble. Sharing
+        // located's render-rate base welds body and view by timeline. Residual:
+        // the engine's input-driven camera lean (cm, plays even at v=0) -- to be
+        // killed GAME-SIDE at the source (animgraph input, like the bobbing kill),
+        // NOT compensated here. No filters, no synth, no tick anchors in the view.
+        posFP[0] += static_cast<int32_t>(worldDeltaX * 131072.0f);
+        posFP[1] += static_cast<int32_t>(worldDeltaY * 131072.0f);
+        posFP[2] += static_cast<int32_t>(worldDeltaZ * 131072.0f);
 
-        const float flatForwardX = -flatSy;
-        const float flatForwardY = flatCy;
-        const float flatForwardZ = 0.0f;
-
-        const float flatUpX = 0.0f;
-        const float flatUpY = 0.0f;
-        const float flatUpZ = 1.0f;
-
-        const float worldDeltaX = flatRightX * localRight + flatForwardX * localForward + flatUpX * localUp;
-        const float worldDeltaY = flatRightY * localRight + flatForwardY * localForward + flatUpY * localUp;
-        const float worldDeltaZ = flatRightZ * localRight + flatForwardZ * localForward + flatUpZ * localUp;
-
-        posFP[0] += static_cast<int32_t>(worldDeltaX * 65536.0f);
-        posFP[1] += static_cast<int32_t>(worldDeltaY * 65536.0f);
-        posFP[2] += static_cast<int32_t>(worldDeltaZ * 65536.0f);
+        // [104..111] RENDER-VIEW POSE v2 (game world axes) + [141..142] heading,
+        // seqlocked by [143]. REVERTED to the render-stage writer (user order): the
+        // boundary publisher experiment did not remove the trail and worsened snap.
+        if (float* shView = GetShotShared()) {
+            static uint32_t s_vpSeqCtr = 0;
+            volatile uint32_t* vpSeq = reinterpret_cast<volatile uint32_t*>(&shView[143]);
+            *vpSeq = ++s_vpSeqCtr;               // odd: write in progress
+            shView[104] = camera_qx; shView[105] = camera_qy;
+            shView[106] = camera_qz; shView[107] = camera_qw;
+            // [108..110] = worldDelta ONLY (slow values; nothing fast crosses the
+            // async boundary). [111] = 2.0 marks the delta semantics.
+            shView[108] = worldDeltaX;
+            shView[109] = worldDeltaY;
+            shView[110] = worldDeltaZ;
+            shView[111] = 2.0f;
+            // ([112..115] retired: old stabilizer slots, no writers/readers left.)
+            // [141] = RENDER-FRESH game heading (rad) + [142] validity. During the snap
+            // one-tick view hold the RENDERED heading is (game - snapDelta); publish THAT,
+            // so the hands mapping and the [148] pre-snap guard track what is on screen.
+            shView[141] = atan2f(-bodyGameForwardX, bodyGameForwardY) + g_snapHold141;
+            shView[142] = 1.0f;
+            *vpSeq = ++s_vpSeqCtr;               // even: packet complete
+        }
 
         if (g_verboseLog && (g_locateCameraHits % 600) == 1) {
-            Log("LocateCamera translation: allow=%d posScale=%.4f local=(%.4f, %.4f, %.4f) skippedHead=(%.4f, %.4f, %.4f)\n",
+            Log("LocateCamera translation: allow=%d posScale=%.4f local=(%.4f, %.4f, %.4f)\n",
                 allowGameCameraTranslation ? 1 : 0,
                 posScale,
                 localRight,
                 localForward,
-                localUp,
-                g_liveControls.xrHeadOffsetX,
-                g_liveControls.xrHeadOffsetY,
-                g_liveControls.xrHeadOffsetZ);
+                localUp);
         }
     }
 
@@ -2603,12 +2839,14 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // located camera basis. This preserves asymmetric runtime frusta / tiny
     // non-X offsets with the runtime's own IPD. Fallback to the
     // old right*halfIpd path only if the runtime eye offsets are unavailable.
-    // NOTE: IPD shift is applied REGARDLESS of menuOpen. The shared[63] collision
-    // (delta-quaternion float bits) makes menuOpen accidentally true on most frames,
-    // which previously prevented eye alternation entirely (game rendered only one
-    // eye). Applying IPD always ensures AER eye alternation works even while the
-    // collision exists. The actual menu/map path (shared[70]) suspends resolution
-    // overrides separately and does not need IPD suppression here.
+    // NOTE: IPD shift is applied REGARDLESS of menuOpen. HISTORY: menuOpen once read
+    // shared[63], which collided with the weapon-aim delta-quaternion float bits
+    // ([63..66]) and came out "true" on most frames -- that prevented eye alternation
+    // entirely (game rendered only one eye). The menu/map flag has since moved to the
+    // DEDICATED uint32 slot [81] (SetVRMenuOpen bridge; [70..76] are the anatomical
+    // shoulder offsets, NOT a menu path). Applying IPD unconditionally is kept anyway:
+    // it is correct in menus too (static 2D panel + stereo eyes) and avoids re-linking
+    // eye alternation to any flag.
     // LATE IPD SHIFT: compute the per-eye stereo offset here but DO NOT move the
     // located camera. posFP feeds the engine's IK/physics/gameplay head; shifting
     // it ±halfIPD every frame is what makes VRIK thrash. We store the (eye-signed)
@@ -2623,18 +2861,24 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             : (g_locateCameraHits % 2);
 
         float right[3] = {};
-        float hmdQuat[4] = { xrPose.oriX, -xrPose.oriZ, xrPose.oriY, xrPose.oriW };
-        ComputeRightVectorFromQuaternion(hmdQuat, right);
+        //float hmdQuat[4] = { xrPose.oriX, -xrPose.oriZ, xrPose.oriY, xrPose.oriW };
+        //ComputeRightVectorFromQuaternion(hmdQuat, right);
+
+        float cameraQuat[4] = { camera_qx, camera_qy, camera_qz, camera_qw };
+        ComputeRightVectorFromQuaternion(cameraQuat, right);
 
         if (IsPlausibleUnitVector3(right)) {
             const float halfIpd = GetDesiredHalfIpd();
-            //const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
-            const float eyeSign = (renderEye == 0) ? 1.0f : -1.0f;
+            const float eyeSign = (renderEye == 0) ? -1.0f : 1.0f;
+            //const float eyeSign = (renderEye == 0) ? 1.0f : -1.0f;
 
             const float ipdShift = halfIpd * eyeSign;
-            ipdShiftFP[0] = static_cast<int32_t>(right[0] * ipdShift * 65536.0f);
-            ipdShiftFP[1] = static_cast<int32_t>(right[1] * ipdShift * 65536.0f);
-            ipdShiftFP[2] = static_cast<int32_t>(right[2] * ipdShift * 65536.0f);
+            // 131072 = WorldPosition fixed-point scale (17 fractional bits, see the
+            // worldDelta injection above). The old 65536 halved the stereo eye
+            // separation -- the rendered IPD was HALF the configured one.
+            ipdShiftFP[0] = static_cast<int32_t>(right[0] * ipdShift * 131072.0f);
+            ipdShiftFP[1] = static_cast<int32_t>(right[1] * ipdShift * 131072.0f);
+            ipdShiftFP[2] = static_cast<int32_t>(right[2] * ipdShift * 131072.0f);
             if (g_verboseLog && (g_locateCameraHits % 600) == 1) {
                 Log("LocateCamera IPD: eye=%d halfIpd=%.4f right=(%.3f, %.3f, %.3f) shift=%.4f\n",
                     renderEye,
@@ -2853,10 +3097,14 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
             ReadU8Safe(reinterpret_cast<uintptr_t>(ownerState) + 0xB1, &ownerFlag);
         }
 
-        if (g_verboseLog) Log("PatchCamera state @%p owner=%p flagB1=%u Q=(%.3f, %.3f, %.3f, %.3f) P0=(%.3f, %.3f, %.3f) P1=(%.3f, %.3f, %.3f) R=(%.3f, %.3f, %.3f) shift=%.4f applied=%d\n",
+        if (g_verboseLog) Log("PatchCamera state @%p owner=%p flagB1=%u aerOn=%d eye=%d plausQ=%d plausSpan=%d Q=(%.3f, %.3f, %.3f, %.3f) P0=(%.3f, %.3f, %.3f) P1=(%.3f, %.3f, %.3f) R=(%.3f, %.3f, %.3f) shift=%.4f applied=%d\n",
             cameraState,
             ownerState,
             static_cast<unsigned>(ownerFlag),
+            OpenXRManager::Get().IsAERSubmitEnabled() ? 1 : 0,
+            OpenXRManager::Get().GetCurrentRenderEyeIndex(),
+            IsPlausibleUnitQuaternion(quat) ? 1 : 0,
+            IsPlausibleCameraSpan(posA, posB) ? 1 : 0,
             quat[0], quat[1], quat[2], quat[3],
             posA[0], posA[1], posA[2],
             posB[0], posB[1], posB[2],
@@ -2987,30 +3235,28 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
         g_lastLocateQuat[2],
         g_lastLocateQuat[3]
     };
+    // LATE IPD SHIFT (restored from 0.0.8 — this is what actually produces stereo).
+    // rsiPtr's position is the head CENTER stored as fixed-point int32 WorldPosition,
+    // NOT float. Add the per-eye stereo offset HERE, on the FINAL render camera only
+    // (post-IK/physics, pre-projection): VRIK/physics never see the shifted head, yet
+    // the rendered image is fully per-eye. finalPos = locatedCenter + eyeSignedShift,
+    // both already in the same 131072 fixed-point scale (see the LocateCamera hook).
+    //
+    // The prior "proven dead by poison test" note was WRONG: the poison test injected
+    // a FLOAT (+1m) into this int32 fixed-point field, so it wrote garbage bits, not a
+    // 1 m move -> "no visible shift" was a mis-read. Writing the correct fixed-point
+    // value drives the view (confirmed working in 0.0.8), which is why removing this
+    // block killed AER stereo.
     if (locateSeq != 0) {
-        // LATE IPD SHIFT: the located camera is the head CENTER; add the per-eye
-        // stereo offset HERE, on the final render camera only (post-IK, pre-
-        // projection). VRIK/physics
-        // never saw the shifted head, yet stereo is fully preserved in the render.
         int32_t* finalPosFP = reinterpret_cast<int32_t*>(rsiPtr);
         finalPosFP[0] = g_lastLocatePosFP[0] + g_lastIpdShiftFP[0];
         finalPosFP[1] = g_lastLocatePosFP[1] + g_lastIpdShiftFP[1];
         finalPosFP[2] = g_lastLocatePosFP[2] + g_lastIpdShiftFP[2];
 
-        // RENDER-SIDE display-cant. The submitted FOV is
-        // de-canted to SYMMETRIC (ApplyForcedProjectionFov), which only lands
-        // correctly on a canted-lens HMD if the eye's RENDER CAMERA is rotated by
-        // that eye's frustum-center cant. Doing it on the RENDER (here, per
-        // renderEye, late = render-only like the IPD shift) keeps the world AND the
-        // screen-space HUD/laser/hands consistent within the eye's frame -> no double
-        // vision (unlike rotating only the submit pose, which desynced overlay).
-        // No-op on symmetric HMDs (Pico: cant==0). Applied with the matching submit
-        // pose cant in OnPresent so render and submit agree.
-        // Il display-cant è già stato applicato in OnLocateCameraCallback alla camera base.
-        
-        // Non serve riapplicarlo qui: la skybox e i LOD lontani ora ereditano la stessa rotazione.
+        // Orientation (display-cant / view-row rebuild). Must run AFTER the position
+        // write above because it reads finalPosFP into the view packet. No-op-ish on
+        // symmetric HMDs (Quest 2), matches the 0.0.8 order.
         float renderQuat[4] = { locateQuat[0], locateQuat[1], locateQuat[2], locateQuat[3] };
-
         if (IsPlausibleUnitQuaternion(renderQuat)) {
             ApplyFinalCameraOrientationFromQuat(rsiPtr, renderQuat);
         }
@@ -3028,7 +3274,7 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
     ReadFloatArraySafe(rsiPtr + 204, cameraViewB, 16); // +0x330
 
     const int32_t* finalPosFP = reinterpret_cast<const int32_t*>(rsiPtr);
-    const float posScale = 1.0f / 65536.0f;
+    const float posScale = 1.0f / 131072.0f;   // WorldPosition = 17 fractional bits
 
     Log("FinalCamera probe: hit=%llu rsi=%p eye=%d f40=%.6f f44=%.6f pos=(%.3f, %.3f, %.3f) locateSeq=%u locQ=(%.3f, %.3f, %.3f, %.3f)\n",
         static_cast<unsigned long long>(g_finalCameraHits),
@@ -3254,6 +3500,8 @@ static uint64_t g_normalFovHookHits = 0;
 
 extern "C" void __fastcall OnNormalFovHookCallback(void* cameraState, float originalFov) {
     g_normalFovHookHits++;
+    g_dbgLastOriginalFov = originalFov;
+    g_dbgFovCamState = cameraState;
 
     // Force the game FOV to the lens horizontal FOV (~103.982 on a symmetric HMD).
     // The render/aspect handling downstream derives the per-axis projection from it,
@@ -3595,36 +3843,60 @@ extern "C" void __fastcall OnProjAspectCopyCallback(void* dst, const void* src) 
     g_projAspectCopyHits++;
     if (!dst || !src)
         return;
-
     __try {
         const uintptr_t srcAddr = reinterpret_cast<uintptr_t>(src);
         const uintptr_t dstAddr = reinterpret_cast<uintptr_t>(dst);
-
         const float srcFov = *reinterpret_cast<const float*>(srcAddr + 0x80);
         const float srcAspect = *reinterpret_cast<const float*>(srcAddr + 0x84);
         float dstFov = *reinterpret_cast<float*>(dstAddr + 0x80);
         float dstAspect = *reinterpret_cast<float*>(dstAddr + 0x84);
-
         g_projAspectLastSrcFov = srcFov;
         g_projAspectLastSrcAspect = srcAspect;
         g_projAspectLastDstFov = dstFov;
         g_projAspectLastDstAspect = dstAspect;
         g_projAspectLastPatched = false;
-
+        
         const bool aspectLooks16x9 = (srcAspect > 1.70f && srcAspect < 1.85f);
         const bool fovLooksValid = (srcFov > 30.0f && srcFov < 180.0f);
         const bool looksLikeView = aspectLooks16x9 && fovLooksValid;
-
-        if (looksLikeView) {
+        
+        // === NUOVO: Rileva shadow map e saltale ===
+        bool isShadowMap = false;
+        
+        // Shadow map tipiche: FOV molto piccolo (ortografiche) o molto ampio
+        if (srcFov <= 1.0f || srcFov >= 179.0f) {
+            isShadowMap = true;
+        }
+        
+        // Se aspect non è 16:9, probabilmente non è la camera principale
+        if (!isShadowMap && !aspectLooks16x9) {
+            // Shadow map spesso usano aspect 1:1, 2:1, o altri valori non standard
+            if (srcAspect < 1.5f || srcAspect > 2.0f) {
+                isShadowMap = true;
+            }
+        }
+        
+        // Se FOV è nel range "camera VR" (~80-110°) e aspect è 16:9, è la camera principale
+        if (!isShadowMap && looksLikeView) {
+            if (srcFov > 80.0f && srcFov < 110.0f) {
+                isShadowMap = false; // Confermato: camera principale
+            } else if (srcFov > 120.0f && srcFov < 170.0f) {
+                // FOV 16:9-horizontal (~132.5°) → probabilmente camera principale
+                isShadowMap = false;
+            } else {
+                // FOV fuori range camera VR ma aspect 16:9 → sospetto shadow map
+                isShadowMap = true;
+            }
+        }
+        
+        if (looksLikeView && !isShadowMap) {
             float patchedFov = srcFov;
-
-            // If the copied FOV is already the square/VFOV (~104), keep it.
-            // If it's the 16:9-horizontal (~132.5), convert to the square VFOV.
+            // Se il FOV copiato è già il VFOV quadrato (~104), mantienilo
+            // Se è l'orizzontale 16:9 (~132.5), converti nel VFOV quadrato
             if (srcFov > 120.0f && srcFov < 170.0f) {
                 const float halfH = srcFov * 0.5f * 3.1415926535f / 180.0f;
                 patchedFov = std::atan(std::tan(halfH) * (9.0f / 16.0f)) * 2.0f * 180.0f / 3.1415926535f;
             }
-
             *reinterpret_cast<float*>(dstAddr + 0x80) = patchedFov;
             *reinterpret_cast<float*>(dstAddr + 0x84) = 1.0f;
             dstFov = patchedFov;
@@ -3633,15 +3905,16 @@ extern "C" void __fastcall OnProjAspectCopyCallback(void* dst, const void* src) 
             g_projAspectLastDstFov = dstFov;
             g_projAspectLastDstAspect = dstAspect;
         }
-
-        if (g_projAspectCopyHits <= 20 || (g_projAspectCopyHits % 600) == 0 || g_projAspectLastPatched) {
-            Log("ProjAspect: hits=%llu srcFov=%.6f srcAspect=%.6f -> dstFov=%.6f dstAspect=%.6f patched=%d\n",
+        
+        if (g_projAspectCopyHits <= 20 || (g_projAspectCopyHits % 600) == 0 || g_projAspectLastPatched || isShadowMap) {
+            Log("ProjAspect: hits=%llu srcFov=%.6f srcAspect=%.6f -> dstFov=%.6f dstAspect=%.6f patched=%d isShadowMap=%d\n",
                 static_cast<unsigned long long>(g_projAspectCopyHits),
                 srcFov,
                 srcAspect,
                 dstFov,
                 dstAspect,
-                g_projAspectLastPatched ? 1 : 0);
+                g_projAspectLastPatched ? 1 : 0,
+                isShadowMap ? 1 : 0);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -3764,10 +4037,8 @@ extern "C" void __fastcall OnProjAspectCallCallback(void* src, uint32_t fovOff, 
     g_projAspectCallLastPatched = false;
     g_projAspectCallLastFovOff = fovOff;
     g_projAspectCallLastAspectOff = aspectOff;
-
     if (!src)
         return;
-
     __try {
         const uintptr_t base = reinterpret_cast<uintptr_t>(src);
         float* fovPtr = reinterpret_cast<float*>(base + fovOff);
@@ -3776,11 +4047,39 @@ extern "C" void __fastcall OnProjAspectCallCallback(void* src, uint32_t fovOff, 
         const float aspect = *aspectPtr;
         g_projAspectCallLastFov = fov;
         g_projAspectCallLastAspect = aspect;
-
+        
         const bool fovLooksValid = std::isfinite(fov) && (fov > 30.0f) && (fov < 180.0f);
         const bool aspectLooks16x9 = std::isfinite(aspect) && (aspect > 1.70f) && (aspect < 1.85f);
-
-        if (fovLooksValid && aspectLooks16x9) {
+        
+        // === NUOVO: Rileva shadow map e saltale ===
+        bool isShadowMap = false;
+        
+        // Shadow map tipiche: FOV molto piccolo (ortografiche) o molto ampio
+        if (fov <= 1.0f || fov >= 179.0f) {
+            isShadowMap = true;
+        }
+        
+        // Se aspect non è 16:9, probabilmente non è la camera principale
+        if (!isShadowMap && !aspectLooks16x9) {
+            if (aspect < 1.5f || aspect > 2.0f) {
+                isShadowMap = true;
+            }
+        }
+        
+        // Se FOV è nel range "camera VR" (~80-110°) e aspect è 16:9, è la camera principale
+        if (!isShadowMap && fovLooksValid && aspectLooks16x9) {
+            if (fov > 80.0f && fov < 110.0f) {
+                isShadowMap = false; // Confermato: camera principale
+            } else if (fov > 120.0f && fov < 170.0f) {
+                // FOV 16:9-horizontal (~132.5°) → probabilmente camera principale
+                isShadowMap = false;
+            } else {
+                // FOV fuori range camera VR ma aspect 16:9 → sospetto shadow map
+                isShadowMap = true;
+            }
+        }
+        
+        if (fovLooksValid && aspectLooks16x9 && !isShadowMap) {
             float patchedFov = fov;
             if (patchedFov > 120.0f && patchedFov < 170.0f) {
                 const float halfH = patchedFov * 0.5f * 3.1415926535f / 180.0f;
@@ -3792,15 +4091,16 @@ extern "C" void __fastcall OnProjAspectCallCallback(void* src, uint32_t fovOff, 
             g_projAspectCallLastAspect = 1.0f;
             g_projAspectCallLastPatched = true;
         }
-
-        if (g_projAspectCallHits <= 20 || (g_projAspectCallHits % 600) == 0 || g_projAspectCallLastPatched) {
-            Log("ProjAspectCall: hits=%llu fovOff=0x%X aspectOff=0x%X fov=%.6f aspect=%.6f patched=%d\n",
+        
+        if (g_projAspectCallHits <= 20 || (g_projAspectCallHits % 600) == 0 || g_projAspectCallLastPatched || isShadowMap) {
+            Log("ProjAspectCall: hits=%llu fovOff=0x%X aspectOff=0x%X fov=%.6f aspect=%.6f patched=%d isShadowMap=%d\n",
                 static_cast<unsigned long long>(g_projAspectCallHits),
                 fovOff,
                 aspectOff,
                 g_projAspectCallLastFov,
                 g_projAspectCallLastAspect,
-                g_projAspectCallLastPatched ? 1 : 0);
+                g_projAspectCallLastPatched ? 1 : 0,
+                isShadowMap ? 1 : 0);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -3930,30 +4230,54 @@ bool InstallProjAspectCallHooks() {
 extern "C" void __fastcall OnProjStageCallback(const void* src) {
     g_projStageHits++;
     g_projStagePatched = false;
-    if (!src)
-        return;
+    if (!src) return;
 
     __try {
         const uintptr_t base = reinterpret_cast<uintptr_t>(src);
         const float fov = *reinterpret_cast<const float*>(base + 0x80);
         const float aspect = *reinterpret_cast<const float*>(base + 0x84);
         const float extra = *reinterpret_cast<const float*>(base + 0x88);
+
         g_projStageFov = fov;
         g_projStageAspect = aspect;
         g_projStageExtra = extra;
 
-        if (std::isfinite(fov) && std::isfinite(aspect) && (fov > 30.0f) && (fov < 180.0f) && (aspect > 1.70f) && (aspect < 1.85f)) {
+        // === NUOVO: Rileva e salta le shadow map ===
+        bool isShadowMap = false;
+
+        // Shadow map tipiche: FOV molto piccolo o zero
+        if (fov <= 1.0f || fov >= 179.0f) {
+            isShadowMap = true;
+        }
+
+        // Oppure aspect non compatibile con la camera VR (es. != 1.0)
+        // In VR forziamo aspect=1.0, ma le shadow map possono essere 1:1, 2:1, etc.
+        // Tuttavia, se aspect è ~16:9 MA il FOV è anomalo, potrebbe essere una shadow map
+        if (!isShadowMap && (aspect > 1.70f && aspect < 1.85f)) {
+            // Se FOV è plausibile per la camera VR (~93°), allora è la camera principale
+            if (fov > 80.0f && fov < 110.0f) {
+                isShadowMap = false;
+            } else {
+                // Aspect 16:9 ma FOV non da camera VR → probabilmente shadow map
+                isShadowMap = true;
+            }
+        }
+
+        if (!isShadowMap && std::isfinite(fov) && std::isfinite(aspect) 
+            && (fov > 30.0f) && (fov < 180.0f) 
+            && (aspect > 1.70f) && (aspect < 1.85f)) {
             g_projStageAspect = 1.0f;
             g_projStagePatched = true;
         }
 
         if (g_projStageHits <= 20 || (g_projStageHits % 600) == 0 || g_projStagePatched) {
-            Log("ProjStage: hits=%llu fov=%.6f aspect=%.6f extra=%.6f patched=%d\n",
+            Log("ProjStage: hits=%llu fov=%.6f aspect=%.6f extra=%.6f patched=%d isShadowMap=%d\n",
                 static_cast<unsigned long long>(g_projStageHits),
                 g_projStageFov,
                 g_projStageAspect,
                 g_projStageExtra,
-                g_projStagePatched ? 1 : 0);
+                g_projStagePatched ? 1 : 0,
+                isShadowMap ? 1 : 0);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -4058,23 +4382,29 @@ bool InstallProjStageHook() {
 static uint64_t g_fixLoDHits = 0;
 extern "C" float __fastcall OnFixLoDCallback(float* rbxPtr, float originalVal) {
     g_fixLoDHits++;
-
-    // Legitimate camera views have FOV > 30 degrees (e.g. 50, 75, 103 degrees).
-    // Auxiliary views like shadow maps and reflections have 0.0f original FOV and
-    // must NOT be overridden, otherwise culling for depth/reflections gets corrupted.
+    
     float result = originalVal;
-    if (originalVal > 30.0f) {
-        // Default VR Mod behavior: Trick the LOD system into thinking the FOV is extremely narrow.
-        // This prevents the engine from aggressively culling high-detail meshes under the feet.
-        result = 3.04639287f; // Becomes 1.04719755f (approx 60 deg in radians) after mulss 0.34375f
+    
+    // PATCHA SOLO la camera principale VR (FOV ~93°)
+    // Le shadow map hanno FOV diversi (es. 75°) e NON devono essere patchate
+    const float targetVrFov = g_normalFovOverrideValue; // ~93.306°
+    const float fovTolerance = 5.0f; // Accetta FOV tra 88° e 98°
+    
+    if (originalVal > (targetVrFov - fovTolerance) && 
+        originalVal < (targetVrFov + fovTolerance)) {
+        // Questa è la camera principale VR, patcha il LOD
+        result = 3.04639287f;
     }
-
+    // Altrimenti lascia il FOV originale (shadow map, reflection, etc.)
+    
     if (g_fixLoDHits % 600 == 1) {
-        Log("FixLoD: hits=%llu rbx=%p originalVal=%.6f result=%.6f\n",
+        Log("FixLoD: hits=%llu rbx=%p originalVal=%.6f result=%.6f isVRCamera=%d\n",
             static_cast<unsigned long long>(g_fixLoDHits),
             rbxPtr,
             originalVal,
-            result);
+            result,
+            (originalVal > (targetVrFov - fovTolerance) && 
+             originalVal < (targetVrFov + fovTolerance)) ? 1 : 0);
     }
     return result;
 }
@@ -4299,7 +4629,9 @@ static volatile LONG g_pendingSnapYawDeltaBits = 0;
 // Index of the yaw float inside the delta buffer (default 1). Overridable via
 // xr_snap_turn_yaw_index in vrport.ini for quick experimentation if [1] is wrong.
 extern "C" int GetSnapTurnYawIndex();
-static float g_lastBodyYaw = 0.0f;
+// Sprint input state (left stick to the stop), written by the XInput merge each poll.
+// (Kept for diagnostics; the snap-event suppression that consumed it is reverted.)
+static volatile bool g_sprintInputActive = false;
 
 extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     
@@ -4313,72 +4645,132 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     int idx = GetSnapTurnYawIndex();
     if (idx < 0) idx = 0;
     if (idx > 3) idx = 3;
-    float deltaYawDegrees = 0.0f;
-    
+
     // 2. Aggiungi lo snap yaw se presente
     const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
     float snap = 0.0f;
     if (bits != 0) {
         memcpy(&snap, &bits, sizeof(float));
+        // SNAP EVENT PUBLISH (snap_trace-driven design). This callback runs at TICK
+        // stage, BEFORE the same tick's animation pass -- i.e. BEFORE the VRIK solve
+        // that will otherwise consume a one-locate-old (pre-snap) view packet. Publish
+        // the yaw delta (radians, [146]) + a bump counter ([147]): the plugin's packet
+        // latch rotates the packet by exactly this delta ONCE, so the snap-tick solve
+        // matches the heading the NEXT locate provably renders (trace: inject at
+        // hits=N, view turned at N+1). No entity comparison -- snap_trace showed the
+        // puppet yaw deviates from the heading by up to ~10deg PERMANENTLY
+        // (turn-in-place deadband), which made the old comparator fire every tick.
+        //
+        // (A "suppress while sprinting" variant lived here briefly — built on a sprint
+        // turn-rate-limit hypothesis. The snapdiag log KILLED it: [141] jumps the full
+        // snap delta in ONE frame during sprint too, so suppression only guaranteed a
+        // stale-packet solve on every sprint snap. Events publish unconditionally again;
+        // the true sprint-only ghost is a velocity-amplified base-staleness, hunted via
+        // the mountYaw diag.)
+        if (float* shSnap = GetShotShared()) {
+            shSnap[146] = snap * 0.01745329252f;   // degrees -> radians
+            shSnap[148] = shSnap[141];             // PRE-snap heading: the plugin only
+                                                   // rotates a packet that still shows
+                                                   // this heading (double-apply guard,
+                                                   // robust to tick-internal ordering)
+            shSnap[150] = shSnap[99];              // tick stamp: the plugin DEFERS the
+                                                   // packet rotation past this tick (the
+                                                   // view holds; puppet turns next tick)
+            shSnap[147] = shSnap[147] + 1.0f;      // event counter (plugin consumes)
+            Log("[snap-pub] ms=%llu ctr=%.0f delta=%.2fdeg preHeading=%.4f ack=%.0f tick=%.0f\n",
+                (unsigned long long)GetTickCount64(), shSnap[147], snap, shSnap[148], shSnap[149], shSnap[150]);
+        }
     }
 
-    // bodyRot OFF -> snap-turn only (no HMD yaw -> body). bodyRot ON but aiming/armed
-    // -> also snap-only (the body is steered by aim, not free head tracking).
-    if(!bodyRot || g_isAiming || g_hasWeaponEquipped){
-        int idx = GetSnapTurnYawIndex();
-        if (idx < 0) idx = 0;
-        if (idx > 3) idx = 3;
+    // bodyRot OFF (default) -> classic snap-turn only: the heading never tracks the
+    // head; the camera composes heading * FULL HMD, so a head turn moves ONLY the view.
+    if (!bodyRot) {
         deltaHead[idx] += snap;
         return;
     }
 
+    // BODY REALIGN (physical body rotation ON), on foot, ARMED and UNARMED alike. The
+    // heading is turned toward the head only when a PHYSICAL body turn is detected, and
+    // RotateBaseYaw() rotates the recenter base by the SAME angle, so the rendered view
+    // (heading * hmdRel) and the HMD-local hand poses do NOT move -- only the body turns
+    // underneath. Detection uses the controllers as a chest proxy: UNARMED = the
+    // left->right hand line (GetBodyYawFromHands); ARMED = the weapon (right) aim yaw OR
+    // the hand line agreeing with the head. A neck limit drags the body regardless.
+    if (g_menuModeValue == 0) {
+        OpenXRManager& xr = OpenXRManager::Get();
+        const float hmdYaw = xr.GetHmdYawRelToBody();   // head vs body/base yaw (rad)
+        auto wrapPi = [](float a) {
+            while (a >  3.14159265f) a -= 6.28318531f;
+            while (a < -3.14159265f) a += 6.28318531f;
+            return a;
+        };
+        constexpr float kAlignTol  = 0.3491f;   // 20 deg: body estimate agrees with head
+        constexpr float kAlignHold = 0.25f;     // s of sustained alignment before turning
+        constexpr float kStartBand = 0.3665f;   // 21 deg head-body offset needed to start
+        constexpr float kStopBand  = 0.0524f;   // 3 deg: offset where the realign stops
+        constexpr float kNeckLimit = 1.2217f;   // 70 deg: drag the body regardless of hands
+        constexpr float kTurnRate  = 2.6f;      // rad/s catch-up speed (~150 deg/s)
 
-    // 1. Calcola il delta yaw continuo dal visore (in GRADI)
-    OpenXRHeadPose xrPose{};
-    bool hasXR = OpenXRManager::Get().GetHeadPose(&xrPose);
-    if (hasXR && xrPose.valid) {
-        const float xrGameX = xrPose.oriX;
-        const float xrGameY = -xrPose.oriZ;
-        const float xrGameZ = xrPose.oriY;
-        const float xrGameW = xrPose.oriW;
- 
-        float fwdX = 2.0f * (xrGameX * xrGameY - xrGameZ * xrGameW);
-        float fwdY = 1.0f - 2.0f * (xrGameX * xrGameX + xrGameZ * xrGameZ);
-        
-        float currentYaw = atan2f(-fwdX, fwdY);
-        
-        
-        float deltaYawRadians = currentYaw - g_lastBodyYaw;
-        while (deltaYawRadians > 3.14159265f) deltaYawRadians -= 2.0f * 3.14159265f;
-        while (deltaYawRadians < -3.14159265f) deltaYawRadians += 2.0f * 3.14159265f;
-            
-        deltaYawDegrees = deltaYawRadians * 57.2957795f;
-            
-        if (fabsf(deltaYawDegrees) < 0.05f) {
-            deltaYawDegrees = 0.0f;
+        const bool weaponMode = (g_isAiming || g_hasWeaponEquipped);
+        float bodyLineYaw = 0.0f;
+        const bool haveLine = xr.GetBodyYawFromHands(&bodyLineYaw);
+        const float lineErr = haveLine ? wrapPi(bodyLineYaw - hmdYaw) : 3.14159265f;
+        float alignErr;
+        bool handsAligned;
+        if (weaponMode) {
+            const float aimErr = wrapPi(xr.GetHandYawRelToBody(1) - hmdYaw);
+            handsAligned = (fabsf(aimErr) < kAlignTol) || (haveLine && fabsf(lineErr) < kAlignTol);
+            alignErr = (fabsf(aimErr) < fabsf(lineErr)) ? aimErr : lineErr;
+        } else if (haveLine) {
+            handsAligned = fabsf(lineErr) < kAlignTol;
+            alignErr = lineErr;
+        } else {
+            const float dL = wrapPi(xr.GetHandYawRelToBody(0) - hmdYaw);
+            const float dR = wrapPi(xr.GetHandYawRelToBody(1) - hmdYaw);
+            alignErr = (fabsf(dL) > fabsf(dR)) ? dL : dR;   // worst hand decides
+            handsAligned = fabsf(alignErr) < kAlignTol;
         }
-        g_lastBodyYaw = currentYaw;
 
+        static bool     s_turning   = false;
+        static float    s_alignTime = 0.0f;
+        static uint64_t s_lastQpc   = 0;
+        LARGE_INTEGER qf, qn;
+        QueryPerformanceFrequency(&qf);
+        QueryPerformanceCounter(&qn);
+        float dt = 0.0f;
+        if (s_lastQpc != 0) dt = static_cast<float>(qn.QuadPart - s_lastQpc) / static_cast<float>(qf.QuadPart);
+        s_lastQpc = qn.QuadPart;
+        if (dt < 0.0f) dt = 0.0f;
+        if (dt > 0.05f) dt = 0.05f;   // pause/hitch: don't integrate a huge step
 
-        // 3. Applica il delta totale (tracking continuo + snap)
-        float totalDelta = deltaYawDegrees + snap;
-        if (totalDelta != 0.0f) {
-            deltaHead[idx] += totalDelta;
+        s_alignTime = handsAligned ? (s_alignTime + dt) : 0.0f;
+
+        const float absYaw = fabsf(hmdYaw);
+        if (!s_turning) {
+            const bool bodyTurned = handsAligned && (s_alignTime >= kAlignHold) && (absYaw > kStartBand);
+            if (bodyTurned || absYaw > kNeckLimit) {
+                s_turning = true;
+                Log("[BODY-REALIGN] START hmdYaw=%.1f bodyLine=%.1f (line=%d) alignErr=%.1f neck=%d wpn=%d\n",
+                    hmdYaw * 57.2957795f, bodyLineYaw * 57.2957795f, haveLine ? 1 : 0,
+                    alignErr * 57.2957795f, (absYaw > kNeckLimit) ? 1 : 0, weaponMode ? 1 : 0);
+            }
+        } else if (absYaw < kStopBand) {
+            s_turning = false;
+            Log("[BODY-REALIGN] DONE hmdYaw=%.1f\n", hmdYaw * 57.2957795f);
         }
-      
+
+        if (s_turning && dt > 0.0f) {
+            float step = kTurnRate * dt;
+            if (step > absYaw) step = absYaw;
+            if (hmdYaw < 0.0f) step = -step;
+            if (step != 0.0f) {
+                deltaHead[idx] += step * 57.2957795f;   // heading toward the head (deg)
+                xr.RotateBaseYaw(step);                 // base follows -> view + hands stay put
+            }
+        }
     }
 
-    /*if (!deltaHead) return;
-    const LONG bits = InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
-    if (bits == 0) return;
-    float snap = 0.0f;
-    memcpy(&snap, &bits, sizeof(snap));
-    if (snap == 0.0f) return;
-
-    int idx = GetSnapTurnYawIndex();
-    if (idx < 0) idx = 0;
-    if (idx > 3) idx = 3;
-    deltaHead[idx] += snap;*/
+    if (snap != 0.0f) deltaHead[idx] += snap;
 }
 
 bool InstallOnFootDeltaHeadHook() {
@@ -4977,9 +5369,13 @@ extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matr
             // This must match the submit FOV exactly
             const float width = static_cast<float>(GetForcedWindowWidthValue());
             const float height = static_cast<float>(GetForcedRenderHeightForAspect());
-            const float nearZ = 0.1f; // Match game's near plane
-            const float farZ = 10000.0f; // Match game's far plane
-            
+
+            float nearZ = 0.066f; // Default CP2077 near plane
+            float farZ = 10000.0f; // Far plane grande per coprire l'intera scena e le shadow cascades
+        
+            ReadFloatSafe(state + 0x1B0, &nearZ);
+            if (nearZ <= 0.0f || nearZ > 1.0f) nearZ = 0.066f;
+        
             float projMatrix[16];
             XrFovf lf{}, rf{};
             if (OpenXRManager::Get().GetCurrentEyeFov(0, &lf) && OpenXRManager::Get().GetCurrentEyeFov(1, &rf)) {
@@ -4987,7 +5383,9 @@ extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matr
                 if (corr.yawEnabled && corr.pitchEnabled) {
                     BuildSymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
                 } else {
-                    BuildAsymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
+
+                    BuildSymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
+                    //BuildAsymmetricProjectionMatrix(fov, width, height, nearZ, farZ, projMatrix);
                 }
             }
 
@@ -4997,12 +5395,12 @@ extern "C" uint32_t __fastcall OnDLSSMatricesCallback(void* callThis, void* matr
             // Offset 0x180-0x1BF: Current frame projection  
             // Offset 0x1C0-0x1FF: Next frame projection
             
-            // Write to current frame projection (offset 0x180)
-            WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x180), projMatrix, 16);
-
-            // Also write to next frame to prevent tearing
-            WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x1C0), projMatrix, 16);
-                        
+            float testFov = 0.0f;
+            ReadFloatSafe(state + 0x1B0, &testFov);
+            if (testFov > 1.0f && testFov < 150.0f) { 
+                WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x180), projMatrix, 16);
+                WriteFloatArraySafe(reinterpret_cast<float*>(state + 0x1C0), projMatrix, 16);
+            }
             if (periodicLog) {
                 Log("DLSSMatrices INJECTED: eye=%d FOV=(%.2f,%.2f,%.2f,%.2f) res=%.0fx%.0f\n",
                     currentEye,
@@ -5159,13 +5557,19 @@ bool InstallFreeDeltaHeadHook() {
 extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
     int src = g_liveControls.xrMovementSource;
 
-    // Physical body rotation (F10 -> VRIK): when ON, aiming / holding a weapon forces
-    // head-relative locomotion. OFF (default) keeps the configured Move source.
-    if(g_liveControls.xrPhysicalBodyRotation && (g_isAiming || g_hasWeaponEquipped)){
-       src = 1;
+    // Physical body rotation (F10 -> VRIK): when ON, the heading no longer tracks the
+    // head (body-realign turns it only on a physical body turn), so "Game" (0) would
+    // walk in the direction of the deliberately-slow BODY and lag every head turn.
+    // Movement must follow the GAZE immediately, so with bodyRot ON, Game falls back to
+    // HMD-relative on foot. The move vector is heading-relative and hmdYawRel is
+    // head-vs-heading, so the rotated vector equals the gaze direction exactly, even
+    // mid-realign (heading and hmdYawRel change by opposite amounts). OFF keeps classic.
+    if (g_liveControls.xrPhysicalBodyRotation) {
+        if (g_isAiming || g_hasWeaponEquipped) src = 1;
+        if (src <= 0) src = 1;
     }
 
-    if (src <= 0) return; // 0 = Game (no rotation)
+    if (src <= 0) return; // 0 = Game (no rotation) -- only when bodyRot is OFF
     if (g_menuModeValue != 0) return;
     if (!moveStruct) return;
     float* p = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(moveStruct) + 0x90);
@@ -5443,7 +5847,30 @@ static DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState
     // Buttons: OR (so a physical pad can still augment, and vice versa).
     pState->Gamepad.wButtons |= vr.buttons;
 
+    // MENU-ONLY: right grip = RB (right shoulder) for tab navigation to the RIGHT,
+    // symmetric with the left grip's LB. The right grip is deliberately NEVER merged as
+    // RB in gameplay -- there it is reserved for the hand-to-holster equip (published as
+    // shared[49] above) and the D-pad modifier, and RB is a gameplay action that would
+    // misfire on every holster reach. Menus run no holster logic and can't fire gameplay
+    // actions, so the grip is safe as RB while one is open. Menu state = the native
+    // menu-mode hook OR the redscript world-map bridge flag (shared[81]).
+    {
+        bool menuOpenForRb = (g_menuModeValue != 0);
+        if (!menuOpenForRb) {
+            if (float* sh = GetShotShared()) {
+                if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenForRb = true;
+            }
+        }
+        if (menuOpenForRb && vr.rightGrip >= 0.7f) {
+            pState->Gamepad.wButtons |= 0x0200; // XINPUT_GAMEPAD_RIGHT_SHOULDER
+        }
+    }
+
     // Triggers: take the max so a physical squeeze isn't lost.
+    // (VR melee block does NOT inject LT here: the gesture guard is STAT-driven — the CET weapon
+    // mod sets IsBlocking/IsDeflecting directly, damageManager.script mitigates on those stats,
+    // and the PSM Block state with its AimWalk/sprint debuffs is never entered. A physical left
+    // trigger still reaches the game's own 'MeleeBlock' action through this merge as in flat.)
     BYTE lt = FloatToBYTE(vr.leftTrigger);
     BYTE rt = FloatToBYTE(vr.rightTrigger);
     if (lt > pState->Gamepad.bLeftTrigger)  pState->Gamepad.bLeftTrigger  = lt;
@@ -5482,6 +5909,10 @@ static DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState
     // mirrors physically holding L3: correct for hold-to-sprint, and toggle-sprint
     // auto-cancels on slow-down so it stays in sync as well.
     const bool wantSprint = (ly > 0.90f);
+    // Published for the snap-event machinery: DURING SPRINT the game RATE-LIMITS heading
+    // changes (sprint turns arc over several frames instead of jumping), so the instant
+    // packet pre-rotation must be suppressed there (OnFootDeltaHeadCallback).
+    g_sprintInputActive = wantSprint;
 
     // Right stick = camera turn / pitch.
     float rx = ApplyStickDeadzone(vr.rightThumbX, 0.18f);
@@ -5671,8 +6102,10 @@ DWORD WINAPI WorkerThread(LPVOID) {
     g_normalFovHookInstalled = h_fov;
     if (g_verboseLog || !h_fov) Log("NormalFOV hook result: %s\n", h_fov ? "SUCCESS" : "FAILED");
 
+    //bool copyH = InstallProjAspectCopyHook();
     g_projAspectCopyHookInstalled = false;
 
+    //bool aspecCall = InstallProjAspectCallHooks();
     g_projAspectCallHookInstalled = false;
 
     bool h_proj_stage = InstallProjStageHook();

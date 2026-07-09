@@ -71,9 +71,22 @@ public:
     bool GetHeadPose(OpenXRHeadPose* out) const;
     void RequestRecenter();
     void OnPresent(IDXGISwapChain* swapChain);
+    // Run one XR frame inline on the Present thread instead of a dedicated
+    // frame thread.
+    void PumpInlineFrame();
     void SetMonoSubmitEnabled(bool enabled);
     void SetAERSubmitEnabled(bool enabled);
     bool IsAERSubmitEnabled() const { return m_aerSubmitEnabled.load(std::memory_order_relaxed); }
+    // True when the dedicated submit thread (NOT the Present thread) should own the
+    // XR frame loop: always for AER, and for mono on SteamVR. SteamVR's xrWaitFrame /
+    // compositor pacing stalls the game's Present thread when the loop is driven
+    // inline (freezes/lags); a dedicated thread decouples it. VDXR and other runtimes
+    // keep the proven inline mono path on the Present thread.
+    bool UseThreadedSubmit() const {
+        return m_aerSubmitEnabled.load(std::memory_order_relaxed) ||
+               (m_runtimeIsSteamVR.load(std::memory_order_relaxed) &&
+                m_monoSubmitEnabled.load(std::memory_order_relaxed));
+    }
     int GetCurrentRenderEyeIndex() const { return m_renderEyeIndex.load(std::memory_order_relaxed); }
     // Record the exact OpenXR head pose a given eye's frame was rendered with
     // Frame logic
@@ -121,9 +134,13 @@ public:
     void SetImmersiveHolsters(int v) { m_immersiveHolsters.store(v, std::memory_order_relaxed); }
     int GetImmersiveHolsters() const { return m_immersiveHolsters.load(std::memory_order_relaxed); }
     // Read a shared-mem slot (plugin publishes the muzzle world forward to [24..26], valid [27]).
-    float GetSharedSlot(int i) const { float* p = m_sharedHandsPtr; return (p && i >= 0 && i < 128) ? p[i] : 0.0f; }
+    // BOUND = 256: the mapping is 1024 bytes = 256 floats. The old `< 128` bound silently
+    // no-opped BOTH sides of the weapon flag when it moved from [126] to [144] (the barrel
+    // laser dot died that day: write dropped, read returned 0). Audit find (gpt-5.5) --
+    // and the user called the <128 boundary from memory before the audit confirmed it.
+    float GetSharedSlot(int i) const { float* p = m_sharedHandsPtr; return (p && i >= 0 && i < 256) ? p[i] : 0.0f; }
     // Write a shared-mem slot (XInput merge publishes the melee power-trigger flag to [30]).
-    void SetSharedSlot(int i, float v) { float* p = m_sharedHandsPtr; if (p && i >= 0 && i < 128) p[i] = v; }
+    void SetSharedSlot(int i, float v) { float* p = m_sharedHandsPtr; if (p && i >= 0 && i < 256) p[i] = v; }
 
     // Publish IK calibration to the plugin (see m_calib). Order matches the [33..47] slots.
     void SetVRHandCalib(float scaleR, float scaleL, float heightR, float heightL,
@@ -133,6 +150,12 @@ public:
                         wRp, wRy, wRr, wLp, wLy, wLr };
         for (int i = 0; i < 14; ++i) m_calib[i].store(v[i], std::memory_order_relaxed);
         m_calibValid.store(1, std::memory_order_relaxed);
+    }
+    // Read back the current 14-value calibration block. The overlay syncs its slider state
+    // from this (the old one-way flow was the "calibration not saved" bug: static UI defaults
+    // stomped the loaded/auto-calibrated values on the first slider touch).
+    void GetVRHandCalib(float out[14]) const {
+        for (int i = 0; i < 14; ++i) out[i] = m_calib[i].load(std::memory_order_relaxed);
     }
 
     // ==== AUTO-CALIBRATION ====
@@ -204,6 +227,21 @@ public:
     // 0 if the controller pose isn't valid this frame.
     float GetHandYawRelToBody(int side) const;
 
+    // Body-realign support: rotate the recenter base about the vertical axis by
+    // `radians`, IN STEP with an equal heading injection (dxgi OnOnFootDeltaHead).
+    // relOri/relPos are conj(base)*head, so base*Ry(a) shifts the HMD's relative yaw
+    // by -a while the reconstructed raw pose (base*rel) is unchanged: the rendered
+    // view and the HMD-local hand poses stay put while the body turns underneath.
+    void RotateBaseYaw(float radians);
+
+    // Physical-body yaw estimate (radians, rel recenter base, same convention as
+    // GetHmdYawRelToBody) from the CONTROLLER POSITIONS: the left->right hand line
+    // approximates the shoulder line, so its perpendicular is where the chest faces --
+    // robust no matter where the wrists point (a relaxed grip aims the controllers
+    // down, which makes the aim-pose YAW pure wrist noise). False if either hand is
+    // untracked or the hands are too close together to define a line.
+    bool GetBodyYawFromHands(float* outYaw) const;
+
     // Per-frame snapshot of all controller buttons/axes (OpenXR action state).
     // Filled by the frame thread under m_inputMutex; copied out by readers.
     bool GetControllerState(VRControllerState* out) const;
@@ -225,6 +263,20 @@ public:
 private:
     static DWORD WINAPI FrameThreadThunk(LPVOID param);
     DWORD FrameThreadMain();
+    // Dedicated AER submit thread: dormant while AER is off; while AER is on it
+    // owns the XR frame loop (xrWaitFrame/xrBeginFrame/xrEndFrame) so the AER
+    // submit path's blocking fence/swapchain waits never run on the Present
+    // thread (which would freeze the game). Mono keeps using the inline pump.
+    static DWORD WINAPI AerSubmitThreadThunk(LPVOID param);
+    DWORD AerSubmitThreadMain();
+    void NotifyAerThread();
+    // Single-owner handshake for the XR frame loop. The Present thread (Inline /
+    // mono) and the AER thread must never both drive the frame loop. The wait is
+    // bounded so the Present thread never blocks: on a mode switch it simply
+    // skips a present instead of freezing.
+    enum class FrameLoopOwner { None, Inline, Aer };
+    bool AcquireFrameLoop(FrameLoopOwner who, unsigned int timeoutMs);
+    void ReleaseFrameLoop(FrameLoopOwner who);
     void PollEvents();
     bool BeginSession();
     void EndSession();
@@ -236,9 +288,19 @@ private:
     // simple CopyTextureRegion for R32-family sources (32bpp bit-compat) and
     // the DepthResolve shader for R32G8X24-family sources (64bpp plane 0
     // extract). Returns true if the snapshot was successfully recorded.
+    // transitionGameDepth=false: do NOT barrier the game depth (read it as an SRV in
+    // its current shader-readable state). Required for the mono path -- transitioning a
+    // resource the game owns corrupts its global state tracking and device-removes.
     bool RecordDepthCapture(ID3D12GraphicsCommandList* cmdList,
                             ID3D12Resource* gameDepth,
-                            D3D12_RESOURCE_STATES gameDepthState);
+                            D3D12_RESOURCE_STATES gameDepthState,
+                            bool transitionGameDepth = true);
+    // Mono scene-depth capture recorded on the GAME's own depth-writer queue
+    // (OmoGetSceneDepthWriterQueue): FIFO-ordered after the depth write, so no
+    // cross-queue Wait and no CP2077 present-thread hang. Sets m_depthSnapshotWriterFence
+    // on success; the caller sets m_depthSnapshotSerial. Skips (returns false) when the
+    // writer queue is unknown or the previous resolve is still in flight.
+    bool CaptureMonoDepthOnWriterQueue(uint64_t serial);
     bool EnsureAERCaptureResources(const D3D12_RESOURCE_DESC& sourceDesc);
     bool CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const D3D12_RESOURCE_DESC& sourceDesc, uint64_t serial,
         const XrPosef poses[2], const XrFovf fovs[2], const bool hasView[2]);
@@ -461,6 +523,13 @@ private:
     uint64_t m_depthSnapshotSerial = 0; // serial of the color frame this depth matches; 0 = invalid/empty
     bool m_depthLayerSupported = false;  // runtime supports XR_KHR_composition_layer_depth and a depth swapchain format
     int64_t m_depthSwapchainFormat = 0;  // chosen runtime depth format (e.g. DXGI_FORMAT_D32_FLOAT)
+    // Dedicated list/fence for the mono depth resolve executed on the game's depth-
+    // writer queue (see CaptureMonoDepthOnWriterQueue). Single-slot: skip if in flight.
+    ID3D12CommandAllocator* m_depthWriterAlloc = nullptr;
+    ID3D12GraphicsCommandList* m_depthWriterList = nullptr;
+    ID3D12Fence* m_depthWriterFence = nullptr;
+    uint64_t m_depthWriterFenceValue = 0;      // last value signaled on the writer queue
+    uint64_t m_depthSnapshotWriterFence = 0;   // writer-fence value guarding the current m_depthSnapshot
     CapturedEyeFrame m_capturedEyeFrames[2];
     CapturedEyeFrame m_previousCapturedEyeFrames[2];
     CapturedEyeFrame m_pendingEyeFrames[2];
@@ -624,8 +693,14 @@ private:
     void ProcessAERV2Job(std::unique_ptr<AERV2Job> job);
     void ReleaseAERV2JobRefs(AERV2Job& job);
 
-    HANDLE m_frameThread = nullptr;
+    HANDLE m_frameThread = nullptr;   // reused as the dormant AER submit thread
     std::atomic<bool> m_stopFrameThread = false;
+    // AER submit thread wake + XR frame-loop ownership (see AerSubmitThreadMain).
+    std::mutex m_aerThreadMutex;
+    std::condition_variable m_aerThreadWakeCv;
+    std::mutex m_frameLoopMutex;
+    std::condition_variable m_frameLoopCv;
+    FrameLoopOwner m_frameLoopOwner = FrameLoopOwner::None;
     std::atomic<bool> m_sessionRunning = false;
     std::atomic<bool> m_monoSubmitEnabled = false;
     std::atomic<bool> m_aerSubmitEnabled = false;
@@ -692,4 +767,28 @@ private:
 
     bool m_basePoseSet = false;
     XrPosef m_basePose{};
+
+    // MENU PANEL ANCHOR (LAZY-FOLLOW). The menu/map panel is anchored in front of the
+    // player when a menu opens and then holds still while the head turns WITHIN a
+    // dead-zone; once the head-vs-panel yaw offset exceeds a start threshold the panel
+    // smoothly re-centers to the head (and stops at a small band). This avoids both the
+    // 1:1 head-lock (UI drags with every micro head motion -> motion sickness) and the
+    // rigid world-lock (panel can drift fully out of view). Reset by the frame loop
+    // whenever no menu is active. Frame-thread only.
+    //   Quad path: m_menuYaw + m_menuPivot -> ComputeMenuQuadPose().
+    //   Projection path: m_menuEyePoses[] latched, re-latched (snap) past the threshold.
+    bool  m_menuAnchorValid = false;   // quad-layer anchor latched
+    bool  m_menuFollowing   = false;   // currently easing toward the head
+    float m_menuYaw         = 0.0f;    // current panel yaw (rad, m_localSpace)
+    XrVector3f m_menuPivot{};          // panel pivot (head position, followed each frame)
+    uint64_t m_menuLastQpc  = 0;       // QPC for the follow ease dt
+    bool  m_menuEyeAnchorValid = false;// projection-path per-eye anchor latched
+    float m_menuEyeAnchorYaw   = 0.0f; // head yaw the per-eye poses were latched at
+    XrPosef m_menuQuadPose{};          // latched/eased quad-layer pose (m_localSpace)
+    XrPosef m_menuEyePoses[2]{};       // latched per-eye poses for the projection path
+
+    // Lazy-follow quad-layer menu pose from the live head pose (or base pose when the
+    // head isn't located). Maintains m_menuYaw/m_menuPivot/m_menuFollowing with
+    // start/stop hysteresis (threshold from GetMenuFollowDeg()) and a fixed ease rate.
+    XrPosef ComputeMenuQuadPose(bool headPoseLocated, const XrPosef& headPose);
 };

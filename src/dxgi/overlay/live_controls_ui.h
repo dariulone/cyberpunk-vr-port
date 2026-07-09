@@ -12,6 +12,7 @@ struct LiveControlsUiState {
     float xrForceFov;
     int xrMenuRect;
     float xrMenuFov;
+    float xrMenuFollowDeg;
     int xr3DofMovement;
     int xrDLSSMatrixHook;
     int xrDLSSSlotMode;

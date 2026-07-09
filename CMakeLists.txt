@@ -44,23 +44,29 @@ target_include_directories(imgui PUBLIC
 )
 
 add_library(dxgi SHARED
-    src/dxgi_proxy.cpp
-    src/openxr_manager.cpp
-    src/optical_flow_d3d12.cpp
-    src/dxgi_factory_wrapper.cpp
-    src/imgui_overlay.cpp
-    src/launcher_dialog.cpp
-    src/ngx_hook.cpp
-    src/mv_warp.cpp
-    src/depth_resolve.cpp
-    src/stereo_reproject.cpp
-    src/sharpen_pass.cpp
-    src/color_blit.cpp
-    src/aer_v2/cuda_interop.cpp
-    src/aer_v2/nvof_instance.cpp
-    src/aer_v2/warp_kernel.cpp
-    src/aer_v2/aer_v2_pipeline.cpp
-    src/aer_v2/pose_predictor.cpp
+    src/dxgi/core/dxgi_proxy.cpp
+    src/dxgi/openxr/openxr_manager.cpp
+    src/dxgi/openxr/openxr_aer_v2_worker.cpp
+    src/dxgi/openxr/openxr_frameloop.cpp
+    src/dxgi/openxr/openxr_present.cpp
+    src/dxgi/openxr/openxr_capture.cpp
+    src/dxgi/openxr/openxr_calibration.cpp
+    src/dxgi/core/dxgi_factory_wrapper.cpp
+    src/dxgi/render/optical_flow_d3d12.cpp
+    src/dxgi/render/mv_warp.cpp
+    src/dxgi/render/depth_resolve.cpp
+    src/dxgi/render/stereo_reproject.cpp
+    src/dxgi/render/sharpen_pass.cpp
+    src/dxgi/render/warp_pass.cpp
+    src/dxgi/render/color_blit.cpp
+    src/dxgi/overlay/imgui_overlay.cpp
+    src/dxgi/overlay/launcher_dialog.cpp
+    src/dxgi/hooks/ngx_hook.cpp
+    src/dxgi/aer_v2/cuda_interop.cpp
+    src/dxgi/aer_v2/nvof_instance.cpp
+    src/dxgi/aer_v2/warp_kernel.cpp
+    src/dxgi/aer_v2/aer_v2_pipeline.cpp
+    src/dxgi/aer_v2/pose_predictor.cpp
     externals/im3d/im3d.cpp
     externals/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOF.cpp
     externals/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOFD3D12.cpp
@@ -80,10 +86,21 @@ target_link_libraries(dxgi PRIVATE
     RED4ext::SDK
 )
 target_include_directories(dxgi PRIVATE
+    # --- restructured module include roots (bare #include "x.h" resolves anywhere) ---
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi/openxr
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi/camera
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi/render
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi/overlay
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi/hooks
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dxgi/aer_v2
+    # --- third-party / vendored ---
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/im3d
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/Optical_Flow_SDK_5.0.7/Common/NvOFBase
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/Optical_Flow_SDK_5.0.7/NvOFInterface
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/aer_v2
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/include
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/include
     ${CMAKE_CURRENT_SOURCE_DIR}/externals/minhook/src
@@ -101,7 +118,7 @@ if(AER_V2_NVOF)
         enable_language(CUDA)
         target_sources(dxgi PRIVATE
             externals/Optical_Flow_SDK_5.0.7/Common/NvOFBase/NvOFCuda.cpp
-            src/aer_v2/warp_kernel.cu
+            src/dxgi/aer_v2/warp_kernel.cu
         )
         # Distribution build: real SASS for every common gaming/datacenter arch
         # (Turing sm_75 is the NvOF floor) PLUS a compute_75 PTX fallback, so any

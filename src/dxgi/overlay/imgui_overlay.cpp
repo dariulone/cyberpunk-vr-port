@@ -88,6 +88,50 @@ void RotateVectorByQuaternion(float vx, float vy, float vz, float qx, float qy, 
     *outZ = vz + qw * tz + (qx * ty - qy * tx);
 }
 
+// GAME-RENDER projection tans (tan of half-FOV per NDC unit). The overlay draws
+// INTO the game's back buffer, so a mark lands on the same pixel as a game-rendered
+// point ONLY if it reproduces the ENGINE's own projection -- not the lens frustum.
+//
+// The engine's projection here (empirically PROVEN on Pico, square 1:1 buffer,
+// user-verified exact dot-on-impact): camera +0x410 -- which OnNormalFovHookCallback
+// (dxgi_proxy.cpp) writes = lens horizontal FOV (or xr_force_fov) -- is the ACTUAL
+// HORIZONTAL at the current render aspect, and the VERTICAL is derived in tan space
+// from the back-buffer aspect: tanV = tanH * (h/w) (hor+). On a 1:1 buffer V == H,
+// which is exactly the old overlay behavior that was verified correct in-headset.
+// (An older comment near GetDesiredGameHorizontalFov claims "+0x410 is horizontal
+// at 16:9, vertical locked from 9/16" -- that reconstruction put V at 71.5 deg on
+// Pico instead of 104 and visibly broke the dot: WRONG for this path. Do not
+// resurrect it.)
+//
+// H therefore comes from GetGameRenderFovDeg() = the very value the hook wrote (on
+// symmetric HMDs == lens H; the lens-H fallback below covers frames before the hook
+// first fires). V is aspect-derived -- NOT the lens vertical: on asymmetric HMDs
+// (Quest 3: ~94x96 lens, non-square eye buffer) lensV != engine V and using it
+// drifted the dot vertically toward the frame edges (the real "asymmetric HMD"
+// error of the old code).
+//
+// Per-eye lens ASYMMETRY (angleLeft != -angleRight, canted frustum centers)
+// deliberately does NOT enter this mapping: the game renders ONE mono frame with a
+// symmetric centered frustum, and the submit-side relabel shifts the WHOLE image on
+// the lens -- mark and rendered world move together, so their relative position
+// holds on every HMD. (Would change ONLY if the per-eye render cant -- currently
+// disabled, ComputeRuntimeFovCorrection forces yaw/pitchEnabled=false -- or the
+// asymmetric DLSS projection injection ever gets enabled: then the dot must be
+// canted per-eye too.)
+extern "C" float GetGameRenderFovDeg();
+static bool GetOverlayProjTans(const ImVec2& displaySize, float* tanHalfX, float* tanHalfY) {
+    if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
+    float hfovDeg = GetGameRenderFovDeg();
+    if (hfovDeg <= 1.0f) hfovDeg = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
+    if (hfovDeg <= 1.0f) hfovDeg = 100.0f;
+    const float tx = tanf((hfovDeg * 0.5f) * (3.1415926535f / 180.0f));
+    const float ty = tx * (displaySize.y / displaySize.x);
+    if (tx <= 0.0001f || ty <= 0.0001f) return false;
+    *tanHalfX = tx;
+    *tanHalfY = ty;
+    return true;
+}
+
 bool ProjectXrPointToScreen(const OpenXRHeadPose& headPose, float pointX, float pointY, float pointZ,
     const ImVec2& displaySize, ImVec2* outScreen) {
     if (!outScreen || displaySize.x <= 1.0f || displaySize.y <= 1.0f) return false;
@@ -110,14 +154,8 @@ bool ProjectXrPointToScreen(const OpenXRHeadPose& headPose, float pointX, float 
     const float forward = -viewZ;
     if (forward <= 0.01f) return false;
 
-    float hfovDeg = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
-    float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
-    if (hfovDeg <= 1.0f) hfovDeg = 100.0f;
-    if (vfovDeg <= 1.0f) vfovDeg = 100.0f;
-
-    const float tanHalfX = tanf((hfovDeg * 0.5f) * (3.1415926535f / 180.0f));
-    const float tanHalfY = tanf((vfovDeg * 0.5f) * (3.1415926535f / 180.0f));
-    if (tanHalfX <= 0.0001f || tanHalfY <= 0.0001f) return false;
+    float tanHalfX = 0.0f, tanHalfY = 0.0f;
+    if (!GetOverlayProjTans(displaySize, &tanHalfX, &tanHalfY)) return false;
 
     const float ndcX = viewX / (forward * tanHalfX);
     const float ndcY = viewY / (forward * tanHalfY);
@@ -134,14 +172,8 @@ bool ProjectHeadSpacePointToScreen(float pointX, float pointY, float pointZ,
     const float forward = -pointZ;
     if (forward <= 0.01f) return false;
 
-    float hfovDeg = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
-    float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
-    if (hfovDeg <= 1.0f) hfovDeg = 100.0f;
-    if (vfovDeg <= 1.0f) vfovDeg = 100.0f;
-
-    const float tanHalfX = tanf((hfovDeg * 0.5f) * (3.1415926535f / 180.0f));
-    const float tanHalfY = tanf((vfovDeg * 0.5f) * (3.1415926535f / 180.0f));
-    if (tanHalfX <= 0.0001f || tanHalfY <= 0.0001f) return false;
+    float tanHalfX = 0.0f, tanHalfY = 0.0f;
+    if (!GetOverlayProjTans(displaySize, &tanHalfX, &tanHalfY)) return false;
 
     const float ndcX = pointX / (forward * tanHalfX);
     const float ndcY = pointY / (forward * tanHalfY);
@@ -331,9 +363,13 @@ void DrawHandLocatorOverlay() {
     appData.m_viewportSize = Im3d::Vec2(displaySize.x, displaySize.y);
     appData.m_deltaTime = 1.0f / 90.0f;
     appData.m_projOrtho = false;
-    float vfovDeg = OpenXRManager::Get().GetRuntimeVerticalFovDeg();
-    if (vfovDeg <= 1.0f) vfovDeg = 100.0f;
-    appData.m_projScaleY = tanf((vfovDeg * 0.5f) * (3.1415926535f / 180.0f));
+    // Same GAME-RENDER vertical tan as the point projectors (not the lens V-FOV),
+    // so Im3d size attenuation agrees with where the points actually land.
+    {
+        float tx = 0.0f, ty = tanf(50.0f * (3.1415926535f / 180.0f));
+        GetOverlayProjTans(displaySize, &tx, &ty);
+        appData.m_projScaleY = ty;
+    }
     Im3d::NewFrame();
 
     const auto drawEndpointLabel = [&](const OpenXRHeadPose& handPose, float x, float y, float z,
@@ -504,7 +540,7 @@ void DrawHandLocatorOverlay() {
 // goes (both derive from the same muzzle + camera). No controller-space guessing.
 void DrawBarrelCrosshair() {
     
-    const float enableLaser = OpenXRManager::Get().GetSharedSlot(126);
+    const float enableLaser = OpenXRManager::Get().GetSharedSlot(144);   // weapon flag (was [126]: HMD-Z collision)
     
     float rad = 3.0f;
     
@@ -656,7 +692,7 @@ bool DrawHudControls(LiveControlsUiState& state) {
     bool changed = false;
     ImGui::TextUnformatted("Per-region HUD controls: X right+, Y down+, Size 1.00 = half old size, 2.00 = full old size.");
     changed |= DrawHudXYAndScale("Minimap / Quest", &state.xrHudScale, &state.xrHudScaleY, &state.xrHudMinimapQuestScale);
-    changed |= DrawHudXYAndScale("Phone", &state.xrHudPhone, &state.xrHudPhoneY, &state.xrHudPhoneScale);
+    changed |= DrawHudXYAndScale("HP Bar", &state.xrHudPhone, &state.xrHudPhoneY, &state.xrHudPhoneScale);
     changed |= DrawHudXYAndScale("Top-left alerts", &state.xrHudTopLeftAlerts, &state.xrHudTopLeftAlertsY, &state.xrHudTopLeftAlertsScale);
     changed |= DrawHudXYAndScale("Top-right", &state.xrHudTopRight, &state.xrHudTopRightY, &state.xrHudTopRightScale);
     changed |= DrawHudXYAndScale("Bottom-left main", &state.xrHudBottomLeft, &state.xrHudBottomLeftY, &state.xrHudBottomLeftScale);
@@ -726,6 +762,19 @@ void DrawVRHandsControls() {
     static float poleR = 0.0f,   poleL = 0.0f;     // elbow pole spin (deg)
     static float wRp = 0.0f, wRy = -90.0f, wRr = 0.0f;     // right wrist euler (deg)
     static float wLp = -180.0f, wLy = -90.0f, wLr = 0.0f;  // left wrist euler (deg)
+
+    // TWO-WAY SYNC (fixes "калибровка не сохраняется"). These statics used to be
+    // one-way UI -> manager: they kept their hardcoded defaults after the manager
+    // loaded vrik_calibration.ini / ran auto-calibration, so the FIRST slider touch
+    // (or Apply) pushed 14 default values over the real calibration -- which the next
+    // Save then wrote to disk. Pull the manager's live values into the sliders
+    // whenever the user isn't actively dragging.
+    if (!ImGui::IsAnyItemActive()) {
+        float c[14]; OpenXRManager::Get().GetVRHandCalib(c);
+        scaleR=c[0]; scaleL=c[1]; heightR=c[2]; heightL=c[3];
+        swingR=c[4]; swingL=c[5]; poleR=c[6]; poleL=c[7];
+        wRp=c[8]; wRy=c[9]; wRr=c[10]; wLp=c[11]; wLy=c[12]; wLr=c[13];
+    }
 
     bool calChanged = false;
     calChanged |= ImGui::SliderFloat("Reach scale R", &scaleR, 0.80f, 1.30f, "%.3f");
@@ -819,13 +868,20 @@ void DrawVRHandsControls() {
                                             swingR, swingL, poleR, poleL,
                                             wRp, wRy, wRr, wLp, wLy, wLr);
     }
+    // AUTOSAVE: persist edits once the drag/press is released, so tweaks survive a
+    // restart without requiring the user to remember the Save button.
+    {
+        static bool s_calDirty = false;
+        if (calChanged) s_calDirty = true;
+        if (s_calDirty && !ImGui::IsAnyItemActive()) {
+            OpenXRManager::Get().SaveCalibrationToFile();
+            s_calDirty = false;
+        }
+    }
     if (save) OpenXRManager::Get().SaveCalibrationToFile();
     if (load) {
-        if (OpenXRManager::Get().LoadCalibrationFromFile()) {
-            // Pull values back into the sliders so the UI reflects the file.
-            // (We don't have direct getters; read via the shared-mem path. For now the user
-            // can use the sliders to inspect or just save again.)
-        }
+        // The two-way sync above pulls the loaded values into the sliders next frame.
+        OpenXRManager::Get().LoadCalibrationFromFile();
     }
 }
 

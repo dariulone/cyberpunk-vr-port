@@ -18,7 +18,9 @@
 
 local PROX_R           = 0.25
 local PROX_L           = 0.40
-local PROX_BACK        = 0.35
+local PROX_BACK        = 0.25   -- was 0.35: the over-shoulder anchor also caught a raised
+                                -- weapon-ready wrist at the waist/chest -> zone B misfires
+local BACK_MARGIN      = 0.03   -- B must beat the right-hip distance by a clear margin
 local EQUIP_COOLDOWN_S = 0.6
 
 local LEFT_SLOTS = {
@@ -95,8 +97,10 @@ registerForEvent('onUpdate', function(dt)
     if dB < 0 then dB = 1e9 end
 
     -- Which body zone is the right hand reaching to? (shared by both modes)
+    -- B needs a CLEAR win over the right hip: the shoulder anchor sits close to a
+    -- raised wrist, and a fuzzy B-vs-R call was swapping weapon slots 1<->2.
     local zone
-    if dB < PROX_BACK and dB <= math.min(dL, dR) then
+    if dB < PROX_BACK and (dB + BACK_MARGIN) < math.min(dL, dR) then
         zone = "B"
     elseif dL < PROX_L and dL <= dR then
         zone = "L"
@@ -118,11 +122,14 @@ registerForEvent('onUpdate', function(dt)
 
     if simpleHolsters then
         -- SIMPLE SLOT MODE: visual holsters ignored. Over-shoulder/back = EquipmentSlot1,
-        -- right hip = EquipmentSlot2, left hip = EquipmentSlot3. Reaching the same zone again
-        -- with a weapon out puts it away (melee routed through VRHolsterMelee to kill the swing).
-        spdlog.info(string.format("[Holster] simple grip zone=%s lastZone=%s hasWpn=%s",
-            tostring(zone), tostring(lastZone), tostring(hasWeapon)))
-        if lastZone == zone and hasWeapon then
+        -- right hip = EquipmentSlot2, left hip = EquipmentSlot3.
+        -- WEAPON IN HAND -> ALWAYS HOLSTER, in ANY zone. The old "same zone = holster,
+        -- other zone = equip that slot" rule swapped slots 1<->2 whenever the fuzzy
+        -- B-vs-R classification flipped between presses (log-proven). Gesture swapping
+        -- is not worth that: put away first, then draw from the zone you want.
+        spdlog.info(string.format("[Holster] simple grip zone=%s dR=%.2f dL=%.2f dB=%.2f hasWpn=%s",
+            tostring(zone), dR, dL, dB, tostring(hasWeapon)))
+        if hasWeapon then
             local isMelee = (classify(TDBID.ToStringDEBUG(rightItem:GetItemID():GetTDBID())) == "melee")
             if isMelee then pl:VRHolsterMelee() else pl:VRUnequipWeapon() end
             lastZone = nil
@@ -154,16 +161,19 @@ registerForEvent('onUpdate', function(dt)
     end
     if not cls then return end
 
-    spdlog.info(string.format("[Holster] grip zone=%s cls=%s lastZone=%s hasWpn=%s",
-        tostring(zone), tostring(cls), tostring(lastZone), tostring(hasWeapon)))
+    spdlog.info(string.format("[Holster] grip zone=%s cls=%s dR=%.2f dL=%.2f dB=%.2f hasWpn=%s",
+        tostring(zone), tostring(cls), dR, dL, dB, tostring(hasWeapon)))
 
-    if lastZone == zone and hasWeapon then
+    if hasWeapon then
+        -- WEAPON IN HAND -> ALWAYS HOLSTER (any zone) -- see the simple-mode comment:
+        -- zone flip between presses swapped weapons instead of putting them away.
         -- Melee uses VRHolsterMelee: it suppresses the VR swing (so reaching to the holster doesn't fire
         -- an attack that blocks the unequip) and then sends the same UnequipWeapon the keyboard B does.
         -- Ranged never swings, so the plain UnequipWeapon already works for it.
-        if cls == "melee" then pl:VRHolsterMelee() else pl:VRUnequipWeapon() end
+        local isMelee = (classify(TDBID.ToStringDEBUG(rightItem:GetItemID():GetTDBID())) == "melee")
+        if isMelee then pl:VRHolsterMelee() else pl:VRUnequipWeapon() end
         lastZone = nil
-        spdlog.info("[Holster] -> HOLSTER " .. tostring(cls))
+        spdlog.info("[Holster] -> HOLSTER (held weapon)")
     elseif cls == "melee" then
         pl:VREquipMeleeWeapon(); lastZone = zone
         spdlog.info("[Holster] -> equip melee")

@@ -20,5 +20,13 @@ target_include_directories(minhook PUBLIC ${MINHOOK_DIR}/include)
 add_library(CyberpunkVR_Hands SHARED main.cpp)
 target_link_libraries(CyberpunkVR_Hands PRIVATE RED4ext.SDK minhook)
 
+# Restructured module include roots (bare #include "x.h" resolves regardless of subfolder)
+target_include_directories(CyberpunkVR_Hands PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/vrik
+    ${CMAKE_CURRENT_SOURCE_DIR}/weapon
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
+)
+
 # Rename to .dll but standard prefix is none
 set_target_properties(CyberpunkVR_Hands PROPERTIES PREFIX "")

@@ -1,5 +1,6 @@
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/GameEngine.hpp>
+#include "../common/shared_slots.h"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
 #include <RED4ext/Containers/StaticArray.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <RED4ext/Scripting/Utils.hpp>
@@ -257,20 +258,6 @@ static int32_t g_rootLiveTrackPersistentLastResult = 0;
 
 RED4ext::Vector4 g_CameraWorldPos = {0,0,0,1};
 int g_CalibrationBoneIndex = -1;
-void* g_PlayerAnimComponent = nullptr;
-
-// Bone-hook diagnostics (written from Hooked_ComponentFunc21).
-volatile uint64_t g_hookTotalCalls = 0;   // every invocation of the hooked function
-volatile uint64_t g_hookMatchCalls = 0;   // invocations where rcx == g_PlayerAnimComponent
-volatile uint64_t g_hookBoneWrites = 0;   // invocations that reached the bone write
-
-// Capture mode: record rcx of every call that has a skeleton (rcx+0x168->+0xE0 != null),
-// so we can check whether the player's animated component flows through this function.
-volatile int      g_hookCapture = 0;
-volatile uint64_t g_hookSkeletalCalls = 0;
-volatile uint32_t g_capturedRcx[32] = {0};   // distinct low-32 rcx of skeletal components
-volatile uint64_t g_capturedFull[32] = {0};  // full 64-bit rcx, for arm-by-index / bone count
-volatile int      g_capturedCount = 0;
 
 // Pose-apply hook state. See vrik_hook.h.
 volatile uintptr_t g_PlayerTrackBufA = 0;
@@ -292,7 +279,8 @@ volatile int       g_VRBindAxis = 1;     // Y-up -> Z-up mapping by default
 volatile float     g_VRWristR_I = 0.0f,        g_VRWristR_J = -0.70710678f, g_VRWristR_K = 0.0f,        g_VRWristR_R = 0.70710678f;
 volatile float     g_VRWristL_I = -0.70710678f, g_VRWristL_J = 0.0f,        g_VRWristL_K = 0.70710678f, g_VRWristL_R = 0.0f;
 // Per-hand reach scale + position offset (calibrated: R slightly shorter avatar reach than L).
-volatile float     g_VRScaleR = 1.05f, g_VRScaleL = 1.06f;
+// 1.0 = true 1:1 reach (no hardcoded per-hand reach fudge; calibration may still override).
+volatile float     g_VRScaleR = 1.0f, g_VRScaleL = 1.0f;
 volatile float     g_VROffRX = 0.0f, g_VROffRY = 0.0f, g_VROffRZ = 0.0f;
 volatile float     g_VROffLX = 0.0f, g_VROffLY = 0.0f, g_VROffLZ = 0.0f;
 // T-pose measured real arm length per hand (metres), shoulder->controller in the T-pose.
@@ -310,6 +298,17 @@ volatile float     g_VRHeadDrop  = 0.08f;   // head bone sits this far ABOVE the
 volatile float     g_VRSquatThreshold = 0.20f; // HMD must drop more than this (m) before the body squats
 volatile float     g_VRCamSmooth = 0.12f; // body-anchor camera low-pass (per-frame lerp; 1=off). Absorbs weapon recoil/draw jerks.
 volatile float     g_VRIKDbgChest[3]    = {0,0,0};
+volatile float     g_VRIKDbgClav[2][8]  = {{0,0,0,0,0,0,0,0},{0,0,0,0,0,0,0,0}};
+volatile float     g_VRIKDbgHipsYaw = 0.0f;
+volatile float     g_VRIKDbgShModel[3] = {0,0,0};
+volatile float     g_VRIKDbgHandFK[3] = {0,0,0};
+volatile float     g_VRIKDbgTargetTrace[3] = {0,0,0};
+volatile int       g_VRPoseCapGen = 0;
+volatile int       g_VRIKSolvesLastTick = 0;
+volatile int       g_VRIKSolvesMaxTick = 0;
+volatile uintptr_t g_VRIKLastBufA = 0;
+volatile uintptr_t g_VRIKLastBufB = 0;
+volatile int       g_VRIKReplayTotal = 0;
 volatile float     g_VRIKDbgChestTgt[3] = {0,0,0};
 // Anatomical offset from the HMD to the SHOULDER joint, in HMD-LOCAL OpenXR axes
 // (X = right, Y = up, Z = backward). The plugin uses this to convert the HMD-local controller
@@ -325,6 +324,45 @@ volatile float     g_VRElbowSwingR = 1.0f, g_VRElbowSwingL = 1.0f;
 volatile int       g_VRRightBoneIdx = 24;
 volatile int       g_VRLeftBoneIdx = 23;
 volatile int       g_VRHeadBoneIdx = -1;  // resolved from metaRig bone names in VRIK_DoArmPlayer
+volatile int       g_VREyeLeftIdx  = -1;  // "LeftEye"  metaRig bone, -1 = not found
+volatile int       g_VREyeRightIdx = -1;  // "RightEye" metaRig bone, -1 = not found
+// FPP-camera control bones (Torso_fppCamera_*): the rig chain the FPP camera slot follows.
+// ALL animation-driven camera motion (per-shot recoil kick, melee swing sway, sprint settle,
+// idle breathing lean) is authored on these joints inside each weapon/locomotion .anims set.
+// The pose hook FREEZES their locals every player pose pass (vrik_hook.h) — the rig-level
+// equivalent of the per-weapon "camera-track removal" anim mods, but weapon-agnostic (those
+// mods can't process base_melee/katana/knife/revolver anim packings; a rig freeze doesn't care).
+volatile int       g_VRFppCamIdx[5] = { -1, -1, -1, -1, -1 };
+// Aim_JNT shake-kill MODE (CET: SetVRCamBoneFreeze(mode)). The per-bone bitmask experiment
+// isolated the ENTIRE baked camera shake (shot kick / melee swing sway / sprint settle) to
+// Torso_fppCamera_Aim_JNT alone — the other four fppCamera joints are left untouched now.
+//   0 = stock (DEFAULT until yaw-live is validated in-headset)
+//   1 = YAW-LIVE freeze: swing (pitch/roll shake) + translation frozen to rest, twist about
+//       the model vertical passes live (the joint also carries the camera's live yaw
+//       response; freezing it whole = snap/sprint doubles — proven by mode 2)
+//   2 = FULL freeze (diagnostic reference: shake dead, snap/sprint doubles present)
+//   3 = SWING-ONLY freeze: mode 1 + translation LIVE (mode 1 still doubled => part of the
+//       live response sits in the translation channel; this isolates it)
+// DEFAULT = 3, in-headset validated (user): shake dead (shots, melee swings, sprint settle),
+// standing snap turns clean with weapon and empty hands. Known residual: snap DURING SPRINT
+// still ghosts — under investigation (first: does stock mode 0 sprint-snap ghost too?).
+// MODE 4 (current TEST default) = the mode-3 swing-only freeze on ALL FIVE fppCamera
+// joints, not just Aim_JNT. Hunting the [RENDERCAM] foreign frames: episodic 5-8 deg
+// pitch/roll reaching the render that the Aim_JNT-only freeze provably lets through
+// (mask isolation was validated on shots/melee/sprint, not landing/vault/hit anims).
+// If in-headset trembling dies with 4, keep it (or narrow to the joint [82]/[83]
+// fingers); if not, revert to 3 and the camera pitch source is NOT the bone chain.
+volatile int       g_VRCamBoneFreeze = 4;
+// Clean-pair XY slew rate (m/s), live via SetVRPairSlew. 1.0 = compromise default
+// (0.5 tested "floaty", raw tested "flash-lurch"); see the limiter in SetVRTransforms.
+volatile float     g_VRPairSlewRate = 1.0f;
+// Clean-pair one-tick PREDICTION factor (ticks of lead), live via SetVRPairLead.
+// The visible sprint-transient jerk is NOT the 20cm camera-lead motion itself (view
+// and body ride it TOGETHER) -- it is the solve->render clock skew (~1 tick): the
+// anchor consumes the pair one tick before the frame renders, so body trails view by
+// rate x skew. Leading the published pair by its own velocity x this factor cancels
+// that skew, letting the transition run at natural speed with no relative flash.
+volatile float     g_VRPairLeadTicks = 0.0f;
 volatile int       g_VRUseHeadRelative = 1;
 volatile int       g_VRDiagCapture = 0;
 float              g_VRDiagBones[32 * 7] = {0};
@@ -332,10 +370,15 @@ float              g_VRDiagBones[32 * 7] = {0};
 // Full-arm IK (g_VRBind == 4): bone hierarchy + chain indices (resolved in VRIK_DoArmPlayer).
 int16_t            g_VRBoneParent[256] = {0};
 volatile int       g_VRBoneCount = 0;
+volatile int       g_VRFKCount = 0;   // solver-touched bone prefix (0 = use full count)
 volatile int       g_VRRightUpperArmIdx = -1; // RightArm  (upper-arm start / shoulder joint)
 volatile int       g_VRRightForeArmIdx  = -1; // RightForeArm (elbow)
 volatile int       g_VRLeftUpperArmIdx  = -1; // LeftArm
 volatile int       g_VRLeftForeArmIdx   = -1; // LeftForeArm
+// Forearm twist chains (r/l_forearmTwist01..03_JNT): wrist pronation is distributed along
+// these (fractions elbow->wrist) instead of twisting only the hand bone / moving the elbow.
+int                g_VRForeTwistR[3]    = {-1,-1,-1};
+int                g_VRForeTwistL[3]    = {-1,-1,-1};
 int                g_VRSpineIdx[8]      = {-1,-1,-1,-1,-1,-1,-1,-1}; // Spine* torso chain
 volatile int       g_VRSpineCount       = 0;
 // Hip bones used by the hand-to-holster equip system. The IN-GAME right wrist + these two hip
@@ -491,8 +534,11 @@ static uint64_t BuildChunkDebugMask() {
 
 void EnsureSharedMemory() {
     if (!g_pSharedHands) {
-        g_hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 512, "CyberpunkVR_Hands_Shared");
-        if (g_hMapFile) g_pSharedHands = (float*)MapViewOfFile(g_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 512);
+        // 1024 bytes = 256 floats. [0..127] is the legacy crowded region (hands seqlock
+        // at [127], HMD pos [124..126], entity [96..99], view offsets...); [128..131]
+        // carries the clean camera-local pair (see SetVRPlayerYaw).
+        g_hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 1024, "CyberpunkVR_Hands_Shared");
+        if (g_hMapFile) g_pSharedHands = (float*)MapViewOfFile(g_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 1024);
     }
 }
 
@@ -816,46 +862,6 @@ static RED4ext::anim::AnimatedObject* FindPlayerAnimatedObjectByComponentName(co
                 const char* name = animatedComponent ? animatedComponent->name.ToString() : nullptr;
                 if (name && std::strcmp(name, aComponentName) == 0)
                     return bucket.animatedObjects[entryIndex];
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-        }
-    }
-
-    return nullptr;
-}
-
-// Returns the live animatedComponent instance from the worldAnimationSystem bucket
-// (the object actually driven each frame), which differs from the handle wrapper
-// in playerEntity->components. This is the instance whose IComponent::Update fires.
-static RED4ext::ent::AnimatedComponent* FindPlayerBucketAnimatedComponent(const char* aComponentName)
-{
-    auto* playerEntity = FindPlayerEntity();
-    auto* engine = RED4ext::CGameEngine::Get();
-    auto* framework = engine ? engine->framework : nullptr;
-    auto* animationSystem = playerEntity
-        ? FindWorldAnimationSystemFromScene(playerEntity->runtimeScene, framework ? framework->unk18 : 0, nullptr)
-        : nullptr;
-    if (!playerEntity || !animationSystem || !aComponentName)
-        return nullptr;
-
-    for (uint32_t bucketIndex = 0; bucketIndex < RED4ext::world::AnimationSystem::BucketCount; ++bucketIndex)
-    {
-        __try
-        {
-            auto& bucket = animationSystem->entitityBuckets[bucketIndex];
-            const uint32_t entryCount = bucket.entities.Size();
-            for (uint32_t entryIndex = 0; entryIndex < entryCount; ++entryIndex)
-            {
-                auto* entity = reinterpret_cast<RED4ext::ent::Entity*>(bucket.entities[entryIndex].instance);
-                if (entity != playerEntity)
-                    continue;
-
-                auto* animatedComponent = bucket.animatedComponents[entryIndex];
-                const char* name = animatedComponent ? animatedComponent->name.ToString() : nullptr;
-                if (name && std::strcmp(name, aComponentName) == 0)
-                    return animatedComponent;
             }
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -2556,29 +2562,53 @@ void UpdateVRIKAnimInputs(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* 
     EnsureSharedMemory();
 
     if (g_pSharedHands) {
-        static bool s_vrHooksInstalled = false;
-        static bool s_vrArmed = false;
-        static int  s_lastReq = 0;
-        static int  s_rearmCounter = 0;
+        static bool     s_vrHooksInstalled = false;
+        static bool     s_vrArmed = false;
+        static int      s_lastReq = 0;
+        // Desync detection (replaces the old fixed-interval re-arm timer). VRIK_DoArmPlayer()
+        // is NOT cheap: it walks the world-animation-system entity buckets to find the player
+        // AND scans every metaRig bone name (up to ~700 on the player rig). Calling it on a
+        // fixed timer (every 6 or even every 60 frames) burns time on the same thread that also
+        // has to get through Hooked_AnimPoseApply for every skeleton in the scene, which is
+        // exactly why the VRIK update rate felt low. Instead, only call it when VRIK actually
+        // falls out of sync.
+        //
+        // Hooked_AnimPoseApply (vrik_hook.h) already tells us this for free: it bumps
+        // g_AnimPoseMatchCalls once per frame ONLY when the player's pose-apply trackBuf still
+        // matches the pointers we cached from the last VRIK_DoArmPlayer() resolve. If the
+        // engine swaps that track buffer out from under us (weapon draw/holster, save load,
+        // area transition, vehicle in/out, scripted scene, ragdoll...), the match stops and
+        // g_AnimPoseMatchCalls stops incrementing even though we are still "armed" -- that IS
+        // "VRIK сбивается" (desync). We detect that stall and re-resolve only then.
+        static uint64_t s_lastMatchCalls = 0;
+        static int      s_staleFrames = 0;
+        // ~10 stalled frames (well under 200ms at 60+ fps) before we pay for a re-resolve --
+        // fast enough that a weapon swap / area load recovers quickly, but ignores normal
+        // single-frame hitches so a healthy VRIK never pays the re-arm cost at all.
+        constexpr int kStaleFrameThreshold = 10;
         int req = static_cast<int>(g_pSharedHands[32]);
         if (req > 0) {
             if (!s_vrHooksInstalled) {
-                // Only the pose-apply hook is needed. The old ComponentFunc21 hook
-                // (InstallVRIKMinHook) is a dead end -- g_PlayerAnimComponent is never
-                // assigned so it does nothing, yet it trampolines a super-hot per-component
-                // Update function and tanked FPS (70+ -> 10-15).
+                // Only the pose-apply hook is needed (the old ComponentFunc21 hook was
+                // removed: it trampolined a super-hot per-component Update and tanked FPS).
                 InstallAnimPoseHook();
                 s_vrHooksInstalled = true;
             }
-            // Re-arm: initial bootstrap, then once every ~60 frames (~1s @ 60fps) to refresh the
-            // cached track-buffer / bone-index pointers when the player puppet changes underneath
-            // us (save load, area transition, vehicle in/out, scripted scene). Without this the
-            // pointers go stale and tracking stops working until the user toggles it off+on.
-            ++s_rearmCounter;
-            if (!s_vrArmed || s_rearmCounter >= 60) {
-                if (VRIK_DoArmPlayer() > 0) s_vrArmed = true;
-                s_rearmCounter = 0;
+            const uint64_t matchCalls = g_AnimPoseMatchCalls;
+            bool needRearm = !s_vrArmed;
+            if (s_vrArmed) {
+                if (matchCalls != s_lastMatchCalls) {
+                    s_staleFrames = 0;             // still getting matched poses -> healthy
+                } else if (++s_staleFrames >= kStaleFrameThreshold) {
+                    needRearm = true;               // stalled -> VRIK desynced, re-resolve
+                    s_staleFrames = 0;
+                }
             }
+            if (needRearm) {
+                if (VRIK_DoArmPlayer() > 0) s_vrArmed = true;
+                s_staleFrames = 0;
+            }
+            s_lastMatchCalls = matchCalls;
             if (s_lastReq <= 0) g_VRBind = req;   // off -> on edge
             if (g_VRNeutralizeAnimGraph != 0) {
                 ForceVRNeutralAnimGraphInputs();
@@ -2587,9 +2617,13 @@ void UpdateVRIKAnimInputs(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* 
             // "Log VR Diag" works without the CET window's capture toggle.
             g_VRDiagCapture = 1;
         } else {
-            if (s_lastReq > 0) { g_VRBind = 0; g_VRDiagCapture = 0; } // on -> off edge
+            if (s_lastReq > 0) {
+                g_VRBind = 0; g_VRDiagCapture = 0;                    // on -> off edge
+                g_pSharedHands[119] = 0.0f;  // eye-view offset invalid while VRIK is off
+            }
             s_vrArmed = false;                     // re-arm on next activation
-            s_rearmCounter = 0;
+            s_staleFrames = 0;
+            s_lastMatchCalls = g_AnimPoseMatchCalls;
         }
         s_lastReq = req;
 
@@ -3737,168 +3771,6 @@ void SetVRBoneDebugIndex(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* a
     g_CalibrationBoneIndex = index;
 }
 
-// Wires the post-eval bone-write hook to a specific player animated component.
-// Until this is set, g_PlayerAnimComponent stays null and the hook's filter
-// (rcx == g_PlayerAnimComponent) never matches, so the bone write never runs.
-// mode: 0=disable, 1=root, 2=deformations, 3=shadow. Returns 1 if set, else 0.
-void ArmVRBoneHook(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    int32_t mode = 0;
-    RED4ext::GetParameter(aFrame, &mode);
-    aFrame->code++;
-
-    if (mode == 0) {
-        g_PlayerAnimComponent = nullptr;
-        if (aOut) *aOut = 1;
-        return;
-    }
-
-    // modes 1-3: component handle from playerEntity->components
-    // modes 4-6: LIVE bucket component from worldAnimationSystem (the updated instance)
-    void* comp = nullptr;
-    switch (mode) {
-        case 1: comp = FindPlayerAnimatedComponentByName("root"); break;
-        case 2: comp = FindPlayerAnimatedComponentByName("deformations"); break;
-        case 3: comp = FindPlayerAnimatedComponentByName("shadow"); break;
-        case 4: comp = FindPlayerBucketAnimatedComponent("root"); break;
-        case 5: comp = FindPlayerBucketAnimatedComponent("deformations"); break;
-        case 6: comp = FindPlayerBucketAnimatedComponent("shadow"); break;
-        default: comp = nullptr; break;
-    }
-    g_PlayerAnimComponent = comp;
-    if (aOut) *aOut = comp ? 1 : 0;
-}
-
-// Returns the currently armed bone-hook component pointer as low 32 bits (debug),
-// or 0 if not armed.
-void GetVRBoneHookArmed(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    aFrame->code++;
-    if (aOut) *aOut = static_cast<int32_t>(reinterpret_cast<uintptr_t>(g_PlayerAnimComponent) & 0xFFFFFFFF);
-}
-
-// mode: 0=total hook calls, 1=filter matches (rcx==player comp), 2=bone-write reached,
-//       3=skeletal calls captured.
-void GetVRBoneHookStats(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    int32_t mode = 0;
-    RED4ext::GetParameter(aFrame, &mode);
-    aFrame->code++;
-    uint64_t v = (mode == 1) ? g_hookMatchCalls : (mode == 2) ? g_hookBoneWrites
-               : (mode == 3) ? g_hookSkeletalCalls : g_hookTotalCalls;
-    if (v > 0x7FFFFFFF) v = 0x7FFFFFFF;
-    if (aOut) *aOut = static_cast<int32_t>(v);
-}
-
-// Enables/disables capture mode and resets the captured list.
-void SetVRBoneHookCapture(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    int32_t on = 0;
-    RED4ext::GetParameter(aFrame, &on);
-    aFrame->code++;
-    if (on) { g_capturedCount = 0; g_hookSkeletalCalls = 0; }
-    g_hookCapture = on ? 1 : 0;
-    if (aOut) *aOut = 1;
-}
-
-void GetVRBoneHookCapturedCount(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    aFrame->code++;
-    if (aOut) *aOut = g_capturedCount;
-}
-
-// Returns the captured skeletal rcx low-32 at index (compare against GetVRBoneHookArmed).
-void GetVRBoneHookCapturedRcx(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    int32_t index = 0;
-    RED4ext::GetParameter(aFrame, &index);
-    aFrame->code++;
-    if (index < 0 || index >= 32 || index >= g_capturedCount) { if (aOut) *aOut = 0; return; }
-    if (aOut) *aOut = static_cast<int32_t>(g_capturedRcx[index]);
-}
-
-// Reads the bone count (DynArray size) of a captured skeletal component, so we can
-// identify the player among the captured list by bone count (player root = 619).
-// rcx -> modelInstance(+0x168) -> bone DynArray (+0xE0 ptr, +0xE8 size).
-void GetVRBoneHookCapturedBoneCount(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    int32_t index = 0;
-    RED4ext::GetParameter(aFrame, &index);
-    aFrame->code++;
-    if (aOut) *aOut = -1;
-    if (index < 0 || index >= 32 || index >= g_capturedCount) return;
-    void* rcx = reinterpret_cast<void*>(g_capturedFull[index]);
-    if (!VRIK_IsReadable(rcx, 0x170)) return;
-    void* mi = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(rcx) + 0x168);
-    if (!VRIK_IsReadable(mi, 0xF0)) return;
-    uint32_t size = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(mi) + 0xE8);
-    if (aOut) *aOut = static_cast<int32_t>(size);
-}
-
-// Arms the bone-hook with a captured component pointer directly (bypasses bucket
-// resolution). Use after identifying the player by bone count.
-void ArmVRBoneHookByCaptureIndex(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    int32_t index = 0;
-    RED4ext::GetParameter(aFrame, &index);
-    aFrame->code++;
-    if (index < 0 || index >= 32 || index >= g_capturedCount) { if (aOut) *aOut = 0; return; }
-    g_PlayerAnimComponent = reinterpret_cast<void*>(g_capturedFull[index]);
-    if (aOut) *aOut = 1;
-}
-
-// Prints the player body component's bone buffer base address so it can be fed to a
-// memory write-breakpoint ("find what writes to this address") -> reveals the
-// real MetaRig->bone pose-apply function to hook for VR hands.
-// component(+0x168)=modelInstance, (+0xE0)=bone DynArray entries ptr (the float buffer).
-void GetPlayerBoneBufferAddress(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
-    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
-    aFrame->code++;
-    if (aOut) *aOut = 0;
-
-    std::ofstream out(VRDiagPath("player_bone_buffer.txt"), std::ios::trunc);
-    void* comp = FindPlayerBucketAnimatedComponent("root");
-    if (!comp || !VRIK_IsReadable(comp, 0x170)) {
-        if (out.is_open()) out << "component not resolved or unreadable comp=0x" << std::hex
-                               << reinterpret_cast<uintptr_t>(comp) << "\n";
-        if (aOut) *aOut = -1;
-        return;
-    }
-    void* modelInstance = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(comp) + 0x168);
-    if (!VRIK_IsReadable(modelInstance, 0xF0)) {
-        if (out.is_open()) out << "modelInstance unreadable mi=0x" << std::hex
-                               << reinterpret_cast<uintptr_t>(modelInstance) << "\n";
-        if (aOut) *aOut = -2;
-        return;
-    }
-    if (out.is_open()) {
-        out << std::hex
-            << "component    = 0x" << reinterpret_cast<uintptr_t>(comp) << "\n"
-            << "modelInstance= 0x" << reinterpret_cast<uintptr_t>(modelInstance) << std::dec << "\n\n";
-
-        // Three candidate pose arrays found by the session-1 scan off modelInstance.
-        const uint32_t candOffsets[] = { 0xE0, 0x208, 0x220 };
-        for (uint32_t co : candOffsets) {
-            void* arr = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(modelInstance) + co);
-            uint32_t szA = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(modelInstance) + co + 0x8);
-            uint32_t szB = *reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(modelInstance) + co + 0xC);
-            out << "candidate modelInstance+0x" << std::hex << co
-                << " -> buffer=0x" << reinterpret_cast<uintptr_t>(arr) << std::dec
-                << "  size@+8=" << szA << " size@+C=" << szB << "\n";
-            if (VRIK_IsReadable(arr, 0x40)) {
-                float* f = reinterpret_cast<float*>(arr);
-                out << "   floats:";
-                for (int i = 0; i < 8; ++i) out << " " << f[i];
-                out << "\n";
-            } else {
-                out << "   (buffer not readable)\n";
-            }
-        }
-    }
-    void* boneBuffer = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(modelInstance) + 0xE0);
-    if (aOut) *aOut = static_cast<int32_t>(reinterpret_cast<uintptr_t>(boneBuffer) & 0xFFFFFFFF);
-}
-
 // ---- Pose-apply hook control ----
 
 // Installs the MinHook on the pose-apply function (module+0x17DDB4).
@@ -4591,6 +4463,22 @@ static int VRIK_DoArmPlayer() {
                 if (EqualsInsensitive(nm, "Hips"))         g_VRHipsIdx       = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "Neck"))         g_VRNeckIdx       = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "Neck1"))        g_VRNeck1Idx      = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "LeftEye"))      g_VREyeLeftIdx    = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "RightEye"))     g_VREyeRightIdx   = static_cast<int>(i);
+                // FPP-camera control chain (see g_VRFppCamIdx above; frozen by the pose hook).
+                if (EqualsInsensitive(nm, "Torso_fppCamera_Control_GRP"))  g_VRFppCamIdx[0] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "Torso_fppCamera_Aim_JNT"))      g_VRFppCamIdx[1] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "Torso_fppCamera_Target_JNT"))   g_VRFppCamIdx[2] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "Torso_fppCamera_UpOffset_GRP")) g_VRFppCamIdx[3] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "Torso_fppCamera_Up_GRP"))       g_VRFppCamIdx[4] = static_cast<int>(i);
+                // Forearm TWIST chain (3 per side on the player rig). Wrist pronation is
+                // distributed along these (VRArmIK-style) instead of moving the elbow.
+                if (EqualsInsensitive(nm, "r_forearmTwist01_JNT")) g_VRForeTwistR[0] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "r_forearmTwist02_JNT")) g_VRForeTwistR[1] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "r_forearmTwist03_JNT")) g_VRForeTwistR[2] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "l_forearmTwist01_JNT")) g_VRForeTwistL[0] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "l_forearmTwist02_JNT")) g_VRForeTwistL[1] = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "l_forearmTwist03_JNT")) g_VRForeTwistL[2] = static_cast<int>(i);
             }
 
             if (head >= 0)      g_VRHeadBoneIdx  = head;
@@ -4610,18 +4498,50 @@ static int VRIK_DoArmPlayer() {
             for (uint32_t i = 0; i < copyN && i < 256; ++i) { g_VRBoneParent[i] = metaRig->parentIndeces[i]; ++written; }
             g_VRBoneCount = written;
 
-            std::ofstream out(VRDiagPath("vrik_bone_resolve.txt"), std::ios::trunc);
-            if (out.is_open())
-                out << "boneCount=" << boneCount
-                    << " parentCount=" << pc
-                    << " head=" << g_VRHeadBoneIdx
-                    << " rightHand=" << g_VRRightBoneIdx
-                    << " leftHand=" << g_VRLeftBoneIdx
-                    << " rightArm=" << g_VRRightUpperArmIdx
-                    << " rightForeArm=" << g_VRRightForeArmIdx
-                    << " leftArm=" << g_VRLeftUpperArmIdx
-                    << " leftForeArm=" << g_VRLeftForeArmIdx
-                    << " spineCount=" << g_VRSpineCount << "\n";
+            // PERF (audit, session 3): per-solve FK used to walk the FULL rig (up to
+            // 256 bones) 3+ times per fresh solve, while the solver only ever reads
+            // model-space transforms up to the highest resolved bone index (parents
+            // precede children in this rig, so a prefix walk is complete). Publish
+            // that prefix length; the hook falls back to the full count if 0.
+            {
+                int mx = 0;
+                auto acc = [&](int v) { if (v > mx) mx = v; };
+                acc(g_VRHeadBoneIdx);      acc(g_VRRightBoneIdx);     acc(g_VRLeftBoneIdx);
+                acc(g_VRRightUpperArmIdx); acc(g_VRRightForeArmIdx);
+                acc(g_VRLeftUpperArmIdx);  acc(g_VRLeftForeArmIdx);
+                for (int s = 0; s < 8; ++s) acc(g_VRSpineIdx[s]);
+                acc(g_VRRightUpLegIdx);    acc(g_VRLeftUpLegIdx);
+                acc(g_VRRightLegIdx);      acc(g_VRLeftLegIdx);
+                acc(g_VRRightFootIdx);     acc(g_VRLeftFootIdx);
+                acc(g_VRHipsIdx);          acc(g_VRNeckIdx);          acc(g_VRNeck1Idx);
+                acc(g_VREyeLeftIdx);       acc(g_VREyeRightIdx);
+                for (int s = 0; s < 3; ++s) { acc(g_VRForeTwistR[s]); acc(g_VRForeTwistL[s]); }
+                const int lim = mx + 1;
+                g_VRFKCount = (lim < g_VRBoneCount) ? lim : g_VRBoneCount;
+            }
+
+            // Write the bone-resolve diagnostic ONCE only. VRIK_DoArmPlayer() now only runs on
+            // initial bootstrap and when UpdateVRIKAnimInputs detects a real desync (see the
+            // g_AnimPoseMatchCalls stall check there), so a per-call file write is no longer a
+            // hot-path concern either way -- kept as one snapshot since the bone indices don't
+            // change after the first successful resolve (same skeleton).
+            static bool s_boneDiagWritten = false;
+            if (!s_boneDiagWritten) {
+                std::ofstream out(VRDiagPath("vrik_bone_resolve.txt"), std::ios::trunc);
+                if (out.is_open()) {
+                    out << "boneCount=" << boneCount
+                        << " parentCount=" << pc
+                        << " head=" << g_VRHeadBoneIdx
+                        << " rightHand=" << g_VRRightBoneIdx
+                        << " leftHand=" << g_VRLeftBoneIdx
+                        << " rightArm=" << g_VRRightUpperArmIdx
+                        << " rightForeArm=" << g_VRRightForeArmIdx
+                        << " leftArm=" << g_VRLeftUpperArmIdx
+                        << " leftForeArm=" << g_VRLeftForeArmIdx
+                        << " spineCount=" << g_VRSpineCount << "\n";
+                    s_boneDiagWritten = true;
+                }
+            }
         }
     }
 
@@ -4711,11 +4631,30 @@ volatile float g_VRCamR = 1.0f;
 // hand lands exactly on the gizmo. See VRIK camModel block in vrik_hook.h.
 volatile float g_VRCamPosX = 0.0f, g_VRCamPosY = 0.0f, g_VRCamPosZ = 0.0f;
 volatile float g_VREntityPosX = 0.0f, g_VREntityPosY = 0.0f, g_VREntityPosZ = 0.0f;
+// THE single stabilized camera-local offset (cam - entity, world axes), low-passed in
+// SetVRTransforms from the coherent same-push Lua pair. Consumed by the VRIK skeleton
+// (these globals) AND by the rendered view (published to shared [124..127], applied by
+// dxgi's camera stabilizer) -- one value, two consumers, so body and view are welded
+// and bob/sway/dash/recoil kicks exist in neither. Tear-safe: cm-scale bounded quantity
+// (all fast world motion lives in the entity and cancels out of the difference).
+volatile float g_VRCamPairLocalX = 0.0f, g_VRCamPairLocalY = 0.0f, g_VRCamPairLocalZ = 0.0f;
+volatile int   g_VRCamPairValid = 0;
 volatile int   g_VRCamPosValid = 0;   // 0 until Lua has pushed a camera/entity pose
 // Player entity world ORIENTATION quaternion (i,j,k,r). The world->model rotation is its
 // conjugate; the full-arm IK uses it to convert the gizmo world target into model space.
 // GetWorldOrientation().yaw was nil (silently 0), so we now take the real quaternion.
 volatile float g_VREntityQI = 0.0f, g_VREntityQJ = 0.0f, g_VREntityQK = 0.0f, g_VREntityQR = 1.0f;
+
+// CAMERA-KICK TRACE ring buffer (see the trace block in SetVRPlayerYaw and the dump in
+// WriteVRDiagCore). Columns: 0..2 raw local (camLua-entLua), 3..4 cam quat i/j (pitch/
+// roll kick indicators), 5..7 filtered pair local, 8..10 eyeBake [116..118], 11 camBake y,
+// 12..14 LOCATED render-camera entity-local (dxgi latch diag, shared [137..139]),
+// 15 hips model yaw deg, 16..17 right IK target model x/y, 18..19 solved right hand FK
+// model x/y, 20..21 right shoulder joint model x/y (arm-chain drift localizer).
+#define VR_CAMTRACE_CAP 256
+static float g_camTrace[VR_CAMTRACE_CAP][22];
+static int   g_camTraceN = 0;
+static int   g_camTraceFreeze = -1;   // -1 live, >0 post-stop countdown, 0 FROZEN
 
 void SetVRPlayerYaw(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
     RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
@@ -4751,10 +4690,200 @@ void SetVRPlayerYaw(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
     // into model space (camModelPos = Rz(-yaw)*(camPos - entityPos)). The legacy quat-only
     // call (5 params) leaves these at 0 and g_VRCamPosValid stays 0 -> IK falls back to the
     // head-relative path.
-    g_VRCamPosX = camX; g_VRCamPosY = camY; g_VRCamPosZ = camZ;
-    g_VREntityPosX = entX; g_VREntityPosY = entY; g_VREntityPosZ = entZ;
-    g_VREntityQI = eqi; g_VREntityQJ = eqj; g_VREntityQK = eqk; g_VREntityQR = eqr;
-    g_VRCamPosValid = 1;
+    if (!(camX == 0.0f && camY == 0.0f && camZ == 0.0f &&
+          entX == 0.0f && entY == 0.0f && entZ == 0.0f)) {
+        g_VRCamPosX = camX; g_VRCamPosY = camY; g_VRCamPosZ = camZ;
+        g_VREntityPosX = entX; g_VREntityPosY = entY; g_VREntityPosZ = entZ;
+        g_VREntityQI = eqi; g_VREntityQJ = eqj; g_VREntityQK = eqk; g_VREntityQR = eqr;
+        g_VRCamPosValid = 1;
+    }   // legacy 5-param call: keep the last GOOD pose instead of zeroing everything
+    // Publish the player entity position for dxgi's camera-position STABILIZER
+    // ([96..98]). [99] is a TICK COUNTER, not a flag: dxgi steps its filter ONLY when
+    // this advances, pairing the entity with the camera of the SAME game tick. Filtering
+    // per RENDER frame against a stale-tick entity made `local` oscillate by v*dt during
+    // locomotion -> the whole view/body trembled forward while walking/sprinting.
+    // SINGLE-FILTER CAMERA ARCHITECTURE. There is exactly ONE stabilized (cam - entity)
+    // local offset in the whole pipeline, computed HERE from the coherent same-push pair:
+    //   * the skeleton (body anchor + hands view base) consumes it via g_VRCamPairLocal*;
+    //   * the RENDERED VIEW consumes the very same value via shared [124..127] (dxgi
+    //     replaces its own filter with the published one when tick-matched).
+    // History of why: raw-body/smooth-view showed bob+kick on the skeleton (walk micro-
+    // jitter, sprint start/stop jerk); smooth-body/smooth-view with TWO independent
+    // filters trembled by their transient disagreement. One value, two consumers ==
+    // nothing can diverge, and bob/sway/dash/recoil kicks exist NOWHERE on screen.
+    // CAMERA-KICK TRACE (diagnostic). Ring buffer of the raw camera-local offset and
+    // the camera quat's non-yaw components per push; dumped by LogVRDiag. Answers WITH
+    // DATA which channel carries the sprint/shot/dash kick that drags the body:
+    // position (lx/ly/lz swing) or rotation (qi/qj swing), and whether the filter
+    // passes it (flt vs raw).
+    {
+        // SPRINT-TRANSIENT AUTO-FREEZE. The manual Log VR Diag click requires the CET
+        // overlay, which blocks movement -- by the time the user stops, opens it and
+        // clicks, the sprint has rolled out of the 256-push (~4.3s) ring (a dump full
+        // of standing frames proved it). So: when the entity speed EMA [132..133]
+        // falls through 3.5 m/s (sprint stop), record 90 more pushes (~1.5s of stop
+        // transient + settle) and FREEZE the ring. A short sprint keeps its ENGAGE
+        // transient inside the frozen window too. The dump un-freezes for the next run.
+        if (g_pSharedHands) {
+            static float s_trPrevSp2 = 0.0f;
+            const float tvx = g_pSharedHands[132], tvy = g_pSharedHands[133];
+            const float sp2 = tvx * tvx + tvy * tvy;
+            if (g_camTraceFreeze < 0 && s_trPrevSp2 > 12.25f && sp2 <= 12.25f)
+                g_camTraceFreeze = 90;
+            s_trPrevSp2 = sp2;
+        }
+        if (g_camTraceFreeze > 0) --g_camTraceFreeze;
+        const float lx = camX - entX, ly = camY - entY, lz = camZ - entZ;
+        if (g_camTraceFreeze != 0 && lx*lx + ly*ly + lz*lz < 9.0f) {
+            const int w = g_camTraceN % VR_CAMTRACE_CAP;
+            g_camTrace[w][0] = lx;
+            g_camTrace[w][1] = ly;
+            g_camTrace[w][2] = lz;
+            g_camTrace[w][3] = ci;   // quat i (pitch/roll kick indicator)
+            g_camTrace[w][4] = cj;   // quat j
+            g_camTrace[w][5] = g_VRCamPairLocalX;   // filtered (previous push's output is fine)
+            g_camTrace[w][6] = g_VRCamPairLocalY;
+            g_camTrace[w][7] = g_VRCamPairLocalZ;
+            g_camTrace[w][8]  = g_pSharedHands ? g_pSharedHands[116] : 0.0f;  // eyeBake x
+            g_camTrace[w][9]  = g_pSharedHands ? g_pSharedHands[117] : 0.0f;  // eyeBake y
+            g_camTrace[w][10] = g_pSharedHands ? g_pSharedHands[118] : 0.0f;  // eyeBake z
+            g_camTrace[w][11] = g_pSharedHands ? g_pSharedHands[92]  : 0.0f;  // camBake y
+            g_camTrace[w][12] = 0.0f;  // (dead: located-local [137..139] writer removed)
+            g_camTrace[w][13] = 0.0f;
+            g_camTrace[w][14] = 0.0f;
+            g_camTrace[w][15] = g_VRIKDbgHipsYaw;                             // hips model yaw
+            g_camTrace[w][16] = g_VRIKDbgTargetTrace[0];                      // IK target x
+            g_camTrace[w][17] = g_VRIKDbgTargetTrace[1];                      // IK target y
+            g_camTrace[w][18] = g_VRIKDbgHandFK[0];                           // solved hand x
+            g_camTrace[w][19] = g_VRIKDbgHandFK[1];                           // solved hand y
+            g_camTrace[w][20] = g_VRIKDbgShModel[0];                          // shoulder x
+            g_camTrace[w][21] = g_VRIKDbgShModel[1];                          // shoulder y
+            ++g_camTraceN;
+        }
+    }
+    // DEGENERATE PUSH GUARD. The legacy 5-param SetVRPlayerYaw call leaves cam/ent at
+    // zero. Such a push must be ignored COMPLETELY: no pair update, no entity publish,
+    // no seq advance -- publishing "loc=(0,0,0), valid" once made dxgi apply
+    // held = entity - camera => the view sank to the feet; publishing entity=(0,0,0)
+    // wasted dxgi latch ticks. (No published-pair channel anymore either: the view
+    // runs purely on dxgi's own filter -- user-verified as the stable configuration.)
+    const bool degeneratePush =
+        (camX == 0.0f && camY == 0.0f && camZ == 0.0f &&
+         entX == 0.0f && entY == 0.0f && entZ == 0.0f);
+    {
+        // XY SLEW LIMITER -- BY MEASUREMENT (sprint-transient dive fix). The original
+        // "NO FILTER" verdict came from a STANDING/gunfire trace; the frozen sprint
+        // window (auto-freeze dump) showed the truth: during sprint the game holds the
+        // FPP camera ~0.20m AHEAD of the entity -- pair = (-0.155,-0.126,1.6) -- and at
+        // sprint stop that lead collapses to (0,0) in ~0.13s. Anchor, IK targets, hand
+        // and shoulder all rode that 20cm swing 1:1 (tgtY 0.297->0.093, shY -0.155->
+        // -0.356): the whole body+hands LURCH around the user's stationary real head =
+        // the sprint start/stop body/hands dive (world provably stable meanwhile).
+        // Steady states are exact by construction (limiter passes constants); only the
+        // swing RATE is capped to ~0.5 m/s, stretching the 20cm transition into a soft
+        // ~0.4s settle. Z passes RAW (crouch height must not lag). Teleport guard: a
+        // horizontal residual > 0.35m snaps (vault/knockback/cinematic cuts).
+        const float lx = camX - entX, ly = camY - entY, lz = camZ - entZ;
+        const float l2 = lx*lx + ly*ly + lz*lz;
+        if (degeneratePush || l2 < 1.0e-4f) {
+            // Ignore entirely: keep the previous pair state untouched.
+        } else if (l2 < 9.0f) {
+            static float s_slew[2] = { 0.0f, 0.0f };
+            static float s_pvel[2] = { 0.0f, 0.0f };   // pair velocity (m/push, EMA)
+            static bool  s_slewInit = false;
+            if (!s_slewInit) { s_slew[0] = lx; s_slew[1] = ly; s_slewInit = true; }
+            const float rx = lx - s_slew[0], ry = ly - s_slew[1];
+            if (rx * rx + ry * ry > 0.1225f) {              // >0.35m: teleport, snap
+                s_slew[0] = lx; s_slew[1] = ly;
+                s_pvel[0] = 0.0f; s_pvel[1] = 0.0f;
+            } else {
+                // m/push at ~60Hz ticks; rate live-tunable via SetVRPairSlew (CET).
+                const float kMaxStep = g_VRPairSlewRate * 0.0166f;
+                const float sx = (rx >  kMaxStep) ?  kMaxStep : ((rx < -kMaxStep) ? -kMaxStep : rx);
+                const float sy = (ry >  kMaxStep) ?  kMaxStep : ((ry < -kMaxStep) ? -kMaxStep : ry);
+                s_slew[0] += sx;
+                s_slew[1] += sy;
+                // Pair velocity EMA (tau ~2.5 pushes): smooth enough to avoid end-of-
+                // ramp overshoot, fast enough to track the 8-push sprint transition.
+                s_pvel[0] += (sx - s_pvel[0]) * 0.4f;
+                s_pvel[1] += (sy - s_pvel[1]) * 0.4f;
+            }
+            // Publish with one-tick lead (SetVRPairLead) to cancel solve->render skew.
+            const float lead = g_VRPairLeadTicks;
+            g_VRCamPairLocalX = s_slew[0] + s_pvel[0] * lead;
+            g_VRCamPairLocalY = s_slew[1] + s_pvel[1] * lead;
+            g_VRCamPairLocalZ = lz;
+            g_VRCamPairValid = 1;
+        } else {
+            // Cinematic / detached camera: bypass (consumers fall back).
+            g_VRCamPairValid = 0;
+        }
+    }
+    if (g_pSharedHands && !degeneratePush) {
+        static float s_entSeq = 0.0f;
+        s_entSeq += 1.0f;
+        if (s_entSeq > 1.0e6f) s_entSeq = 1.0f;
+        // ENTITY VELOCITY + PUSH TIMESTAMP ([132..136]) for the synthetic-view
+        // extrapolation: the view is built from the PUSHED entity while the skeleton
+        // renders at the engine's (fresher) entity transform -- during strafe/run the
+        // WHOLE BODY led the view by v*dt (~2cm, user-confirmed). dxgi extrapolates
+        // ent + v*(tFinalCam - tPush) with the same-process QPC clock.
+        {
+            static LARGE_INTEGER s_qpf = { 0 };
+            if (!s_qpf.QuadPart) QueryPerformanceFrequency(&s_qpf);
+            static LARGE_INTEGER s_prevT = { 0 };
+            static float s_prevEnt[3] = { 0, 0, 0 };
+            static float s_vel[3] = { 0, 0, 0 };
+            static bool  s_velInit = false;
+            LARGE_INTEGER nowT; QueryPerformanceCounter(&nowT);
+            if (s_velInit && s_qpf.QuadPart) {
+                const double dt = double(nowT.QuadPart - s_prevT.QuadPart) / double(s_qpf.QuadPart);
+                if (dt > 1.0e-4 && dt < 0.25) {
+                    const float ivx = static_cast<float>((entX - s_prevEnt[0]) / dt);
+                    const float ivy = static_cast<float>((entY - s_prevEnt[1]) / dt);
+                    const float ivz = static_cast<float>((entZ - s_prevEnt[2]) / dt);
+                    if (ivx*ivx + ivy*ivy + ivz*ivz < 400.0f) {   // < 20 m/s: locomotion
+                        s_vel[0] += (ivx - s_vel[0]) * 0.3f;
+                        s_vel[1] += (ivy - s_vel[1]) * 0.3f;
+                        s_vel[2] += (ivz - s_vel[2]) * 0.3f;
+                    } else {                                       // teleport: reset
+                        s_vel[0] = s_vel[1] = s_vel[2] = 0.0f;
+                    }
+                }
+            }
+            s_prevEnt[0] = entX; s_prevEnt[1] = entY; s_prevEnt[2] = entZ;
+            s_prevT = nowT; s_velInit = true;
+            g_pSharedHands[132] = s_vel[0];
+            g_pSharedHands[133] = s_vel[1];
+            g_pSharedHands[134] = s_vel[2];
+            const double ts = static_cast<double>(nowT.QuadPart);
+            memcpy(const_cast<float*>(&g_pSharedHands[135]), &ts, sizeof(double));   // [135..136]
+        }
+        // Publish the clean pair on [128..131]. NOT [124..127]: those belong to
+        // openxr_manager (HMD position [124..126] + the hands-snapshot SEQLOCK [127]) --
+        // writing there clobbered the pair (seq stayed 0, dxgi never saw it and fell
+        // back to its leaky own-filter: the kicks the user kept seeing) AND corrupted
+        // the hands seqlock. Order: velocity/timestamp, then pair [128..131], then
+        // entity+seq [96..99].
+        if (g_VRCamPairValid) {
+            g_pSharedHands[128] = g_VRCamPairLocalX;
+            g_pSharedHands[129] = g_VRCamPairLocalY;
+            g_pSharedHands[130] = g_VRCamPairLocalZ;
+            g_pSharedHands[131] = s_entSeq;
+        } else {
+            g_pSharedHands[131] = 0.0f;
+        }
+        g_pSharedHands[96] = entX;
+        g_pSharedHands[97] = entY;
+        g_pSharedHands[98] = entZ;
+        // [CAMWRITE] entity world yaw (deg) for dxgi's mode-1 heading source.
+        // On foot the mouse/stick yaw integrator IS the entity yaw; the camera
+        // quat can no longer serve as the heading source there because in
+        // component mode it carries OUR composed HMD yaw (reading it back
+        // re-integrates the head turn every locate = runaway spin).
+        g_pSharedHands[153] = pYaw;
+        g_pSharedHands[99] = s_entSeq;
+    }
 
     if (aOut) *aOut = 1;
 }
@@ -4764,6 +4893,9 @@ void SetVRBindMode(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame,
     RED4ext::GetParameter(aFrame, &mode);
     aFrame->code++;
     g_VRBind = mode;
+    // Re-arm the pose reference captures (hips lock + girdle translation pin): the user
+    // re-toggles VRIK while standing unarmed to recalibrate the anatomical references.
+    if (mode > 0) g_VRPoseCapGen = g_VRPoseCapGen + 1;
     if (aOut) *aOut = 1;
 }
 
@@ -5013,6 +5145,94 @@ static void WriteVRDiagCore(float camX, float camY, float camZ,
             << (gizmoModel[1]-g_VRIKDbgTarget[1]) << ", " << (gizmoModel[2]-g_VRIKDbgTarget[2]) << ")  (want ~0)\n";
         out << "userArmLen R/L=" << g_VRUserArmLenR << "/" << g_VRUserArmLenL
             << " eyeHeight=" << g_VRUserEyeHeight << "\n";
+        if (g_pSharedHands) {
+            // Render-view pose channel + fixed-point scale auto-detect result.
+            out << "viewPose raw[108..110]=(" << g_pSharedHands[108] << ", " << g_pSharedHands[109]
+                << ", " << g_pSharedHands[110] << ", flag=" << g_pSharedHands[111] << ")"
+                << " scaleUsed=" << g_vrikViewScaleUsed
+                << (g_vrikViewScaleUsed == 0.0f ? " (REJECTED -> fallback)" : "") << "\n";
+            out << "pairLocal[128..131]=(" << g_pSharedHands[128] << ", " << g_pSharedHands[129]
+                << ", " << g_pSharedHands[130] << ", seq=" << g_pSharedHands[131]
+                << ") entSeq[99]=" << g_pSharedHands[99]
+                << " pairValid=" << g_VRCamPairValid << "\n";
+        }
+        // CAMERA-KICK TRACE dump: min/max/range per channel over the buffered pushes,
+        // then a sparse tail. Identifies WHICH channel carries the sprint/shot kick:
+        // raw local (position kick), quat i/j (rotational kick), eyeBake (view feedback
+        // wag), and whether the filtered pair passes it.
+        {
+            const int n = (g_camTraceN < VR_CAMTRACE_CAP) ? g_camTraceN : VR_CAMTRACE_CAP;
+            out << "camTrace freeze=" << g_camTraceFreeze
+                << (g_camTraceFreeze == 0 ? " (FROZEN on sprint stop -- window preserved)" : " (live)")
+                << "\n";
+            if (n > 8) {
+                static const char* kCol[22] = {
+                    "rawX", "rawY", "rawZ", "quatI", "quatJ",
+                    "fltX", "fltY", "fltZ", "eyeBX", "eyeBY", "eyeBZ", "camBY",
+                    "locX", "locY", "locZ", "hipsYawDeg",
+                    "tgtX", "tgtY", "handX", "handY", "shX", "shY" };
+                out << "camTrace n=" << n << " (per-channel min..max [range])\n";
+                for (int c = 0; c < 22; ++c) {
+                    float mn = g_camTrace[0][c], mx = g_camTrace[0][c];
+                    for (int i = 1; i < n; ++i) {
+                        const float v = g_camTrace[i][c];
+                        if (v < mn) mn = v;
+                        if (v > mx) mx = v;
+                    }
+                    out << "  " << kCol[c] << " " << mn << " .. " << mx
+                        << "  [" << (mx - mn) << "]\n";
+                }
+                // Sparse tail: last ~3s (180 pushes, every 4th -> 45 rows, oldest->newest).
+                // Columns picked for the SPRINT-DIVE hunt: raw pair (engine cam local),
+                // then the MODEL-SPACE actors -- right IK target (tgt), solved right hand
+                // FK (hand), right shoulder joint (sh). A stationary IRL controller =
+                // constant model position by design, so whichever column ramps during
+                // the sprint engage/stop transient IS the diver (body lean -> sh; anchor
+                // math -> tgt+hand together; solve-side -> hand alone).
+                const int newest = (g_camTraceN - 1) % VR_CAMTRACE_CAP;
+                out << "camTrace tail (oldest->newest):\n";
+                for (int k = 176; k >= 0; k -= 4) {
+                    if (k >= n) continue;
+                    const int i = ((newest - k) % VR_CAMTRACE_CAP + VR_CAMTRACE_CAP) % VR_CAMTRACE_CAP;
+                    out << "  raw=(" << g_camTrace[i][0] << ", " << g_camTrace[i][1] << ", " << g_camTrace[i][2]
+                        << ") hipsYaw=" << g_camTrace[i][15]
+                        << " tgt=(" << g_camTrace[i][16] << ", " << g_camTrace[i][17]
+                        << ") hand=(" << g_camTrace[i][18] << ", " << g_camTrace[i][19]
+                        << ") sh=(" << g_camTrace[i][20] << ", " << g_camTrace[i][21]
+                        << ")\n";
+                }
+            }
+            g_camTraceFreeze = -1;   // un-freeze: next sprint records a fresh window
+        }
+        for (int cs = 0; cs < 2; ++cs) {
+            out << (cs == 0 ? "clavR" : "clavL")
+                << " desired=(" << g_VRIKDbgClav[cs][0] << ", " << g_VRIKDbgClav[cs][1] << ", " << g_VRIKDbgClav[cs][2] << ")"
+                << " joint=(" << g_VRIKDbgClav[cs][3] << ", " << g_VRIKDbgClav[cs][4] << ", " << g_VRIKDbgClav[cs][5] << ")"
+                << " need=" << g_VRIKDbgClav[cs][6] << "deg applied=" << g_VRIKDbgClav[cs][7] << "deg\n";
+        }
+        if (g_pSharedHands) {
+            out << "viewOffs eyeBake[116..119]=(" << g_pSharedHands[116] << ", " << g_pSharedHands[117]
+                << ", " << g_pSharedHands[118] << ", valid=" << g_pSharedHands[119] << ")\n";
+            out << "viewOffs dxgiTotal[120..123]=(" << g_pSharedHands[120] << ", " << g_pSharedHands[121]
+                << ", " << g_pSharedHands[122] << ", valid=" << g_pSharedHands[123] << ")\n";
+            out << "viewOffs camBake[91..93]=(" << g_pSharedHands[91] << ", " << g_pSharedHands[92]
+                << ", " << g_pSharedHands[93] << ")\n";
+            // Barrel laser-dot chain (user report: red dot gone, hand rays alive).
+            // Gate: overlay draws only if [144] (weapon flag, dxgi) >= 0.9 AND the
+            // muzzle forward [24..26] is published with [27]=1 (Weapon Lua ->
+            // SetVRMuzzleQuat). One dump pinpoints which link is dead.
+            out << "laserDot gate[144]=" << g_pSharedHands[144]
+                << " muzzleFwd[24..26]=(" << g_pSharedHands[24] << ", " << g_pSharedHands[25]
+                << ", " << g_pSharedHands[26] << ") valid[27]=" << g_pSharedHands[27]
+                << " zoom[28]=" << g_pSharedHands[28] << "\n";
+        }
+        out << "solvesPerTick last=" << g_VRIKSolvesLastTick
+            << " max=" << g_VRIKSolvesMaxTick
+            << " bufA=0x" << std::hex << g_VRIKLastBufA
+            << " bufB=0x" << g_VRIKLastBufB << std::dec
+            << " totalCalls=" << g_AnimPoseTotalCalls
+            << " matchCalls=" << g_AnimPoseMatchCalls
+            << " replays=" << g_VRIKReplayTotal << "\n";
         out << "bodyUnderHMD=" << g_VRBodyUnderHMD << " chestDrop=" << g_VRChestDrop
             << " chestFwd=" << g_VRChestFwd << "\n";
         out << "chest target(model) = (" << g_VRIKDbgChestTgt[0] << ", " << g_VRIKDbgChestTgt[1] << ", " << g_VRIKDbgChestTgt[2] << ")\n";
@@ -6000,6 +6220,36 @@ void SetVRMeleeFire(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, 
     int32_t v = 0; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
     if (g_pSharedHands) g_pSharedHands[29] = (float)v;
 }
+// Live MODE of the Aim_JNT shake kill (g_VRCamBoneFreeze: 0 stock / 1 yaw-live / 2 full /
+// 3 swing-only).
+void SetVRCamBoneFreeze(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t v = 0; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
+    g_VRCamBoneFreeze = (v < 0) ? 0 : ((v > 4) ? 4 : v);
+}
+// Live tuning of the clean-pair XY slew rate (m/s), CET: SetVRPairSlew(rate).
+// The rate trades the two faces of the SAME sprint-transient artifact: too low
+// (0.5) = body/hands visibly float/drag on sprint start/stop and snap turns;
+// raw/high (10) = the old flash-lurch (sprint dive + the sprint snap "double",
+// which the frozen camTrace proved is the 20cm camera lead swinging, not yaw).
+// Sweet spot expected around 0.8..1.5.
+void SetVRPairSlew(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    float v = 1.0f; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
+    g_VRPairSlewRate = (v < 0.1f) ? 0.1f : ((v > 10.0f) ? 10.0f : v);
+}
+// Clean-pair prediction lead in ticks (0..2), CET: SetVRPairLead(t). See g_VRPairLeadTicks.
+void SetVRPairLead(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    float v = 0.0f; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
+    g_VRPairLeadTicks = (v < 0.0f) ? 0.0f : ((v > 2.0f) ? 2.0f : v);
+}
+// [CAMWRITE] Lua ack: echo the consumed publish seq ([151]) into [152]. The dxgi
+// locate hook uses an advancing ack as the "component write path is ALIVE" gate;
+// without it (mod removed, CET dead, menus) dxgi falls back to the legacy stomp.
+void SetVRCamAck(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    float v = 0.0f; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
+    EnsureSharedMemory();
+    if (g_pSharedHands) g_pSharedHands[152] = v;
+}
+
 // Read the held-trigger power flag (shared[30], published by the dxgi XInput merge while in melee
 // mode). The CET weapon mod uses it as the power-attack modifier for the next swing.
 void GetVRMeleeTrigger(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
@@ -6007,13 +6257,11 @@ void GetVRMeleeTrigger(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int3
     if (aOut) *aOut = (g_pSharedHands && g_pSharedHands[30] > 0.5f) ? 1 : 0;
 }
 // Generic shared-slot read for CET mods that need raw values (hand HMD-local poses, grip analog,
-// etc.). idx must be 0..127 -- the shared block is 128 floats (CyberpunkVR_Hands_Shared, 512 bytes).
-// Slot map (used today): [0]/[8] hand-valid, [1-3]/[9-11] hand pos HMD-local, [4-7]/[12-15] hand
-// orient, [16-19] HMD orient, [24-26]+[27] muzzle fwd+valid, [28] zoom, [30] RT-held bool,
-// [32] hand-tracking mode, [49] right grip, [58] weapon-aim enable, [70..76] shoulder calibration.
+// etc.). idx must be 0..255 -- the shared block is 256 floats (CyberpunkVR_Hands_Shared, 1024
+// bytes; all three modules map the same 1024). Full slot map: src/shared_slots.h.
 void GetVRSharedSlot(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t) {
     int32_t idx = 0; RED4ext::GetParameter(aFrame, &idx); aFrame->code++;
-    if (aOut) *aOut = (g_pSharedHands && idx >= 0 && idx < 128) ? g_pSharedHands[idx] : 0.0f;
+    if (aOut) *aOut = (g_pSharedHands && idx >= 0 && idx < 256) ? g_pSharedHands[idx] : 0.0f;
 }
 void GetVRProvDump(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t) {
     int32_t idx = 0; RED4ext::GetParameter(aFrame, &idx); aFrame->code++;
@@ -6096,33 +6344,6 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
 
     auto f15 = RED4ext::CGlobalFunction::Create("SetVRBoneDebugIndex", "SetVRBoneDebugIndex", &SetVRBoneDebugIndex);
     f15->flags = flags; f15->AddParam("Int32", "index"); rtti->RegisterFunction(f15);
-
-    auto f15a = RED4ext::CGlobalFunction::Create("ArmVRBoneHook", "ArmVRBoneHook", &ArmVRBoneHook);
-    f15a->flags = flags; f15a->SetReturnType("Int32"); f15a->AddParam("Int32", "mode"); rtti->RegisterFunction(f15a);
-
-    auto f15b = RED4ext::CGlobalFunction::Create("GetVRBoneHookArmed", "GetVRBoneHookArmed", &GetVRBoneHookArmed);
-    f15b->flags = flags; f15b->SetReturnType("Int32"); rtti->RegisterFunction(f15b);
-
-    auto f15c = RED4ext::CGlobalFunction::Create("GetVRBoneHookStats", "GetVRBoneHookStats", &GetVRBoneHookStats);
-    f15c->flags = flags; f15c->SetReturnType("Int32"); f15c->AddParam("Int32", "mode"); rtti->RegisterFunction(f15c);
-
-    auto f15d = RED4ext::CGlobalFunction::Create("SetVRBoneHookCapture", "SetVRBoneHookCapture", &SetVRBoneHookCapture);
-    f15d->flags = flags; f15d->SetReturnType("Int32"); f15d->AddParam("Int32", "on"); rtti->RegisterFunction(f15d);
-
-    auto f15e = RED4ext::CGlobalFunction::Create("GetVRBoneHookCapturedCount", "GetVRBoneHookCapturedCount", &GetVRBoneHookCapturedCount);
-    f15e->flags = flags; f15e->SetReturnType("Int32"); rtti->RegisterFunction(f15e);
-
-    auto f15f = RED4ext::CGlobalFunction::Create("GetVRBoneHookCapturedRcx", "GetVRBoneHookCapturedRcx", &GetVRBoneHookCapturedRcx);
-    f15f->flags = flags; f15f->SetReturnType("Int32"); f15f->AddParam("Int32", "index"); rtti->RegisterFunction(f15f);
-
-    auto f15g = RED4ext::CGlobalFunction::Create("GetVRBoneHookCapturedBoneCount", "GetVRBoneHookCapturedBoneCount", &GetVRBoneHookCapturedBoneCount);
-    f15g->flags = flags; f15g->SetReturnType("Int32"); f15g->AddParam("Int32", "index"); rtti->RegisterFunction(f15g);
-
-    auto f15h = RED4ext::CGlobalFunction::Create("ArmVRBoneHookByCaptureIndex", "ArmVRBoneHookByCaptureIndex", &ArmVRBoneHookByCaptureIndex);
-    f15h->flags = flags; f15h->SetReturnType("Int32"); f15h->AddParam("Int32", "index"); rtti->RegisterFunction(f15h);
-
-    auto f15i = RED4ext::CGlobalFunction::Create("GetPlayerBoneBufferAddress", "GetPlayerBoneBufferAddress", &GetPlayerBoneBufferAddress);
-    f15i->flags = flags; f15i->SetReturnType("Int32"); rtti->RegisterFunction(f15i);
 
     auto f15j = RED4ext::CGlobalFunction::Create("InstallVRAnimPoseHook", "InstallVRAnimPoseHook", &InstallVRAnimPoseHook);
     f15j->flags = flags; f15j->SetReturnType("Int32"); rtti->RegisterFunction(f15j);
@@ -6431,6 +6652,14 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     fZoom->flags = flags; fZoom->AddParam("Float","zoom"); rtti->RegisterFunction(fZoom);
     auto fMeleeFire = RED4ext::CGlobalFunction::Create("SetVRMeleeFire", "SetVRMeleeFire", &SetVRMeleeFire);
     fMeleeFire->flags = flags; fMeleeFire->AddParam("Int32","fire"); rtti->RegisterFunction(fMeleeFire);
+    auto fCamFreeze = RED4ext::CGlobalFunction::Create("SetVRCamBoneFreeze", "SetVRCamBoneFreeze", &SetVRCamBoneFreeze);
+    fCamFreeze->flags = flags; fCamFreeze->AddParam("Int32","on"); rtti->RegisterFunction(fCamFreeze);
+    auto fPairSlew = RED4ext::CGlobalFunction::Create("SetVRPairSlew", "SetVRPairSlew", &SetVRPairSlew);
+    fPairSlew->flags = flags; fPairSlew->AddParam("Float","rate"); rtti->RegisterFunction(fPairSlew);
+    auto fPairLead = RED4ext::CGlobalFunction::Create("SetVRPairLead", "SetVRPairLead", &SetVRPairLead);
+    fPairLead->flags = flags; fPairLead->AddParam("Float","ticks"); rtti->RegisterFunction(fPairLead);
+    auto fCamAck = RED4ext::CGlobalFunction::Create("SetVRCamAck", "SetVRCamAck", &SetVRCamAck);
+    fCamAck->flags = flags; fCamAck->AddParam("Float","seq"); rtti->RegisterFunction(fCamAck);
     auto fMeleeTrig = RED4ext::CGlobalFunction::Create("GetVRMeleeTrigger", "GetVRMeleeTrigger", &GetVRMeleeTrigger);
     fMeleeTrig->flags = flags; fMeleeTrig->SetReturnType("Int32"); rtti->RegisterFunction(fMeleeTrig);
     // Generic shared-slot getter (for the hand-to-holster CET mod + other VR mods that need raw poses).
