@@ -164,6 +164,15 @@ Tabbed, live, and saved to `vrport.ini`:
 - RAM: 32 GB DDR4
 - OS: Windows 11 Pro 25H2 (26200)
 
+## Donations
+Donation is your personal choice, it will speed up my development and enable to add new features – nobody is forcing you to do this
+https://boosty.to/dariulone
+https://dalink.to/dariulone
+USDT TRC20: TRgmDeRcFumXvsSRqYV5kQAqRAvoFKXJCt
+USDT BEP20: 0x4638c6580d1e684bdc60a1c415e5cb1522b66942
+TRX: TRgmDeRcFumXvsSRqYV5kQAqRAvoFKXJCt
+BTC: 13AfpBwZvaezf36FmpjtENHTXjYcnzEsze
+
 ## Credits & license
 
 Created by [dariulone](https://github.com/dariulone), Valve Index testing by
