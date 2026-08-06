@@ -293,7 +293,16 @@ static void LogDxgiAdapterForDevice(ID3D12Device* device) {
 void OpenXRManager::MaybeLogRuntimeFovDetails(const XrFovf& left, const XrFovf& right, float runtimeHfovDeg, float runtimeVfovDeg, float runtimeIpdMeters) {
     const float forcedProjectionFovDeg = GetForcedFov();
     const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(left, right);
-    const float correctedGameHfovDeg = GetCorrectedGameHorizontalFovDeg(corr);
+    // NOT the FOV the game renders -- see the field name in the log line below.
+    //
+    // This is the de-canted SPAN (both eyes recentred onto their own axis and averaged), which is
+    // what the runtime branch used to render before it started sizing to cover the panel. On a
+    // canted headset the two now differ by the whole cant -- 94 here against 108 rendered on a
+    // Quest 3 -- so logging it as "correctedGameHFov" sent the next reader looking for a bug in
+    // the render path. Kept because it is still the right number for judging how canted a headset
+    // is (span vs cover is exactly the widening the cant forces), renamed because it is not the
+    // render FOV. That one is on the NormalFOV line as targetH.
+    const float deCantedHfovDeg = GetCorrectedGameHorizontalFovDeg(corr);
 
     auto valueChanged = [](float a, float b) {
         return fabsf(a - b) > 0.01f;
@@ -324,7 +333,7 @@ void OpenXRManager::MaybeLogRuntimeFovDetails(const XrFovf& left, const XrFovf& 
     m_loggedRuntimeIpd = runtimeIpdMeters;
     m_loggedForcedProjectionFovDeg = forcedProjectionFovDeg;
 
-    Log("OpenXRManager[FOV]: raw left=(L=%.3f R=%.3f U=%.3f D=%.3f) right=(L=%.3f R=%.3f U=%.3f D=%.3f) runtimeHFov=%.3f runtimeVFov=%.3f runtimeIPD=%.4f correctedGameHFov=%.3f correctionYaw=%.3f correctionPitch=%.3f xr_force_fov=%.3f useRuntimeProjection=%d\n",
+    Log("OpenXRManager[FOV]: raw left=(L=%.3f R=%.3f U=%.3f D=%.3f) right=(L=%.3f R=%.3f U=%.3f D=%.3f) runtimeHFov=%.3f runtimeVFov=%.3f runtimeIPD=%.4f deCantedHFov=%.3f correctionYaw=%.3f correctionPitch=%.3f xr_force_fov=%.3f useRuntimeProjection=%d\n",
         left.angleLeft * (180.0f / 3.1415926535f),
         left.angleRight * (180.0f / 3.1415926535f),
         left.angleUp * (180.0f / 3.1415926535f),
@@ -336,7 +345,7 @@ void OpenXRManager::MaybeLogRuntimeFovDetails(const XrFovf& left, const XrFovf& 
         runtimeHfovDeg,
         runtimeVfovDeg,
         runtimeIpdMeters,
-        correctedGameHfovDeg,
+        deCantedHfovDeg,
         corr.yawDeltaRad * (180.0f / 3.1415926535f),
         corr.pitchDeltaRad * (180.0f / 3.1415926535f),
         forcedProjectionFovDeg,

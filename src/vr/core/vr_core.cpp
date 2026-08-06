@@ -4629,6 +4629,10 @@ extern "C" void __fastcall OnNormalFovHookCallback(void* cameraState, float orig
     constexpr float kD2R = 3.1415926535f / 180.0f;
     const float forced = GetForcedFov();
 
+    const float aspect = (g_launcherWidth > 1 && g_launcherHeight > 1)
+        ? (static_cast<float>(g_launcherWidth) / static_cast<float>(g_launcherHeight))
+        : 1.0f;
+
     float targetHDeg = 0.0f;
     if (forced > 1.0f && forced < 170.0f) {
         targetHDeg = forced;                      // xr_force_fov has always meant the horizontal
@@ -4636,18 +4640,17 @@ extern "C" void __fastcall OnNormalFovHookCallback(void* cameraState, float orig
         XrFovf lf{}, rf{};
         if (OpenXRManager::Get().GetCurrentEyeFov(0, &lf) &&
             OpenXRManager::Get().GetCurrentEyeFov(1, &rf)) {
-            // The same de-canting the submit layer applies, so the two cannot drift apart.
-            const RuntimeFovCorrection corr = ComputeRuntimeFovCorrection(lf, rf);
-            targetHDeg = GetCorrectedGameHorizontalFovDeg(corr);
+            // Size to COVER the panel, not to match its span. The submit layer recentres the frustum
+            // on the eye axis but never rotates the pose to match it, so on a canted headset a
+            // span-sized frustum leaves the outer edge and the bottom black. See
+            // GetPanelCoveringHorizontalFovDeg for the geometry. The submit follows this value
+            // through GetGameRenderFovDeg, so the two ends of the contract cannot drift apart.
+            targetHDeg = GetPanelCoveringHorizontalFovDeg(lf, rf, aspect);
         }
         if (!(targetHDeg > 1.0f && targetHDeg < 170.0f)) {
             targetHDeg = OpenXRManager::Get().GetRuntimeHorizontalFovDeg();
         }
     }
-
-    const float aspect = (g_launcherWidth > 1 && g_launcherHeight > 1)
-        ? (static_cast<float>(g_launcherWidth) / static_cast<float>(g_launcherHeight))
-        : 1.0f;
 
     float verticalDeg = originalFov;
     float horizontalDeg = 0.0f;
