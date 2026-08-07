@@ -110,6 +110,20 @@ struct LiveControlsUiState {
     // camera to full head-look + head-relative movement). 0 (default) = classic
     // stick / snap-turn heading. Vehicles are unaffected either way. F10 -> VRIK tab.
     int xrPhysicalBodyRotation;
+    // HTC Vive leg trackers (feet). xrLegTrackers: 1 = foot trackers drive the
+    // avatar legs via the VRIK plugin (needs SteamVR + assigned foot roles).
+    // xrLegAnkleOffset: tracker-on-shoe -> ankle joint vertical offset (m).
+    // xrLegMount*Deg: foot-orientation mount correction euler (deg), tuned live
+    // from the F10 -> VRIK tab until the avatar feet point where yours do.
+    int xrLegTrackers;
+    // Optional 3rd tracking point (waist/belt): 0 (default) = 2-point feet only,
+    // 1 = waist tracker also drives the avatar hips (needs the waist role
+    // assigned in SteamVR's tracker management).
+    int xrWaistTracker;
+    float xrLegAnkleOffset;
+    float xrLegMountPitchDeg;
+    float xrLegMountYawDeg;
+    float xrLegMountRollDeg;
 };
 
 extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState);

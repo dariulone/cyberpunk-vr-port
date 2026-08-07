@@ -52,6 +52,17 @@ void OpenXRManager::RequestRecenter() {
 //   * HMD -> shoulder backward depth ~= 0.04 * armSpan (eyes are ahead of neck)
 //   * arm length is measured directly from calibrated shoulder to controller/gizmo wrist
 void OpenXRManager::StartAutoCalibration(float secs) {
+    // Body trackers (OpenVR fallback path): the standing T-pose is the perfect
+    // moment to (re)identify which physical tracker is which foot/waist --
+    // feet are the two lowest, on opposite sides of the midline. No-op when
+    // the OpenVR provider is off or poses come from the HTCX extension.
+    RemapOpenVRTrackerRoles(true);
+    // Foot-rotation calibration rides the same T-pose: raise the plugin's
+    // sampling flag ([190]) for the whole window; the plugin solves per-foot
+    // mount corrections (real foot -> animation foot, at the pose where they
+    // agree) and publishes them on the falling edge. Adopted+persisted below.
+    m_mountCalibSampling.store(1, std::memory_order_relaxed);
+    m_mountSolveAwaiting = false;
     m_calibSeconds.store(secs, std::memory_order_relaxed);
     m_calibProgress.store(0.0f, std::memory_order_relaxed);
     m_calibArmSpanMax = 0.0f;
@@ -59,6 +70,10 @@ void OpenXRManager::StartAutoCalibration(float secs) {
     m_calibSampleCount = 0;
     m_calibCtrlPosSumR[0]=m_calibCtrlPosSumR[1]=m_calibCtrlPosSumR[2]=0.0f;
     m_calibCtrlPosSumL[0]=m_calibCtrlPosSumL[1]=m_calibCtrlPosSumL[2]=0.0f;
+    m_calibFootYSum[0]=m_calibFootYSum[1]=0.0f;
+    m_calibFootSamples[0]=m_calibFootSamples[1]=0;
+    m_calibWaistYSum = 0.0f;
+    m_calibWaistSamples = 0;
     m_calibStart = 0.0;
     // INITIALIZE wrist defaults if they've never been set. Without this, finalisation reads zero
     // values from m_calib[] (atomic float default = 0), publishes identity wrist quats, and the
@@ -120,8 +135,28 @@ void OpenXRManager::TickAutoCalibration() {
             m_calibCtrlPosSumL[0] += m_hands[0].posX;
             m_calibCtrlPosSumL[1] += m_hands[0].posY;
             m_calibCtrlPosSumL[2] += m_hands[0].posZ;
-            m_calibHmdHeightSum += m_posY.load(std::memory_order_relaxed);
+            // Eye height must be FLOOR-relative for the leg-length math below.
+            // m_posY lives in the head-origin OpenXR space (~0 standing); when
+            // the OpenVR tracker provider is live it publishes a floor-relative
+            // HMD height (standing universe) -- prefer that.
+            float hmdY = m_posY.load(std::memory_order_relaxed);
+            if (m_openvrHmdStageY > 0.3f) hmdY = m_openvrHmdStageY;
+            m_calibHmdHeightSum += hmdY;
             m_calibSampleCount++;
+        }
+        // Body trackers: average the stage-space ankle heights over the standing
+        // T-pose (feet, [0..1]) and the hip height (waist, [2]). Finalise derives
+        // hip->ankle leg length from these plus the HMD eye height. Independent
+        // of the hands so a legs-only calibrate still works if a controller drops.
+        for (int i = 0; i < 2; ++i) {
+            if (m_trackerStageValid[i]) {
+                m_calibFootYSum[i] += m_trackerStagePos[i].y;
+                m_calibFootSamples[i]++;
+            }
+        }
+        if (m_trackerStageValid[2]) {
+            m_calibWaistYSum += m_trackerStagePos[2].y;
+            m_calibWaistSamples++;
         }
     }
 
@@ -130,6 +165,7 @@ void OpenXRManager::TickAutoCalibration() {
         float armSpan = m_calibArmSpanMax;
         if (armSpan < 0.5f || armSpan > 2.5f || m_calibSampleCount == 0) {
             Log("Auto-calibration: armSpan %.3fm out of plausible range — aborting.\n", armSpan);
+            m_mountCalibSampling.store(0, std::memory_order_relaxed);
             m_calibState.store(0, std::memory_order_relaxed);
             return;
         }
@@ -190,6 +226,52 @@ void OpenXRManager::TickAutoCalibration() {
         m_userArmLenL.store(realArmLenL, std::memory_order_relaxed);
         m_userEyeHeight.store(eyeHeight, std::memory_order_relaxed);
         m_measureValid.store(1, std::memory_order_relaxed);
+
+        // LEG LENGTH from the foot trackers (if present). The tracker sits on the
+        // shoe, so the stage-space Y average is the ankle height above the floor.
+        // Hip joint height is anthropometric (~0.53 * stature; eyes sit ~12 cm
+        // below the crown), so legLen = hipHeight - ankleHeight. Published to the
+        // plugin via [174]/[176]; used there to sanity-clamp hip placement so the
+        // leg IK never gets an unreachable target. No trackers -> keep the last
+        // value (loaded from file) rather than stomping it with 0.
+        {
+            float ankleSum = 0.0f; int ankleN = 0;
+            for (int i = 0; i < 2; ++i) {
+                if (m_calibFootSamples[i] > 0) {
+                    ankleSum += m_calibFootYSum[i] / static_cast<float>(m_calibFootSamples[i]);
+                    ++ankleN;
+                }
+            }
+            if (ankleN > 0 && eyeHeight > 1.0f) {
+                const float ankle = ankleSum / static_cast<float>(ankleN);
+                // Hip height: the waist tracker measures it DIRECTLY (belt rides
+                // ~10 cm above the joint); otherwise fall back to the
+                // anthropometric estimate from stature.
+                float hipHeight = 0.53f * (eyeHeight + 0.12f);
+                const char* hipSrc = "est";
+                if (m_calibWaistSamples > 0) {
+                    hipHeight = m_calibWaistYSum / static_cast<float>(m_calibWaistSamples) - 0.10f;
+                    hipSrc = "waist";
+                }
+                float legLen = hipHeight - ankle;
+                if (legLen < 0.55f) legLen = 0.55f;
+                if (legLen > 1.05f) legLen = 1.05f;
+                m_userLegLen.store(legLen, std::memory_order_relaxed);
+                m_legLenValid.store(1, std::memory_order_relaxed);
+                Log("Auto-calibration[FBT]: ankle=%.3fm hipHeight=%.3fm(%s) -> legLen=%.3fm (%d foot/feet)\n",
+                    ankle, hipHeight, hipSrc, legLen, ankleN);
+            } else {
+                Log("Auto-calibration[FBT]: no foot trackers sampled -- legLen unchanged (%.3fm, valid=%d).\n",
+                    m_userLegLen.load(std::memory_order_relaxed), m_legLenValid.load(std::memory_order_relaxed));
+            }
+        }
+        // FOOT-ROTATION (mount) solve: close the plugin's sampling window.
+        // The plugin publishes its per-foot mount solve to [191..199] a frame
+        // or two after seeing the flag drop, so the per-frame publish loop
+        // waits briefly for it (adopt + persist there).
+        m_mountCalibSampling.store(0, std::memory_order_relaxed);
+        m_mountSolveAwaiting = true;
+        m_mountSolveAwaitStart = FbtNowSeconds();
         // Legacy modes (1..3) + the head-relative fallback still read a reach scale; keep it
         // neutral (1.0) so they are unaffected by the new measured-length path.
         float scaleR = 1.0f;
@@ -323,6 +405,21 @@ bool OpenXRManager::SaveCalibrationToFile() {
             m_userArmLenR.load(std::memory_order_relaxed),
             m_userArmLenL.load(std::memory_order_relaxed),
             m_userEyeHeight.load(std::memory_order_relaxed));
+    // Leg length measured from the Vive foot trackers (0 = never measured).
+    fprintf(f, "userLegLen=%.4f\n", m_userLegLen.load(std::memory_order_relaxed));
+    // Per-foot mount correction quats solved by the T-pose calibration
+    // (plugin sampler -> [191..199] -> adopted here). Persisted so the feet
+    // keep their calibrated rotation across sessions without recalibrating.
+    fprintf(f, "footMountLX=%.6f\nfootMountLY=%.6f\nfootMountLZ=%.6f\nfootMountLW=%.6f\n",
+            m_legMountQuatL[0].load(std::memory_order_relaxed),
+            m_legMountQuatL[1].load(std::memory_order_relaxed),
+            m_legMountQuatL[2].load(std::memory_order_relaxed),
+            m_legMountQuatL[3].load(std::memory_order_relaxed));
+    fprintf(f, "footMountRX=%.6f\nfootMountRY=%.6f\nfootMountRZ=%.6f\nfootMountRW=%.6f\n",
+            m_legMountQuatR[0].load(std::memory_order_relaxed),
+            m_legMountQuatR[1].load(std::memory_order_relaxed),
+            m_legMountQuatR[2].load(std::memory_order_relaxed),
+            m_legMountQuatR[3].load(std::memory_order_relaxed));
     fclose(f);
     Log("Calibration saved -> %s\n", path);
     return true;
@@ -363,11 +460,22 @@ bool OpenXRManager::LoadCalibrationFromFile() {
         m_camBakeOffset[2].load(std::memory_order_relaxed),
     };
     int version = 0;
+    float mntL[4] = { 0.0f, 0.0f, 0.0f, 1.0f }, mntR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    bool haveMntL = false, haveMntR = false;
     char line[128];
     while (fgets(line, sizeof(line), f)) {
         char key[32]; float val;
         if (sscanf_s(line, "%31[^=]=%f", key, (unsigned)_countof(key), &val) != 2) continue;
         if (strcmp(key, "version") == 0) version = static_cast<int>(val);
+        // Per-foot T-pose-solved mount corrections (quat components).
+        if (strcmp(key, "footMountLX") == 0) { mntL[0] = val; haveMntL = true; }
+        if (strcmp(key, "footMountLY") == 0) { mntL[1] = val; }
+        if (strcmp(key, "footMountLZ") == 0) { mntL[2] = val; }
+        if (strcmp(key, "footMountLW") == 0) { mntL[3] = val; }
+        if (strcmp(key, "footMountRX") == 0) { mntR[0] = val; haveMntR = true; }
+        if (strcmp(key, "footMountRY") == 0) { mntR[1] = val; }
+        if (strcmp(key, "footMountRZ") == 0) { mntR[2] = val; }
+        if (strcmp(key, "footMountRW") == 0) { mntR[3] = val; }
         #define M(name, idx) if (strcmp(key, name) == 0) v[idx] = val;
         #define E(name, idx) if (strcmp(key, name) == 0) e[idx] = val;
         #define C(name, idx) if (strcmp(key, name) == 0) cb[idx] = val;
@@ -383,6 +491,11 @@ bool OpenXRManager::LoadCalibrationFromFile() {
             m_userArmLenL.store(val, std::memory_order_relaxed);
         if (strcmp(key, "userEyeHeight") == 0 && val > 0.0f && val <= 2.2f)
             m_userEyeHeight.store(val, std::memory_order_relaxed);
+        // Leg length measured from the Vive foot trackers (0 in old files -> stays invalid).
+        if (strcmp(key, "userLegLen") == 0 && val >= 0.50f && val <= 1.10f) {
+            m_userLegLen.store(val, std::memory_order_relaxed);
+            m_legLenValid.store(1, std::memory_order_relaxed);
+        }
         #undef M
         #undef E
         #undef C
@@ -404,6 +517,20 @@ bool OpenXRManager::LoadCalibrationFromFile() {
     SetVRHandCalib(v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11],v[12],v[13]);
     SetShoulderAnatomical(e[0],e[1],e[2],e[3],e[4],e[5]);
     SetCameraOffset(cb[0], cb[1], cb[2]);
+    // Per-foot mount corrections: accept only sane unit-ish quats, else identity.
+    auto adoptMount = [](std::atomic<float>* dst, const float* q, bool have) {
+        float out[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        if (have) {
+            const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+            if (n2 > 0.81f && n2 < 1.21f) {
+                const float inv = 1.0f / sqrtf(n2);
+                out[0] = q[0]*inv; out[1] = q[1]*inv; out[2] = q[2]*inv; out[3] = q[3]*inv;
+            }
+        }
+        for (int i = 0; i < 4; ++i) dst[i].store(out[i], std::memory_order_relaxed);
+    };
+    adoptMount(m_legMountQuatL, mntL, haveMntL);
+    adoptMount(m_legMountQuatR, mntR, haveMntR);
     Log("Calibration loaded <- %s\n", path);
     return true;
 }

@@ -566,6 +566,63 @@ public:
         for (int i = 0; i < 14; ++i) out[i] = m_calib[i].load(std::memory_order_relaxed);
     }
 
+    // ==== HTC VIVE TRACKERS (leg tracking) ====
+    // XR_HTCX_vive_tracker_interaction: enumerate connected trackers, bind the
+    // body roles (left_foot / right_foot / waist) to a pose action, locate them
+    // next to the hand locate each frame, and publish HMD-local poses to shared
+    // [157..172] (feet) and [181..188] (waist) so the VRIK plugin can IK the
+    // avatar legs onto the feet and place the hips on the waist tracker.
+    // Works with real Vive Trackers and with trackers that emulate them.
+    void InitViveTrackerSupport();       // from Init(), after xrCreateInstance
+    void CreateViveTrackerActions();     // from the action-set setup block
+    void EnsureViveTrackerSpaces();      // after session attach; re-tried from the poll
+    // Caller holds m_handMutex (same rule as the m_hands writes around it).
+    void PollViveTrackers(XrTime locateTime, const XrPosef& headPoseLocal);
+    // ==== OPENVR FALLBACK TRACKER PROVIDER (Panda trackers etc.) ====
+    // SteamVR's HTCX OpenXR extension only enumerates genuine HTC Vive
+    // Trackers; emulated trackers never show up there. They ARE visible
+    // through the OpenVR API as TrackedDeviceClass_GenericTracker devices, so
+    // this provider reads their poses from a lightweight OpenVR background
+    // client and fills any role the HTCX path left invalid. Device -> role
+    // assignment is geometric (feet = the two lowest trackers, waist = the
+    // nearest hip-height one), refreshed by the T-pose auto-calibration.
+    void InitOpenVRTrackerSupport();            // from Init(), after InitViveTrackerSupport
+    void PollOpenVRTrackers(const XrPosef& headPoseStage);  // from PollViveTrackers tail
+    void RemapOpenVRTrackerRoles(bool explicitRescan);      // T-pose calib + lazy remap
+    bool HasOpenVRTrackerSupport() const { return m_openvrSystem != nullptr; }
+    // HMD-local tracker pose, same convention as GetHandPose.
+    // idx: 0 = left foot, 1 = right foot, 2 = waist.
+    bool GetBodyTrackerPose(int idx, OpenXRHeadPose* out) const;
+    int  GetViveTrackerCount() const { return m_viveTrackerCount.load(std::memory_order_relaxed); }
+    bool HasViveTrackerExtension() const { return m_viveTrackerExt; }
+    void SetLegTrackersEnable(int v) { m_legTrackersEnable.store(v != 0 ? 1 : 0, std::memory_order_relaxed); }
+    int  GetLegTrackersEnable() const { return m_legTrackersEnable.load(std::memory_order_relaxed); }
+    void SetWaistTrackerEnable(int v) { m_waistTrackerEnable.store(v != 0 ? 1 : 0, std::memory_order_relaxed); }
+    int  GetWaistTrackerEnable() const { return m_waistTrackerEnable.load(std::memory_order_relaxed); }
+    void SetLegTrackerTuning(float ankleOffsetM, float mountPitchDeg, float mountYawDeg, float mountRollDeg) {
+        m_legAnkleOffset.store(ankleOffsetM, std::memory_order_relaxed);
+        m_legMountEulerDeg[0].store(mountPitchDeg, std::memory_order_relaxed);
+        m_legMountEulerDeg[1].store(mountYawDeg, std::memory_order_relaxed);
+        m_legMountEulerDeg[2].store(mountRollDeg, std::memory_order_relaxed);
+    }
+    void GetLegTrackerTuning(float* ankleOff, float* mp, float* my, float* mr) const {
+        *ankleOff = m_legAnkleOffset.load(std::memory_order_relaxed);
+        *mp = m_legMountEulerDeg[0].load(std::memory_order_relaxed);
+        *my = m_legMountEulerDeg[1].load(std::memory_order_relaxed);
+        *mr = m_legMountEulerDeg[2].load(std::memory_order_relaxed);
+    }
+    // T-pose measured hip->ankle length (m); 0 = not measured. Published to [174]/[176].
+    void SetUserLegLen(float v) {
+        m_userLegLen.store(v, std::memory_order_relaxed);
+        m_legLenValid.store(v > 0.0f ? 1 : 0, std::memory_order_relaxed);
+    }
+    // Per-foot mount correction quats (T-pose solved, persisted in
+    // vrik_calibration.ini, published to shared [208..215]). Identity default.
+    void GetLegMountQuat(int foot, float* out4) const {   // foot: 0 = L, 1 = R
+        const std::atomic<float>* src = (foot == 0) ? m_legMountQuatL : m_legMountQuatR;
+        for (int i = 0; i < 4; ++i) out4[i] = src[i].load(std::memory_order_relaxed);
+    }
+
     // ==== AUTO-CALIBRATION ====
     // T-pose calibration: user holds arms straight out sideways and stands straight.
     // We sample the live HMD + controller positions over `secs` seconds and compute:
@@ -814,6 +871,63 @@ private:
     std::atomic<float> m_userArmLenR{0.0f};
     std::atomic<float> m_userArmLenL{0.0f};
     std::atomic<float> m_userEyeHeight{0.0f};
+
+    // ---- Body trackers (XR_HTCX_vive_tracker_interaction) --------------------
+    // Index convention everywhere: [0] = left foot, [1] = right foot, [2] = waist.
+    // m_trackers[] mirrors m_hands[]: HMD-local pose (pos rel HMD in HMD axes, ori
+    // rel HMD), written by PollViveTrackers under m_handMutex. m_trackerStagePos[]
+    // keeps the raw LOCAL-space position (floor-relative Y) for calibration.
+    static constexpr int kBodyTrackerCount = 3;
+    bool               m_viveTrackerExt = false;
+    PFN_xrEnumerateViveTrackerPathsHTCX m_pfnEnumViveTrackers = nullptr;
+    XrAction           m_trackerPoseAction = XR_NULL_HANDLE;
+    XrPath             m_trackerRolePaths[kBodyTrackerCount] = { XR_NULL_PATH, XR_NULL_PATH, XR_NULL_PATH };
+    XrSpace            m_trackerSpaces[kBodyTrackerCount] = { XR_NULL_HANDLE, XR_NULL_HANDLE, XR_NULL_HANDLE };
+    OpenXRHeadPose     m_trackers[kBodyTrackerCount]{};
+    XrVector3f         m_trackerStagePos[kBodyTrackerCount]{};
+    bool               m_trackerStageValid[kBodyTrackerCount] = { false, false, false };
+    TrackingPoseFilterState m_trackerFilterState[kBodyTrackerCount]{};
+    OpenXRHeadPose     m_pairLockTrackers[kBodyTrackerCount]{};
+    std::atomic<int>   m_viveTrackerCount{0};      // trackers seen with a body role (0..3)
+    double             m_lastViveTrackerEnum = 0.0; // QPC seconds of last re-enumerate
+    // OpenVR fallback provider state. Types stay opaque here (void*) so this
+    // header never drags in the big vendored openvr.h; openvr_trackers.cpp
+    // casts m_openvrSystem to vr::IVRSystem*.
+    void*              m_openvrModule = nullptr;    // HMODULE of openvr_api.dll
+    void*              m_openvrSystem = nullptr;    // vr::IVRSystem*
+    uint32_t           m_openvrRoleDevice[kBodyTrackerCount] = { 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu };
+    uint64_t           m_openvrDeviceSetMask = 0;   // connected GenericTracker fingerprint
+    int                m_openvrTrackerCount = 0;    // connected GenericTrackers (last scan)
+    double             m_lastOpenvrScan = 0.0;      // FbtNowSeconds() of last device scan
+    double             m_lastOpenvrRemap = 0.0;     // FbtNowSeconds() of last remap attempt
+    // Floor-relative HMD height from the OpenVR standing universe, refreshed by
+    // the per-frame poll. The mod's own m_posY is in the head-origin OpenXR
+    // space (~0 while standing), which fails the calibration's eyeHeight gate;
+    // calibration prefers this when the OpenVR provider is live.
+    float              m_openvrHmdStageY = 0.0f;
+    std::atomic<int>   m_legTrackersEnable{0};
+    std::atomic<int>   m_waistTrackerEnable{0};    // optional 3rd point: waist drives hips
+    std::atomic<float> m_legAnkleOffset{0.10f};    // tracker-on-shoe -> ankle joint (m)
+    std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg, legacy -- superseded by the per-foot quats below)
+    // PER-FOOT mount correction quats, solved by the plugin's T-pose sampler
+    // (published to [191..199]), adopted+persisted here, republished as the
+    // ACTIVE mounts on [208..215]. Identity = never calibrated.
+    std::atomic<float> m_legMountQuatL[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    std::atomic<float> m_legMountQuatR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    // T-pose mount-solve handshake (frame thread only): [190] sampling flag,
+    // awaiting state for the plugin's solved-mount publish on [191..199].
+    std::atomic<int>   m_mountCalibSampling{0};
+    std::atomic<bool>  m_mountSolveAwaiting{false};
+    double             m_mountSolveAwaitStart = 0.0;    // frame thread only
+    float              m_mountSolveConsumedSeq = 0.0f;  // frame thread only
+    std::atomic<int>   m_legLenValid{0};
+    std::atomic<float> m_userLegLen{0.0f};         // T-pose hip->ankle (m)
+    // Auto-calibration accumulators (stage-space heights, averaged). Feet feed the
+    // ankle height; the waist tracker measures hip height directly when present.
+    float              m_calibFootYSum[2] = { 0.0f, 0.0f };
+    int                m_calibFootSamples[2] = { 0, 0 };
+    float              m_calibWaistYSum = 0.0f;
+    int                m_calibWaistSamples = 0;
 
     // Camera->head bake offset (game-local right/forward/up), applied by dxgi's LocateCamera.
     std::atomic<float> m_camBakeOffset[3]{};

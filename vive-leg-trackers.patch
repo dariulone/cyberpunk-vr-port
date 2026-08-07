@@ -1,0 +1,1044 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -68,6 +68,7 @@
+     src/vr/openxr/openxr_present.cpp
+     src/vr/openxr/openxr_capture.cpp
+     src/vr/openxr/openxr_calibration.cpp
++    src/vr/openxr/openxr_vive_trackers.cpp
+     src/vr/core/swapchain_hooks.cpp
+     src/vr/render/depth_resolve.cpp
+     src/vr/render/sharpen_pass.cpp
+--- a/src/common/shared_slots.h
++++ b/src/common/shared_slots.h
+@@ -115,6 +115,23 @@
+ //  [154]       left trigger analog (0..1)     plugin -> Smoking CET bridge
+ //  [155]       left grip pressed (0/1)        plugin -> Smoking CET bridge
+ //  [156]       DEBUG logging on (0/1)         plugin -> every CET bridge
++//  [157..180]  LEG TRACKERS (HTC Vive, XR_HTCX_vive_tracker_interaction).
++//             Written by openxr INSIDE the hands seqlock [127] (same bracket as
++//             [0..126]), latched by the plugin together with the hands block --
++//             the legs block of RefreshHandsSnapshot reads these, SharedLeg(i)
++//             is the accessor (i = absolute slot 157..180).
++//  [157]      left foot tracker valid (0/1)   openxr -> plugin, overlay
++//  [158..160] left foot pos (HMD-local, same convention as [1..3])
++//  [161..164] left foot quat
++//  [165]      right foot tracker valid (0/1)
++//  [166..168] right foot pos (HMD-local)
++//  [169..172] right foot quat
++//  [173]      leg-tracker enable (vrport.ini xr_leg_trackers)   openxr -> plugin
++//  [174]      T-pose measured leg length, hip->ankle (m)        openxr -> plugin
++//  [175]      tracker->ankle vertical offset (m)                openxr -> plugin
++//  [176]      leg calibration valid (0/1)
++//  [177]      connected Vive trackers with a foot role (0..2)   openxr -> overlay
++//  [178..180] foot mount correction euler p/y/r (deg)           openxr -> plugin
+ // ============================================================================
+ 
+ namespace vrshared {
+@@ -149,4 +166,13 @@
+ // smoking one alone in a single session, and as much again from the weapon one. A log nobody can
+ // open is a log nobody reads.
+ constexpr int kDebugLog          = 156;
++// HTC Vive leg trackers (see the [157..180] block above).
++constexpr int kLegTrackL         = 157;   // ..164: valid, pos(3), quat(4)
++constexpr int kLegTrackR         = 165;   // ..172: valid, pos(3), quat(4)
++constexpr int kLegTrackEnable    = 173;
++constexpr int kLegLen            = 174;
++constexpr int kLegAnkleOffset    = 175;
++constexpr int kLegCalibValid     = 176;
++constexpr int kViveTrackerCount  = 177;
++constexpr int kLegMountEuler     = 178;   // ..180: pitch/yaw/roll (deg)
+ } // namespace vrshared
+--- a/src/vr/openxr/openxr_manager.h
++++ b/src/vr/openxr/openxr_manager.h
+@@ -566,6 +566,40 @@
+         for (int i = 0; i < 14; ++i) out[i] = m_calib[i].load(std::memory_order_relaxed);
+     }
+ 
++    // ==== HTC VIVE TRACKERS (leg tracking) ====
++    // XR_HTCX_vive_tracker_interaction: enumerate connected trackers, bind the two
++    // foot roles (left_foot / right_foot) to a pose action, locate them next to the
++    // hand locate each frame, and publish HMD-local foot poses to shared [157..172]
++    // so the VRIK plugin can IK the avatar legs onto them.
++    void InitViveTrackerSupport();       // from Init(), after xrCreateInstance
++    void CreateViveTrackerActions();     // from the action-set setup block
++    void EnsureViveTrackerSpaces();      // after session attach; re-tried from the poll
++    // Caller holds m_handMutex (same rule as the m_hands writes around it).
++    void PollViveTrackers(XrTime locateTime, const XrPosef& headPoseLocal);
++    // HMD-local foot pose, same convention as GetHandPose. foot: 0 = left, 1 = right.
++    bool GetFootTrackerPose(int foot, OpenXRHeadPose* out) const;
++    int  GetViveTrackerCount() const { return m_viveTrackerCount.load(std::memory_order_relaxed); }
++    bool HasViveTrackerExtension() const { return m_viveTrackerExt; }
++    void SetLegTrackersEnable(int v) { m_legTrackersEnable.store(v != 0 ? 1 : 0, std::memory_order_relaxed); }
++    int  GetLegTrackersEnable() const { return m_legTrackersEnable.load(std::memory_order_relaxed); }
++    void SetLegTrackerTuning(float ankleOffsetM, float mountPitchDeg, float mountYawDeg, float mountRollDeg) {
++        m_legAnkleOffset.store(ankleOffsetM, std::memory_order_relaxed);
++        m_legMountEulerDeg[0].store(mountPitchDeg, std::memory_order_relaxed);
++        m_legMountEulerDeg[1].store(mountYawDeg, std::memory_order_relaxed);
++        m_legMountEulerDeg[2].store(mountRollDeg, std::memory_order_relaxed);
++    }
++    void GetLegTrackerTuning(float* ankleOff, float* mp, float* my, float* mr) const {
++        *ankleOff = m_legAnkleOffset.load(std::memory_order_relaxed);
++        *mp = m_legMountEulerDeg[0].load(std::memory_order_relaxed);
++        *my = m_legMountEulerDeg[1].load(std::memory_order_relaxed);
++        *mr = m_legMountEulerDeg[2].load(std::memory_order_relaxed);
++    }
++    // T-pose measured hip->ankle length (m); 0 = not measured. Published to [174]/[176].
++    void SetUserLegLen(float v) {
++        m_userLegLen.store(v, std::memory_order_relaxed);
++        m_legLenValid.store(v > 0.0f ? 1 : 0, std::memory_order_relaxed);
++    }
++
+     // ==== AUTO-CALIBRATION ====
+     // T-pose calibration: user holds arms straight out sideways and stands straight.
+     // We sample the live HMD + controller positions over `secs` seconds and compute:
+@@ -815,6 +849,31 @@
+     std::atomic<float> m_userArmLenL{0.0f};
+     std::atomic<float> m_userEyeHeight{0.0f};
+ 
++    // ---- HTC Vive trackers (XR_HTCX_vive_tracker_interaction) ------------------
++    // m_feet[] mirrors m_hands[]: HMD-local pose (pos rel HMD in HMD axes, ori rel
++    // HMD), written by PollViveTrackers under m_handMutex. m_feetStagePos[] keeps
++    // the raw LOCAL-space position (floor-relative Y) for calibration.
++    bool               m_viveTrackerExt = false;
++    PFN_xrEnumerateViveTrackerPathsHTCX m_pfnEnumViveTrackers = nullptr;
++    XrAction           m_trackerPoseAction = XR_NULL_HANDLE;
++    XrPath             m_footRolePaths[2] = { XR_NULL_PATH, XR_NULL_PATH };  // [0]=left_foot [1]=right_foot
++    XrSpace            m_footTrackerSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
++    OpenXRHeadPose     m_feet[2]{};
++    XrVector3f         m_feetStagePos[2]{};
++    bool               m_feetStageValid[2] = { false, false };
++    TrackingPoseFilterState m_footFilterState[2]{};
++    OpenXRHeadPose     m_pairLockFeet[2]{};
++    std::atomic<int>   m_viveTrackerCount{0};      // trackers seen with a foot role (0..2)
++    double             m_lastViveTrackerEnum = 0.0; // QPC seconds of last re-enumerate
++    std::atomic<int>   m_legTrackersEnable{0};
++    std::atomic<float> m_legAnkleOffset{0.10f};    // tracker-on-shoe -> ankle joint (m)
++    std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg)
++    std::atomic<int>   m_legLenValid{0};
++    std::atomic<float> m_userLegLen{0.0f};         // T-pose hip->ankle (m)
++    // Auto-calibration foot accumulators (stage-space ankle heights, averaged).
++    float              m_calibFootYSum[2] = { 0.0f, 0.0f };
++    int                m_calibFootSamples[2] = { 0, 0 };
++
+     // Camera->head bake offset (game-local right/forward/up), applied by dxgi's LocateCamera.
+     std::atomic<float> m_camBakeOffset[3]{};
+ 
+--- a/src/vr/openxr/openxr_manager.cpp
++++ b/src/vr/openxr/openxr_manager.cpp
+@@ -471,6 +471,8 @@
+ 
+     // Depth-layer support: submitting the game depth as XR_KHR_composition_layer_depth
+     // gives the runtime depth for correct reprojection (kills the flat-color tearing).
++    // Also probes XR_HTCX_vive_tracker_interaction (SteamVR) for leg tracking.
++    bool viveTrackerExtAdvertised = false;
+     {
+         uint32_t extCount = 0;
+         xrEnumerateInstanceExtensionProperties(nullptr, 0, &extCount, nullptr);
+@@ -481,12 +483,24 @@
+                 if (strcmp(p.extensionName, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME) == 0) {
+                     m_depthLayerSupported = true;
+                     extensions.push_back(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME);
+-                    break;
+                 }
++#ifdef XR_HTCX_vive_tracker_interaction
++                if (strcmp(p.extensionName, XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME) == 0) {
++                    viveTrackerExtAdvertised = true;
++                }
++#endif
+             }
+         }
+         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
+     }
++#ifdef XR_HTCX_vive_tracker_interaction
++    if (viveTrackerExtAdvertised) {
++        extensions.push_back(XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME);
++        Log("OpenXRManager: XR_HTCX_vive_tracker_interaction advertised -- enabling for leg trackers.\n");
++    } else {
++        Log("OpenXRManager: XR_HTCX_vive_tracker_interaction NOT advertised by the runtime (leg trackers need SteamVR).\n");
++    }
++#endif
+ 
+     XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
+     createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+@@ -563,6 +577,10 @@
+ 
+     Log("OpenXRManager: OpenXR Initialized. SystemID=%llu\n", m_systemId);
+ 
++    // HTC Vive trackers (leg tracking): resolves xrEnumerateViveTrackerPathsHTCX
++    // and logs connected trackers/roles. No-op when the extension wasn't enabled.
++    InitViveTrackerSupport();
++
+     // [INPUT] Action Set Initialization -- gameplay locomotion + buttons
+     const bool inputActionsEnabled = GetInputActionsEnabled() != 0;
+     {
+@@ -607,6 +625,11 @@
+         Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
+             inputActionsEnabled ? "ENABLED" : "DISABLED (pose-only)", (int)inputActionsEnabled);
+ 
++        // HTC Vive trackers: one pose action for the two foot roles + binding
++        // suggestion for the vive_tracker_htcx profile. Independent of the
++        // gameplay-input kill switch (pose-only, like the hands).
++        CreateViveTrackerActions();
++
+         struct Bind { XrAction action; const char* path; };
+ 
+         auto suggest = [&](const char* profileStr, std::initializer_list<Bind> list) {
+@@ -845,6 +868,10 @@
+                 xrCreateActionSpace(m_session, &aimSpaceInfo, &m_handAimSpaces[i]);
+             }
+         }
++
++        // HTC Vive tracker foot spaces (re-tried from the poll, so trackers that
++        // connect or get a role assigned mid-session are picked up live).
++        EnsureViveTrackerSpaces();
+     }
+ 
+     m_stopFrameThread.store(false, std::memory_order_relaxed);
+@@ -1301,6 +1328,8 @@
+     m_pairLockHeadValid = live.valid;
+     m_pairLockHands[0] = m_hands[0];
+     m_pairLockHands[1] = m_hands[1];
++    m_pairLockFeet[0] = m_feet[0];
++    m_pairLockFeet[1] = m_feet[1];
+     m_pairLockHmdOri[0] = m_oriX.load(std::memory_order_relaxed);
+     m_pairLockHmdOri[1] = m_oriY.load(std::memory_order_relaxed);
+     m_pairLockHmdOri[2] = m_oriZ.load(std::memory_order_relaxed);
+@@ -1343,10 +1372,13 @@
+     // prefers the anti-tear tradeoff.
+     const bool usePairLock = m_pairLockHandsValid && GetVrPairLock() != 0;
+     OpenXRHeadPose srcHands[2];
++    OpenXRHeadPose srcFeet[2];
+     float hmdOri[4];
+     if (usePairLock) {
+         srcHands[0] = m_pairLockHands[0];
+         srcHands[1] = m_pairLockHands[1];
++        srcFeet[0] = m_pairLockFeet[0];
++        srcFeet[1] = m_pairLockFeet[1];
+         hmdOri[0] = m_pairLockHmdOri[0];
+         hmdOri[1] = m_pairLockHmdOri[1];
+         hmdOri[2] = m_pairLockHmdOri[2];
+@@ -1354,6 +1386,8 @@
+     } else {
+         srcHands[0] = m_hands[0];
+         srcHands[1] = m_hands[1];
++        srcFeet[0] = m_feet[0];
++        srcFeet[1] = m_feet[1];
+         hmdOri[0] = m_oriX.load(std::memory_order_relaxed);
+         hmdOri[1] = m_oriY.load(std::memory_order_relaxed);
+         hmdOri[2] = m_oriZ.load(std::memory_order_relaxed);
+@@ -1466,6 +1500,36 @@
+     sShared[125] = baseY;
+     sShared[126] = m_posZ.load(std::memory_order_relaxed);
+ 
++    // [157..172] HTC Vive leg trackers: foot poses in the SAME HMD-local convention
++    // as the hands ([0..15]), so the plugin drops them into the same gizmo frame.
++    // [173] enable, [174..176] measured leg anatomy, [177] count, [178..180] mount
++    // euler. Written INSIDE the hands seqlock so the plugin's legs latch shares the
++    // hands frame's consistency guarantee (no torn foot quats).
++    sShared[157] = srcFeet[0].valid ? 1.0f : 0.0f;
++    sShared[158] = srcFeet[0].posX;
++    sShared[159] = srcFeet[0].posY;
++    sShared[160] = srcFeet[0].posZ;
++    sShared[161] = srcFeet[0].oriX;
++    sShared[162] = srcFeet[0].oriY;
++    sShared[163] = srcFeet[0].oriZ;
++    sShared[164] = srcFeet[0].oriW;
++    sShared[165] = srcFeet[1].valid ? 1.0f : 0.0f;
++    sShared[166] = srcFeet[1].posX;
++    sShared[167] = srcFeet[1].posY;
++    sShared[168] = srcFeet[1].posZ;
++    sShared[169] = srcFeet[1].oriX;
++    sShared[170] = srcFeet[1].oriY;
++    sShared[171] = srcFeet[1].oriZ;
++    sShared[172] = srcFeet[1].oriW;
++    sShared[173] = (m_legTrackersEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
++    sShared[174] = m_userLegLen.load(std::memory_order_relaxed);
++    sShared[175] = m_legAnkleOffset.load(std::memory_order_relaxed);
++    sShared[176] = (m_legLenValid.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
++    sShared[177] = static_cast<float>(m_viveTrackerCount.load(std::memory_order_relaxed));
++    sShared[178] = m_legMountEulerDeg[0].load(std::memory_order_relaxed);
++    sShared[179] = m_legMountEulerDeg[1].load(std::memory_order_relaxed);
++    sShared[180] = m_legMountEulerDeg[2].load(std::memory_order_relaxed);
++
+     // ===== SEQLOCK END =====
+     // All payload slots are written; publish an EVEN sequence (= complete) so readers
+     // that snapshot this value (and find it unchanged + even across their read) accept
+--- a/src/vr/openxr/openxr_vive_trackers.cpp
++++ b/src/vr/openxr/openxr_vive_trackers.cpp
+@@ -0,0 +1,296 @@
++// openxr_vive_trackers.cpp - HTC Vive Tracker leg tracking via
++// XR_HTCX_vive_tracker_interaction.
++//
++// SteamVR exposes every connected Vive Tracker with an assigned role through
++// this extension (SteamVR -> Settings -> Controllers -> "Manage Vive Trackers";
++// assign LEFT FOOT / RIGHT FOOT there). We:
++//   1. enable the extension at instance creation (openxr_manager.cpp Init),
++//   2. bind the two foot roles to one pose action (CreateViveTrackerActions),
++//   3. create an action space per foot role (EnsureViveTrackerSpaces),
++//   4. locate both feet next to the hand locate each frame and store them in
++//      the SAME HMD-local convention as m_hands (PollViveTrackers),
++//   5. publish them to shared slots [157..172] inside the hands seqlock
++//      (FlushHandsToShared in openxr_manager.cpp) for the VRIK plugin.
++//
++// The extension and all its types exist in the pinned OpenXR SDK (1.0.34);
++// everything here no-ops cleanly on runtimes without it (m_viveTrackerExt stays
++// false and the plugin keeps its animation-driven legs).
++#include "openxr_manager.h"
++#include "openxr_internal.h"
++#include <cstring>
++#include <vector>
++
++namespace {
++    // Role-path and interaction-profile strings from the
++    // XR_HTCX_vive_tracker_interaction spec. [0] = left foot, [1] = right foot
++    // everywhere below (matches m_hands[0]=left / [1]=right).
++    constexpr const char* kFootRoleStrings[2] = {
++        "/user/vive_tracker_htcx/role/left_foot",
++        "/user/vive_tracker_htcx/role/right_foot",
++    };
++    constexpr const char* kFootBindingStrings[2] = {
++        "/user/vive_tracker_htcx/role/left_foot/input/grip/pose",
++        "/user/vive_tracker_htcx/role/right_foot/input/grip/pose",
++    };
++    constexpr const char* kViveTrackerProfile =
++        "/interaction_profiles/htc/vive_tracker_htcx";
++    constexpr const char* kSideName[2] = { "L", "R" };
++
++    double NowSeconds() {
++        LARGE_INTEGER c{}, f{};
++        QueryPerformanceCounter(&c);
++        QueryPerformanceFrequency(&f);
++        return (f.QuadPart > 0) ? static_cast<double>(c.QuadPart) / static_cast<double>(f.QuadPart) : 0.0;
++    }
++
++    // Same adaptive jitter filter the hand locate uses (openxr_frameloop.cpp):
++    // freeze sub-mm lighthouse noise, release to 1:1 once the foot really moves.
++    // Templated: the state type is a private member struct of OpenXRManager.
++    template <typename FilterState>
++    XrPosef FilterFootPose(FilterState& state, const XrPosef& raw, float strength) {
++        if (!state.initialized || strength <= 0.001f) {
++            state.initialized = true;
++            state.position = raw.position;
++            state.orientation = raw.orientation;
++            return raw;
++        }
++        const float dx = raw.position.x - state.position.x;
++        const float dy = raw.position.y - state.position.y;
++        const float dz = raw.position.z - state.position.z;
++        const float posDelta = sqrtf(dx * dx + dy * dy + dz * dz);
++        float dot = state.orientation.x * raw.orientation.x + state.orientation.y * raw.orientation.y
++                  + state.orientation.z * raw.orientation.z + state.orientation.w * raw.orientation.w;
++        if (dot < 0.0f) dot = -dot;
++        if (dot > 1.0f) dot = 1.0f;
++        const float angDelta = 2.0f * acosf(dot);
++
++        auto follow = [&](float delta, float quiet, float release) {
++            if (release <= quiet) return 1.0f;
++            const float stillFollow = 1.0f / (1.0f + 20.0f * strength);
++            float m = (delta - quiet) / (release - quiet);
++            if (m < 0.0f) m = 0.0f; if (m > 1.0f) m = 1.0f;
++            m = m * m * (3.0f - 2.0f * m);
++            return stillFollow + (1.0f - stillFollow) * m;
++        };
++        const float posT = follow(posDelta, 0.0018f, 0.0120f);
++        const float angT = follow(angDelta, 0.0050f, 0.0450f);
++
++        state.position.x += dx * posT;
++        state.position.y += dy * posT;
++        state.position.z += dz * posT;
++        state.orientation = NlerpQuat(state.orientation, raw.orientation, angT);
++
++        XrPosef out = raw;
++        out.position = state.position;
++        out.orientation = state.orientation;
++        return out;
++    }
++} // namespace
++
++void OpenXRManager::InitViveTrackerSupport() {
++    // Called from Init() right after xrCreateInstance. The extension was enabled
++    // there iff the runtime advertised it; resolve the enumerate entry point and
++    // log what is actually connected so support questions answer themselves.
++    m_viveTrackerExt = false;
++    m_pfnEnumViveTrackers = nullptr;
++
++#ifdef XR_HTCX_vive_tracker_interaction
++    PFN_xrVoidFunction pfn = nullptr;
++    if (XR_SUCCEEDED(xrGetInstanceProcAddr(m_instance, "xrEnumerateViveTrackerPathsHTCX", &pfn)) && pfn) {
++        m_pfnEnumViveTrackers = reinterpret_cast<PFN_xrEnumerateViveTrackerPathsHTCX>(pfn);
++        m_viveTrackerExt = true;
++    }
++#endif
++    if (!m_viveTrackerExt) {
++        Log("OpenXRManager[FBT]: XR_HTCX_vive_tracker_interaction unavailable on this runtime -- leg trackers disabled.\n");
++        return;
++    }
++
++    uint32_t count = 0;
++    XrResult res = m_pfnEnumViveTrackers(m_instance, m_systemId, &count, nullptr);
++    if (XR_FAILED(res) || count == 0) {
++        Log("OpenXRManager[FBT]: extension present, no Vive trackers connected (count=%u res=%d). "
++            "Assign foot roles in SteamVR > Controllers > Manage Vive Trackers.\n", count, res);
++        return;
++    }
++    std::vector<XrViveTrackerPathsHTCX> trackers(count, { XR_TYPE_VIVE_TRACKER_PATHS_HTCX });
++    res = m_pfnEnumViveTrackers(m_instance, m_systemId, &count, trackers.data());
++    if (XR_FAILED(res)) {
++        Log("OpenXRManager[FBT]: xrEnumerateViveTrackerPathsHTCX failed res=%d\n", res);
++        return;
++    }
++    int footRoles = 0;
++    for (const auto& t : trackers) {
++        char roleStr[128] = { 0 };
++        uint32_t n = 0;
++        if (XR_SUCCEEDED(xrPathToString(m_instance, t.rolePath, sizeof(roleStr), &n, roleStr))) {
++            Log("OpenXRManager[FBT]: tracker role=%s\n", roleStr);
++            for (int i = 0; i < 2; ++i)
++                if (strcmp(roleStr, kFootRoleStrings[i]) == 0) ++footRoles;
++        }
++    }
++    m_viveTrackerCount.store(footRoles > 2 ? 2 : footRoles, std::memory_order_relaxed);
++    Log("OpenXRManager[FBT]: %u tracker(s) connected, %d foot role(s) assigned.\n", count, footRoles);
++}
++
++void OpenXRManager::CreateViveTrackerActions() {
++    // Called inside the action-set setup block (m_actionSet already exists).
++    // One pose action with the two foot role paths as subactions, suggested
++    // against the vive_tracker_htcx interaction profile. Suggesting bindings for
++    // a role with no tracker connected is legal and harmless -- the action state
++    // simply never goes active for that subaction.
++    if (!m_viveTrackerExt || m_actionSet == XR_NULL_HANDLE) return;
++#ifdef XR_HTCX_vive_tracker_interaction
++    for (int i = 0; i < 2; ++i) {
++        if (XR_FAILED(xrStringToPath(m_instance, kFootRoleStrings[i], &m_footRolePaths[i]))) {
++            Log("OpenXRManager[FBT]: xrStringToPath failed for %s -- leg trackers off.\n", kFootRoleStrings[i]);
++            return;
++        }
++    }
++
++    XrActionCreateInfo info{ XR_TYPE_ACTION_CREATE_INFO };
++    info.actionType = XR_ACTION_TYPE_POSE_INPUT;
++    strcpy_s(info.actionName, "vive_tracker_pose");
++    strcpy_s(info.localizedActionName, "Vive Tracker Pose");
++    info.countSubactionPaths = 2;
++    info.subactionPaths = m_footRolePaths;
++    XrResult res = xrCreateAction(m_actionSet, &info, &m_trackerPoseAction);
++    if (XR_FAILED(res)) {
++        Log("OpenXRManager[FBT]: xrCreateAction failed res=%d -- leg trackers off.\n", res);
++        m_trackerPoseAction = XR_NULL_HANDLE;
++        return;
++    }
++
++    XrPath profile = XR_NULL_PATH;
++    if (XR_SUCCEEDED(xrStringToPath(m_instance, kViveTrackerProfile, &profile))) {
++        XrActionSuggestedBinding bindings[2]{};
++        for (int i = 0; i < 2; ++i) {
++            XrPath p = XR_NULL_PATH;
++            if (XR_SUCCEEDED(xrStringToPath(m_instance, kFootBindingStrings[i], &p))) {
++                bindings[i] = { m_trackerPoseAction, p };
++            }
++        }
++        XrInteractionProfileSuggestedBinding sb{ XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
++        sb.interactionProfile = profile;
++        sb.suggestedBindings = bindings;
++        sb.countSuggestedBindings = 2;
++        res = xrSuggestInteractionProfileBindings(m_instance, &sb);
++        Log("OpenXRManager[FBT]: suggest bindings %s -> res=%d\n", kViveTrackerProfile, res);
++    }
++#endif
++}
++
++void OpenXRManager::EnsureViveTrackerSpaces() {
++    // Action spaces per foot role. Safe to call repeatedly and legal while the
++    // session is running, so a tracker turned on mid-game gets its space on the
++    // next poll without a restart.
++    if (!m_viveTrackerExt || m_trackerPoseAction == XR_NULL_HANDLE ||
++        m_session == XR_NULL_HANDLE) return;
++    for (int i = 0; i < 2; ++i) {
++        if (m_footTrackerSpaces[i] != XR_NULL_HANDLE) continue;
++        XrActionSpaceCreateInfo spaceInfo{ XR_TYPE_ACTION_SPACE_CREATE_INFO };
++        spaceInfo.action = m_trackerPoseAction;
++        spaceInfo.subactionPath = m_footRolePaths[i];
++        spaceInfo.poseInActionSpace.orientation.w = 1.0f;
++        XrResult res = xrCreateActionSpace(m_session, &spaceInfo, &m_footTrackerSpaces[i]);
++        if (XR_FAILED(res)) {
++            m_footTrackerSpaces[i] = XR_NULL_HANDLE;
++            Log("OpenXRManager[FBT]: xrCreateActionSpace foot %s failed res=%d\n", kSideName[i], res);
++        } else {
++            Log("OpenXRManager[FBT]: foot tracker space created (%s).\n", kSideName[i]);
++        }
++    }
++}
++
++void OpenXRManager::PollViveTrackers(XrTime locateTime, const XrPosef& headPoseLocal) {
++    // CALLER HOLDS m_handMutex (this writes m_feet, the m_hands sibling).
++    if (!m_viveTrackerExt || m_trackerPoseAction == XR_NULL_HANDLE) return;
++
++    // Re-enumerate occasionally: trackers power on/off mid-session, and SteamVR
++    // lets the user assign roles at runtime. Cheap count-only probe; the full
++    // vector fetch only runs when the count changed.
++    const double now = NowSeconds();
++    if (now - m_lastViveTrackerEnum > 2.0) {
++        m_lastViveTrackerEnum = now;
++        uint32_t count = 0;
++        if (m_pfnEnumViveTrackers && XR_SUCCEEDED(m_pfnEnumViveTrackers(m_instance, m_systemId, &count, nullptr)) && count > 0) {
++            std::vector<XrViveTrackerPathsHTCX> trackers(count, { XR_TYPE_VIVE_TRACKER_PATHS_HTCX });
++            if (XR_SUCCEEDED(m_pfnEnumViveTrackers(m_instance, m_systemId, &count, trackers.data()))) {
++                int footRoles = 0;
++                for (const auto& t : trackers) {
++                    char roleStr[128] = { 0 };
++                    uint32_t n = 0;
++                    if (XR_SUCCEEDED(xrPathToString(m_instance, t.rolePath, sizeof(roleStr), &n, roleStr)))
++                        for (int i = 0; i < 2; ++i)
++                            if (strcmp(roleStr, kFootRoleStrings[i]) == 0) ++footRoles;
++                }
++                const int clamped = footRoles > 2 ? 2 : footRoles;
++                if (clamped != m_viveTrackerCount.load(std::memory_order_relaxed)) {
++                    m_viveTrackerCount.store(clamped, std::memory_order_relaxed);
++                    Log("OpenXRManager[FBT]: foot-role tracker count changed -> %d\n", clamped);
++                }
++            }
++        }
++    }
++
++    EnsureViveTrackerSpaces();
++
++    const float smooth = GetHandTrackingSmooth();
++    const XrQuaternionf headInv = ConjugateQuat(headPoseLocal.orientation);
++    for (int i = 0; i < 2; ++i) {
++        m_feet[i].valid = false;
++        m_feetStageValid[i] = false;
++        if (m_footTrackerSpaces[i] == XR_NULL_HANDLE) continue;
++
++        XrActionStateGetInfo getInfo{ XR_TYPE_ACTION_STATE_GET_INFO };
++        getInfo.action = m_trackerPoseAction;
++        getInfo.subactionPath = m_footRolePaths[i];
++        XrActionStatePose poseState{ XR_TYPE_ACTION_STATE_POSE };
++        if (XR_FAILED(xrGetActionStatePose(m_session, &getInfo, &poseState)) || !poseState.isActive) {
++            m_footFilterState[i].initialized = false;
++            continue;
++        }
++
++        XrSpaceLocation loc{ XR_TYPE_SPACE_LOCATION };
++        if (XR_FAILED(xrLocateSpace(m_footTrackerSpaces[i], m_localSpace, locateTime, &loc)) ||
++            !(loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
++            !(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) {
++            m_footFilterState[i].initialized = false;
++            continue;
++        }
++
++        // Stage-space copy for calibration (floor-relative ankle height)...
++        m_feetStagePos[i] = loc.pose.position;
++        m_feetStageValid[i] = true;
++
++        // ...and the HMD-local form, IDENTICAL to the hand pipeline: rel =
++        // conj(head) * (tracker - head), then the same adaptive jitter filter.
++        // Keeping the exact hand convention means the plugin can drop the foot
++        // into the same gizmo-exact frame the arms already solve in.
++        XrVector3f relWorld{
++            loc.pose.position.x - headPoseLocal.position.x,
++            loc.pose.position.y - headPoseLocal.position.y,
++            loc.pose.position.z - headPoseLocal.position.z,
++        };
++        XrPosef relPose{};
++        relPose.position = RotateVector(headInv, relWorld);
++        relPose.orientation = MultiplyQuat(headInv, loc.pose.orientation);
++        XrPosef filtered = FilterFootPose(m_footFilterState[i], relPose, smooth);
++
++        m_feet[i].posX = filtered.position.x;
++        m_feet[i].posY = filtered.position.y;
++        m_feet[i].posZ = filtered.position.z;
++        m_feet[i].oriX = filtered.orientation.x;
++        m_feet[i].oriY = filtered.orientation.y;
++        m_feet[i].oriZ = filtered.orientation.z;
++        m_feet[i].oriW = filtered.orientation.w;
++        m_feet[i].valid = true;
++    }
++}
++
++bool OpenXRManager::GetFootTrackerPose(int foot, OpenXRHeadPose* out) const {
++    if (!out || foot < 0 || foot > 1) return false;
++    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
++    *out = m_feet[foot];
++    return out->valid;
++}
+--- a/src/vr/openxr/openxr_frameloop.cpp
++++ b/src/vr/openxr/openxr_frameloop.cpp
+@@ -885,6 +885,12 @@
+                     }
+                 }
+ 
++                // [FEET] HTC Vive trackers: locate the foot roles at the SAME locateTime
++                // against the SAME head pose as the hands above, into the same HMD-local
++                // convention (m_feet). Inside the hand lock because it writes the m_hands
++                // sibling state. No-op without the extension/trackers.
++                PollViveTrackers(locateTime, location.pose);
++
+                 // DEFERRED L3 (sprint): the left stick click doubles as the D-Pad
+                 // modifier. Emit the vanilla stick-click press only when the click is
+                 // RELEASED without any D-Pad direction having been used during the hold
+--- a/src/vr/openxr/openxr_calibration.cpp
++++ b/src/vr/openxr/openxr_calibration.cpp
+@@ -59,6 +59,8 @@
+     m_calibSampleCount = 0;
+     m_calibCtrlPosSumR[0]=m_calibCtrlPosSumR[1]=m_calibCtrlPosSumR[2]=0.0f;
+     m_calibCtrlPosSumL[0]=m_calibCtrlPosSumL[1]=m_calibCtrlPosSumL[2]=0.0f;
++    m_calibFootYSum[0]=m_calibFootYSum[1]=0.0f;
++    m_calibFootSamples[0]=m_calibFootSamples[1]=0;
+     m_calibStart = 0.0;
+     // INITIALIZE wrist defaults if they've never been set. Without this, finalisation reads zero
+     // values from m_calib[] (atomic float default = 0), publishes identity wrist quats, and the
+@@ -123,6 +125,16 @@
+             m_calibHmdHeightSum += m_posY.load(std::memory_order_relaxed);
+             m_calibSampleCount++;
+         }
++        // Leg trackers (HTC Vive): average the stage-space ankle heights over the
++        // standing T-pose. Finalise derives hip->ankle leg length from these plus
++        // the HMD eye height. Independent of the hands so a legs-only calibrate
++        // still works if a controller drops out.
++        for (int i = 0; i < 2; ++i) {
++            if (m_feetStageValid[i]) {
++                m_calibFootYSum[i] += m_feetStagePos[i].y;
++                m_calibFootSamples[i]++;
++            }
++        }
+     }
+ 
+     if (elapsed >= total) {
+@@ -190,6 +202,37 @@
+         m_userArmLenL.store(realArmLenL, std::memory_order_relaxed);
+         m_userEyeHeight.store(eyeHeight, std::memory_order_relaxed);
+         m_measureValid.store(1, std::memory_order_relaxed);
++
++        // LEG LENGTH from the foot trackers (if present). The tracker sits on the
++        // shoe, so the stage-space Y average is the ankle height above the floor.
++        // Hip joint height is anthropometric (~0.53 * stature; eyes sit ~12 cm
++        // below the crown), so legLen = hipHeight - ankleHeight. Published to the
++        // plugin via [174]/[176]; used there to sanity-clamp hip placement so the
++        // leg IK never gets an unreachable target. No trackers -> keep the last
++        // value (loaded from file) rather than stomping it with 0.
++        {
++            float ankleSum = 0.0f; int ankleN = 0;
++            for (int i = 0; i < 2; ++i) {
++                if (m_calibFootSamples[i] > 0) {
++                    ankleSum += m_calibFootYSum[i] / static_cast<float>(m_calibFootSamples[i]);
++                    ++ankleN;
++                }
++            }
++            if (ankleN > 0 && eyeHeight > 1.0f) {
++                const float ankle = ankleSum / static_cast<float>(ankleN);
++                const float hipHeight = 0.53f * (eyeHeight + 0.12f);
++                float legLen = hipHeight - ankle;
++                if (legLen < 0.55f) legLen = 0.55f;
++                if (legLen > 1.05f) legLen = 1.05f;
++                m_userLegLen.store(legLen, std::memory_order_relaxed);
++                m_legLenValid.store(1, std::memory_order_relaxed);
++                Log("Auto-calibration[FBT]: ankle=%.3fm hipHeight=%.3fm -> legLen=%.3fm (%d foot/ feet)\n",
++                    ankle, hipHeight, legLen, ankleN);
++            } else {
++                Log("Auto-calibration[FBT]: no foot trackers sampled -- legLen unchanged (%.3fm, valid=%d).\n",
++                    m_userLegLen.load(std::memory_order_relaxed), m_legLenValid.load(std::memory_order_relaxed));
++            }
++        }
+         // Legacy modes (1..3) + the head-relative fallback still read a reach scale; keep it
+         // neutral (1.0) so they are unaffected by the new measured-length path.
+         float scaleR = 1.0f;
+@@ -323,6 +366,8 @@
+             m_userArmLenR.load(std::memory_order_relaxed),
+             m_userArmLenL.load(std::memory_order_relaxed),
+             m_userEyeHeight.load(std::memory_order_relaxed));
++    // Leg length measured from the Vive foot trackers (0 = never measured).
++    fprintf(f, "userLegLen=%.4f\n", m_userLegLen.load(std::memory_order_relaxed));
+     fclose(f);
+     Log("Calibration saved -> %s\n", path);
+     return true;
+@@ -383,6 +428,11 @@
+             m_userArmLenL.store(val, std::memory_order_relaxed);
+         if (strcmp(key, "userEyeHeight") == 0 && val > 0.0f && val <= 2.2f)
+             m_userEyeHeight.store(val, std::memory_order_relaxed);
++        // Leg length measured from the Vive foot trackers (0 in old files -> stays invalid).
++        if (strcmp(key, "userLegLen") == 0 && val >= 0.50f && val <= 1.10f) {
++            m_userLegLen.store(val, std::memory_order_relaxed);
++            m_legLenValid.store(1, std::memory_order_relaxed);
++        }
+         #undef M
+         #undef E
+         #undef C
+--- a/src/vr/core/vr_core.cpp
++++ b/src/vr/core/vr_core.cpp
+@@ -117,6 +117,11 @@
+     volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
+     volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
+     volatile int xrPhysicalBodyRotation; // 1 = physical body rotation (avatar body follows HMD/aim heading). 0 (default) = classic stick/snap heading. Gates the aiming/weapon body-turn paths; vehicles unaffected.
++    volatile int xrLegTrackers;        // 1 = HTC Vive foot trackers drive the avatar legs (XR_HTCX_vive_tracker_interaction). 0 (default) = animation legs + HMD squat only.
++    volatile float xrLegAnkleOffset;   // tracker-on-shoe -> ankle joint vertical offset (m), default 0.10
++    volatile float xrLegMountPitchDeg; // foot mount correction euler (deg), defaults 0
++    volatile float xrLegMountYawDeg;
++    volatile float xrLegMountRollDeg;
+ };
+ 
+ static constexpr int kEnablePatchBufferTracer = 0;
+@@ -477,6 +482,11 @@
+     int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
+     int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
+     int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
++    int xrLegTrackers = g_liveControls.xrLegTrackers;
++    float xrLegAnkleOffset = g_liveControls.xrLegAnkleOffset > 0.0f ? g_liveControls.xrLegAnkleOffset : 0.10f;
++    float xrLegMountPitchDeg = g_liveControls.xrLegMountPitchDeg;
++    float xrLegMountYawDeg = g_liveControls.xrLegMountYawDeg;
++    float xrLegMountRollDeg = g_liveControls.xrLegMountRollDeg;
+ 
+     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
+     if (!file) return;
+@@ -674,6 +684,31 @@
+             xrPhysicalBodyRotation = intValue;
+             continue;
+         }
++        if (sscanf_s(line, "xr_leg_trackers=%d", &intValue) == 1 ||
++            sscanf_s(line, "xr_leg_trackers = %d", &intValue) == 1) {
++            xrLegTrackers = intValue;
++            continue;
++        }
++        if (sscanf_s(line, "xr_leg_ankle_offset=%f", &value) == 1 ||
++            sscanf_s(line, "xr_leg_ankle_offset = %f", &value) == 1) {
++            xrLegAnkleOffset = value;
++            continue;
++        }
++        if (sscanf_s(line, "xr_leg_mount_pitch=%f", &value) == 1 ||
++            sscanf_s(line, "xr_leg_mount_pitch = %f", &value) == 1) {
++            xrLegMountPitchDeg = value;
++            continue;
++        }
++        if (sscanf_s(line, "xr_leg_mount_yaw=%f", &value) == 1 ||
++            sscanf_s(line, "xr_leg_mount_yaw = %f", &value) == 1) {
++            xrLegMountYawDeg = value;
++            continue;
++        }
++        if (sscanf_s(line, "xr_leg_mount_roll=%f", &value) == 1 ||
++            sscanf_s(line, "xr_leg_mount_roll = %f", &value) == 1) {
++            xrLegMountRollDeg = value;
++            continue;
++        }
+         if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
+             sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
+             xrXInputInstall = intValue;
+@@ -768,6 +803,16 @@
+     g_liveControls.xrMovementSource = xrMovementSource;
+     g_liveControls.xrMovementControl = xrMovementSource != 0 ? 1 : 0;
+     g_liveControls.xrPhysicalBodyRotation = xrPhysicalBodyRotation != 0 ? 1 : 0;
++    g_liveControls.xrLegTrackers = xrLegTrackers != 0 ? 1 : 0;
++    g_liveControls.xrLegAnkleOffset = (xrLegAnkleOffset >= 0.0f && xrLegAnkleOffset <= 0.30f) ? xrLegAnkleOffset : 0.10f;
++    g_liveControls.xrLegMountPitchDeg = xrLegMountPitchDeg;
++    g_liveControls.xrLegMountYawDeg = xrLegMountYawDeg;
++    g_liveControls.xrLegMountRollDeg = xrLegMountRollDeg;
++    OpenXRManager::Get().SetLegTrackersEnable(g_liveControls.xrLegTrackers);
++    OpenXRManager::Get().SetLegTrackerTuning(g_liveControls.xrLegAnkleOffset,
++                                             g_liveControls.xrLegMountPitchDeg,
++                                             g_liveControls.xrLegMountYawDeg,
++                                             g_liveControls.xrLegMountRollDeg);
+     g_liveControls.xrDisableMouseY = xrDisableMouseY != 0 ? 1 : 0;
+     g_liveControls.xrXInputHook = xrXInputHook != 0 ? 1 : 0;
+     g_liveControls.xrSnapTurn = xrSnapTurn != 0 ? 1 : 0;
+@@ -834,6 +879,11 @@
+     state.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg;
+     state.xrMovementSource = g_liveControls.xrMovementSource;
+     state.xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
++    state.xrLegTrackers = g_liveControls.xrLegTrackers;
++    state.xrLegAnkleOffset = g_liveControls.xrLegAnkleOffset;
++    state.xrLegMountPitchDeg = g_liveControls.xrLegMountPitchDeg;
++    state.xrLegMountYawDeg = g_liveControls.xrLegMountYawDeg;
++    state.xrLegMountRollDeg = g_liveControls.xrLegMountRollDeg;
+     state.xrXInputInstall = g_liveControls.xrXInputInstall;
+     state.xrInputActions = g_liveControls.xrInputActions;
+     state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
+@@ -886,6 +936,11 @@
+     fprintf(file, "xr_snap_turn_angle_deg=%.2f\n", state.xrSnapTurnAngleDeg > 0.0f ? state.xrSnapTurnAngleDeg : 30.0f);
+     fprintf(file, "xr_movement_source=%d\n", state.xrMovementSource < 0 ? 0 : (state.xrMovementSource > 3 ? 3 : state.xrMovementSource));
+     fprintf(file, "xr_physical_body_rotation=%d\n", state.xrPhysicalBodyRotation != 0 ? 1 : 0);
++    fprintf(file, "xr_leg_trackers=%d\n", state.xrLegTrackers != 0 ? 1 : 0);
++    fprintf(file, "xr_leg_ankle_offset=%.3f\n", state.xrLegAnkleOffset);
++    fprintf(file, "xr_leg_mount_pitch=%.1f\n", state.xrLegMountPitchDeg);
++    fprintf(file, "xr_leg_mount_yaw=%.1f\n", state.xrLegMountYawDeg);
++    fprintf(file, "xr_leg_mount_roll=%.1f\n", state.xrLegMountRollDeg);
+     fprintf(file, "xr_xinput_install=%d\n", state.xrXInputInstall != 0 ? 1 : 0);
+     fprintf(file, "xr_input_actions=%d\n", state.xrInputActions != 0 ? 1 : 0);
+     fprintf(file, "xr_mono_xqueue_wait=%d\n", state.xrMonoXQueueWait != 0 ? 1 : 0);
+@@ -945,6 +1000,16 @@
+         g_liveControls.xrMovementControl = src != 0 ? 1 : 0;
+     }
+     g_liveControls.xrPhysicalBodyRotation = state->xrPhysicalBodyRotation != 0 ? 1 : 0;
++    g_liveControls.xrLegTrackers = state->xrLegTrackers != 0 ? 1 : 0;
++    g_liveControls.xrLegAnkleOffset = (state->xrLegAnkleOffset >= 0.0f && state->xrLegAnkleOffset <= 0.30f) ? state->xrLegAnkleOffset : 0.10f;
++    g_liveControls.xrLegMountPitchDeg = state->xrLegMountPitchDeg;
++    g_liveControls.xrLegMountYawDeg = state->xrLegMountYawDeg;
++    g_liveControls.xrLegMountRollDeg = state->xrLegMountRollDeg;
++    OpenXRManager::Get().SetLegTrackersEnable(g_liveControls.xrLegTrackers);
++    OpenXRManager::Get().SetLegTrackerTuning(g_liveControls.xrLegAnkleOffset,
++                                             g_liveControls.xrLegMountPitchDeg,
++                                             g_liveControls.xrLegMountYawDeg,
++                                             g_liveControls.xrLegMountRollDeg);
+     g_liveControls.xrDisableMouseY = state->xrDisableMouseY != 0 ? 1 : 0;
+     g_liveControls.xrXInputHook = state->xrXInputHook != 0 ? 1 : 0;
+     g_liveControls.xrSnapTurn = state->xrSnapTurn != 0 ? 1 : 0;
+--- a/src/vr/overlay/live_controls_ui.h
++++ b/src/vr/overlay/live_controls_ui.h
+@@ -110,6 +110,16 @@
+     // camera to full head-look + head-relative movement). 0 (default) = classic
+     // stick / snap-turn heading. Vehicles are unaffected either way. F10 -> VRIK tab.
+     int xrPhysicalBodyRotation;
++    // HTC Vive leg trackers (feet). xrLegTrackers: 1 = foot trackers drive the
++    // avatar legs via the VRIK plugin (needs SteamVR + assigned foot roles).
++    // xrLegAnkleOffset: tracker-on-shoe -> ankle joint vertical offset (m).
++    // xrLegMount*Deg: foot-orientation mount correction euler (deg), tuned live
++    // from the F10 -> VRIK tab until the avatar feet point where yours do.
++    int xrLegTrackers;
++    float xrLegAnkleOffset;
++    float xrLegMountPitchDeg;
++    float xrLegMountYawDeg;
++    float xrLegMountRollDeg;
+ };
+ 
+ extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState);
+--- a/src/vr/overlay/imgui_overlay.cpp
++++ b/src/vr/overlay/imgui_overlay.cpp
+@@ -1142,6 +1142,48 @@
+         // The two-way sync above pulls the loaded values into the sliders next frame.
+         OpenXRManager::Get().LoadCalibrationFromFile();
+     }
++
++    ImGui::Separator();
++    // LEG TRACKING via HTC Vive Trackers (XR_HTCX_vive_tracker_interaction). The stereo DLL polls
++    // the left_foot/right_foot tracker roles and publishes HMD-local foot poses to shared slots
++    // [157..172]; the VRIK plugin then aims each leg at its tracker and drives foot orientation
++    // (plus the fixed mount correction below) from the tracker IMU.
++    ImGui::TextUnformatted("Leg tracking (HTC Vive Trackers)");
++    ImGui::TextDisabled("Move your avatar's legs with SteamVR foot trackers.");
++    {
++        LiveControlsUiState st{};
++        GetLiveControlsUiState(&st);
++        bool legTrack = st.xrLegTrackers != 0;
++        if (ImGui::Checkbox("Enable leg tracking (Vive foot trackers)", &legTrack)) {
++            st.xrLegTrackers = legTrack ? 1 : 0;
++            SetLiveControlsUiState(&st, 1);
++        }
++        if (!OpenXRManager::Get().HasViveTrackerExtension()) {
++            ImGui::TextDisabled("Runtime does not expose XR_HTCX_vive_tracker_interaction;");
++            ImGui::TextDisabled("needs SteamVR with paired Vive Trackers.");
++        } else {
++            const int tracked = OpenXRManager::Get().GetViveTrackerCount();
++            OpenXRHeadPose lf{}, rf{};
++            const bool lok = OpenXRManager::Get().GetFootTrackerPose(0, &lf);
++            const bool rok = OpenXRManager::Get().GetFootTrackerPose(1, &rf);
++            ImGui::Text("Trackers active: %d  |  left foot: %s  right foot: %s",
++                        tracked, lok ? "OK" : "--", rok ? "OK" : "--");
++        }
++        bool legChanged = false;
++        float ankle = st.xrLegAnkleOffset;
++        if (ImGui::SliderFloat("Ankle height above sole (m)", &ankle, 0.0f, 0.30f, "%.3f")) {
++            st.xrLegAnkleOffset = ankle; legChanged = true;
++        }
++        ImGui::TextDisabled("Lifts the ankle target off the floor (the puck sits above the sole).");
++        float mp = st.xrLegMountPitchDeg, my = st.xrLegMountYawDeg, mr = st.xrLegMountRollDeg;
++        if (ImGui::SliderFloat("Mount pitch (deg)", &mp, -180.0f, 180.0f, "%.0f")) { st.xrLegMountPitchDeg = mp; legChanged = true; }
++        if (ImGui::SliderFloat("Mount yaw (deg)",   &my, -180.0f, 180.0f, "%.0f")) { st.xrLegMountYawDeg   = my; legChanged = true; }
++        if (ImGui::SliderFloat("Mount roll (deg)",  &mr, -180.0f, 180.0f, "%.0f")) { st.xrLegMountRollDeg  = mr; legChanged = true; }
++        ImGui::TextDisabled("Fixed tracker-on-shoe orientation; try yaw = 180 if feet face backwards.");
++        if (legChanged) SetLiveControlsUiState(&st, 1);
++        ImGui::TextDisabled("Setup: SteamVR > Devices > Manage Vive Trackers > assign left/right foot.");
++        ImGui::TextDisabled("Leg length is measured by T-pose auto-calibration when trackers are worn.");
++    }
+ }
+ 
+ void ReleaseGameMouseCapture() {
+--- a/src/red4ext_plugin/vrik/vrik_hook.h
++++ b/src/red4ext_plugin/vrik/vrik_hook.h
+@@ -71,6 +71,10 @@
+ inline float    g_handsStable[128] = {};
+ inline uint32_t g_handsStableSeq   = 0;
+ inline bool     g_handsStableValid = false;
++// LEG TRACKERS (HTC Vive): slots [157..180], written by the SAME producer inside
++// the SAME seqlock bracket as the hands block, so they latch under the identical
++// consistency rule. g_legsStable[0..23] mirrors absolute slots [157..180].
++inline float    g_legsStable[24]  = {};
+ 
+ inline void RefreshHandsSnapshot() {
+     if (!g_pSharedHands) return;
+@@ -95,11 +99,16 @@
+         // ignored real head translation: stand up -> hands stay at sitting height).
+         float tmp[127];
+         for (int i = 0; i < 127; ++i) tmp[i] = g_pSharedHands[i];
++        // Leg trackers [157..180]: same writer, same bracket -> latched together so
++        // a leg solve never mixes feet from one frame with hips from another.
++        float tmpLeg[24];
++        for (int i = 0; i < 24; ++i) tmpLeg[i] = g_pSharedHands[157 + i];
+         std::atomic_thread_fence(std::memory_order_acquire);
+         const uint32_t s1 = *seqSlot;
+         if (s0 == s1) {                        // consistent (no write straddled the copy)
+             if (!g_handsStableValid || s1 != g_handsStableSeq) {
+                 for (int i = 0; i < 127; ++i) g_handsStable[i] = tmp[i];
++                for (int i = 0; i < 24; ++i) g_legsStable[i] = tmpLeg[i];
+                 g_handsStableSeq   = s1;
+                 g_handsStableValid = true;
+             }
+@@ -116,6 +125,13 @@
+     if (g_handsStableValid) return g_handsStable[i];
+     return g_pSharedHands ? g_pSharedHands[i] : 0.0f;
+ }
++// Leg-tracker slot accessor (i = absolute slot 157..180; see shared_slots.h).
++inline float SharedLeg(int i) {
++    const int j = i - 157;
++    if (j < 0 || j >= 24) return 0.0f;
++    if (g_handsStableValid) return g_legsStable[j];
++    return g_pSharedHands ? g_pSharedHands[i] : 0.0f;
++}
+ extern volatile int       g_VRBind;              // 0 off, 1=right pos, 2=right pos+rot, 3=both pos(+rot)
+ extern volatile float     g_VRBindScale;         // position scale (VR units -> model units)
+ extern volatile float     g_VRBindOffX;
+@@ -592,6 +608,21 @@
+     o[0] = qq[0]/s*sn; o[1] = qq[1]/s*sn; o[2] = qq[2]/s*sn; o[3] = cn;
+ }
+ 
++// Euler (deg, pitch/yaw/roll) -> quaternion. Same convention as the producer's
++// EulerToQuat (openxr_manager.cpp) so UI euler values behave identically on both
++// sides of the bridge. Used for the foot-tracker mount correction.
++static inline void VRIK_EulerToQuat(float pitchDeg, float yawDeg, float rollDeg, float* o) {
++    const float k = 3.1415926535f / 180.0f * 0.5f;
++    const float p = pitchDeg * k, y = yawDeg * k, r = rollDeg * k;
++    const float cp = std::cos(p), sp = std::sin(p);
++    const float cy = std::cos(y), sy = std::sin(y);
++    const float cr = std::cos(r), sr = std::sin(r);
++    o[3] = cr * cp * cy + sr * sp * sy;
++    o[0] = sr * cp * cy - cr * sp * sy;
++    o[1] = cr * sp * cy + sr * cp * sy;
++    o[2] = cr * cp * sy - sr * sp * cy;
++}
++
+ // Shortest-arc unit quaternion rotating unit vector a onto unit vector b.
+ static inline void VRIK_QuatFromTo(const float* a, const float* b, float* o) {
+     float d = VRIK_Dot3(a, b);
+@@ -1903,9 +1934,14 @@
+ //
+ // Falls back to head-orient-only (no body move) when the leg bones aren't resolved, so the feet
+ // can never float.
++//
++// trackAnchor: the same model-space anchor the hand targets are built from (handAnchor at the
++// call site). With HTC Vive leg trackers enabled the foot IK targets are composed off it with
++// the gizmo-exact formula, so hands and feet share ONE origin and one frame.
+ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+                                           const float* camModelPos, const float* camModelRot,
+-                                          int headIdx, const float* bodyFwd) {
++                                          int headIdx, const float* bodyFwd,
++                                          const float* trackAnchor) {
+     int hips = g_VRHipsIdx;
+     if (hips < 0 || hips >= VRIK_MAX_BONES || headIdx < 0 || headIdx >= VRIK_MAX_BONES) return;
+     float id[4] = { 0,0,0,1 };
+@@ -1923,6 +1959,41 @@
+     if (haveR) { footR[0]=g_fkPos[g_VRRightFootIdx][0]; footR[1]=g_fkPos[g_VRRightFootIdx][1]; footR[2]=g_fkPos[g_VRRightFootIdx][2]; }
+     if (haveL) { footL[0]=g_fkPos[g_VRLeftFootIdx][0];  footL[1]=g_fkPos[g_VRLeftFootIdx][1];  footL[2]=g_fkPos[g_VRLeftFootIdx][2]; }
+ 
++    // ---- HTC VIVE LEG TRACKERS ---------------------------------------------
++    // When enabled (shared [173]) and a foot tracker is live, that foot's target
++    // comes from the tracker instead of the captured animation pose -- composed
++    // with the exact hand-target formula (anchor + camModelRot * map(x,-z,y)) so
++    // the feet live in the same validated frame as the hands, plus the ankle
++    // offset ([175]) that maps tracker-on-shoe onto the ankle JOINT. Per-foot
++    // fallback: a lost tracker keeps its animation-driven leg.
++    bool trackR = false, trackL = false;
++    float footTrackRotR[4] = {0,0,0,1}, footTrackRotL[4] = {0,0,0,1};
++    if (trackAnchor && SharedLeg(173) == 1.0f) {
++        const float ankleOff = SharedLeg(175);
++        float mount[4];
++        VRIK_EulerToQuat(SharedLeg(178), SharedLeg(179), SharedLeg(180), mount);
++        auto buildFoot = [&](int base, float* outFoot, float* outRot) -> bool {
++            if (SharedLeg(base) != 1.0f) return false;
++            float mapPos[3] = { SharedLeg(base+1), -SharedLeg(base+3), SharedLeg(base+2) };
++            float rp[3]; VRIK_QuatRotateVec(camModelRot, mapPos, rp);
++            outFoot[0] = trackAnchor[0] + rp[0];
++            outFoot[1] = trackAnchor[1] + rp[1];
++            outFoot[2] = trackAnchor[2] + rp[2] + ankleOff;
++            // Sanity: a tracker reading more than 2.5 m from the anchor is a
++            // dropout/compositor glitch, not a foot -- keep the animation leg.
++            float d2 = rp[0]*rp[0] + rp[1]*rp[1] + rp[2]*rp[2];
++            if (d2 > 6.25f) return false;
++            float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
++            float mq[4]; VRIK_QuatMul(camModelRot, lq, mq);
++            VRIK_QuatMul(mq, mount, outRot);
++            VRIK_QuatNorm(outRot);
++            return true;
++        };
++        trackR = haveR && buildFoot(165, footR, footTrackRotR);
++        trackL = haveL && buildFoot(157, footL, footTrackRotL);
++    }
++    const bool anyTrack = trackR || trackL;
++
+     // HEAD = CAMERA, rigidly (user's hard requirement): the head bone tracks the offset-corrected
+     // game camera in XY too, so the whole upper body moves with the view as one block -> no "weapon
+     // draw: camera back, body forward" desync and no "squat: head stays, body drops". After the
+@@ -1966,7 +2037,8 @@
+ 
+     // IK-style standing base: weapon stance must not push the legs forward. Keep the current
+     // foot spacing, but recenter the pair directly below the HMD/head in model XY.
+-    if (haveR && haveL) {
++    // With leg trackers the feet go where the trackers ARE -- recentring would fight them.
++    if (haveR && haveL && !anyTrack) {
+         float fcx = 0.5f * (footR[0] + footL[0]);
+         float fcy = 0.5f * (footR[1] + footL[1]);
+         float sx = headAnchor[0] - fcx;
+@@ -2002,6 +2074,23 @@
+         // one piece -- no "weapon draw: camera/head back, hips forward" torso desync. After baking
+         // camModelPos.xy = foot centre, so the legs stay vertical; the leg IK keeps the feet planted.
+         float hipsTarget[3] = { headAnchor[0], headAnchor[1], headAnchor[2] - torsoVert };
++        // LEG-TRACKER REACH CLAMP: a tracked foot can sit far below the animated
++        // stance (deep squat, kneel, leg folded back). If the hips stay at
++        // head-minus-torso the hip->foot distance exceeds the leg length, the IK
++        // saturates and the foot floats off its tracker. Cap the hips so the
++        // LOWEST tracked foot stays reachable (FK-measured segment lengths, 2%
++        // margin so the knee keeps a whisper of bend).
++        if (anyTrack) {
++            auto legLenFK = [&](int up, int mid, int end) -> float {
++                float a = VRIK_Dist3(g_fkPos[up], g_fkPos[mid]);
++                float b = VRIK_Dist3(g_fkPos[mid], g_fkPos[end]);
++                return a + b;
++            };
++            float cap = 1.0e9f;
++            if (trackR) { float c = footR[2] + legLenFK(g_VRRightUpLegIdx, g_VRRightLegIdx, g_VRRightFootIdx) * 0.98f; if (c < cap) cap = c; }
++            if (trackL) { float c = footL[2] + legLenFK(g_VRLeftUpLegIdx,  g_VRLeftLegIdx,  g_VRLeftFootIdx)  * 0.98f; if (c < cap) cap = c; }
++            if (hipsTarget[2] > cap) hipsTarget[2] = cap;
++        }
+         int hp = g_VRBoneParent[hips];
+         if (hp >= 0 && hp < VRIK_MAX_BONES) {
+             VRIK_WriteLocalPos(boneBuf, hips, g_fkPos[hp], g_fkRot[hp], hipsTarget);
+@@ -2042,10 +2131,24 @@
+     }
+ 
+     // 4. Leg IK: feet back to their captured ground positions, knees bending forward.
++    //    With leg trackers, footR/footL already hold the tracker targets from step 1.
+     if (haveR) VRIK_SolveLeg(boneBuf, g_VRRightUpLegIdx, g_VRRightLegIdx, g_VRRightFootIdx, footR, bodyFwd);
+     if (haveL) VRIK_SolveLeg(boneBuf, g_VRLeftUpLegIdx,  g_VRLeftLegIdx,  g_VRLeftFootIdx,  footL, bodyFwd);
+     if (moveBody) VRIK_ComputeFK(boneBuf, VRIK_FKCount());
+ 
++    // 4b. TRACKED FOOT ORIENTATION: aim the foot bone at the tracker's rotation
++    //     (model space, mount-corrected) so lifting/rotating your foot reads 1:1.
++    //     Written after the leg IK so the parent (calf) FK is final.
++    if (trackR) {
++        int p = g_VRBoneParent[g_VRRightFootIdx];
++        VRIK_WriteLocalRot(boneBuf, g_VRRightFootIdx, (p>=0&&p<VRIK_MAX_BONES)?g_fkRot[p]:id, footTrackRotR);
++    }
++    if (trackL) {
++        int p = g_VRBoneParent[g_VRLeftFootIdx];
++        VRIK_WriteLocalRot(boneBuf, g_VRLeftFootIdx, (p>=0&&p<VRIK_MAX_BONES)?g_fkRot[p]:id, footTrackRotL);
++    }
++    if (anyTrack) VRIK_ComputeFK(boneBuf, VRIK_FKCount());
++
+     // 5. Head follows the real head: orient the head bone to the HMD.
+     {
+         int hp = g_VRBoneParent[headIdx];
+@@ -2776,7 +2879,7 @@
+                             // squat; the horizontal position is the foot centre, computed inside. Head
+                             // orientation still follows the HMD (camModelRot).
+                             float fwdSigned[3] = { bodyFwd[0], bodyFwd[1], bodyFwd[2] };
+-                            VRIK_PlaceBodyUnderHMD(boneBuf, camModelPos, camModelRot, hIdx, fwdSigned);
++                            VRIK_PlaceBodyUnderHMD(boneBuf, camModelPos, camModelRot, hIdx, fwdSigned, handAnchor);
+                             VRIK_BodyAxesFromCamYaw(camModelRot, bodyRight, bodyUp, bodyFwd);
+ 
+                             // Publish the horizontal CAMERA-MOUNT offset = (where the body stands =

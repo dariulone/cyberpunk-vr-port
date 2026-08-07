@@ -71,6 +71,10 @@ std::string VRDiagPath(const char* name);  // defined in main.cpp
 inline float    g_handsStable[128] = {};
 inline uint32_t g_handsStableSeq   = 0;
 inline bool     g_handsStableValid = false;
+// BODY TRACKERS (feet + waist): slots [157..189], written by the SAME producer
+// inside the SAME seqlock bracket as the hands block, so they latch under the
+// identical consistency rule. g_legsStable[0..32] mirrors slots [157..189].
+inline float    g_legsStable[33]  = {};
 
 inline void RefreshHandsSnapshot() {
     if (!g_pSharedHands) return;
@@ -95,11 +99,16 @@ inline void RefreshHandsSnapshot() {
         // ignored real head translation: stand up -> hands stay at sitting height).
         float tmp[127];
         for (int i = 0; i < 127; ++i) tmp[i] = g_pSharedHands[i];
+        // Body trackers [157..189]: same writer, same bracket -> latched together so
+        // a leg solve never mixes feet from one frame with hips from another.
+        float tmpLeg[33];
+        for (int i = 0; i < 33; ++i) tmpLeg[i] = g_pSharedHands[157 + i];
         std::atomic_thread_fence(std::memory_order_acquire);
         const uint32_t s1 = *seqSlot;
         if (s0 == s1) {                        // consistent (no write straddled the copy)
             if (!g_handsStableValid || s1 != g_handsStableSeq) {
                 for (int i = 0; i < 127; ++i) g_handsStable[i] = tmp[i];
+                for (int i = 0; i < 33; ++i) g_legsStable[i] = tmpLeg[i];
                 g_handsStableSeq   = s1;
                 g_handsStableValid = true;
             }
@@ -114,6 +123,13 @@ inline void RefreshHandsSnapshot() {
 // seq stays 0/even so the very first read still latches a coherent frame).
 inline float SharedPose(int i) {
     if (g_handsStableValid) return g_handsStable[i];
+    return g_pSharedHands ? g_pSharedHands[i] : 0.0f;
+}
+// Body-tracker slot accessor (i = absolute slot 157..189; see shared_slots.h).
+inline float SharedLeg(int i) {
+    const int j = i - 157;
+    if (j < 0 || j >= 33) return 0.0f;
+    if (g_handsStableValid) return g_legsStable[j];
     return g_pSharedHands ? g_pSharedHands[i] : 0.0f;
 }
 extern volatile int       g_VRBind;              // 0 off, 1=right pos, 2=right pos+rot, 3=both pos(+rot)
@@ -590,6 +606,21 @@ static inline void VRIK_QuatScale(const float* q, float t, float* o) {
     float half = std::acos(w) * t;     // scaled half-angle
     float sn = std::sin(half), cn = std::cos(half);
     o[0] = qq[0]/s*sn; o[1] = qq[1]/s*sn; o[2] = qq[2]/s*sn; o[3] = cn;
+}
+
+// Euler (deg, pitch/yaw/roll) -> quaternion. Same convention as the producer's
+// EulerToQuat (openxr_manager.cpp) so UI euler values behave identically on both
+// sides of the bridge. Used for the foot-tracker mount correction.
+static inline void VRIK_EulerToQuat(float pitchDeg, float yawDeg, float rollDeg, float* o) {
+    const float k = 3.1415926535f / 180.0f * 0.5f;
+    const float p = pitchDeg * k, y = yawDeg * k, r = rollDeg * k;
+    const float cp = std::cos(p), sp = std::sin(p);
+    const float cy = std::cos(y), sy = std::sin(y);
+    const float cr = std::cos(r), sr = std::sin(r);
+    o[3] = cr * cp * cy + sr * sp * sy;
+    o[0] = sr * cp * cy - cr * sp * sy;
+    o[1] = cr * sp * cy + sr * cp * sy;
+    o[2] = cr * cp * sy - sr * sp * cy;
 }
 
 // Shortest-arc unit quaternion rotating unit vector a onto unit vector b.
@@ -1903,9 +1934,14 @@ static inline void VRIK_SolveLeg(uint8_t* boneBuf, int upIdx, int midIdx, int en
 //
 // Falls back to head-orient-only (no body move) when the leg bones aren't resolved, so the feet
 // can never float.
+//
+// trackAnchor: the same model-space anchor the hand targets are built from (handAnchor at the
+// call site). With HTC Vive leg trackers enabled the foot IK targets are composed off it with
+// the gizmo-exact formula, so hands and feet share ONE origin and one frame.
 static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
                                           const float* camModelPos, const float* camModelRot,
-                                          int headIdx, const float* bodyFwd) {
+                                          int headIdx, const float* bodyFwd,
+                                          const float* trackAnchor) {
     int hips = g_VRHipsIdx;
     if (hips < 0 || hips >= VRIK_MAX_BONES || headIdx < 0 || headIdx >= VRIK_MAX_BONES) return;
     float id[4] = { 0,0,0,1 };
@@ -1922,6 +1958,143 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
     float footR[3] = {0,0,0}, footL[3] = {0,0,0};
     if (haveR) { footR[0]=g_fkPos[g_VRRightFootIdx][0]; footR[1]=g_fkPos[g_VRRightFootIdx][1]; footR[2]=g_fkPos[g_VRRightFootIdx][2]; }
     if (haveL) { footL[0]=g_fkPos[g_VRLeftFootIdx][0];  footL[1]=g_fkPos[g_VRLeftFootIdx][1];  footL[2]=g_fkPos[g_VRLeftFootIdx][2]; }
+
+    // ---- HTC VIVE LEG TRACKERS ---------------------------------------------
+    // When enabled (shared [173]) and a foot tracker is live, that foot's target
+    // comes from the tracker instead of the captured animation pose -- composed
+    // with the exact hand-target formula (anchor + camModelRot * map(x,-z,y)) so
+    // the feet live in the same validated frame as the hands, plus the ankle
+    // offset ([175]) that maps tracker-on-shoe onto the ankle JOINT. Per-foot
+    // fallback: a lost tracker keeps its animation-driven leg.
+    bool trackR = false, trackL = false;
+    float footTrackRotR[4] = {0,0,0,1}, footTrackRotL[4] = {0,0,0,1};
+    if (trackAnchor && SharedLeg(173) == 1.0f) {
+        const float ankleOff = SharedLeg(175);
+        // PER-FOOT mount correction quats (slots [208..211] L / [212..215] R),
+        // solved automatically by the T-pose calibration sampler below and
+        // persisted in vrik_calibration.ini. They replace the old shared
+        // euler mount sliders ([178..180], no longer consumed): one manual
+        // correction could never fit both feet -- a yaw that fixed one foot
+        // pointed the other backwards. Identity when never calibrated.
+        auto mountOf = [](int slotBase, float* out) {
+            out[0] = out[1] = out[2] = 0.0f; out[3] = 1.0f;
+            if (!g_pSharedHands) return;
+            float q[4] = { g_pSharedHands[slotBase], g_pSharedHands[slotBase+1],
+                           g_pSharedHands[slotBase+2], g_pSharedHands[slotBase+3] };
+            const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+            if (n2 > 0.25f && n2 < 4.0f) {   // sane published quat -> use it
+                VRIK_QuatNorm(q);
+                out[0]=q[0]; out[1]=q[1]; out[2]=q[2]; out[3]=q[3];
+            }
+        };
+        auto buildFoot = [&](int base, int mountBase, float* outFoot, float* outRot) -> bool {
+            if (SharedLeg(base) != 1.0f) return false;
+            float mapPos[3] = { SharedLeg(base+1), -SharedLeg(base+3), SharedLeg(base+2) };
+            float rp[3]; VRIK_QuatRotateVec(camModelRot, mapPos, rp);
+            outFoot[0] = trackAnchor[0] + rp[0];
+            outFoot[1] = trackAnchor[1] + rp[1];
+            outFoot[2] = trackAnchor[2] + rp[2] + ankleOff;
+            // Sanity: a tracker reading more than 2.5 m from the anchor is a
+            // dropout/compositor glitch, not a foot -- keep the animation leg.
+            float d2 = rp[0]*rp[0] + rp[1]*rp[1] + rp[2]*rp[2];
+            if (d2 > 6.25f) return false;
+            float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
+            float mount[4]; mountOf(mountBase, mount);
+            float mq[4]; VRIK_QuatMul(camModelRot, lq, mq);
+            VRIK_QuatMul(mq, mount, outRot);
+            VRIK_QuatNorm(outRot);
+            return true;
+        };
+        trackR = haveR && buildFoot(165, 212, footR, footTrackRotR);
+        trackL = haveL && buildFoot(157, 208, footL, footTrackRotL);
+    }
+    const bool anyTrack = trackR || trackL;
+
+    // ---- T-POSE FOOT-ROTATION CALIBRATION SAMPLER ----------------------------
+    // While the stereo side runs its T-pose sample window it raises [190].
+    // Each frame we solve the tracker-local mount correction that maps the
+    // CURRENT tracker orientation onto the CURRENT pristine-animation foot
+    // bone orientation:  S = (camModelRot * map(lq))^-1 * animFootModelRot.
+    // The user stands straight, feet forward -- the pose where the real feet
+    // and the avatar's animation feet agree -- so the averaged S makes the
+    // tracked foot match the T-pose exactly, for EACH foot independently.
+    // Published to [191..199] on the falling edge; the stereo side adopts,
+    // persists (vrik_calibration.ini) and republishes the ACTIVE mounts on
+    // [208..215]. g_fkRot at this point is still this frame's untouched
+    // animation pose (same assumption as the foot-position capture above).
+    if (g_pSharedHands) {
+        static bool  s_mntWas = false;
+        static float s_mntAccL[4] = {0,0,0,0}, s_mntAccR[4] = {0,0,0,0};
+        static int   s_mntNL = 0, s_mntNR = 0;
+        if (g_pSharedHands[190] == 1.0f && trackAnchor && SharedLeg(173) == 1.0f) {
+            auto sampleFoot = [&](int base, int boneIdx, float* acc, int& n) {
+                if (SharedLeg(base) != 1.0f) return;
+                if (boneIdx < 0 || boneIdx >= VRIK_MAX_BONES) return;
+                float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
+                float M[4]; VRIK_QuatMul(camModelRot, lq, M); VRIK_QuatNorm(M);
+                const float Minv[4] = { -M[0], -M[1], -M[2], M[3] };
+                float S[4]; VRIK_QuatMul(Minv, g_fkRot[boneIdx], S); VRIK_QuatNorm(S);
+                if (n > 0) {   // hemisphere-fix against the running sum
+                    const float d = acc[0]*S[0] + acc[1]*S[1] + acc[2]*S[2] + acc[3]*S[3];
+                    if (d < 0.0f) { S[0]=-S[0]; S[1]=-S[1]; S[2]=-S[2]; S[3]=-S[3]; }
+                }
+                acc[0]+=S[0]; acc[1]+=S[1]; acc[2]+=S[2]; acc[3]+=S[3];
+                ++n;
+            };
+            sampleFoot(157, g_VRLeftFootIdx,  s_mntAccL, s_mntNL);
+            sampleFoot(165, g_VRRightFootIdx, s_mntAccR, s_mntNR);
+            s_mntWas = true;
+        } else if (s_mntWas) {
+            // Falling edge: publish the averaged solve. An under-sampled foot
+            // echoes its current ACTIVE mount so adoption is a no-op for it.
+            auto publishFoot = [&](int slotBase, int activeBase, float* acc, int n) {
+                float q[4] = { g_pSharedHands[activeBase], g_pSharedHands[activeBase+1],
+                               g_pSharedHands[activeBase+2], g_pSharedHands[activeBase+3] };
+                if (n >= 20) {
+                    q[0]=acc[0]; q[1]=acc[1]; q[2]=acc[2]; q[3]=acc[3];
+                    VRIK_QuatNorm(q);
+                } else {
+                    const float n2 = q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3];
+                    if (n2 < 0.25f || n2 > 4.0f) { q[0]=q[1]=q[2]=0.0f; q[3]=1.0f; }
+                }
+                g_pSharedHands[slotBase]   = q[0];
+                g_pSharedHands[slotBase+1] = q[1];
+                g_pSharedHands[slotBase+2] = q[2];
+                g_pSharedHands[slotBase+3] = q[3];
+            };
+            publishFoot(191, 208, s_mntAccL, s_mntNL);
+            publishFoot(195, 212, s_mntAccR, s_mntNR);
+            g_pSharedHands[199] = g_pSharedHands[199] + 1.0f;   // publish seq
+            s_mntWas = false;
+            s_mntNL = s_mntNR = 0;
+            s_mntAccL[0]=s_mntAccL[1]=s_mntAccL[2]=s_mntAccL[3]=0.0f;
+            s_mntAccR[0]=s_mntAccR[1]=s_mntAccR[2]=s_mntAccR[3]=0.0f;
+        }
+    }
+
+    // ---- WAIST TRACKER (hips) ------------------------------------------------
+    // Same gizmo-exact composition as the feet, POSITION only: the tracker rides
+    // the belt, so drop it a fixed belt->hip-joint 0.10 m onto the hips. This
+    // replaces the head-based hip estimate (head.z - torsoVert) whenever live:
+    // sitting, kneeling and hip sway all read 1:1 instead of being inferred from
+    // the HMD. Orientation stays with the existing spine logic on purpose --
+    // hips rotation drives the whole spine base, so a mis-mounted waist puck
+    // would twist the torso; position-only is the safe 1:1 win.
+    bool  trackW = false;
+    float hipsTrack[3] = { 0, 0, 0 };
+    // [189] = the "Use waist tracker" checkbox: unticked means 2-point (feet
+    // only) even when a waist puck is connected and streaming.
+    if (trackAnchor && SharedLeg(173) == 1.0f && SharedLeg(189) == 1.0f && SharedLeg(181) == 1.0f) {
+        float mapPos[3] = { SharedLeg(182), -SharedLeg(184), SharedLeg(183) };
+        float rp[3]; VRIK_QuatRotateVec(camModelRot, mapPos, rp);
+        const float d2 = rp[0]*rp[0] + rp[1]*rp[1] + rp[2]*rp[2];
+        if (d2 <= 6.25f) {              // same 2.5 m dropout reject as the feet
+            hipsTrack[0] = trackAnchor[0] + rp[0];
+            hipsTrack[1] = trackAnchor[1] + rp[1];
+            hipsTrack[2] = trackAnchor[2] + rp[2] - 0.10f;
+            trackW = true;
+        }
+    }
 
     // HEAD = CAMERA, rigidly (user's hard requirement): the head bone tracks the offset-corrected
     // game camera in XY too, so the whole upper body moves with the view as one block -> no "weapon
@@ -1966,7 +2139,8 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
 
     // IK-style standing base: weapon stance must not push the legs forward. Keep the current
     // foot spacing, but recenter the pair directly below the HMD/head in model XY.
-    if (haveR && haveL) {
+    // With leg trackers the feet go where the trackers ARE -- recentring would fight them.
+    if (haveR && haveL && !anyTrack) {
         float fcx = 0.5f * (footR[0] + footL[0]);
         float fcy = 0.5f * (footR[1] + footL[1]);
         float sx = headAnchor[0] - fcx;
@@ -2002,6 +2176,34 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
         // one piece -- no "weapon draw: camera/head back, hips forward" torso desync. After baking
         // camModelPos.xy = foot centre, so the legs stay vertical; the leg IK keeps the feet planted.
         float hipsTarget[3] = { headAnchor[0], headAnchor[1], headAnchor[2] - torsoVert };
+        // WAIST TRACKER: measured hip placement beats the head-derived estimate --
+        // real sitting/kneeling hip height, real hip sway. Clamped to stay below
+        // the neck and above the ankles so a glitching puck can't fold the avatar.
+        if (trackW) {
+            hipsTarget[0] = hipsTrack[0];
+            hipsTarget[1] = hipsTrack[1];
+            hipsTarget[2] = hipsTrack[2];
+            const float maxHipZ = headAnchor[2] - 0.25f;
+            if (hipsTarget[2] > maxHipZ) hipsTarget[2] = maxHipZ;
+            if (hipsTarget[2] < 0.25f)   hipsTarget[2] = 0.25f;
+        }
+        // LEG-TRACKER REACH CLAMP: a tracked foot can sit far below the animated
+        // stance (deep squat, kneel, leg folded back). If the hips stay at
+        // head-minus-torso the hip->foot distance exceeds the leg length, the IK
+        // saturates and the foot floats off its tracker. Cap the hips so the
+        // LOWEST tracked foot stays reachable (FK-measured segment lengths, 2%
+        // margin so the knee keeps a whisper of bend).
+        if (anyTrack) {
+            auto legLenFK = [&](int up, int mid, int end) -> float {
+                float a = VRIK_Dist3(g_fkPos[up], g_fkPos[mid]);
+                float b = VRIK_Dist3(g_fkPos[mid], g_fkPos[end]);
+                return a + b;
+            };
+            float cap = 1.0e9f;
+            if (trackR) { float c = footR[2] + legLenFK(g_VRRightUpLegIdx, g_VRRightLegIdx, g_VRRightFootIdx) * 0.98f; if (c < cap) cap = c; }
+            if (trackL) { float c = footL[2] + legLenFK(g_VRLeftUpLegIdx,  g_VRLeftLegIdx,  g_VRLeftFootIdx)  * 0.98f; if (c < cap) cap = c; }
+            if (hipsTarget[2] > cap) hipsTarget[2] = cap;
+        }
         int hp = g_VRBoneParent[hips];
         if (hp >= 0 && hp < VRIK_MAX_BONES) {
             VRIK_WriteLocalPos(boneBuf, hips, g_fkPos[hp], g_fkRot[hp], hipsTarget);
@@ -2042,9 +2244,23 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
     }
 
     // 4. Leg IK: feet back to their captured ground positions, knees bending forward.
+    //    With leg trackers, footR/footL already hold the tracker targets from step 1.
     if (haveR) VRIK_SolveLeg(boneBuf, g_VRRightUpLegIdx, g_VRRightLegIdx, g_VRRightFootIdx, footR, bodyFwd);
     if (haveL) VRIK_SolveLeg(boneBuf, g_VRLeftUpLegIdx,  g_VRLeftLegIdx,  g_VRLeftFootIdx,  footL, bodyFwd);
     if (moveBody) VRIK_ComputeFK(boneBuf, VRIK_FKCount());
+
+    // 4b. TRACKED FOOT ORIENTATION: aim the foot bone at the tracker's rotation
+    //     (model space, mount-corrected) so lifting/rotating your foot reads 1:1.
+    //     Written after the leg IK so the parent (calf) FK is final.
+    if (trackR) {
+        int p = g_VRBoneParent[g_VRRightFootIdx];
+        VRIK_WriteLocalRot(boneBuf, g_VRRightFootIdx, (p>=0&&p<VRIK_MAX_BONES)?g_fkRot[p]:id, footTrackRotR);
+    }
+    if (trackL) {
+        int p = g_VRBoneParent[g_VRLeftFootIdx];
+        VRIK_WriteLocalRot(boneBuf, g_VRLeftFootIdx, (p>=0&&p<VRIK_MAX_BONES)?g_fkRot[p]:id, footTrackRotL);
+    }
+    if (anyTrack) VRIK_ComputeFK(boneBuf, VRIK_FKCount());
 
     // 5. Head follows the real head: orient the head bone to the HMD.
     {
@@ -2776,7 +2992,23 @@ extern "C" inline void* Hooked_AnimPoseApply(void* a1, void* a2, void* a3, unsig
                             // squat; the horizontal position is the foot centre, computed inside. Head
                             // orientation still follows the HMD (camModelRot).
                             float fwdSigned[3] = { bodyFwd[0], bodyFwd[1], bodyFwd[2] };
-                            VRIK_PlaceBodyUnderHMD(boneBuf, camModelPos, camModelRot, hIdx, fwdSigned);
+                            // TRACKER ANCHOR: handAnchor includes the eye-view auto-offset
+                            // ([116..118] folded into [120..122]), which is DERIVED from the
+                            // body pose (headFK - camera). Routing it into the tracker-driven
+                            // feet/hips closes a positive feedback loop --
+                            //   body -> eyeBake -> anchor -> foot/hip targets -> body
+                            // with gain ~1 and EMA smoothing: an integrator that head-pitch
+                            // transients steer until a clamp rails (avatar slowly sinking
+                            // waist-deep / rising out of the floor as you look up/down).
+                            // Strip the eye-view share: feet/hips anchor to the tuned camera
+                            // point (bake + manual Tracking-Camera), which is body-independent.
+                            float trackAnchor[3] = { handAnchor[0], handAnchor[1], handAnchor[2] };
+                            if (g_pSharedHands && SharedPose(123) == 1.0f && SharedPose(119) == 1.0f) {
+                                trackAnchor[0] -= SharedPose(116);
+                                trackAnchor[1] -= SharedPose(117);
+                                trackAnchor[2] -= SharedPose(118);
+                            }
+                            VRIK_PlaceBodyUnderHMD(boneBuf, camModelPos, camModelRot, hIdx, fwdSigned, trackAnchor);
                             VRIK_BodyAxesFromCamYaw(camModelRot, bodyRight, bodyUp, bodyFwd);
 
                             // Publish the horizontal CAMERA-MOUNT offset = (where the body stands =

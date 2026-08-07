@@ -68,6 +68,8 @@ add_library(cyberpunkvrport_stereo SHARED
     src/vr/openxr/openxr_present.cpp
     src/vr/openxr/openxr_capture.cpp
     src/vr/openxr/openxr_calibration.cpp
+    src/vr/openxr/openxr_vive_trackers.cpp
+    src/vr/openxr/openvr_trackers.cpp
     src/vr/core/swapchain_hooks.cpp
     src/vr/render/depth_resolve.cpp
     src/vr/render/sharpen_pass.cpp

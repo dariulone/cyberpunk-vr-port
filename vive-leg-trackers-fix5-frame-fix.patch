@@ -1,0 +1,111 @@
+diff --git a/src/vr/openxr/openvr_trackers.cpp b/src/vr/openxr/openvr_trackers.cpp
+index 901c3fe..9a25565 100644
+--- a/src/vr/openxr/openvr_trackers.cpp
++++ b/src/vr/openxr/openvr_trackers.cpp
+@@ -25,10 +25,13 @@
+ //      m_trackerStageValid), skipping any role HTCX already filled this frame.
+ //
+ // COORDINATES: OpenVR is right-handed, +Y up, -Z forward, meters -- identical
+-// to OpenXR (see the comment block at the top of openvr.h). The OpenVR
+-// standing universe is the same physical origin as SteamVR's OpenXR STAGE
+-// space, so poses drop straight into the existing stage/HMD-local math with
+-// no axis conversion.
++// to OpenXR (see the comment block at the top of openvr.h), and the OpenVR
++// standing universe is floor-relative. NOTE: the mod's OpenXR reference space
++// is NOT floor-relative (its origin sits at head level), so OpenVR poses must
++// never be mixed with OpenXR-frame head poses. The HMD-local relative pose is
++// frame-independent, so this provider builds it purely inside OpenVR (tracker
++// and HMD both from GetDeviceToAbsoluteTrackingPose); the stage-space copy
++// for calibration is the standing-universe pose verbatim.
+ #include "openxr_manager.h"
+ #include "openxr_internal.h"
+ #include "thirdparty/openvr.h"
+@@ -400,8 +403,33 @@ void OpenXRManager::PollOpenVRTrackers(const XrPosef& headPoseStage) {
+     }
+ 
+     // Per-frame pose fill for every role the HTCX path left invalid.
++    //
++    // CRITICAL FRAME RULE: the HMD-local relative pose must be built from a
++    // head pose in the SAME frame as the tracker poses. The OpenXR head pose
++    // passed in (headPoseStage) lives in the mod's OpenXR reference space,
++    // whose origin sits at HEAD level, not on the floor -- mixing it with
++    // floor-relative OpenVR standing-universe poses once shipped feet glued
++    // to head height (relWorld.y ~= 0) and the avatar folded into a U. The
++    // head-relative pose is frame-independent, so build it purely inside
++    // OpenVR from the OpenVR HMD pose instead; it comes out identical to what
++    // a consistent OpenXR pair would produce.
++    (void)headPoseStage;
++    if (!PoseUsable(poses[vr::k_unTrackedDeviceIndex_Hmd])) {
++        for (int i = 0; i < kBodyTrackerCount; ++i) {
++            if (m_trackers[i].valid) continue;      // HTCX provider owns this role
++            m_trackers[i].valid = false;
++            m_trackerStageValid[i] = false;
++            m_trackerFilterState[i].initialized = false;
++        }
++        return;
++    }
++    XrVector3f headPos{};
++    XrQuaternionf headQuat{};
++    PoseFromOpenVRMatrix(poses[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking, headPos, headQuat);
++    m_openvrHmdStageY = headPos.y;              // floor-relative HMD height for calibration
++    const XrQuaternionf headInv = ConjugateQuat(headQuat);
++
+     const float smooth = GetHandTrackingSmooth();
+-    const XrQuaternionf headInv = ConjugateQuat(headPoseStage.orientation);
+     for (int i = 0; i < kBodyTrackerCount; ++i) {
+         if (m_trackers[i].valid) continue;          // HTCX provider owns this role
+         m_trackerStageValid[i] = false;
+@@ -415,14 +443,14 @@ void OpenXRManager::PollOpenVRTrackers(const XrPosef& headPoseStage) {
+         XrVector3f stagePos{};
+         XrQuaternionf stageQuat{};
+         PoseFromOpenVRMatrix(poses[d].mDeviceToAbsoluteTracking, stagePos, stageQuat);
+-        m_trackerStagePos[i] = stagePos;
++        m_trackerStagePos[i] = stagePos;        // floor-relative, feeds calibration
+         m_trackerStageValid[i] = true;
+ 
+         // HMD-local form, identical to the HTCX/hand pipeline.
+         XrVector3f relWorld{
+-            stagePos.x - headPoseStage.position.x,
+-            stagePos.y - headPoseStage.position.y,
+-            stagePos.z - headPoseStage.position.z,
++            stagePos.x - headPos.x,
++            stagePos.y - headPos.y,
++            stagePos.z - headPos.z,
+         };
+         XrPosef relPose{};
+         relPose.position = RotateVector(headInv, relWorld);
+diff --git a/src/vr/openxr/openxr_calibration.cpp b/src/vr/openxr/openxr_calibration.cpp
+index 12ff1e1..4499a30 100644
+--- a/src/vr/openxr/openxr_calibration.cpp
++++ b/src/vr/openxr/openxr_calibration.cpp
+@@ -129,7 +129,13 @@ void OpenXRManager::TickAutoCalibration() {
+             m_calibCtrlPosSumL[0] += m_hands[0].posX;
+             m_calibCtrlPosSumL[1] += m_hands[0].posY;
+             m_calibCtrlPosSumL[2] += m_hands[0].posZ;
+-            m_calibHmdHeightSum += m_posY.load(std::memory_order_relaxed);
++            // Eye height must be FLOOR-relative for the leg-length math below.
++            // m_posY lives in the head-origin OpenXR space (~0 standing); when
++            // the OpenVR tracker provider is live it publishes a floor-relative
++            // HMD height (standing universe) -- prefer that.
++            float hmdY = m_posY.load(std::memory_order_relaxed);
++            if (m_openvrHmdStageY > 0.3f) hmdY = m_openvrHmdStageY;
++            m_calibHmdHeightSum += hmdY;
+             m_calibSampleCount++;
+         }
+         // Body trackers: average the stage-space ankle heights over the standing
+diff --git a/src/vr/openxr/openxr_manager.h b/src/vr/openxr/openxr_manager.h
+index aa20c09..5fb8056 100644
+--- a/src/vr/openxr/openxr_manager.h
++++ b/src/vr/openxr/openxr_manager.h
+@@ -894,6 +894,11 @@ private:
+     int                m_openvrTrackerCount = 0;    // connected GenericTrackers (last scan)
+     double             m_lastOpenvrScan = 0.0;      // FbtNowSeconds() of last device scan
+     double             m_lastOpenvrRemap = 0.0;     // FbtNowSeconds() of last remap attempt
++    // Floor-relative HMD height from the OpenVR standing universe, refreshed by
++    // the per-frame poll. The mod's own m_posY is in the head-origin OpenXR
++    // space (~0 while standing), which fails the calibration's eyeHeight gate;
++    // calibration prefers this when the OpenVR provider is live.
++    float              m_openvrHmdStageY = 0.0f;
+     std::atomic<int>   m_legTrackersEnable{0};
+     std::atomic<int>   m_waistTrackerEnable{0};    // optional 3rd point: waist drives hips
+     std::atomic<float> m_legAnkleOffset{0.10f};    // tracker-on-shoe -> ankle joint (m)

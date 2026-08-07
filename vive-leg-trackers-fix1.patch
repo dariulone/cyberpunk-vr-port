@@ -1,0 +1,34 @@
+--- a/src/vr/openxr/openxr_vive_trackers.cpp
++++ b/src/vr/openxr/openxr_vive_trackers.cpp
+@@ -106,15 +106,17 @@
+         return;
+     }
+ 
++    // xrEnumerateViveTrackerPathsHTCX is the standard capacity idiom --
++    // (instance, capacity, countOut, paths); there is NO systemId argument.
+     uint32_t count = 0;
+-    XrResult res = m_pfnEnumViveTrackers(m_instance, m_systemId, &count, nullptr);
++    XrResult res = m_pfnEnumViveTrackers(m_instance, 0, &count, nullptr);
+     if (XR_FAILED(res) || count == 0) {
+         Log("OpenXRManager[FBT]: extension present, no Vive trackers connected (count=%u res=%d). "
+             "Assign foot roles in SteamVR > Controllers > Manage Vive Trackers.\n", count, res);
+         return;
+     }
+     std::vector<XrViveTrackerPathsHTCX> trackers(count, { XR_TYPE_VIVE_TRACKER_PATHS_HTCX });
+-    res = m_pfnEnumViveTrackers(m_instance, m_systemId, &count, trackers.data());
++    res = m_pfnEnumViveTrackers(m_instance, count, &count, trackers.data());
+     if (XR_FAILED(res)) {
+         Log("OpenXRManager[FBT]: xrEnumerateViveTrackerPathsHTCX failed res=%d\n", res);
+         return;
+@@ -213,9 +215,9 @@
+     if (now - m_lastViveTrackerEnum > 2.0) {
+         m_lastViveTrackerEnum = now;
+         uint32_t count = 0;
+-        if (m_pfnEnumViveTrackers && XR_SUCCEEDED(m_pfnEnumViveTrackers(m_instance, m_systemId, &count, nullptr)) && count > 0) {
++        if (m_pfnEnumViveTrackers && XR_SUCCEEDED(m_pfnEnumViveTrackers(m_instance, 0, &count, nullptr)) && count > 0) {
+             std::vector<XrViveTrackerPathsHTCX> trackers(count, { XR_TYPE_VIVE_TRACKER_PATHS_HTCX });
+-            if (XR_SUCCEEDED(m_pfnEnumViveTrackers(m_instance, m_systemId, &count, trackers.data()))) {
++            if (XR_SUCCEEDED(m_pfnEnumViveTrackers(m_instance, count, &count, trackers.data()))) {
+                 int footRoles = 0;
+                 for (const auto& t : trackers) {
+                     char roleStr[128] = { 0 };

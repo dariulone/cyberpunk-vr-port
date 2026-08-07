@@ -885,6 +885,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                 }
 
+                // [TRACKERS] body trackers (feet + waist): locate the roles at the SAME
+                // locateTime against the SAME head pose as the hands above, into the same
+                // HMD-local convention (m_trackers). Inside the hand lock because it writes
+                // the m_hands sibling state. No-op without the extension/trackers.
+                PollViveTrackers(locateTime, location.pose);
+
                 // DEFERRED L3 (sprint): the left stick click doubles as the D-Pad
                 // modifier. Emit the vanilla stick-click press only when the click is
                 // RELEASED without any D-Pad direction having been used during the hold

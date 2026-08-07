@@ -239,3 +239,60 @@ inline int64_t PickMonoSwapchainFormat(const std::vector<int64_t>& runtimeFormat
 
     return runtimeFormats.empty() ? gameFormat : runtimeFormats[0];
 }
+
+// ---------------------------------------------------------------------------
+// Body-tracker shared helpers (used by BOTH tracker providers: the
+// XR_HTCX_vive_tracker_interaction path in openxr_vive_trackers.cpp and the
+// OpenVR fallback path in openvr_trackers.cpp).
+// ---------------------------------------------------------------------------
+
+// Steady clock in seconds (QPC), for the re-enumerate / remap timers.
+inline double FbtNowSeconds() {
+    LARGE_INTEGER c{}, f{};
+    QueryPerformanceCounter(&c);
+    QueryPerformanceFrequency(&f);
+    return (f.QuadPart > 0) ? static_cast<double>(c.QuadPart) / static_cast<double>(f.QuadPart) : 0.0;
+}
+
+// Same adaptive jitter filter the hand locate uses (openxr_frameloop.cpp):
+// freeze sub-mm lighthouse/IMU noise, release to 1:1 once the tracker really
+// moves. Templated: the state type is a private member struct of OpenXRManager.
+template <typename FilterState>
+XrPosef FilterTrackerPose(FilterState& state, const XrPosef& raw, float strength) {
+    if (!state.initialized || strength <= 0.001f) {
+        state.initialized = true;
+        state.position = raw.position;
+        state.orientation = raw.orientation;
+        return raw;
+    }
+    const float dx = raw.position.x - state.position.x;
+    const float dy = raw.position.y - state.position.y;
+    const float dz = raw.position.z - state.position.z;
+    const float posDelta = sqrtf(dx * dx + dy * dy + dz * dz);
+    float dot = state.orientation.x * raw.orientation.x + state.orientation.y * raw.orientation.y
+              + state.orientation.z * raw.orientation.z + state.orientation.w * raw.orientation.w;
+    if (dot < 0.0f) dot = -dot;
+    if (dot > 1.0f) dot = 1.0f;
+    const float angDelta = 2.0f * acosf(dot);
+
+    auto follow = [&](float delta, float quiet, float release) {
+        if (release <= quiet) return 1.0f;
+        const float stillFollow = 1.0f / (1.0f + 20.0f * strength);
+        float m = (delta - quiet) / (release - quiet);
+        if (m < 0.0f) m = 0.0f; if (m > 1.0f) m = 1.0f;
+        m = m * m * (3.0f - 2.0f * m);
+        return stillFollow + (1.0f - stillFollow) * m;
+    };
+    const float posT = follow(posDelta, 0.0018f, 0.0120f);
+    const float angT = follow(angDelta, 0.0050f, 0.0450f);
+
+    state.position.x += dx * posT;
+    state.position.y += dy * posT;
+    state.position.z += dz * posT;
+    state.orientation = NlerpQuat(state.orientation, raw.orientation, angT);
+
+    XrPosef out = raw;
+    out.position = state.position;
+    out.orientation = state.orientation;
+    return out;
+}

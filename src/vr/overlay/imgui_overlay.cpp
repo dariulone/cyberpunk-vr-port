@@ -1142,6 +1142,64 @@ void DrawVRHandsControls() {
         // The two-way sync above pulls the loaded values into the sliders next frame.
         OpenXRManager::Get().LoadCalibrationFromFile();
     }
+
+    ImGui::Separator();
+    // BODY TRACKING via Panda trackers (anything SteamVR surfaces through
+    // XR_HTCX_vive_tracker_interaction: real Vive Trackers and trackers that
+    // emulate them). The stereo DLL polls the left_foot/right_foot/waist roles
+    // and publishes HMD-local poses to shared slots [157..172] / [181..188];
+    // the VRIK plugin then aims each leg at its foot tracker (with the mount
+    // correction below) and, when the waist checkbox is ticked, places the hips
+    // on the waist tracker.
+    ImGui::TextUnformatted("Body tracking (Panda Trackers)");
+    ImGui::TextDisabled("Move your avatar's legs and hips with Panda trackers.");
+    {
+        LiveControlsUiState st{};
+        GetLiveControlsUiState(&st);
+        bool legTrack = st.xrLegTrackers != 0;
+        if (ImGui::Checkbox("Enable body tracking (Panda trackers)", &legTrack)) {
+            st.xrLegTrackers = legTrack ? 1 : 0;
+            SetLiveControlsUiState(&st, 1);
+        }
+        // Optional 3rd tracking point. Unticked (default) = 2-point feet only;
+        // ticked = the waist tracker also drives the hips.
+        bool waistTrack = st.xrWaistTracker != 0;
+        if (ImGui::Checkbox("Use waist tracker (hips - 3rd tracking point)", &waistTrack)) {
+            st.xrWaistTracker = waistTrack ? 1 : 0;
+            SetLiveControlsUiState(&st, 1);
+        }
+        const bool htcxOk = OpenXRManager::Get().HasViveTrackerExtension();
+        const bool openvrOk = OpenXRManager::Get().HasOpenVRTrackerSupport();
+        if (!htcxOk && !openvrOk) {
+            ImGui::TextDisabled("No tracker path available: runtime lacks the Vive tracker");
+            ImGui::TextDisabled("extension and openvr_api.dll / SteamVR OpenVR was unreachable.");
+        } else {
+            const int tracked = OpenXRManager::Get().GetViveTrackerCount();
+            OpenXRHeadPose lf{}, rf{}, wp{};
+            const bool lok = OpenXRManager::Get().GetBodyTrackerPose(0, &lf);
+            const bool rok = OpenXRManager::Get().GetBodyTrackerPose(1, &rf);
+            const bool wok = OpenXRManager::Get().GetBodyTrackerPose(2, &wp);
+            ImGui::Text("Trackers active: %d  |  left foot: %s  right foot: %s  waist: %s",
+                        tracked, lok ? "OK" : "--", rok ? "OK" : "--", wok ? "OK" : "--");
+            ImGui::TextDisabled("Pose source: %s", openvrOk ? "SteamVR OpenVR (Panda trackers)"
+                                                          : "Vive tracker OpenXR extension");
+        }
+        bool legChanged = false;
+        float ankle = st.xrLegAnkleOffset;
+        if (ImGui::SliderFloat("Ankle height above sole (m)", &ankle, 0.0f, 0.30f, "%.3f")) {
+            st.xrLegAnkleOffset = ankle; legChanged = true;
+        }
+        ImGui::TextDisabled("Lifts the ankle target off the floor (the puck sits above the sole).");
+        if (legChanged) SetLiveControlsUiState(&st, 1);
+        // Foot ROTATION needs no sliders: T-pose auto-calibration measures each
+        // foot tracker against the avatar's feet and solves the correction
+        // automatically, per foot. Saved to vrik_calibration.ini.
+        ImGui::TextDisabled("Foot rotation: set automatically by T-pose auto-calibration.");
+        ImGui::TextDisabled("Setup: wake the trackers, put them on, stand straight with feet");
+        ImGui::TextDisabled("together facing forward, arms out, and run T-pose auto-calibration.");
+        ImGui::TextDisabled("It assigns left/right foot and waist, measures leg length, and sets");
+        ImGui::TextDisabled("each foot's rotation. Waist drives the hips (sitting, crouch, sway).");
+    }
 }
 
 void ReleaseGameMouseCapture() {

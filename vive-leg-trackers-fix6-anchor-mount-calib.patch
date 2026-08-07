@@ -1,0 +1,457 @@
+diff --git a/src/common/shared_slots.h b/src/common/shared_slots.h
+index 8121a90..d489b86 100644
+--- a/src/common/shared_slots.h
++++ b/src/common/shared_slots.h
+@@ -137,6 +137,17 @@
+ //  [182..184] waist pos (HMD-local, same convention as feet)
+ //  [185..188] waist quat
+ //  [189]      waist tracker enable (vrport.ini xr_waist_tracker) openxr -> plugin
++//  [190]      T-pose mount-calibration sampling flag (1 = window open)  openxr -> plugin
++//  [191..194] T-pose SOLVED left foot mount quat    plugin -> openxr
++//  [195..198] T-pose SOLVED right foot mount quat   plugin -> openxr
++//  [199]      solved-mount publish seq (incremented each solve)  plugin -> openxr
++//  [208..211] ACTIVE left foot mount quat           openxr -> plugin
++//  [212..215] ACTIVE right foot mount quat          openxr -> plugin
++//             ([190..199]/[208..215] ride the tracker feature; read raw, they
++//             change at calibration time only. The plugin solves each mount
++//             against the pristine animation feet during the T-pose window --
++//             replaces the old shared manual euler sliders [178..180], which
++//             are no longer consumed. [200..202] stay the overlay debug pos.)
+ // ============================================================================
+ 
+ namespace vrshared {
+@@ -182,4 +193,10 @@ constexpr int kViveTrackerCount  = 177;
+ constexpr int kLegMountEuler     = 178;   // ..180: pitch/yaw/roll (deg)
+ constexpr int kWaistTrack        = 181;   // ..188: valid, pos(3), quat(4)
+ constexpr int kWaistTrackEnable  = 189;
++constexpr int kMountCalibSampling = 190;  // T-pose window flag
++constexpr int kMountSolveL       = 191;   // ..194: plugin-solved L mount quat
++constexpr int kMountSolveR       = 195;   // ..198: plugin-solved R mount quat
++constexpr int kMountSolveSeq     = 199;
++constexpr int kLegMountQuatL     = 208;   // ..211: ACTIVE L mount quat
++constexpr int kLegMountQuatR     = 212;   // ..215: ACTIVE R mount quat
+ } // namespace vrshared
+diff --git a/src/red4ext_plugin/vrik/vrik_hook.h b/src/red4ext_plugin/vrik/vrik_hook.h
+index d5a5c59..77985ed 100644
+--- a/src/red4ext_plugin/vrik/vrik_hook.h
++++ b/src/red4ext_plugin/vrik/vrik_hook.h
+@@ -1970,9 +1970,24 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+     float footTrackRotR[4] = {0,0,0,1}, footTrackRotL[4] = {0,0,0,1};
+     if (trackAnchor && SharedLeg(173) == 1.0f) {
+         const float ankleOff = SharedLeg(175);
+-        float mount[4];
+-        VRIK_EulerToQuat(SharedLeg(178), SharedLeg(179), SharedLeg(180), mount);
+-        auto buildFoot = [&](int base, float* outFoot, float* outRot) -> bool {
++        // PER-FOOT mount correction quats (slots [208..211] L / [212..215] R),
++        // solved automatically by the T-pose calibration sampler below and
++        // persisted in vrik_calibration.ini. They replace the old shared
++        // euler mount sliders ([178..180], no longer consumed): one manual
++        // correction could never fit both feet -- a yaw that fixed one foot
++        // pointed the other backwards. Identity when never calibrated.
++        auto mountOf = [](int slotBase, float* out) {
++            out[0] = out[1] = out[2] = 0.0f; out[3] = 1.0f;
++            if (!g_pSharedHands) return;
++            float q[4] = { g_pSharedHands[slotBase], g_pSharedHands[slotBase+1],
++                           g_pSharedHands[slotBase+2], g_pSharedHands[slotBase+3] };
++            const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
++            if (n2 > 0.25f && n2 < 4.0f) {   // sane published quat -> use it
++                VRIK_QuatNorm(q);
++                out[0]=q[0]; out[1]=q[1]; out[2]=q[2]; out[3]=q[3];
++            }
++        };
++        auto buildFoot = [&](int base, int mountBase, float* outFoot, float* outRot) -> bool {
+             if (SharedLeg(base) != 1.0f) return false;
+             float mapPos[3] = { SharedLeg(base+1), -SharedLeg(base+3), SharedLeg(base+2) };
+             float rp[3]; VRIK_QuatRotateVec(camModelRot, mapPos, rp);
+@@ -1984,16 +1999,79 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+             float d2 = rp[0]*rp[0] + rp[1]*rp[1] + rp[2]*rp[2];
+             if (d2 > 6.25f) return false;
+             float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
++            float mount[4]; mountOf(mountBase, mount);
+             float mq[4]; VRIK_QuatMul(camModelRot, lq, mq);
+             VRIK_QuatMul(mq, mount, outRot);
+             VRIK_QuatNorm(outRot);
+             return true;
+         };
+-        trackR = haveR && buildFoot(165, footR, footTrackRotR);
+-        trackL = haveL && buildFoot(157, footL, footTrackRotL);
++        trackR = haveR && buildFoot(165, 212, footR, footTrackRotR);
++        trackL = haveL && buildFoot(157, 208, footL, footTrackRotL);
+     }
+     const bool anyTrack = trackR || trackL;
+ 
++    // ---- T-POSE FOOT-ROTATION CALIBRATION SAMPLER ----------------------------
++    // While the stereo side runs its T-pose sample window it raises [190].
++    // Each frame we solve the tracker-local mount correction that maps the
++    // CURRENT tracker orientation onto the CURRENT pristine-animation foot
++    // bone orientation:  S = (camModelRot * map(lq))^-1 * animFootModelRot.
++    // The user stands straight, feet forward -- the pose where the real feet
++    // and the avatar's animation feet agree -- so the averaged S makes the
++    // tracked foot match the T-pose exactly, for EACH foot independently.
++    // Published to [191..199] on the falling edge; the stereo side adopts,
++    // persists (vrik_calibration.ini) and republishes the ACTIVE mounts on
++    // [208..215]. g_fkRot at this point is still this frame's untouched
++    // animation pose (same assumption as the foot-position capture above).
++    if (g_pSharedHands) {
++        static bool  s_mntWas = false;
++        static float s_mntAccL[4] = {0,0,0,0}, s_mntAccR[4] = {0,0,0,0};
++        static int   s_mntNL = 0, s_mntNR = 0;
++        if (g_pSharedHands[190] == 1.0f && trackAnchor && SharedLeg(173) == 1.0f) {
++            auto sampleFoot = [&](int base, int boneIdx, float* acc, int& n) {
++                if (SharedLeg(base) != 1.0f) return;
++                if (boneIdx < 0 || boneIdx >= VRIK_MAX_BONES) return;
++                float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
++                float M[4]; VRIK_QuatMul(camModelRot, lq, M); VRIK_QuatNorm(M);
++                const float Minv[4] = { -M[0], -M[1], -M[2], M[3] };
++                float S[4]; VRIK_QuatMul(Minv, g_fkRot[boneIdx], S); VRIK_QuatNorm(S);
++                if (n > 0) {   // hemisphere-fix against the running sum
++                    const float d = acc[0]*S[0] + acc[1]*S[1] + acc[2]*S[2] + acc[3]*S[3];
++                    if (d < 0.0f) { S[0]=-S[0]; S[1]=-S[1]; S[2]=-S[2]; S[3]=-S[3]; }
++                }
++                acc[0]+=S[0]; acc[1]+=S[1]; acc[2]+=S[2]; acc[3]+=S[3];
++                ++n;
++            };
++            sampleFoot(157, g_VRLeftFootIdx,  s_mntAccL, s_mntNL);
++            sampleFoot(165, g_VRRightFootIdx, s_mntAccR, s_mntNR);
++            s_mntWas = true;
++        } else if (s_mntWas) {
++            // Falling edge: publish the averaged solve. An under-sampled foot
++            // echoes its current ACTIVE mount so adoption is a no-op for it.
++            auto publishFoot = [&](int slotBase, int activeBase, float* acc, int n) {
++                float q[4] = { g_pSharedHands[activeBase], g_pSharedHands[activeBase+1],
++                               g_pSharedHands[activeBase+2], g_pSharedHands[activeBase+3] };
++                if (n >= 20) {
++                    q[0]=acc[0]; q[1]=acc[1]; q[2]=acc[2]; q[3]=acc[3];
++                    VRIK_QuatNorm(q);
++                } else {
++                    const float n2 = q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3];
++                    if (n2 < 0.25f || n2 > 4.0f) { q[0]=q[1]=q[2]=0.0f; q[3]=1.0f; }
++                }
++                g_pSharedHands[slotBase]   = q[0];
++                g_pSharedHands[slotBase+1] = q[1];
++                g_pSharedHands[slotBase+2] = q[2];
++                g_pSharedHands[slotBase+3] = q[3];
++            };
++            publishFoot(191, 208, s_mntAccL, s_mntNL);
++            publishFoot(195, 212, s_mntAccR, s_mntNR);
++            g_pSharedHands[199] = g_pSharedHands[199] + 1.0f;   // publish seq
++            s_mntWas = false;
++            s_mntNL = s_mntNR = 0;
++            s_mntAccL[0]=s_mntAccL[1]=s_mntAccL[2]=s_mntAccL[3]=0.0f;
++            s_mntAccR[0]=s_mntAccR[1]=s_mntAccR[2]=s_mntAccR[3]=0.0f;
++        }
++    }
++
+     // ---- WAIST TRACKER (hips) ------------------------------------------------
+     // Same gizmo-exact composition as the feet, POSITION only: the tracker rides
+     // the belt, so drop it a fixed belt->hip-joint 0.10 m onto the hips. This
+@@ -2914,7 +2992,23 @@ extern "C" inline void* Hooked_AnimPoseApply(void* a1, void* a2, void* a3, unsig
+                             // squat; the horizontal position is the foot centre, computed inside. Head
+                             // orientation still follows the HMD (camModelRot).
+                             float fwdSigned[3] = { bodyFwd[0], bodyFwd[1], bodyFwd[2] };
+-                            VRIK_PlaceBodyUnderHMD(boneBuf, camModelPos, camModelRot, hIdx, fwdSigned, handAnchor);
++                            // TRACKER ANCHOR: handAnchor includes the eye-view auto-offset
++                            // ([116..118] folded into [120..122]), which is DERIVED from the
++                            // body pose (headFK - camera). Routing it into the tracker-driven
++                            // feet/hips closes a positive feedback loop --
++                            //   body -> eyeBake -> anchor -> foot/hip targets -> body
++                            // with gain ~1 and EMA smoothing: an integrator that head-pitch
++                            // transients steer until a clamp rails (avatar slowly sinking
++                            // waist-deep / rising out of the floor as you look up/down).
++                            // Strip the eye-view share: feet/hips anchor to the tuned camera
++                            // point (bake + manual Tracking-Camera), which is body-independent.
++                            float trackAnchor[3] = { handAnchor[0], handAnchor[1], handAnchor[2] };
++                            if (g_pSharedHands && SharedPose(123) == 1.0f && SharedPose(119) == 1.0f) {
++                                trackAnchor[0] -= SharedPose(116);
++                                trackAnchor[1] -= SharedPose(117);
++                                trackAnchor[2] -= SharedPose(118);
++                            }
++                            VRIK_PlaceBodyUnderHMD(boneBuf, camModelPos, camModelRot, hIdx, fwdSigned, trackAnchor);
+                             VRIK_BodyAxesFromCamYaw(camModelRot, bodyRight, bodyUp, bodyFwd);
+ 
+                             // Publish the horizontal CAMERA-MOUNT offset = (where the body stands =
+diff --git a/src/vr/openxr/openvr_trackers.cpp b/src/vr/openxr/openvr_trackers.cpp
+index 9a25565..8beba28 100644
+--- a/src/vr/openxr/openvr_trackers.cpp
++++ b/src/vr/openxr/openvr_trackers.cpp
+@@ -14,12 +14,14 @@
+ //      and connects as a read-only OpenVR client (Background; Overlay/Utility
+ //      as fallbacks) alongside the game's OpenXR session,
+ //   2. scans for connected GenericTracker devices once a second,
+-//   3. assigns devices to body roles GEOMETRICALLY -- feet = the two lowest
+-//      trackers, left/right by which side of the body midline they are on,
+-//      waist = the remaining tracker nearest hip height on the midline. The
+-//      assignment is refreshed by every T-pose auto-calibration (explicit
+-//      rescan) and lazily retried for unmapped roles (trackers woken up
+-//      mid-session),
++//   3. assigns devices to body roles: BY SERIAL NUMBER when the tracker
++//      names its role (the "human://LEFT_FOOT" style convention -- reliable
++//      even with feet together), otherwise GEOMETRICALLY -- feet = the two
++//      lowest trackers, left/right by which side of the body midline they
++//      are on, waist = the remaining tracker nearest hip height on the
++//      midline. The assignment is refreshed by every T-pose auto-calibration
++//      (explicit rescan) and lazily retried for unmapped roles (trackers
++//      woken up mid-session),
+ //   4. reads GetDeviceToAbsoluteTrackingPose each frame and writes the SAME
+ //      members the HTCX provider writes (m_trackers / m_trackerStagePos /
+ //      m_trackerStageValid), skipping any role HTCX already filled this frame.
+@@ -253,6 +255,35 @@ void OpenXRManager::RemapOpenVRTrackerRoles(bool explicitRescan) {
+         Log("OpenXRManager[FBT-OpenVR]: T-pose rescan -- re-identifying trackers.\n");
+     }
+ 
++    // --- Pass 0: serial-number assignment. Trackers that carry their body
++    // role in the serial string (the "human://LEFT_FOOT" style convention)
++    // map DIRECTLY to that role -- no geometry needed. This is what makes a
++    // feet-together T-pose reliable: the geometric midline test below goes
++    // ambiguous when both feet touch the centre line, the serial never does.
++    // Unmapped roles fall through to the geometric passes. Runs before the
++    // candidate list is built so serially-mapped devices stay out of it.
++    for (uint32_t d = 1; d < vr::k_unMaxTrackedDeviceCount; ++d) {
++        if (sys->GetTrackedDeviceClass(d) != vr::TrackedDeviceClass_GenericTracker) continue;
++        if (!PoseUsable(poses[d])) continue;
++        bool alreadyMapped = false;
++        for (int i = 0; i < kBodyTrackerCount; ++i)
++            if (m_openvrRoleDevice[i] == d) alreadyMapped = true;
++        if (alreadyMapped) continue;
++        char serial[128] = { 0 };
++        sys->GetStringTrackedDeviceProperty(d, vr::Prop_SerialNumber_String, serial, sizeof(serial), nullptr);
++        char lc[128] = { 0 };
++        for (int i = 0; i < 127 && serial[i]; ++i)
++            lc[i] = (serial[i] >= 'A' && serial[i] <= 'Z') ? (serial[i] + 32) : serial[i];
++        int role = -1;
++        if (strstr(lc, "left_foot") || strstr(lc, "left-foot") || strstr(lc, "leftfoot")) role = 0;
++        else if (strstr(lc, "right_foot") || strstr(lc, "right-foot") || strstr(lc, "rightfoot")) role = 1;
++        else if (strstr(lc, "waist")) role = 2;
++        if (role < 0 || m_openvrRoleDevice[role] != kNoDevice) continue;
++        m_openvrRoleDevice[role] = d;
++        Log("OpenXRManager[FBT-OpenVR]: mapped %s <- dev %u (serial \"%s\").\n",
++            kRoleName[role], d, serial);
++    }
++
+     struct Cand { uint32_t dev; float y; float lat; };
+     std::vector<Cand> cands;
+     for (uint32_t d = 1; d < vr::k_unMaxTrackedDeviceCount; ++d) {
+diff --git a/src/vr/openxr/openxr_calibration.cpp b/src/vr/openxr/openxr_calibration.cpp
+index 4499a30..6435f6c 100644
+--- a/src/vr/openxr/openxr_calibration.cpp
++++ b/src/vr/openxr/openxr_calibration.cpp
+@@ -57,6 +57,12 @@ void OpenXRManager::StartAutoCalibration(float secs) {
+     // feet are the two lowest, on opposite sides of the midline. No-op when
+     // the OpenVR provider is off or poses come from the HTCX extension.
+     RemapOpenVRTrackerRoles(true);
++    // Foot-rotation calibration rides the same T-pose: raise the plugin's
++    // sampling flag ([190]) for the whole window; the plugin solves per-foot
++    // mount corrections (real foot -> animation foot, at the pose where they
++    // agree) and publishes them on the falling edge. Adopted+persisted below.
++    m_mountCalibSampling.store(1, std::memory_order_relaxed);
++    m_mountSolveAwaiting = false;
+     m_calibSeconds.store(secs, std::memory_order_relaxed);
+     m_calibProgress.store(0.0f, std::memory_order_relaxed);
+     m_calibArmSpanMax = 0.0f;
+@@ -159,6 +165,7 @@ void OpenXRManager::TickAutoCalibration() {
+         float armSpan = m_calibArmSpanMax;
+         if (armSpan < 0.5f || armSpan > 2.5f || m_calibSampleCount == 0) {
+             Log("Auto-calibration: armSpan %.3fm out of plausible range — aborting.\n", armSpan);
++            m_mountCalibSampling.store(0, std::memory_order_relaxed);
+             m_calibState.store(0, std::memory_order_relaxed);
+             return;
+         }
+@@ -258,6 +265,13 @@ void OpenXRManager::TickAutoCalibration() {
+                     m_userLegLen.load(std::memory_order_relaxed), m_legLenValid.load(std::memory_order_relaxed));
+             }
+         }
++        // FOOT-ROTATION (mount) solve: close the plugin's sampling window.
++        // The plugin publishes its per-foot mount solve to [191..199] a frame
++        // or two after seeing the flag drop, so the per-frame publish loop
++        // waits briefly for it (adopt + persist there).
++        m_mountCalibSampling.store(0, std::memory_order_relaxed);
++        m_mountSolveAwaiting = true;
++        m_mountSolveAwaitStart = FbtNowSeconds();
+         // Legacy modes (1..3) + the head-relative fallback still read a reach scale; keep it
+         // neutral (1.0) so they are unaffected by the new measured-length path.
+         float scaleR = 1.0f;
+@@ -393,6 +407,19 @@ bool OpenXRManager::SaveCalibrationToFile() {
+             m_userEyeHeight.load(std::memory_order_relaxed));
+     // Leg length measured from the Vive foot trackers (0 = never measured).
+     fprintf(f, "userLegLen=%.4f\n", m_userLegLen.load(std::memory_order_relaxed));
++    // Per-foot mount correction quats solved by the T-pose calibration
++    // (plugin sampler -> [191..199] -> adopted here). Persisted so the feet
++    // keep their calibrated rotation across sessions without recalibrating.
++    fprintf(f, "footMountLX=%.6f\nfootMountLY=%.6f\nfootMountLZ=%.6f\nfootMountLW=%.6f\n",
++            m_legMountQuatL[0].load(std::memory_order_relaxed),
++            m_legMountQuatL[1].load(std::memory_order_relaxed),
++            m_legMountQuatL[2].load(std::memory_order_relaxed),
++            m_legMountQuatL[3].load(std::memory_order_relaxed));
++    fprintf(f, "footMountRX=%.6f\nfootMountRY=%.6f\nfootMountRZ=%.6f\nfootMountRW=%.6f\n",
++            m_legMountQuatR[0].load(std::memory_order_relaxed),
++            m_legMountQuatR[1].load(std::memory_order_relaxed),
++            m_legMountQuatR[2].load(std::memory_order_relaxed),
++            m_legMountQuatR[3].load(std::memory_order_relaxed));
+     fclose(f);
+     Log("Calibration saved -> %s\n", path);
+     return true;
+@@ -433,11 +460,22 @@ bool OpenXRManager::LoadCalibrationFromFile() {
+         m_camBakeOffset[2].load(std::memory_order_relaxed),
+     };
+     int version = 0;
++    float mntL[4] = { 0.0f, 0.0f, 0.0f, 1.0f }, mntR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
++    bool haveMntL = false, haveMntR = false;
+     char line[128];
+     while (fgets(line, sizeof(line), f)) {
+         char key[32]; float val;
+         if (sscanf_s(line, "%31[^=]=%f", key, (unsigned)_countof(key), &val) != 2) continue;
+         if (strcmp(key, "version") == 0) version = static_cast<int>(val);
++        // Per-foot T-pose-solved mount corrections (quat components).
++        if (strcmp(key, "footMountLX") == 0) { mntL[0] = val; haveMntL = true; }
++        if (strcmp(key, "footMountLY") == 0) { mntL[1] = val; }
++        if (strcmp(key, "footMountLZ") == 0) { mntL[2] = val; }
++        if (strcmp(key, "footMountLW") == 0) { mntL[3] = val; }
++        if (strcmp(key, "footMountRX") == 0) { mntR[0] = val; haveMntR = true; }
++        if (strcmp(key, "footMountRY") == 0) { mntR[1] = val; }
++        if (strcmp(key, "footMountRZ") == 0) { mntR[2] = val; }
++        if (strcmp(key, "footMountRW") == 0) { mntR[3] = val; }
+         #define M(name, idx) if (strcmp(key, name) == 0) v[idx] = val;
+         #define E(name, idx) if (strcmp(key, name) == 0) e[idx] = val;
+         #define C(name, idx) if (strcmp(key, name) == 0) cb[idx] = val;
+@@ -479,6 +517,20 @@ bool OpenXRManager::LoadCalibrationFromFile() {
+     SetVRHandCalib(v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11],v[12],v[13]);
+     SetShoulderAnatomical(e[0],e[1],e[2],e[3],e[4],e[5]);
+     SetCameraOffset(cb[0], cb[1], cb[2]);
++    // Per-foot mount corrections: accept only sane unit-ish quats, else identity.
++    auto adoptMount = [](std::atomic<float>* dst, const float* q, bool have) {
++        float out[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
++        if (have) {
++            const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
++            if (n2 > 0.81f && n2 < 1.21f) {
++                const float inv = 1.0f / sqrtf(n2);
++                out[0] = q[0]*inv; out[1] = q[1]*inv; out[2] = q[2]*inv; out[3] = q[3]*inv;
++            }
++        }
++        for (int i = 0; i < 4; ++i) dst[i].store(out[i], std::memory_order_relaxed);
++    };
++    adoptMount(m_legMountQuatL, mntL, haveMntL);
++    adoptMount(m_legMountQuatR, mntR, haveMntR);
+     Log("Calibration loaded <- %s\n", path);
+     return true;
+ }
+diff --git a/src/vr/openxr/openxr_manager.cpp b/src/vr/openxr/openxr_manager.cpp
+index 3a4b30f..182f471 100644
+--- a/src/vr/openxr/openxr_manager.cpp
++++ b/src/vr/openxr/openxr_manager.cpp
+@@ -1541,6 +1541,50 @@ void OpenXRManager::FlushHandsToShared() {
+     sShared[188] = srcTrack[2].oriW;
+     sShared[189] = (m_waistTrackerEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+ 
++    // [190] T-pose mount-calibration sampling flag (openxr -> plugin). While
++    // high, the plugin solves per-foot mount corrections against the pristine
++    // animation feet; on the falling edge it publishes them to [191..199].
++    sShared[190] = (m_mountCalibSampling.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
++
++    // Adopt the plugin's foot-rotation solve (runs in the short window after
++    // a T-pose finalise). Timeout keeps a stale hands DLL (no sampler) from
++    // leaving us waiting forever.
++    if (m_mountSolveAwaiting) {
++        const float seq = sShared[199];
++        if (seq != m_mountSolveConsumedSeq) {
++            auto adoptQ = [](const float* sh, int base, std::atomic<float>* dst) {
++                float q[4] = { sh[base], sh[base+1], sh[base+2], sh[base+3] };
++                const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
++                if (n2 > 0.49f && n2 < 2.0f) {
++                    const float inv = 1.0f / sqrtf(n2);
++                    for (int i = 0; i < 4; ++i) dst[i].store(q[i] * inv, std::memory_order_relaxed);
++                }
++            };
++            adoptQ(sShared, 191, m_legMountQuatL);
++            adoptQ(sShared, 195, m_legMountQuatR);
++            m_mountSolveConsumedSeq = seq;
++            m_mountSolveAwaiting = false;
++            Log("Auto-calibration[FBT]: foot rotation calibrated -- L mount (%.3f, %.3f, %.3f, %.3f), R mount (%.3f, %.3f, %.3f, %.3f).\n",
++                m_legMountQuatL[0].load(std::memory_order_relaxed), m_legMountQuatL[1].load(std::memory_order_relaxed),
++                m_legMountQuatL[2].load(std::memory_order_relaxed), m_legMountQuatL[3].load(std::memory_order_relaxed),
++                m_legMountQuatR[0].load(std::memory_order_relaxed), m_legMountQuatR[1].load(std::memory_order_relaxed),
++                m_legMountQuatR[2].load(std::memory_order_relaxed), m_legMountQuatR[3].load(std::memory_order_relaxed));
++            SaveCalibrationToFile();
++        } else if (FbtNowSeconds() - m_mountSolveAwaitStart > 2.0) {
++            m_mountSolveAwaiting = false;
++            Log("Auto-calibration[FBT]: no foot-rotation solve received (old hands DLL or trackers off) -- keeping previous mount.\n");
++        }
++    }
++    // [208..215] ACTIVE per-foot mount correction quats (openxr -> plugin).
++    sShared[208] = m_legMountQuatL[0].load(std::memory_order_relaxed);
++    sShared[209] = m_legMountQuatL[1].load(std::memory_order_relaxed);
++    sShared[210] = m_legMountQuatL[2].load(std::memory_order_relaxed);
++    sShared[211] = m_legMountQuatL[3].load(std::memory_order_relaxed);
++    sShared[212] = m_legMountQuatR[0].load(std::memory_order_relaxed);
++    sShared[213] = m_legMountQuatR[1].load(std::memory_order_relaxed);
++    sShared[214] = m_legMountQuatR[2].load(std::memory_order_relaxed);
++    sShared[215] = m_legMountQuatR[3].load(std::memory_order_relaxed);
++
+     // ===== SEQLOCK END =====
+     // All payload slots are written; publish an EVEN sequence (= complete) so readers
+     // that snapshot this value (and find it unchanged + even across their read) accept
+diff --git a/src/vr/openxr/openxr_manager.h b/src/vr/openxr/openxr_manager.h
+index 5fb8056..a95ccb2 100644
+--- a/src/vr/openxr/openxr_manager.h
++++ b/src/vr/openxr/openxr_manager.h
+@@ -616,6 +616,12 @@ public:
+         m_userLegLen.store(v, std::memory_order_relaxed);
+         m_legLenValid.store(v > 0.0f ? 1 : 0, std::memory_order_relaxed);
+     }
++    // Per-foot mount correction quats (T-pose solved, persisted in
++    // vrik_calibration.ini, published to shared [208..215]). Identity default.
++    void GetLegMountQuat(int foot, float* out4) const {   // foot: 0 = L, 1 = R
++        const std::atomic<float>* src = (foot == 0) ? m_legMountQuatL : m_legMountQuatR;
++        for (int i = 0; i < 4; ++i) out4[i] = src[i].load(std::memory_order_relaxed);
++    }
+ 
+     // ==== AUTO-CALIBRATION ====
+     // T-pose calibration: user holds arms straight out sideways and stands straight.
+@@ -902,7 +908,18 @@ private:
+     std::atomic<int>   m_legTrackersEnable{0};
+     std::atomic<int>   m_waistTrackerEnable{0};    // optional 3rd point: waist drives hips
+     std::atomic<float> m_legAnkleOffset{0.10f};    // tracker-on-shoe -> ankle joint (m)
+-    std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg)
++    std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg, legacy -- superseded by the per-foot quats below)
++    // PER-FOOT mount correction quats, solved by the plugin's T-pose sampler
++    // (published to [191..199]), adopted+persisted here, republished as the
++    // ACTIVE mounts on [208..215]. Identity = never calibrated.
++    std::atomic<float> m_legMountQuatL[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
++    std::atomic<float> m_legMountQuatR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
++    // T-pose mount-solve handshake (frame thread only): [190] sampling flag,
++    // awaiting state for the plugin's solved-mount publish on [191..199].
++    std::atomic<int>   m_mountCalibSampling{0};
++    std::atomic<bool>  m_mountSolveAwaiting{false};
++    double             m_mountSolveAwaitStart = 0.0;    // frame thread only
++    float              m_mountSolveConsumedSeq = 0.0f;  // frame thread only
+     std::atomic<int>   m_legLenValid{0};
+     std::atomic<float> m_userLegLen{0.0f};         // T-pose hip->ankle (m)
+     // Auto-calibration accumulators (stage-space heights, averaged). Feet feed the
+diff --git a/src/vr/overlay/imgui_overlay.cpp b/src/vr/overlay/imgui_overlay.cpp
+index 39084b4..468044a 100644
+--- a/src/vr/overlay/imgui_overlay.cpp
++++ b/src/vr/overlay/imgui_overlay.cpp
+@@ -1190,16 +1190,15 @@ void DrawVRHandsControls() {
+             st.xrLegAnkleOffset = ankle; legChanged = true;
+         }
+         ImGui::TextDisabled("Lifts the ankle target off the floor (the puck sits above the sole).");
+-        float mp = st.xrLegMountPitchDeg, my = st.xrLegMountYawDeg, mr = st.xrLegMountRollDeg;
+-        if (ImGui::SliderFloat("Mount pitch (deg)", &mp, -180.0f, 180.0f, "%.0f")) { st.xrLegMountPitchDeg = mp; legChanged = true; }
+-        if (ImGui::SliderFloat("Mount yaw (deg)",   &my, -180.0f, 180.0f, "%.0f")) { st.xrLegMountYawDeg   = my; legChanged = true; }
+-        if (ImGui::SliderFloat("Mount roll (deg)",  &mr, -180.0f, 180.0f, "%.0f")) { st.xrLegMountRollDeg  = mr; legChanged = true; }
+-        ImGui::TextDisabled("Fixed tracker-on-shoe orientation; try yaw = 180 if feet face backwards.");
+         if (legChanged) SetLiveControlsUiState(&st, 1);
+-        ImGui::TextDisabled("Setup: wake the trackers, put them on, then run T-pose auto-calibration -");
+-        ImGui::TextDisabled("it assigns left/right foot and waist automatically (feet = two lowest).");
+-        ImGui::TextDisabled("Waist drives the hips (sitting, crouching, sway); feet drive the legs.");
+-        ImGui::TextDisabled("Leg length is measured by T-pose auto-calibration when trackers are worn.");
++        // Foot ROTATION needs no sliders: T-pose auto-calibration measures each
++        // foot tracker against the avatar's feet and solves the correction
++        // automatically, per foot. Saved to vrik_calibration.ini.
++        ImGui::TextDisabled("Foot rotation: set automatically by T-pose auto-calibration.");
++        ImGui::TextDisabled("Setup: wake the trackers, put them on, stand straight with feet");
++        ImGui::TextDisabled("together facing forward, arms out, and run T-pose auto-calibration.");
++        ImGui::TextDisabled("It assigns left/right foot and waist, measures leg length, and sets");
++        ImGui::TextDisabled("each foot's rotation. Waist drives the hips (sitting, crouch, sway).");
+     }
+ }
+ 

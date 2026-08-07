@@ -471,6 +471,8 @@ bool OpenXRManager::Init() {
 
     // Depth-layer support: submitting the game depth as XR_KHR_composition_layer_depth
     // gives the runtime depth for correct reprojection (kills the flat-color tearing).
+    // Also probes XR_HTCX_vive_tracker_interaction (SteamVR) for leg tracking.
+    bool viveTrackerExtAdvertised = false;
     {
         uint32_t extCount = 0;
         xrEnumerateInstanceExtensionProperties(nullptr, 0, &extCount, nullptr);
@@ -481,12 +483,24 @@ bool OpenXRManager::Init() {
                 if (strcmp(p.extensionName, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME) == 0) {
                     m_depthLayerSupported = true;
                     extensions.push_back(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME);
-                    break;
                 }
+#ifdef XR_HTCX_vive_tracker_interaction
+                if (strcmp(p.extensionName, XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME) == 0) {
+                    viveTrackerExtAdvertised = true;
+                }
+#endif
             }
         }
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
     }
+#ifdef XR_HTCX_vive_tracker_interaction
+    if (viveTrackerExtAdvertised) {
+        extensions.push_back(XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME);
+        Log("OpenXRManager: XR_HTCX_vive_tracker_interaction advertised -- enabling for leg trackers.\n");
+    } else {
+        Log("OpenXRManager: XR_HTCX_vive_tracker_interaction NOT advertised by the runtime (leg trackers need SteamVR).\n");
+    }
+#endif
 
     XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
     createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
@@ -563,6 +577,14 @@ bool OpenXRManager::Init() {
 
     Log("OpenXRManager: OpenXR Initialized. SystemID=%llu\n", m_systemId);
 
+    // HTC Vive trackers (leg tracking): resolves xrEnumerateViveTrackerPathsHTCX
+    // and logs connected trackers/roles. No-op when the extension wasn't enabled.
+    InitViveTrackerSupport();
+    // OpenVR fallback provider (Panda trackers etc.): SteamVR only enumerates
+    // genuine HTC trackers through the HTCX extension; emulated trackers are
+    // read through the OpenVR API instead. No-op unless the runtime is SteamVR.
+    InitOpenVRTrackerSupport();
+
     // [INPUT] Action Set Initialization -- gameplay locomotion + buttons
     const bool inputActionsEnabled = GetInputActionsEnabled() != 0;
     {
@@ -606,6 +628,11 @@ bool OpenXRManager::Init() {
         }
         Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
             inputActionsEnabled ? "ENABLED" : "DISABLED (pose-only)", (int)inputActionsEnabled);
+
+        // HTC Vive trackers: one pose action for the two foot roles + binding
+        // suggestion for the vive_tracker_htcx profile. Independent of the
+        // gameplay-input kill switch (pose-only, like the hands).
+        CreateViveTrackerActions();
 
         struct Bind { XrAction action; const char* path; };
 
@@ -845,6 +872,10 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
                 xrCreateActionSpace(m_session, &aimSpaceInfo, &m_handAimSpaces[i]);
             }
         }
+
+        // HTC Vive tracker foot spaces (re-tried from the poll, so trackers that
+        // connect or get a role assigned mid-session are picked up live).
+        EnsureViveTrackerSpaces();
     }
 
     m_stopFrameThread.store(false, std::memory_order_relaxed);
@@ -1301,6 +1332,7 @@ void OpenXRManager::UpdatePairLock() {
     m_pairLockHeadValid = live.valid;
     m_pairLockHands[0] = m_hands[0];
     m_pairLockHands[1] = m_hands[1];
+    for (int i = 0; i < kBodyTrackerCount; ++i) m_pairLockTrackers[i] = m_trackers[i];
     m_pairLockHmdOri[0] = m_oriX.load(std::memory_order_relaxed);
     m_pairLockHmdOri[1] = m_oriY.load(std::memory_order_relaxed);
     m_pairLockHmdOri[2] = m_oriZ.load(std::memory_order_relaxed);
@@ -1343,10 +1375,12 @@ void OpenXRManager::FlushHandsToShared() {
     // prefers the anti-tear tradeoff.
     const bool usePairLock = m_pairLockHandsValid && GetVrPairLock() != 0;
     OpenXRHeadPose srcHands[2];
+    OpenXRHeadPose srcTrack[kBodyTrackerCount];
     float hmdOri[4];
     if (usePairLock) {
         srcHands[0] = m_pairLockHands[0];
         srcHands[1] = m_pairLockHands[1];
+        for (int i = 0; i < kBodyTrackerCount; ++i) srcTrack[i] = m_pairLockTrackers[i];
         hmdOri[0] = m_pairLockHmdOri[0];
         hmdOri[1] = m_pairLockHmdOri[1];
         hmdOri[2] = m_pairLockHmdOri[2];
@@ -1354,6 +1388,7 @@ void OpenXRManager::FlushHandsToShared() {
     } else {
         srcHands[0] = m_hands[0];
         srcHands[1] = m_hands[1];
+        for (int i = 0; i < kBodyTrackerCount; ++i) srcTrack[i] = m_trackers[i];
         hmdOri[0] = m_oriX.load(std::memory_order_relaxed);
         hmdOri[1] = m_oriY.load(std::memory_order_relaxed);
         hmdOri[2] = m_oriZ.load(std::memory_order_relaxed);
@@ -1465,6 +1500,90 @@ void OpenXRManager::FlushHandsToShared() {
     sShared[124] = m_posX.load(std::memory_order_relaxed);
     sShared[125] = baseY;
     sShared[126] = m_posZ.load(std::memory_order_relaxed);
+
+    // [157..172] body trackers: foot poses in the SAME HMD-local convention
+    // as the hands ([0..15]), so the plugin drops them into the same gizmo frame.
+    // [173] enable, [174..176] measured leg anatomy, [177] count, [178..180] mount
+    // euler. [181..188] waist tracker, same convention (drives hip placement).
+    // Written INSIDE the hands seqlock so the plugin's legs latch shares the
+    // hands frame's consistency guarantee (no torn foot quats).
+    sShared[157] = srcTrack[0].valid ? 1.0f : 0.0f;
+    sShared[158] = srcTrack[0].posX;
+    sShared[159] = srcTrack[0].posY;
+    sShared[160] = srcTrack[0].posZ;
+    sShared[161] = srcTrack[0].oriX;
+    sShared[162] = srcTrack[0].oriY;
+    sShared[163] = srcTrack[0].oriZ;
+    sShared[164] = srcTrack[0].oriW;
+    sShared[165] = srcTrack[1].valid ? 1.0f : 0.0f;
+    sShared[166] = srcTrack[1].posX;
+    sShared[167] = srcTrack[1].posY;
+    sShared[168] = srcTrack[1].posZ;
+    sShared[169] = srcTrack[1].oriX;
+    sShared[170] = srcTrack[1].oriY;
+    sShared[171] = srcTrack[1].oriZ;
+    sShared[172] = srcTrack[1].oriW;
+    sShared[173] = (m_legTrackersEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+    sShared[174] = m_userLegLen.load(std::memory_order_relaxed);
+    sShared[175] = m_legAnkleOffset.load(std::memory_order_relaxed);
+    sShared[176] = (m_legLenValid.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+    sShared[177] = static_cast<float>(m_viveTrackerCount.load(std::memory_order_relaxed));
+    sShared[178] = m_legMountEulerDeg[0].load(std::memory_order_relaxed);
+    sShared[179] = m_legMountEulerDeg[1].load(std::memory_order_relaxed);
+    sShared[180] = m_legMountEulerDeg[2].load(std::memory_order_relaxed);
+    sShared[181] = srcTrack[2].valid ? 1.0f : 0.0f;
+    sShared[182] = srcTrack[2].posX;
+    sShared[183] = srcTrack[2].posY;
+    sShared[184] = srcTrack[2].posZ;
+    sShared[185] = srcTrack[2].oriX;
+    sShared[186] = srcTrack[2].oriY;
+    sShared[187] = srcTrack[2].oriZ;
+    sShared[188] = srcTrack[2].oriW;
+    sShared[189] = (m_waistTrackerEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+
+    // [190] T-pose mount-calibration sampling flag (openxr -> plugin). While
+    // high, the plugin solves per-foot mount corrections against the pristine
+    // animation feet; on the falling edge it publishes them to [191..199].
+    sShared[190] = (m_mountCalibSampling.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+
+    // Adopt the plugin's foot-rotation solve (runs in the short window after
+    // a T-pose finalise). Timeout keeps a stale hands DLL (no sampler) from
+    // leaving us waiting forever.
+    if (m_mountSolveAwaiting) {
+        const float seq = sShared[199];
+        if (seq != m_mountSolveConsumedSeq) {
+            auto adoptQ = [](const float* sh, int base, std::atomic<float>* dst) {
+                float q[4] = { sh[base], sh[base+1], sh[base+2], sh[base+3] };
+                const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+                if (n2 > 0.49f && n2 < 2.0f) {
+                    const float inv = 1.0f / sqrtf(n2);
+                    for (int i = 0; i < 4; ++i) dst[i].store(q[i] * inv, std::memory_order_relaxed);
+                }
+            };
+            adoptQ(sShared, 191, m_legMountQuatL);
+            adoptQ(sShared, 195, m_legMountQuatR);
+            m_mountSolveConsumedSeq = seq;
+            m_mountSolveAwaiting = false;
+            Log("Auto-calibration[FBT]: foot rotation calibrated -- L mount (%.3f, %.3f, %.3f, %.3f), R mount (%.3f, %.3f, %.3f, %.3f).\n",
+                m_legMountQuatL[0].load(std::memory_order_relaxed), m_legMountQuatL[1].load(std::memory_order_relaxed),
+                m_legMountQuatL[2].load(std::memory_order_relaxed), m_legMountQuatL[3].load(std::memory_order_relaxed),
+                m_legMountQuatR[0].load(std::memory_order_relaxed), m_legMountQuatR[1].load(std::memory_order_relaxed),
+                m_legMountQuatR[2].load(std::memory_order_relaxed), m_legMountQuatR[3].load(std::memory_order_relaxed));
+            SaveCalibrationToFile();
+        } else if (FbtNowSeconds() - m_mountSolveAwaitStart > 2.0) {
+            m_mountSolveAwaiting = false;
+            Log("Auto-calibration[FBT]: no foot-rotation solve received (old hands DLL or trackers off) -- keeping previous mount.\n");
+        }
+    }
+    // [208..215] ACTIVE per-foot mount correction quats (openxr -> plugin).
+    sShared[208] = m_legMountQuatL[0].load(std::memory_order_relaxed);
+    sShared[209] = m_legMountQuatL[1].load(std::memory_order_relaxed);
+    sShared[210] = m_legMountQuatL[2].load(std::memory_order_relaxed);
+    sShared[211] = m_legMountQuatL[3].load(std::memory_order_relaxed);
+    sShared[212] = m_legMountQuatR[0].load(std::memory_order_relaxed);
+    sShared[213] = m_legMountQuatR[1].load(std::memory_order_relaxed);
+    sShared[214] = m_legMountQuatR[2].load(std::memory_order_relaxed);
+    sShared[215] = m_legMountQuatR[3].load(std::memory_order_relaxed);
 
     // ===== SEQLOCK END =====
     // All payload slots are written; publish an EVEN sequence (= complete) so readers

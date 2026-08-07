@@ -115,6 +115,39 @@
 //  [154]       left trigger analog (0..1)     plugin -> Smoking CET bridge
 //  [155]       left grip pressed (0/1)        plugin -> Smoking CET bridge
 //  [156]       DEBUG logging on (0/1)         plugin -> every CET bridge
+//  [157..189]  BODY TRACKERS (XR_HTCX_vive_tracker_interaction; works with real
+//             Vive Trackers and with trackers that emulate them).
+//             Written by openxr INSIDE the hands seqlock [127] (same bracket as
+//             [0..126]), latched by the plugin together with the hands block --
+//             the legs block of RefreshHandsSnapshot reads these, SharedLeg(i)
+//             is the accessor (i = absolute slot 157..189).
+//  [157]      left foot tracker valid (0/1)   openxr -> plugin, overlay
+//  [158..160] left foot pos (HMD-local, same convention as [1..3])
+//  [161..164] left foot quat
+//  [165]      right foot tracker valid (0/1)
+//  [166..168] right foot pos (HMD-local)
+//  [169..172] right foot quat
+//  [173]      body-tracker enable (vrport.ini xr_leg_trackers)  openxr -> plugin
+//  [174]      T-pose measured leg length, hip->ankle (m)        openxr -> plugin
+//  [175]      tracker->ankle vertical offset (m)                openxr -> plugin
+//  [176]      leg calibration valid (0/1)
+//  [177]      connected trackers with a body role (0..3)        openxr -> overlay
+//  [178..180] foot mount correction euler p/y/r (deg)           openxr -> plugin
+//  [181]      waist tracker valid (0/1)       openxr -> plugin, overlay
+//  [182..184] waist pos (HMD-local, same convention as feet)
+//  [185..188] waist quat
+//  [189]      waist tracker enable (vrport.ini xr_waist_tracker) openxr -> plugin
+//  [190]      T-pose mount-calibration sampling flag (1 = window open)  openxr -> plugin
+//  [191..194] T-pose SOLVED left foot mount quat    plugin -> openxr
+//  [195..198] T-pose SOLVED right foot mount quat   plugin -> openxr
+//  [199]      solved-mount publish seq (incremented each solve)  plugin -> openxr
+//  [208..211] ACTIVE left foot mount quat           openxr -> plugin
+//  [212..215] ACTIVE right foot mount quat          openxr -> plugin
+//             ([190..199]/[208..215] ride the tracker feature; read raw, they
+//             change at calibration time only. The plugin solves each mount
+//             against the pristine animation feet during the T-pose window --
+//             replaces the old shared manual euler sliders [178..180], which
+//             are no longer consumed. [200..202] stay the overlay debug pos.)
 // ============================================================================
 
 namespace vrshared {
@@ -149,4 +182,21 @@ constexpr int kLeftGripPressed   = 155;
 // smoking one alone in a single session, and as much again from the weapon one. A log nobody can
 // open is a log nobody reads.
 constexpr int kDebugLog          = 156;
+// Body trackers (see the [157..189] block above).
+constexpr int kLegTrackL         = 157;   // ..164: valid, pos(3), quat(4)
+constexpr int kLegTrackR         = 165;   // ..172: valid, pos(3), quat(4)
+constexpr int kLegTrackEnable    = 173;
+constexpr int kLegLen            = 174;
+constexpr int kLegAnkleOffset    = 175;
+constexpr int kLegCalibValid     = 176;
+constexpr int kViveTrackerCount  = 177;
+constexpr int kLegMountEuler     = 178;   // ..180: pitch/yaw/roll (deg)
+constexpr int kWaistTrack        = 181;   // ..188: valid, pos(3), quat(4)
+constexpr int kWaistTrackEnable  = 189;
+constexpr int kMountCalibSampling = 190;  // T-pose window flag
+constexpr int kMountSolveL       = 191;   // ..194: plugin-solved L mount quat
+constexpr int kMountSolveR       = 195;   // ..198: plugin-solved R mount quat
+constexpr int kMountSolveSeq     = 199;
+constexpr int kLegMountQuatL     = 208;   // ..211: ACTIVE L mount quat
+constexpr int kLegMountQuatR     = 212;   // ..215: ACTIVE R mount quat
 } // namespace vrshared

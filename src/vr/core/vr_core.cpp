@@ -117,6 +117,12 @@ struct LiveControls {
     volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
     volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
     volatile int xrPhysicalBodyRotation; // 1 = physical body rotation (avatar body follows HMD/aim heading). 0 (default) = classic stick/snap heading. Gates the aiming/weapon body-turn paths; vehicles unaffected.
+    volatile int xrLegTrackers;        // 1 = Panda/Vive foot trackers drive the avatar legs (XR_HTCX_vive_tracker_interaction). 0 (default) = animation legs + HMD squat only.
+    volatile int xrWaistTracker;       // 1 = waist tracker also drives hip placement (3-point tracking). 0 (default) = feet only (2-point).
+    volatile float xrLegAnkleOffset;   // tracker-on-shoe -> ankle joint vertical offset (m), default 0.10
+    volatile float xrLegMountPitchDeg; // foot mount correction euler (deg), defaults 0
+    volatile float xrLegMountYawDeg;
+    volatile float xrLegMountRollDeg;
 };
 
 static constexpr int kEnablePatchBufferTracer = 0;
@@ -477,6 +483,12 @@ static void PollLiveControls() {
     int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
     int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
     int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
+    int xrLegTrackers = g_liveControls.xrLegTrackers;
+    int xrWaistTracker = g_liveControls.xrWaistTracker;
+    float xrLegAnkleOffset = g_liveControls.xrLegAnkleOffset > 0.0f ? g_liveControls.xrLegAnkleOffset : 0.10f;
+    float xrLegMountPitchDeg = g_liveControls.xrLegMountPitchDeg;
+    float xrLegMountYawDeg = g_liveControls.xrLegMountYawDeg;
+    float xrLegMountRollDeg = g_liveControls.xrLegMountRollDeg;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -674,6 +686,36 @@ static void PollLiveControls() {
             xrPhysicalBodyRotation = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_leg_trackers=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_leg_trackers = %d", &intValue) == 1) {
+            xrLegTrackers = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_waist_tracker=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_waist_tracker = %d", &intValue) == 1) {
+            xrWaistTracker = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_ankle_offset=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_ankle_offset = %f", &value) == 1) {
+            xrLegAnkleOffset = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_mount_pitch=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_mount_pitch = %f", &value) == 1) {
+            xrLegMountPitchDeg = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_mount_yaw=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_mount_yaw = %f", &value) == 1) {
+            xrLegMountYawDeg = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_mount_roll=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_mount_roll = %f", &value) == 1) {
+            xrLegMountRollDeg = value;
+            continue;
+        }
         if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
             xrXInputInstall = intValue;
@@ -768,6 +810,18 @@ static void PollLiveControls() {
     g_liveControls.xrMovementSource = xrMovementSource;
     g_liveControls.xrMovementControl = xrMovementSource != 0 ? 1 : 0;
     g_liveControls.xrPhysicalBodyRotation = xrPhysicalBodyRotation != 0 ? 1 : 0;
+    g_liveControls.xrLegTrackers = xrLegTrackers != 0 ? 1 : 0;
+    g_liveControls.xrWaistTracker = xrWaistTracker != 0 ? 1 : 0;
+    g_liveControls.xrLegAnkleOffset = (xrLegAnkleOffset >= 0.0f && xrLegAnkleOffset <= 0.30f) ? xrLegAnkleOffset : 0.10f;
+    g_liveControls.xrLegMountPitchDeg = xrLegMountPitchDeg;
+    g_liveControls.xrLegMountYawDeg = xrLegMountYawDeg;
+    g_liveControls.xrLegMountRollDeg = xrLegMountRollDeg;
+    OpenXRManager::Get().SetLegTrackersEnable(g_liveControls.xrLegTrackers);
+    OpenXRManager::Get().SetWaistTrackerEnable(g_liveControls.xrWaistTracker);
+    OpenXRManager::Get().SetLegTrackerTuning(g_liveControls.xrLegAnkleOffset,
+                                             g_liveControls.xrLegMountPitchDeg,
+                                             g_liveControls.xrLegMountYawDeg,
+                                             g_liveControls.xrLegMountRollDeg);
     g_liveControls.xrDisableMouseY = xrDisableMouseY != 0 ? 1 : 0;
     g_liveControls.xrXInputHook = xrXInputHook != 0 ? 1 : 0;
     g_liveControls.xrSnapTurn = xrSnapTurn != 0 ? 1 : 0;
@@ -834,6 +888,12 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg;
     state.xrMovementSource = g_liveControls.xrMovementSource;
     state.xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
+    state.xrLegTrackers = g_liveControls.xrLegTrackers;
+    state.xrWaistTracker = g_liveControls.xrWaistTracker;
+    state.xrLegAnkleOffset = g_liveControls.xrLegAnkleOffset;
+    state.xrLegMountPitchDeg = g_liveControls.xrLegMountPitchDeg;
+    state.xrLegMountYawDeg = g_liveControls.xrLegMountYawDeg;
+    state.xrLegMountRollDeg = g_liveControls.xrLegMountRollDeg;
     state.xrXInputInstall = g_liveControls.xrXInputInstall;
     state.xrInputActions = g_liveControls.xrInputActions;
     state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
@@ -886,6 +946,12 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn_angle_deg=%.2f\n", state.xrSnapTurnAngleDeg > 0.0f ? state.xrSnapTurnAngleDeg : 30.0f);
     fprintf(file, "xr_movement_source=%d\n", state.xrMovementSource < 0 ? 0 : (state.xrMovementSource > 3 ? 3 : state.xrMovementSource));
     fprintf(file, "xr_physical_body_rotation=%d\n", state.xrPhysicalBodyRotation != 0 ? 1 : 0);
+    fprintf(file, "xr_leg_trackers=%d\n", state.xrLegTrackers != 0 ? 1 : 0);
+    fprintf(file, "xr_waist_tracker=%d\n", state.xrWaistTracker != 0 ? 1 : 0);
+    fprintf(file, "xr_leg_ankle_offset=%.3f\n", state.xrLegAnkleOffset);
+    fprintf(file, "xr_leg_mount_pitch=%.1f\n", state.xrLegMountPitchDeg);
+    fprintf(file, "xr_leg_mount_yaw=%.1f\n", state.xrLegMountYawDeg);
+    fprintf(file, "xr_leg_mount_roll=%.1f\n", state.xrLegMountRollDeg);
     fprintf(file, "xr_xinput_install=%d\n", state.xrXInputInstall != 0 ? 1 : 0);
     fprintf(file, "xr_input_actions=%d\n", state.xrInputActions != 0 ? 1 : 0);
     fprintf(file, "xr_mono_xqueue_wait=%d\n", state.xrMonoXQueueWait != 0 ? 1 : 0);
@@ -945,6 +1011,18 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         g_liveControls.xrMovementControl = src != 0 ? 1 : 0;
     }
     g_liveControls.xrPhysicalBodyRotation = state->xrPhysicalBodyRotation != 0 ? 1 : 0;
+    g_liveControls.xrLegTrackers = state->xrLegTrackers != 0 ? 1 : 0;
+    g_liveControls.xrWaistTracker = state->xrWaistTracker != 0 ? 1 : 0;
+    g_liveControls.xrLegAnkleOffset = (state->xrLegAnkleOffset >= 0.0f && state->xrLegAnkleOffset <= 0.30f) ? state->xrLegAnkleOffset : 0.10f;
+    g_liveControls.xrLegMountPitchDeg = state->xrLegMountPitchDeg;
+    g_liveControls.xrLegMountYawDeg = state->xrLegMountYawDeg;
+    g_liveControls.xrLegMountRollDeg = state->xrLegMountRollDeg;
+    OpenXRManager::Get().SetLegTrackersEnable(g_liveControls.xrLegTrackers);
+    OpenXRManager::Get().SetWaistTrackerEnable(g_liveControls.xrWaistTracker);
+    OpenXRManager::Get().SetLegTrackerTuning(g_liveControls.xrLegAnkleOffset,
+                                             g_liveControls.xrLegMountPitchDeg,
+                                             g_liveControls.xrLegMountYawDeg,
+                                             g_liveControls.xrLegMountRollDeg);
     g_liveControls.xrDisableMouseY = state->xrDisableMouseY != 0 ? 1 : 0;
     g_liveControls.xrXInputHook = state->xrXInputHook != 0 ? 1 : 0;
     g_liveControls.xrSnapTurn = state->xrSnapTurn != 0 ? 1 : 0;
