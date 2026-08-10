@@ -35,6 +35,26 @@ struct LiveControlsUiState {
     float xrHudPhoneY;
     float xrHudPhoneScale;
 
+    float xrHudHolocall;
+    float xrHudHolocallY;
+    float xrHudHolocallScale;
+
+    float xrHudIncomingCall;
+    float xrHudIncomingCallY;
+    float xrHudIncomingCallScale;
+
+    float xrHudPhoneMessage;
+    float xrHudPhoneMessageY;
+    float xrHudPhoneMessageScale;
+
+    float xrHudMessageReader;
+    float xrHudMessageReaderY;
+    float xrHudMessageReaderScale;
+
+    float xrHudMessenger;
+    float xrHudMessengerY;
+    float xrHudMessengerScale;
+
     float xrHudTopLeftAlerts;
     float xrHudTopLeftAlertsY;
     float xrHudTopLeftAlertsScale;

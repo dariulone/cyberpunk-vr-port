@@ -912,7 +912,13 @@ bool DrawFovControl(LiveControlsUiState& state) {
 
 // One compact row: <label>  [X][Y][Size]. The label sits in a fixed-width
 // column so the three sliders line up across rows.
-bool DrawHudXYAndScale(const char* label, float* x, float* y, float* scale) {
+bool DrawHudXYAndScale(
+    const char* label,
+    float* x,
+    float* y,
+    float* scale,
+    float xMin = -1200.0f,
+    float xMax = 1200.0f) {
     bool changed = false;
     const float kLabelCol = 150.0f;
     ImGui::PushID(label);
@@ -924,7 +930,7 @@ bool DrawHudXYAndScale(const char* label, float* x, float* y, float* scale) {
     float w = (avail - 2.0f * spacing) / 3.0f;
     if (w < 50.0f) w = 50.0f;
     ImGui::SetNextItemWidth(w);
-    changed |= ImGui::SliderFloat("##x", x, -1200.0f, 1200.0f, "X %.0f");
+    changed |= ImGui::SliderFloat("##x", x, xMin, xMax, "X %.0f");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(w);
     changed |= ImGui::SliderFloat("##y", y, -1200.0f, 1200.0f, "Y %.0f");
@@ -952,6 +958,11 @@ bool DrawHudControls(LiveControlsUiState& state) {
     ImGui::TextUnformatted("Per-region HUD controls: X right+, Y down+, Size 1.00 = half old size, 2.00 = full old size.");
     changed |= DrawHudXYAndScale("Minimap / Quest", &state.xrHudScale, &state.xrHudScaleY, &state.xrHudMinimapQuestScale);
     changed |= DrawHudXYAndScale("HP Bar", &state.xrHudPhone, &state.xrHudPhoneY, &state.xrHudPhoneScale);
+    changed |= DrawHudXYAndScale("Holocall panel", &state.xrHudHolocall, &state.xrHudHolocallY, &state.xrHudHolocallScale);
+    changed |= DrawHudXYAndScale("Call accept prompt", &state.xrHudIncomingCall, &state.xrHudIncomingCallY, &state.xrHudIncomingCallScale);
+    changed |= DrawHudXYAndScale("Incoming text", &state.xrHudPhoneMessage, &state.xrHudPhoneMessageY, &state.xrHudPhoneMessageScale);
+    changed |= DrawHudXYAndScale("Message reader", &state.xrHudMessageReader, &state.xrHudMessageReaderY, &state.xrHudMessageReaderScale);
+    changed |= DrawHudXYAndScale("Messenger browser", &state.xrHudMessenger, &state.xrHudMessengerY, &state.xrHudMessengerScale, -2400.0f, 2400.0f);
     changed |= DrawHudXYAndScale("Top-left alerts", &state.xrHudTopLeftAlerts, &state.xrHudTopLeftAlertsY, &state.xrHudTopLeftAlertsScale);
     changed |= DrawHudXYAndScale("Top-right", &state.xrHudTopRight, &state.xrHudTopRightY, &state.xrHudTopRightScale);
     changed |= DrawHudXYAndScale("Bottom-left main", &state.xrHudBottomLeft, &state.xrHudBottomLeftY, &state.xrHudBottomLeftScale);

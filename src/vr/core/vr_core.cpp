@@ -39,15 +39,19 @@ static FILETIME g_lastVrikRecenterWrite = {};
 static const int kNoRecenterBaseline = -2000000000;
 static int g_lastVrikRecenterCounter = kNoRecenterBaseline;
 
-// HUD placement values = the 34 contiguous floats in LiveControlsUiState
+// HUD placement values = the 49 contiguous floats in LiveControlsUiState
 // (xrHudScale .. xrHudOxygenBar). The CET HUD mod (CyberpunkVRPort_HUD)
 // polls hud_layout.ini for these xr_hud_* keys; g_liveControls has no HUD
 // fields, so we keep the last overlay-set values here and (de)serialize them.
 // Order MUST match the struct field order so a single memcpy bridges them.
-static const int kHudFieldCount = 34;
-static const char* const kHudKeys[kHudFieldCount] = {
+static const char* const kHudKeys[] = {
     "xr_hud_scale", "xr_hud_scale_y", "xr_hud_scale_scale",
     "xr_hud_phone", "xr_hud_phone_y", "xr_hud_phone_scale",
+    "xr_hud_holocall", "xr_hud_holocall_y", "xr_hud_holocall_scale",
+    "xr_hud_incoming_call", "xr_hud_incoming_call_y", "xr_hud_incoming_call_scale",
+    "xr_hud_phone_message", "xr_hud_phone_message_y", "xr_hud_phone_message_scale",
+    "xr_hud_message_reader", "xr_hud_message_reader_y", "xr_hud_message_reader_scale",
+    "xr_hud_messenger", "xr_hud_messenger_y", "xr_hud_messenger_scale",
     "xr_hud_top_left_alerts", "xr_hud_top_left_alerts_y", "xr_hud_top_left_alerts_scale",
     "xr_hud_top_right", "xr_hud_top_right_y", "xr_hud_top_right_scale",
     "xr_hud_bottom_left", "xr_hud_bottom_left_y", "xr_hud_bottom_left_scale",
@@ -58,6 +62,18 @@ static const char* const kHudKeys[kHudFieldCount] = {
     "xr_hud_johnny_hint", "xr_hud_activity_log", "xr_hud_warning",
     "xr_hud_boss_health", "xr_hud_vehicle_scan", "xr_hud_progress_bar", "xr_hud_oxygen_bar",
 };
+static constexpr int kHudFieldCount = static_cast<int>(sizeof(kHudKeys) / sizeof(kHudKeys[0]));
+static constexpr int kHudHolocallX = 6;
+static constexpr int kHudIncomingCallX = 9;
+static constexpr int kHudPhoneMessageX = 12;
+static constexpr int kHudMessageReaderX = 15;
+static constexpr int kHudMessengerX = 18;
+static_assert(
+    (offsetof(LiveControlsUiState, xrHudOxygenBar) - offsetof(LiveControlsUiState, xrHudScale)) /
+            sizeof(float) +
+        1 ==
+    kHudFieldCount,
+    "kHudKeys must match the contiguous LiveControlsUiState xrHud* field block");
 static float g_hudValues[kHudFieldCount];
 static bool g_hudDefaultsInit = false;
 static bool g_hudLoaded = false;
@@ -70,6 +86,23 @@ static void EnsureHudDefaults() {
         bool isScale = n >= 6 && strcmp(kHudKeys[i] + n - 6, "_scale") == 0;
         g_hudValues[i] = isScale ? 1.0f : 0.0f; // scales default 1.0, offsets 0
     }
+    // Phone surfaces live outside the stock named HUD regions. These defaults
+    // are known-safe in headset. The menu's scale convention is 2.00 = 100%.
+    g_hudValues[kHudHolocallX] = 600.0f;
+    g_hudValues[kHudHolocallX + 1] = 600.0f;
+    g_hudValues[kHudHolocallX + 2] = 2.0f;
+    g_hudValues[kHudIncomingCallX] = 600.0f;
+    g_hudValues[kHudIncomingCallX + 1] = 1050.0f;
+    g_hudValues[kHudIncomingCallX + 2] = 2.0f;
+    g_hudValues[kHudPhoneMessageX] = 600.0f;
+    g_hudValues[kHudPhoneMessageX + 1] = 800.0f;
+    g_hudValues[kHudPhoneMessageX + 2] = 1.8f;
+    g_hudValues[kHudMessageReaderX] = 600.0f;
+    g_hudValues[kHudMessageReaderX + 1] = 500.0f;
+    g_hudValues[kHudMessageReaderX + 2] = 1.4f;
+    g_hudValues[kHudMessengerX] = 1150.0f;
+    g_hudValues[kHudMessengerX + 1] = 500.0f;
+    g_hudValues[kHudMessengerX + 2] = 1.5f;
 }
 static uintptr_t g_gameModuleBase = 0;
 static size_t g_gameModuleSize = 0;
@@ -7321,5 +7354,3 @@ static void InitStereoOnce() {
 __declspec(dllexport) void CyberpunkVRPort_InitStereo() { InitStereoOnce(); }
 
 }
-
-

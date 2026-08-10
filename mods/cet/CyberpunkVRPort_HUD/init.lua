@@ -6,6 +6,10 @@ local hudLive = {
     capturedRoot = nil,
     capturedWidgetCount = 0,
     originalMetrics = {},
+    messengerController = nil,
+    messengerLastX = nil,
+    messengerLastY = nil,
+    messengerLastScale = nil,
     pollTimer = 0.0,
     pollInterval = 0.10,
     iniPath = 'vrport.ini',
@@ -32,6 +36,21 @@ local function cloneDefaultLayout()
         phone = 0.0,
         phoneY = 0.0,
         phoneScale = 1.00,
+        holocall = 600.0,
+        holocallY = 600.0,
+        holocallScale = 2.00,
+        incomingCall = 600.0,
+        incomingCallY = 1050.0,
+        incomingCallScale = 2.00,
+        phoneMessage = 600.0,
+        phoneMessageY = 800.0,
+        phoneMessageScale = 1.80,
+        messageReader = 600.0,
+        messageReaderY = 500.0,
+        messageReaderScale = 1.40,
+        messengerMenu = 1150.0,
+        messengerMenuY = 500.0,
+        messengerMenuScale = 1.50,
         topLeftAlerts = 0.0,
         topLeftAlertsY = 0.0,
         topLeftAlertsScale = 1.00,
@@ -67,11 +86,11 @@ local function clampOffset(value)
     if type(value) ~= 'number' then
         return 0.0
     end
-    if value < -1200.0 then
-        return -1200.0
+    if value < -2400.0 then
+        return -2400.0
     end
-    if value > 1200.0 then
-        return 1200.0
+    if value > 2400.0 then
+        return 2400.0
     end
     return value
 end
@@ -150,6 +169,21 @@ local function readLayoutText(path)
         xr_hud_phone = 'phone',
         xr_hud_phone_y = 'phoneY',
         xr_hud_phone_scale = 'phoneScale',
+        xr_hud_holocall = 'holocall',
+        xr_hud_holocall_y = 'holocallY',
+        xr_hud_holocall_scale = 'holocallScale',
+        xr_hud_incoming_call = 'incomingCall',
+        xr_hud_incoming_call_y = 'incomingCallY',
+        xr_hud_incoming_call_scale = 'incomingCallScale',
+        xr_hud_phone_message = 'phoneMessage',
+        xr_hud_phone_message_y = 'phoneMessageY',
+        xr_hud_phone_message_scale = 'phoneMessageScale',
+        xr_hud_message_reader = 'messageReader',
+        xr_hud_message_reader_y = 'messageReaderY',
+        xr_hud_message_reader_scale = 'messageReaderScale',
+        xr_hud_messenger = 'messengerMenu',
+        xr_hud_messenger_y = 'messengerMenuY',
+        xr_hud_messenger_scale = 'messengerMenuScale',
         xr_hud_top_left_alerts = 'topLeftAlerts',
         xr_hud_top_left_alerts_y = 'topLeftAlertsY',
         xr_hud_top_left_alerts_scale = 'topLeftAlertsScale',
@@ -375,6 +409,14 @@ local function getLayoutValueForItem(item)
         return layout.minimapQuest, layout.minimapQuestY, layout.minimapQuestScale
     elseif item.name == 'TopLeftMain' or item.name == 'songbird_phone' then
         return layout.phone, layout.phoneY, layout.phoneScale
+    elseif item.name == 'VRPortHolocall' then
+        return layout.holocall, layout.holocallY, layout.holocallScale
+    elseif item.name == 'VRPortIncomingCall' then
+        return layout.incomingCall, layout.incomingCallY, layout.incomingCallScale
+    elseif item.name == 'VRPortPhoneMessage' then
+        return layout.phoneMessage, layout.phoneMessageY, layout.phoneMessageScale
+    elseif item.name == 'VRPortMessageReader' then
+        return layout.messageReader, layout.messageReaderY, layout.messageReaderScale
     elseif item.name == 'zone alert notification' or item.name == 'militech warning' or item.name == 'hud_courier_bar' or item.name == 'driver_combat_hud' or item.name == 'staminabar' then
         return layout.topLeftAlerts, layout.topLeftAlertsY, layout.topLeftAlertsScale
     elseif item.name == 'HUDMiddleWidget' and item.anchor == inkEAnchor.TopLeft then
@@ -462,6 +504,17 @@ local function applyInsetToCapturedWidgets(root, force)
                 left = left + valueX
                 top = top + valueY
                 adjusted = true
+            elseif item.name == 'VRPortHolocall' or
+                item.name == 'VRPortIncomingCall' or
+                item.name == 'VRPortPhoneMessage' or
+                item.name == 'VRPortMessageReader' then
+                -- These are VR-port-owned top-level slots, so their values are
+                -- absolute layout coordinates rather than offsets from a stock
+                -- game margin. Scale remains consistent with the F10 convention:
+                -- 2.00 = full original size.
+                left = valueX
+                top = valueY
+                adjusted = true
             elseif isTopLeftAlertsItem(item) then
                 left = left + valueX
                 top = top + valueY
@@ -514,12 +567,55 @@ local function applyInsetToCapturedWidgets(root, force)
 
             if adjusted then
                 pcall(function()
-                    item.widget:SetScale(Vector2.new({ X = item.scaleX * appliedScale, Y = item.scaleY * appliedScale }))
+                    local scaleX = item.scaleX * appliedScale
+                    local scaleY = item.scaleY * appliedScale
+                    if item.name == 'VRPortHolocall' or
+                        item.name == 'VRPortIncomingCall' or
+                        item.name == 'VRPortPhoneMessage' or
+                        item.name == 'VRPortMessageReader' then
+                        scaleX = appliedScale
+                        scaleY = appliedScale
+                    end
+                    item.widget:SetScale(Vector2.new({ X = scaleX, Y = scaleY }))
                     item.widget:SetMargin(inkMargin.new({ left = left, top = top, right = right, bottom = bottom }))
                 end)
             end
         end
         ::continue::
+    end
+end
+
+local function applyMessengerLayout(force)
+    local controller = hudLive.messengerController
+    if controller == nil then
+        return
+    end
+
+    local layout = hudLive.layout or cloneDefaultLayout()
+    local x = layout.messengerMenu
+    local y = layout.messengerMenuY
+    local scale = layout.messengerMenuScale
+    if not force and hudLive.messengerLastX ~= nil
+        and math.abs(hudLive.messengerLastX - x) < 0.0005
+        and math.abs(hudLive.messengerLastY - y) < 0.0005
+        and math.abs(hudLive.messengerLastScale - scale) < 0.0005 then
+        return
+    end
+
+    local ok = pcall(function()
+        controller:VrApplyMessengerLayout(x, y, scale)
+    end)
+    if ok then
+        hudLive.messengerLastX = x
+        hudLive.messengerLastY = y
+        hudLive.messengerLastScale = scale
+        logLine(string.format('[CyberpunkVRPort_HUD] applied Messenger layout (%.1f, %.1f, %.2f)', x, y, scale))
+    else
+        hudLive.messengerController = nil
+        hudLive.messengerLastX = nil
+        hudLive.messengerLastY = nil
+        hudLive.messengerLastScale = nil
+        logLine('[CyberpunkVRPort_HUD] Messenger layout bridge failed; clearing cached controller')
     end
 end
 
@@ -685,13 +781,28 @@ local function refreshScale(force)
     end
 
     if changed then
-        logLine(string.format('[CyberpunkVRPort_HUD] layout changed minimapQuest=(%.1f, %.1f, %.2f) phone=(%.1f, %.1f, %.2f) topRight=(%.1f, %.1f, %.2f) bottomLeft=(%.1f, %.1f, %.2f) bottomRight=(%.1f, %.1f, %.2f)',
+        logLine(string.format('[CyberpunkVRPort_HUD] layout changed minimapQuest=(%.1f, %.1f, %.2f) phone=(%.1f, %.1f, %.2f) holocall=(%.1f, %.1f, %.2f) incomingCall=(%.1f, %.1f, %.2f) phoneMessage=(%.1f, %.1f, %.2f) messageReader=(%.1f, %.1f, %.2f) messenger=(%.1f, %.1f, %.2f) topRight=(%.1f, %.1f, %.2f) bottomLeft=(%.1f, %.1f, %.2f) bottomRight=(%.1f, %.1f, %.2f)',
             nextLayout.minimapQuest,
             nextLayout.minimapQuestY,
             nextLayout.minimapQuestScale,
             nextLayout.phone,
             nextLayout.phoneY,
             nextLayout.phoneScale,
+            nextLayout.holocall,
+            nextLayout.holocallY,
+            nextLayout.holocallScale,
+            nextLayout.incomingCall,
+            nextLayout.incomingCallY,
+            nextLayout.incomingCallScale,
+            nextLayout.phoneMessage,
+            nextLayout.phoneMessageY,
+            nextLayout.phoneMessageScale,
+            nextLayout.messageReader,
+            nextLayout.messageReaderY,
+            nextLayout.messageReaderScale,
+            nextLayout.messengerMenu,
+            nextLayout.messengerMenuY,
+            nextLayout.messengerMenuScale,
             nextLayout.topRight,
             nextLayout.topRightY,
             nextLayout.topRightScale,
@@ -710,6 +821,7 @@ local function refreshScale(force)
         -- re-applies the widget whose value actually changed; a root re-resolve
         -- (force=true) re-applies the whole HUD.
         applyScale(force)
+        applyMessengerLayout(force)
     end
 end
 
@@ -735,6 +847,14 @@ registerForEvent('onInit', function()
         hudLive.capturedWidgetCount = 0
         hudLive.rootResolvedLogged = false
         applyScale(true)
+    end)
+
+    ObserveAfter('PhoneDialerLogicController', 'OnInitialize', function(this)
+        hudLive.messengerController = this
+        hudLive.messengerLastX = nil
+        hudLive.messengerLastY = nil
+        hudLive.messengerLastScale = nil
+        applyMessengerLayout(true)
     end)
 
     ObserveAfter('MinimapContainerController', 'OnInitialize', function(this)
