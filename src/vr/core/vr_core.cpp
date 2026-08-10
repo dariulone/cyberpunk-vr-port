@@ -17,6 +17,7 @@
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <iostream>
+#include <string>
 #include <MinHook.h>
 
 
@@ -214,6 +215,12 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_head_offset_z=0.000\n");
     fprintf(file, "xr_recenter=0\n");
     fprintf(file, "xr_mono_submit=1\n");
+    // Who runs the XR frame loop. -1 (default) = decide by runtime: the submit thread everywhere
+    // except Virtual Desktop, which queues frames itself and was the configuration the inline
+    // path was tuned on. 0 = force inline on the game's Present thread. 1 = force the submit
+    // thread. Inline makes the engine wait on the compositor inside its own Present, which on a
+    // runtime that enforces its frame cadence pins it to exactly half the display rate.
+    fprintf(file, "xr_threaded_submit=-1\n");
     fprintf(file, "xr_force_fov=0\n");
     fprintf(file, "xr_menu_rect=0\n");
     fprintf(file, "xr_menu_fov=65.0\n");
@@ -446,6 +453,26 @@ static void PollLiveControls() {
     // against the game's render writers. Compositor depth-aware reprojection
     // fixes far-object shift on head turn. Users can still override via ini.
     int xrDepthSubmit = 1;
+    // WHO OWNS THE XR FRAME LOOP -- the one knob that decides whether the game's Present thread
+    // blocks on the compositor.
+    //
+    // Inline (0), the Present hook runs the whole XR cycle itself: xrWaitFrame, then an
+    // acquire/wait per eye swapchain, then xrEndFrame, and only THEN the game's real Present.
+    // Every one of those waits is paced by the runtime, so the engine cannot start the next frame
+    // until the compositor lets it -- and on a runtime that enforces its cadence strictly, a frame
+    // that misses the deadline by any margin is served one display period late. That is the exact
+    // half-rate lock, and it does not move when you lower the resolution because the wait is a
+    // cadence wait, not work.
+    //
+    // Threaded (1) hands the loop to the submit thread, leaving Present to do its own job.
+    // -1, the default, decides by runtime: threaded everywhere except Virtual Desktop, which
+    // queues and re-times frames itself and is what the inline path was tuned on. See
+    // UseThreadedSubmit in openxr_manager.h for why that asymmetry is the right way round.
+    //
+    // Mirrors the exported switch rather than living in LiveControls; the frame loop already reads
+    // that. Default = whatever the DLL booted with, so an absent key changes nothing, and the
+    // owner handshake in PumpInlineFrame/AcquireFrameLoop makes flipping it mid-session safe.
+    int xrThreadedSubmit = CyberpunkVR_ThreadedMonoSubmit;
     int xrMovementControl = g_liveControls.xrMovementControl;
     int xrDisableMouseY = g_liveControls.xrDisableMouseY;
     int xrXInputHook = g_liveControls.xrXInputHook != 0 ? g_liveControls.xrXInputHook : 1;
@@ -509,6 +536,11 @@ static void PollLiveControls() {
         if (sscanf_s(line, "xr_mono_submit=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_mono_submit = %d", &intValue) == 1) {
             xrMonoSubmit = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_threaded_submit=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_threaded_submit = %d", &intValue) == 1) {
+            xrThreadedSubmit = intValue;
             continue;
         }
 
@@ -793,6 +825,21 @@ static void PollLiveControls() {
         Log("OpenXR mono submit %s.\n", xrMonoSubmit != 0 ? "enabled" : "disabled");
     }
 
+    // Tri-state, so clamp rather than normalise to a bool: -1 is a real value here and folding it
+    // into 1 would turn "decide by runtime" into "always threaded" and take Virtual Desktop off
+    // the inline path it was tuned on.
+    const int wantThreaded = xrThreadedSubmit < 0 ? -1 : (xrThreadedSubmit != 0 ? 1 : 0);
+    if (CyberpunkVR_ThreadedMonoSubmit != wantThreaded) {
+        CyberpunkVR_ThreadedMonoSubmit = wantThreaded;
+        // Named for what it costs, not for what it sets: on the inline path the game's Present
+        // thread is the one doing the waiting, and that is the thing being turned off here.
+        Log("OpenXR frame loop owner: %s (xr_threaded_submit=%d)\n",
+            wantThreaded < 0 ? "auto -- submit thread on every runtime except Virtual Desktop"
+                             : (wantThreaded ? "submit thread, forced (Present does not block)"
+                                             : "inline on the game's Present thread, forced"),
+            wantThreaded);
+    }
+
 
     if (changed && g_verboseLog) {
         Log("Live controls updated: xr_head_offset=(%.4f,%.4f,%.4f) xr_recenter=%d xr_mono_submit=%d xr_force_fov=%.3f xr_menu_rect=%d xr_menu_fov=%.3f xr_3dof_movement=%d xr_motion_predict_ms=%.2f xr_stereo_scale=%.3f xr_render_pose_submit=%d xr_runtime=%d\n",
@@ -847,8 +894,59 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     return state;
 }
 
+// Read a whole ini into memory. Empty on any failure, which the caller treats as "nothing to
+// preserve" -- never as a reason to skip the write.
+static std::string ReadIniText(const char* path) {
+    std::string text;
+    FILE* f = _fsopen(path, "rb", _SH_DENYNO);
+    if (!f) return text;
+    char chunk[4096];
+    size_t got = 0;
+    while ((got = fread(chunk, 1, sizeof(chunk), f)) > 0) text.append(chunk, got);
+    fclose(f);
+    return text;
+}
+
+// The key of an ini line: everything before the first '=', trimmed. Empty for a blank line or a
+// comment, which is what makes those skip the preserve pass.
+static std::string IniLineKey(const std::string& line) {
+    const size_t eq = line.find('=');
+    if (eq == std::string::npos) return std::string();
+    size_t b = 0, e = eq;
+    while (b < e && (line[b] == ' ' || line[b] == '\t')) ++b;
+    while (e > b && (line[e - 1] == ' ' || line[e - 1] == '\t' || line[e - 1] == '\r')) --e;
+    return line.substr(b, e - b);
+}
+
+static bool IniTextHasKey(const std::string& text, const std::string& key) {
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        const size_t nl = text.find('\n', pos);
+        const size_t end = (nl == std::string::npos) ? text.size() : nl;
+        if (IniLineKey(text.substr(pos, end - pos)) == key) return true;
+        if (nl == std::string::npos) break;
+        pos = nl + 1;
+    }
+    return false;
+}
+
 static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     InitRuntimePaths();
+
+    // KEEP WHAT THIS WRITER DOES NOT KNOW ABOUT.
+    //
+    // This function rewrites the file whole, so historically a key it did not emit was a key it
+    // DELETED -- every launch, because the launcher's Start button persists through here. That is
+    // what made xr_depth_submit=0 impossible to hold without marking the file read-only, and it
+    // would silently do the same to the next knob anyone adds to the parser and forgets to add
+    // below.
+    //
+    // So: read the file first, and after writing everything known, append any key that survived
+    // the round trip unclaimed. Whether a key is "known" is decided by re-reading what was just
+    // written rather than from a hand-kept list -- a list would need updating in step with the
+    // block below, which is precisely the discipline that already failed twice here.
+    const std::string prior = ReadIniText(g_liveControlPath);
+
     FILE* file = _fsopen(g_liveControlPath, "w", _SH_DENYNO);
     if (!file) return;
 
@@ -857,6 +955,9 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_head_offset_z=%.4f\n", state.xrHeadOffsetZ);
     fprintf(file, "xr_recenter=0\n");
     fprintf(file, "xr_mono_submit=%d\n", state.xrMonoSubmit != 0 ? 1 : 0);
+    // Read straight from the switch the frame loop uses -- there is no UI field for it. Written
+    // raw: -1 (auto) is a distinct value, not a truthy one.
+    fprintf(file, "xr_threaded_submit=%d\n", CyberpunkVR_ThreadedMonoSubmit);
     fprintf(file, "xr_force_fov=%.3f\n", state.xrForceFov);
     fprintf(file, "xr_menu_rect=%d\n", state.xrMenuRect != 0 ? 1 : 0);
     fprintf(file, "xr_menu_fov=%.3f\n", state.xrMenuFov);
@@ -893,6 +994,34 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn_pulse_ms=%d\n", state.xrSnapTurnPulseMs > 0 ? state.xrSnapTurnPulseMs : 30);
     fprintf(file, "xr_immersive_holsters=%d\n", state.xrImmersiveHolsters != 0 ? 1 : 0);
     fclose(file);
+
+    // The preserve pass. Anything the block above did not claim goes back, in the order it was
+    // found, under a header so it is obvious these are not settings this build manages.
+    if (!prior.empty()) {
+        const std::string written = ReadIniText(g_liveControlPath);
+        std::string carried;
+        size_t pos = 0;
+        while (pos <= prior.size()) {
+            const size_t nl = prior.find('\n', pos);
+            const size_t end = (nl == std::string::npos) ? prior.size() : nl;
+            std::string line = prior.substr(pos, end - pos);
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            const std::string key = IniLineKey(line);
+            if (!key.empty() && !IniTextHasKey(written, key)) {
+                carried += line;
+                carried += '\n';
+            }
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+        if (!carried.empty()) {
+            if (FILE* app = _fsopen(g_liveControlPath, "a", _SH_DENYNO)) {
+                fprintf(app, "\n# Kept from the previous file: not written by this build.\n");
+                fwrite(carried.data(), 1, carried.size(), app);
+                fclose(app);
+            }
+        }
+    }
 
     WIN32_FILE_ATTRIBUTE_DATA fileData;
     if (GetFileAttributesExA(g_liveControlPath, GetFileExInfoStandard, &fileData)) {

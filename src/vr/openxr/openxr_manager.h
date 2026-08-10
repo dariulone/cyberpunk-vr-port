@@ -98,10 +98,32 @@ public:
     // gets a layer the runtime can timewarp against the current head pose. That is what the
     // established mods get for free by rendering inside the XR frame; we cannot do that from
     // outside the engine, so we decouple the submit instead.
+    //
+    // THE DEFAULT IS NOW THREADED EVERYWHERE EXCEPT VIRTUAL DESKTOP, and the reason is the cost
+    // of being wrong in each direction. Inline on a runtime that enforces its frame cadence
+    // strictly pins the ENGINE to half the display rate: the whole XR cycle sits inside the
+    // game's Present, so the engine cannot start a frame until the compositor releases it, and
+    // one missed deadline costs a full display period. That was measured on a Pimax Crystal
+    // Super and was identical at native resolution, at 50%, and on DLSS Performance -- a wait on
+    // a clock does not care how much work the frame contains. Threaded on a runtime that did not
+    // need it costs phase jitter between two near-equal-rate loops, which is what the older
+    // measurement in openxr_frameloop.cpp recorded. Half rate is much the worse of the two, and
+    // it was being paid by every runtime that is not SteamVR and not lenient.
+    //
+    // Virtual Desktop is the exception because it queues and re-times frames itself, so the
+    // inline path never stalls there and it is the configuration the inline path was tuned on.
+    // Before the runtime is identified the answer is "threaded", which is the safe side: the
+    // submit thread bootstraps the session on its own, and if VD is then detected the owner
+    // handshake in PumpInlineFrame/AcquireFrameLoop hands the loop back without a stall.
+    //
+    // xr_threaded_submit overrides per-runtime choice entirely: 0 forces inline, 1 forces
+    // threaded, -1 (default) is this policy.
     bool UseThreadedSubmit() const {
-        return (m_runtimeIsSteamVR.load(std::memory_order_relaxed) ||
-                CyberpunkVR_ThreadedMonoSubmit != 0) &&
-               m_monoSubmitEnabled.load(std::memory_order_relaxed);
+        if (!m_monoSubmitEnabled.load(std::memory_order_relaxed)) return false;
+        const int forced = CyberpunkVR_ThreadedMonoSubmit;
+        if (forced >= 0) return forced != 0;
+        if (m_runtimeIsSteamVR.load(std::memory_order_relaxed)) return true;
+        return !m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed);
     }
     int GetCurrentRenderEyeIndex() const { return m_renderEyeIndex.load(std::memory_order_relaxed); }
     // Record the exact OpenXR head pose a given eye's frame was rendered with

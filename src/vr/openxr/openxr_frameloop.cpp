@@ -31,15 +31,30 @@
 // layer is the one the image was rendered against -- not one located at submit time.
 extern "C" __declspec(dllexport) int CyberpunkVR_XrPaceByRuntime = 1;
 
-// Definition for the declaration in openxr_manager.h -- see UseThreadedSubmit there.
+// Definition for the declaration in openxr_manager.h -- see UseThreadedSubmit there, which is
+// where the -1 policy lives.
 //
-// 0 now. The comment there claims the separate thread buys a submission per DISPLAY frame; the
-// measurement says otherwise -- 16311 XR cycles against ~18469 presents, i.e. the thread runs
-// slightly SLOWER than the game, not at 90 Hz. So it gains nothing and costs phase: two loops
-// free-running at nearly the same rate beat against each other, and 53% of present intervals
-// contained either two locates or none (SlotReused 12850 vs SlotHit 11591). Inline gives exactly
-// one locate and one submit per present.
-extern "C" __declspec(dllexport) int CyberpunkVR_ThreadedMonoSubmit = 0;
+// -1 = decide by runtime, 0 = force inline, 1 = force threaded. Set from xr_threaded_submit.
+//
+// IT USED TO DEFAULT TO 0, AND THE MEASUREMENT BEHIND THAT WAS REAL BUT NARROW. It read 16311 XR
+// cycles against ~18469 presents -- the thread running slightly SLOWER than the game -- and
+// concluded the thread gains nothing and costs phase, with 53% of present intervals holding
+// either two locates or none. All true, and all measured on a runtime that tolerates a late
+// frame.
+//
+// What it missed is what the inline path costs on a runtime that does NOT. Inline, the whole XR
+// cycle runs inside the game's Present: xrWaitFrame, an acquire/wait per eye swapchain, then
+// xrEndFrame, and only then the real Present. Every one of those is paced by the compositor, so
+// the engine cannot start its next frame until the compositor allows it. Where the cadence is
+// enforced strictly, a frame that misses the deadline by any margin is served a whole display
+// period late, and the engine locks to exactly half the display rate -- measured on a Pimax
+// Crystal Super, and identical at native resolution, at 50% resolution, and with DLSS on
+// Performance, because the wait is on a clock rather than on work. Turning this on took the same
+// machine from a pinned 45 to an unlocked frame rate.
+//
+// So phase jitter is the price of the threaded path and half rate is the price of the inline one.
+// The default now picks per runtime instead of paying the second price everywhere.
+extern "C" __declspec(dllexport) int CyberpunkVR_ThreadedMonoSubmit = -1;
 // Display cycles driven versus frames actually submitted; the difference is the freeze.
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugXrCycles = 0;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugMonoSubmits = 0;
