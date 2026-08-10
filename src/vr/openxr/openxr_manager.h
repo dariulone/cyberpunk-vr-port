@@ -860,7 +860,19 @@ private:
     // Graphics binding
     XrGraphicsBindingD3D12KHR m_graphicsBinding{};
     ID3D12Device* m_d3dDevice = nullptr;
+    // The queue the runtime is bound to AND the one every copy of ours executes on. Either the
+    // game's own (historic) or one we created (xr_dedicated_queue=1) -- see InitGraphics.
     ID3D12CommandQueue* m_d3dQueue = nullptr;
+    // True when m_d3dQueue is OURS. It is the condition for the cross-queue wait: sharing the
+    // game's queue ordered our copies after the engine's work for free (one queue, FIFO), and a
+    // queue of our own has to buy that ordering back explicitly or the capture reads a backbuffer
+    // the engine has not finished writing.
+    bool m_ownXrQueue = false;
+    // The GAME's queue. The capture list runs HERE, not on m_d3dQueue: its sources (the backbuffer
+    // and g_stable_tex) are produced on this queue, so running the capture alongside them orders
+    // it for free and needs no cross-queue wait at all. Only the runtime binding and the eye
+    // copies live on our own queue.
+    ID3D12CommandQueue* m_gameQueue = nullptr;
     ID3D12CommandAllocator* m_cmdAllocators[3] = {};
     uint32_t m_cmdAllocatorIndex = 0;
     ID3D12GraphicsCommandList* m_cmdLists[3] = {};
@@ -906,6 +918,11 @@ private:
         XrPosef poses[2]{};
         XrFovf fovs[2]{};
         bool hasView[2]{};
+        // m_captureFence value this frame's copies were signalled with. The consumer waits on it
+        // before reading the images, which is the ONLY ordering it needs once the capture runs on
+        // the engine's queue and the submit on ours -- an exact edge between our own producer and
+        // our own consumer, rather than a guess about the engine's timeline.
+        uint64_t captureFence = 0;
     };
     std::vector<EyeSwapchain> m_eyeSwapchains;
     CapturedMonoFrame m_monoCapturedFrame;

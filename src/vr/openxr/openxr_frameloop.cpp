@@ -967,6 +967,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 XrFovf monoFovs[2]{};
                 bool monoHasView[2] = {};
                 bool monoHasDepth = false;
+                uint64_t monoCaptureFence = 0;
                 {
                     std::lock_guard<std::mutex> lock(m_presentMutex);
                     if (m_monoCapturedFrame.texture &&
@@ -976,6 +977,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         monoSource = m_monoCapturedFrame.texture;
                         monoSource->AddRef();
                         presentSerial = m_monoCapturedFrame.serial;
+                        monoCaptureFence = m_monoCapturedFrame.captureFence;
                         for (int eye = 0; eye < 2; ++eye) {
                             monoPoses[eye] = m_monoCapturedFrame.poses[eye];
                             monoFovs[eye] = m_monoCapturedFrame.fovs[eye];
@@ -1486,15 +1488,29 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // let the copy race (benign) instead of gating on the writer queue.
                         (void)monoDepthFence;
                         ID3D12CommandList* cmdLists[] = {m_cmdList};
+                        // The one edge we own both ends of: these copies read the images the
+                        // capture wrote on the GAME's queue, so wait for exactly that frame's
+                        // copies. Nothing here waits on the engine itself -- ordering against the
+                        // engine is the capture's problem, and it gets it free by running there.
+                        if (m_ownXrQueue && m_captureFence && monoCaptureFence != 0) {
+                            m_d3dQueue->Wait(m_captureFence, monoCaptureFence);
+                        }
                         m_d3dQueue->ExecuteCommandLists(1, cmdLists);
-                        
+
                         ++m_fenceValue;
                         m_d3dQueue->Signal(m_fence, m_fenceValue);
                     } else {
                         m_cmdList->Close();
                         ID3D12CommandList* cmdLists[] = {m_cmdList};
+                        // The one edge we own both ends of: these copies read the images the
+                        // capture wrote on the GAME's queue, so wait for exactly that frame's
+                        // copies. Nothing here waits on the engine itself -- ordering against the
+                        // engine is the capture's problem, and it gets it free by running there.
+                        if (m_ownXrQueue && m_captureFence && monoCaptureFence != 0) {
+                            m_d3dQueue->Wait(m_captureFence, monoCaptureFence);
+                        }
                         m_d3dQueue->ExecuteCommandLists(1, cmdLists);
-                        
+
                         ++m_fenceValue;
                         m_d3dQueue->Signal(m_fence, m_fenceValue);
 

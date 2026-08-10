@@ -47,6 +47,8 @@ extern "C" int GetVrPairLock();
 extern "C" float GetMotionPredictMs();
 extern "C" int GetRenderPoseSubmit();
 extern "C" int GetDepthSubmit();
+// 1 = create the session with a queue of OUR OWN rather than the game's (xr_dedicated_queue).
+extern "C" int GetDedicatedXrQueue();
 extern "C" int GetPoseLag();
 extern "C" int GetRenderedCameraEye();
 extern "C" uint32_t GetRenderedCameraSeq();

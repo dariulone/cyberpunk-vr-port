@@ -945,10 +945,41 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
 
     m_captureCmdList->Close();
     ID3D12CommandList* cmdLists[] = {m_captureCmdList};
-    m_d3dQueue->ExecuteCommandLists(1, cmdLists);
+    // BUY BACK THE ORDERING THE SHARED QUEUE GAVE US.
+    //
+    // This list reads two things the ENGINE produced: the backbuffer, and g_stable_tex, which
+    // sync_stereo copies on the engine's own command list. Sharing the game's queue ordered both
+    // for free -- one queue, FIFO. A queue of our own orders neither.
+    //
+    // THE ORDERING EDGE HAS TO BE EXACT, NOT APPROXIMATE. Waiting on "every tracked queue's most
+    // recent signal" reads like the same thing and is not: if the engine has not signalled since
+    // recording the g_stable_tex copy, the newest value we can see belongs to an EARLIER frame,
+    // the wait is satisfied immediately, and the blit reads a texture that is stale or still
+    // being written. That lands in one eye only -- the backbuffer is finished by the time Present
+    // is called, so MAIN is safe and VRCAM is not -- and a one-eye stale image reads as an eye
+    // that lags the head and judders.
+    //
+    // SO DON'T CROSS THE QUEUE HERE AT ALL -- RUN THE CAPTURE WHERE ITS SOURCES ALREADY ARE.
+    //
+    // Two attempts at a cross-queue edge were both wrong, in opposite directions. Waiting on
+    // "every tracked queue's last signal" is too weak: it can be satisfied by an earlier frame's
+    // signal, and the blit reads a stale g_stable_tex -- visible as the VRCAM eye alone lagging
+    // the head. Signalling the game's queue at Present and waiting on THAT is too strong: it
+    // orders our queue behind the engine's entire outstanding queue, so the eye copies and the
+    // submit inherit a full engine drain every frame -- which made both eyes judder, not one.
+    //
+    // The capture's sources are the backbuffer and g_stable_tex, and BOTH are produced on the
+    // game's queue. Executing the capture there costs nothing and orders it for free, exactly as
+    // it did before the dedicated queue existed. What actually had to move was the RUNTIME's
+    // binding -- that is where the compositor's pacing was leaking into the engine -- and the eye
+    // copies that write the runtime's swapchain images, which must stay on the queue the runtime
+    // synchronises against. The only edge left to buy is between those two, and it is one we own
+    // both ends of: this fence.
+    ID3D12CommandQueue* captureQueue = (m_ownXrQueue && m_gameQueue) ? m_gameQueue : m_d3dQueue;
+    captureQueue->ExecuteCommandLists(1, cmdLists);
 
     ++m_captureFenceValue;
-    m_d3dQueue->Signal(m_captureFence, m_captureFenceValue);
+    captureQueue->Signal(m_captureFence, m_captureFenceValue);
 
     {
         std::lock_guard<std::mutex> lock(m_presentMutex);
@@ -958,6 +989,9 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         m_monoCapturedFrame.texture = snapshot;
         if (m_monoCapturedFrame.texture == snapshot) {
             m_monoCapturedFrame.serial = serial;
+            // Travels with the image: the submit waits on exactly the copies that produced THIS
+            // frame, not on whatever the fence happens to have reached by then.
+            m_monoCapturedFrame.captureFence = m_captureFenceValue;
             for (int eye = 0; eye < 2; ++eye) {
                 m_monoCapturedFrame.poses[eye] = poses[eye];
                 m_monoCapturedFrame.fovs[eye] = fovs[eye];

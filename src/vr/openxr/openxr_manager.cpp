@@ -764,9 +764,58 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
         static_cast<unsigned>(reqs.adapterLuid.HighPart),
         static_cast<unsigned>(reqs.adapterLuid.LowPart));
 
+    // WHOSE QUEUE THE RUNTIME GETS.
+    //
+    // Handing over `queue` hands over the GAME's direct queue, because that is what the swapchain
+    // hook had in hand. Under XR_KHR_D3D12_enable the binding queue is the one the runtime
+    // synchronises itself against, so doing that puts the compositor's pacing inside the engine's
+    // submission stream: the engine's next frame waits on a wait the compositor owns. That wait is
+    // on the display cadence rather than on the frame's content, so it is invisible to resolution
+    // and to settings, and -- unlike the inline/threaded split -- it does not care which thread
+    // calls xrEndFrame. Moving the frame loop to the submit thread fixed PimaxXR and left SteamVR
+    // at half rate, which is the signature of a coupling the thread cannot reach.
+    //
+    // -1 (default) = decide by runtime, same shape and same reasoning as xr_threaded_submit: take
+    // our own queue everywhere except Virtual Desktop, which copies submissions into its own
+    // resources and never stalls the app's queue. The runtime is already identified by the time
+    // the session is created, so this is a real choice rather than a guess.
+    ID3D12CommandQueue* bindingQueue = queue;
+    m_ownXrQueue = false;
+    const int wantOwnQueue = GetDedicatedXrQueue();
+    const bool useOwnQueue = (wantOwnQueue >= 0)
+        ? (wantOwnQueue != 0)
+        : !m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed);
+    if (useOwnQueue && device) {
+        D3D12_COMMAND_QUEUE_DESC qd{};
+        qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        qd.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+        qd.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+        qd.NodeMask = 0;
+        ID3D12CommandQueue* ownQueue = nullptr;
+        const HRESULT qhr = device->CreateCommandQueue(&qd, IID_PPV_ARGS(&ownQueue));
+        if (SUCCEEDED(qhr) && ownQueue) {
+            SetD3DName(ownQueue, L"CyberpunkVR_XrQueue");
+            bindingQueue = ownQueue;
+            m_ownXrQueue = true;
+            // Keep the game's queue and a fence for the capture's ordering edge. Without both,
+            // the capture falls back to the broad "wait on every tracked queue's last signal",
+            // which is only approximately correct.
+            m_gameQueue = queue;
+            if (m_gameQueue) m_gameQueue->AddRef();
+            Log("OpenXRManager: runtime bound to OUR queue %p (game queue %p untouched) "
+                "-- xr_dedicated_queue=%d\n", ownQueue, queue, wantOwnQueue);
+        } else {
+            Log("OpenXRManager: xr_dedicated_queue=1 but CreateCommandQueue failed (hr=0x%08X) "
+                "-- falling back to the game's queue %p\n", static_cast<unsigned>(qhr), queue);
+        }
+    } else {
+        Log("OpenXRManager: runtime bound to the GAME's queue %p (xr_dedicated_queue=%d)\n",
+            queue, wantOwnQueue);
+    }
+
     m_graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_D3D12_KHR;
     m_graphicsBinding.device = device;
-    m_graphicsBinding.queue = queue;
+    m_graphicsBinding.queue = bindingQueue;
 
     LogDxgiAdapterForDevice(device);
 
@@ -789,9 +838,13 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
     m_loggedForcedProjectionFovDeg = 0.0f;
 
     m_d3dDevice = device;
-    m_d3dQueue = queue;
+    // Every copy this mod records goes to the same queue the runtime is bound to, so this follows
+    // the binding rather than the argument.
+    m_d3dQueue = bindingQueue;
     if (m_d3dDevice) m_d3dDevice->AddRef();
-    if (m_d3dQueue) m_d3dQueue->AddRef();
+    // CreateCommandQueue already handed us a reference; only a borrowed queue needs one taken.
+    // AddRef'ing ours too would leak the queue at Shutdown, which releases exactly once.
+    if (m_d3dQueue && !m_ownXrQueue) m_d3dQueue->AddRef();
     if (!m_monoPresentEvent) {
         m_monoPresentEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
         if (!m_monoPresentEvent) {
@@ -1571,9 +1624,16 @@ void OpenXRManager::Shutdown() {
         m_lastPresentedBackBuffer = nullptr;
     }
     if (m_d3dQueue) {
+        // One Release either way: a borrowed queue was AddRef'd in InitGraphics, and a queue of
+        // ours arrived with the reference CreateCommandQueue returned.
         m_d3dQueue->Release();
         m_d3dQueue = nullptr;
     }
+    if (m_gameQueue) {
+        m_gameQueue->Release();
+        m_gameQueue = nullptr;
+    }
+    m_ownXrQueue = false;
     if (m_d3dDevice) {
         m_d3dDevice->Release();
         m_d3dDevice = nullptr;
