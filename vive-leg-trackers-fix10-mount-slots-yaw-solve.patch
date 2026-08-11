@@ -1,0 +1,516 @@
+diff --git a/src/common/shared_slots.h b/src/common/shared_slots.h
+index 63a37b4..9b7607f 100644
+--- a/src/common/shared_slots.h
++++ b/src/common/shared_slots.h
+@@ -61,6 +61,11 @@
+ //  [104..107] render view quat            dxgi -> hook   (seqlock [143])
+ //  [108..110] world translation delta     dxgi -> hook   (seqlock [143])
+ //  [111]      view-pose semantics flag (2.0 = delta v2)  dxgi -> hook
++//  [112..114] coherent hand anchor (this-sample head pos)  openxr -> hook
++//  [115]      hand-anchor valid           openxr -> hook
++//             (LIVE since the arm-shake fix -- the graveyard note below
++//             claiming these were the removed view stabilizer was stale;
++//             verified by grep in fix10. Do NOT reclaim.)
+ //  [116..119] eye-view offset + valid     plugin (hook) -> dxgi
+ //  [120..123] total view offset + valid   dxgi -> hook
+ //  [124..126] HMD position                openxr -> hook ([126] is HMD Z!)
+@@ -103,11 +108,16 @@
+ //              itself and a grip that was never released.
+ //  [84]        reclaimed by [CAMWRITE] mode flag (was: never used)
+ //  [100..103]  reclaimed by [CAMWRITE] desired quat (was: never used)
+-//  [112..115]  old view stabilizer delta+valid (removed session 3)
++//  [112..115]  NOT FREE -- the graveyard note here was stale: this is the
++//             coherent hand anchor (see the LIVE list above), written every
++//             frame by openxr since the arm-shake fix. (Was: old view
++//             stabilizer delta+valid, removed session 3, then reused.)
+ //  [132..136]  entity velocity/timestamp extrapolation (writer exists in
+ //              main.cpp, NO consumer; the snap-puppet-pre-rotation speed gate
+ //              consumed [132..134] briefly -- removed after live test)
+-//  [137..140]  located camera entity-local (writer removed)
++//  [137..139]  RECLAIMED (fix10): ACTIVE left foot mount quat, hemisphere-
++//             packed x,y,z (w = +sqrt(1-|xyz|^2) at the reader)  openxr -> plugin
++//             (was: located camera entity-local, writer removed; [140] free)
+ //  [145]       reclaimed by the tracker debug gizmo (L dorsal z; was: FinalCamera poison
+ //              test counter, removed session 3)
+ //  [154..255]  mostly unused, but NOT a blank cheque -- [200..202] carry a right-hand debug
+@@ -134,7 +144,8 @@
+ //  [175]      tracker->ankle vertical offset (m)                openxr -> plugin
+ //  [176]      leg calibration valid (0/1)
+ //  [177]      connected trackers with a body role (0..3)        openxr -> overlay
+-//  [178..180] foot mount correction euler p/y/r (deg)           openxr -> plugin
++//  [178..180] ACTIVE right foot mount quat, hemisphere-packed x,y,z
++//             (fix10; was: foot mount euler sliders, dead since fix6)  openxr -> plugin
+ //  [181]      waist tracker valid (0/1)       openxr -> plugin, overlay
+ //  [182..184] waist pos (HMD-local, same convention as feet)
+ //  [185..188] waist quat
+@@ -143,17 +154,29 @@
+ //  [191..194] T-pose SOLVED left foot mount quat    plugin -> openxr
+ //  [195..198] T-pose SOLVED right foot mount quat   plugin -> openxr
+ //  [199]      solved-mount publish seq (incremented each solve)  plugin -> openxr
+-//  [208..211] ACTIVE left foot mount quat           openxr -> plugin
+-//  [212..215] ACTIVE right foot mount quat          openxr -> plugin
++//  [208..217] + [221..223] LEGACY VRIK SOLVE STATS  plugin (hook) -> dxgi present
++//             (predates the tracker work; openxr_present.cpp logs them
++//             periodically and zeroes the peaks [213]/[216]/[217]):
++//             [208] AnimPoseMatch calls, [209] fresh solves, [210] replays,
++//             [211] pose-age sum ms, [213] pose-age peak, [214] hand seqs
++//             consumed, [215] view-age sum ms, [216] view-age peak, [217]
++//             head-turn peak deg, [221..222] anchor-gap sum/peak mm,
++//             [223] coherent-frame count.
++//             WARNING (fix10): the tracker ACTIVE mounts were first assigned
++//             to [208..215] on top of this block -- the stats stomped the
++//             mounts every frame and the feet ran uncorrected. Mounts moved
++//             to [137..139]/[178..180]; do NOT reuse [208..223].
+ //  [233..249] T-pose mount-calibration DIAGNOSTICS  plugin -> openxr
+ //             (written on the same falling edge as [191..199]; read at adoption)
+-//  [233..236] averaged CONSTRUCTED TARGET L foot orientation (model quat)
+-//  [237..240] averaged CONSTRUCTED TARGET R foot orientation
++//  [233..236] averaged TARGET L foot orientation (model quat; fix10: the
++//             tracker's own orientation yaw-rotated so the toe lands on
++//             body forward -- pitch/roll stay with the tracker)
++//  [237..240] averaged TARGET R foot orientation
+ //  [241..243] measured animation TOE DIRECTION L (model space unit vector)
+ //  [244..246] measured animation TOE DIRECTION R
+-//  [247]      animation->target correction angle L (deg; 0 with toe (0,0,0)
++//  [247]      signed yaw correction L (deg about +Z; 0 with toe (0,0,0)
+ //             means no toe bone resolved -> raw animation target was used)
+-//  [248]      animation->target correction angle R (deg)
++//  [248]      signed yaw correction R (deg)
+ //  [249]      diag block valid for the last [199] seq (1.0)
+ //             ([231..232] stay the legacy hand-shake slots zeroed in present)
+ //  [203..207] + [145], [250..255] TRACKER ORIENTATION DEBUG GIZMO  plugin -> overlay
+@@ -167,11 +190,11 @@
+ //             [145] was the removed FinalCamera poison counter, [250..255] never
+ //             used. Visual axes = footTrackRot * bone-local toe/dorsal constants;
+ //             the overlay draws them next to the ground-truth target frame.)
+-//             ([190..199]/[208..215] ride the tracker feature; read raw, they
+-//             change at calibration time only. The plugin solves each mount
+-//             against the pristine animation feet during the T-pose window --
+-//             replaces the old shared manual euler sliders [178..180], which
+-//             are no longer consumed. [200..202] stay the overlay debug pos.)
++//             ([190..199] and [137..139]/[178..180] ride the tracker feature;
++//             read raw, they change at calibration time only. The plugin solves
++//             each mount during the T-pose window -- replaces the old shared
++//             manual euler sliders, dead since fix6. [200..202] stay the
++//             overlay debug pos.)
+ // ============================================================================
+ 
+ namespace vrshared {
+@@ -214,15 +237,14 @@ constexpr int kLegLen            = 174;
+ constexpr int kLegAnkleOffset    = 175;
+ constexpr int kLegCalibValid     = 176;
+ constexpr int kViveTrackerCount  = 177;
+-constexpr int kLegMountEuler     = 178;   // ..180: pitch/yaw/roll (deg)
++constexpr int kLegMountQuatR     = 178;   // ..180: ACTIVE R mount quat, hemisphere-packed xyz (was kLegMountEuler)
+ constexpr int kWaistTrack        = 181;   // ..188: valid, pos(3), quat(4)
+ constexpr int kWaistTrackEnable  = 189;
+ constexpr int kMountCalibSampling = 190;  // T-pose window flag
+ constexpr int kMountSolveL       = 191;   // ..194: plugin-solved L mount quat
+ constexpr int kMountSolveR       = 195;   // ..198: plugin-solved R mount quat
+ constexpr int kMountSolveSeq     = 199;
+-constexpr int kLegMountQuatL     = 208;   // ..211: ACTIVE L mount quat
+-constexpr int kLegMountQuatR     = 212;   // ..215: ACTIVE R mount quat
++constexpr int kLegMountQuatL     = 137;   // ..139: ACTIVE L mount quat, hemisphere-packed xyz (fix10: was 208, slot collision)
+ constexpr int kMountDiagTgtL     = 233;   // ..236: averaged straightened target L
+ constexpr int kMountDiagTgtR     = 237;   // ..240: averaged straightened target R
+ constexpr int kMountDiagToeL     = 241;   // ..243: animation toe direction L
+diff --git a/src/red4ext_plugin/vrik/vrik_hook.h b/src/red4ext_plugin/vrik/vrik_hook.h
+index 2ce6a01..1cb9a23 100644
+--- a/src/red4ext_plugin/vrik/vrik_hook.h
++++ b/src/red4ext_plugin/vrik/vrik_hook.h
+@@ -601,6 +601,24 @@ static inline void VRIK_QuatNorm(float* q) {
+     else { q[0]=0.0f; q[1]=0.0f; q[2]=0.0f; q[3]=1.0f; }
+ }
+ 
++// Hemisphere-packed mount quat reader (fix10; ACTIVE mounts live at [137..139]
++// for the left foot and [178..180] for the right). The writer stores x,y,z
++// with w >= 0; the reader recovers w = +sqrt(1-|xyz|^2) -- every rotation has
++// a w>=0 representative, so this is lossless. Identity is stored as (0,0,0).
++// Garbage (|xyz| > 1, e.g. a stray counter ever stomping these slots again)
++// fails safe to identity: the worst a slot collision can do now is
++// neutralize the correction, never inject a nonsense rotation.
++static inline void VRIK_ReadPackedMount(const volatile float* sh, int slotBase, float* out) {
++    out[0] = out[1] = out[2] = 0.0f; out[3] = 1.0f;
++    if (!sh) return;
++    const float x = sh[slotBase], y = sh[slotBase + 1], z = sh[slotBase + 2];
++    const float v2 = x*x + y*y + z*z;
++    if (v2 < 1e-8f || v2 > 1.0001f) return;
++    out[0] = x; out[1] = y; out[2] = z;
++    out[3] = std::sqrt(1.0f - (v2 > 1.0f ? 1.0f : v2));
++    VRIK_QuatNorm(out);
++}
++
+ static inline float VRIK_Dot3(const float* a, const float* b) {
+     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+ }
+@@ -1994,23 +2012,18 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+     float footTrackRotR[4] = {0,0,0,1}, footTrackRotL[4] = {0,0,0,1};
+     if (trackAnchor && SharedLeg(173) == 1.0f) {
+         const float ankleOff = SharedLeg(175);
+-        // PER-FOOT mount correction quats (slots [208..211] L / [212..215] R),
+-        // solved automatically by the T-pose calibration sampler below and
+-        // persisted in vrik_calibration.ini. They replace the old shared
+-        // euler mount sliders ([178..180], no longer consumed): one manual
+-        // correction could never fit both feet -- a yaw that fixed one foot
+-        // pointed the other backwards. Identity when never calibrated.
+-        auto mountOf = [](int slotBase, float* out) {
+-            out[0] = out[1] = out[2] = 0.0f; out[3] = 1.0f;
+-            if (!g_pSharedHands) return;
+-            float q[4] = { g_pSharedHands[slotBase], g_pSharedHands[slotBase+1],
+-                           g_pSharedHands[slotBase+2], g_pSharedHands[slotBase+3] };
+-            const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+-            if (n2 > 0.25f && n2 < 4.0f) {   // sane published quat -> use it
+-                VRIK_QuatNorm(q);
+-                out[0]=q[0]; out[1]=q[1]; out[2]=q[2]; out[3]=q[3];
+-            }
+-        };
++        // PER-FOOT mount correction quats (hemisphere-packed: [137..139] L,
++        // [178..180] R), solved automatically by the T-pose calibration
++        // sampler below and persisted in vrik_calibration.ini. They replace
++        // the old shared euler mount sliders (removed): one manual correction
++        // could never fit both feet -- a yaw that fixed one foot pointed the
++        // other backwards. Identity when never calibrated.
++        // fix10 slot history: the first assignment ([208..215]) collided with
++        // the legacy VRIK solve-stats block the hook itself publishes every
++        // frame, which stomped the mounts with counters and left them
++        // permanently at the identity fallback (the fix9 probe caught the
++        // feet running raw). The packed reader above fails safe to identity
++        // on any such garbage now.
+         auto buildFoot = [&](int base, int mountBase, float* outFoot, float* outRot) -> bool {
+             if (SharedLeg(base) != 1.0f) return false;
+             float mapPos[3] = { SharedLeg(base+1), -SharedLeg(base+3), SharedLeg(base+2) };
+@@ -2023,14 +2036,14 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+             float d2 = rp[0]*rp[0] + rp[1]*rp[1] + rp[2]*rp[2];
+             if (d2 > 6.25f) return false;
+             float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
+-            float mount[4]; mountOf(mountBase, mount);
++            float mount[4]; VRIK_ReadPackedMount(g_pSharedHands, mountBase, mount);
+             float mq[4]; VRIK_QuatMul(camModelRot, lq, mq);
+             VRIK_QuatMul(mq, mount, outRot);
+             VRIK_QuatNorm(outRot);
+             return true;
+         };
+-        trackR = haveR && buildFoot(165, 212, footR, footTrackRotR);
+-        trackL = haveL && buildFoot(157, 208, footL, footTrackRotL);
++        trackR = haveR && buildFoot(165, 178, footR, footTrackRotR);
++        trackL = haveL && buildFoot(157, 137, footL, footTrackRotL);
+     }
+     const bool anyTrack = trackR || trackL;
+ 
+@@ -2098,24 +2111,26 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+     // CURRENT tracker orientation onto the DESIRED foot orientation:
+     //   S = (camModelRot * map(lq))^-1 * T_desired.
+     //
+-    // T_desired is NOT the raw animation foot orientation. The pose readable
+-    // at this point is the engine's PRE-IK animation: the game's own foot IK
+-    // plants the feet flat on the ground AFTER we sample, so the sampled foot
+-    // orientation can be twisted/pitched in ways the rendered avatar never
+-    // shows. Matching it (fix6) or yaw-straightening it (fix7) still anchored
+-    // on a pose that isn't what the user sees. The calibration contract is
+-    // the T-pose itself: toes where the user faces, soles flat on the ground.
+-    // So T_desired is CONSTRUCTED: R_des maps the skeleton's bone-local toe
+-    // direction to bodyFwd and the bone-local dorsal direction to +Z (see
+-    // footVisual above) -- full three-axis, convention-free, independent of
+-    // whatever the pre-IK animation is doing. Without resolved toe bones we
+-    // keep the raw animation orientation (pre-fix6 behaviour) and the
+-    // diagnostic log says so.
++    // T_desired is the YAW-ONLY corrected tracker orientation (fix10). The
++    // pose readable at this point is the engine's PRE-IK animation, and of
++    // the two bone->visual constants only the toe direction t_b is a true
++    // rig constant (rigid toe-bone child -- the fix9 probe measured it
++    // stable to 0.0003 across kicks and toe-twists). The dorsal direction
++    // comes from the SHIN, whose foot-frame direction swings with the ankle
++    // angle of whatever mangled pre-IK pose gets sampled: fix8's three-axis
++    // construction (t_b -> fwd AND u_b -> +Z) baked the T-pose's garbage
++    // twist into the mounts (~90 deg roll). The tracker itself supplies the
++    // ankle's absolute pitch/roll (the probe showed soles flat with NO
++    // mount at all), so the only thing the calibration has to fix is the
++    // toe HEADING: T_desired = Rz(phi) * M, where phi rotates the tracker's
++    // current toe heading onto bodyFwd about world +Z. Without resolved toe
++    // bones we keep the raw animation orientation (pre-fix6 behaviour) and
++    // the diagnostic log says so.
+     //
+     // Published to [191..199] on the falling edge; the stereo side adopts,
+     // persists (vrik_calibration.ini) and republishes the ACTIVE mounts on
+-    // [208..215]. Diagnostics (the averaged target, the measured toe
+-    // directions, the applied yaw corrections) go to [233..249] so the
++    // [137..139]/[178..180]. Diagnostics (the averaged target, the measured
++    // toe directions, the applied yaw corrections) go to [233..249] so the
+     // adoption log shows exactly what was solved. g_fkRot/g_fkPos at this
+     // point are still this frame's untouched animation pose (same assumption
+     // as the foot-position capture above).
+@@ -2134,31 +2149,32 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+                 float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
+                 float M[4]; VRIK_QuatMul(camModelRot, lq, M); VRIK_QuatNorm(M);
+ 
+-                // Desired orientation: CONSTRUCTED ground frame, not the sampled
+-                // animation pose. The pose readable here is the PRE-IK animation:
+-                // the engine's own foot IK plants the feet flat AFTER this point,
+-                // so the foot orientation we sample can be twisted/pitched in ways
+-                // the rendered avatar never shows -- matching it baked exactly that
+-                // into the mounts (feet wrong on all three axes). The calibration
+-                // contract is the user's T-pose instead: toes where you face, sole
+-                // flat on the ground. Built from the pose-independent bone->visual
+-                // map (footVisual above): R_des maps t_b -> bodyFwd, u_b -> +Z.
++                // Desired orientation: the tracker's own orientation, YAW-rotated
++                // so the toe heading lands on bodyFwd (fix10). Pitch/roll stay
++                // with the tracker 1:1 -- it reports the ankle's absolute
++                // orientation, and the fix9 probe showed soles flat with no
++                // mount at all. Only t_b is used: it is a rigid rig constant,
++                // while the shin-derived dorsal swings with the sampled pose's
++                // ankle angle and poisoned fix8's three-axis solve.
+                 float T[4] = { g_fkRot[boneIdx][0], g_fkRot[boneIdx][1], g_fkRot[boneIdx][2], g_fkRot[boneIdx][3] };
+                 float toeDir[3] = { 0.0f, 0.0f, 0.0f };
+-                float yawDeg = 0.0f;   // |angle| = T_anim -> R_des correction; sign: + full, - yaw-only
++                float yawDeg = 0.0f;   // signed yaw correction about +Z (deg)
+                 float tB[3], uB[3];
+                 if (footVisual(boneIdx, kneeIdx, toeIdx, tB, uB)) {
+                     // toe direction in model space (diagnostic): t_model = T_anim * t_b
+                     VRIK_QuatRotateVec(T, tB, toeDir); VRIK_Norm3(toeDir);
+-                    const float upZ[3] = { 0.0f, 0.0f, 1.0f };
+-                    float Rd[4];
+-                    VRIK_QuatAlignTwo(tB, uB, bodyFwd, upZ, Rd);   // toes -> fwd, dorsal -> +Z
+-                    // correction angle (any axis) between the raw animation and the target
+-                    float dd = T[0]*Rd[0] + T[1]*Rd[1] + T[2]*Rd[2] + T[3]*Rd[3];
+-                    if (dd < 0.0f) dd = -dd;
+-                    if (dd > 1.0f) dd = 1.0f;
+-                    yawDeg = 2.0f * std::acos(dd) * 57.2957795f;   // positive = full construction
+-                    T[0]=Rd[0]; T[1]=Rd[1]; T[2]=Rd[2]; T[3]=Rd[3];
++                    // current tracker-driven toe heading -> rotate onto bodyFwd
++                    float v[3]; VRIK_QuatRotateVec(M, tB, v);
++                    const float vl = std::sqrt(v[0]*v[0] + v[1]*v[1]);
++                    if (vl > 1e-4f) {
++                        const float vhx = v[0]/vl, vhy = v[1]/vl;
++                        const float cph = vhx*bodyFwd[0] + vhy*bodyFwd[1];
++                        const float sph = vhx*bodyFwd[1] - vhy*bodyFwd[0];
++                        const float phi = std::atan2(sph, cph);   // rad, about world +Z
++                        float W[4] = { 0.0f, 0.0f, std::sin(phi*0.5f), std::cos(phi*0.5f) };
++                        VRIK_QuatMul(W, M, T); VRIK_QuatNorm(T);   // T = Rz(phi) * M
++                        yawDeg = phi * 57.2957795f;
++                    }
+                 }
+ 
+                 const float Minv[4] = { -M[0], -M[1], -M[2], M[3] };
+@@ -2187,29 +2203,25 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+             // Falling edge: publish the averaged solve. An under-sampled foot
+             // echoes its current ACTIVE mount so adoption is a no-op for it.
+             auto publishFoot = [&](int slotBase, int activeBase, float* acc, int n) {
+-                float q[4] = { g_pSharedHands[activeBase], g_pSharedHands[activeBase+1],
+-                               g_pSharedHands[activeBase+2], g_pSharedHands[activeBase+3] };
++                float q[4];
++                VRIK_ReadPackedMount(g_pSharedHands, activeBase, q);   // under-sampled foot echoes its ACTIVE mount
+                 if (n >= 20) {
+                     q[0]=acc[0]; q[1]=acc[1]; q[2]=acc[2]; q[3]=acc[3];
+                     VRIK_QuatNorm(q);
+-                } else {
+-                    const float n2 = q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3];
+-                    if (n2 < 0.25f || n2 > 4.0f) { q[0]=q[1]=q[2]=0.0f; q[3]=1.0f; }
+                 }
+                 g_pSharedHands[slotBase]   = q[0];
+                 g_pSharedHands[slotBase+1] = q[1];
+                 g_pSharedHands[slotBase+2] = q[2];
+                 g_pSharedHands[slotBase+3] = q[3];
+             };
+-            publishFoot(191, 208, s_mntAccL, s_mntNL);
+-            publishFoot(195, 212, s_mntAccR, s_mntNR);
++            publishFoot(191, 137, s_mntAccL, s_mntNL);
++            publishFoot(195, 178, s_mntAccR, s_mntNR);
+ 
+             // Diagnostics for the stereo-side adoption log ([233..249]): the
+-            // constructed target actually solved against, the measured
+-            // animation toe directions, and the T_anim -> target correction
+-            // angle (deg; positive = full ground-frame construction, 0 with
+-            // toe dir (0,0,0) = no toe bone, raw animation target was used).
+-            // Pure diagnostics -- no behavioural effect.
++            // yaw-corrected target actually solved against, the measured
++            // animation toe directions, and the signed yaw correction (deg
++            // about +Z; 0 with toe dir (0,0,0) = no toe bone, raw animation
++            // target was used). Pure diagnostics -- no behavioural effect.
+             auto publishDiag = [&](int slotT, int slotToe, int slotYaw,
+                                    float* tgtAcc, float* toeAcc, float yawAcc, int n) {
+                 float t[4] = {0,0,0,1}; float td[3] = {0,0,0}; float yd = 0.0f;
+@@ -2445,8 +2457,9 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+     if (anyTrack && g_pSharedHands) {
+         static uint32_t s_fbtProbeN = 0;
+         if (++s_fbtProbeN % 150u == 0u) {
+-            float mL[4] = { SharedLeg(208), SharedLeg(209), SharedLeg(210), SharedLeg(211) };
+-            float mR[4] = { SharedLeg(212), SharedLeg(213), SharedLeg(214), SharedLeg(215) };
++            float mL[4], mR[4];
++            VRIK_ReadPackedMount(g_pSharedHands, 137, mL);
++            VRIK_ReadPackedMount(g_pSharedHands, 178, mR);
+             float toeL[3] = {0,0,0}, dorL[3] = {0,0,0}, toeR[3] = {0,0,0}, dorR[3] = {0,0,0};
+             float tB[3], uB[3];
+             if (trackL && footVisual(g_VRLeftFootIdx, g_VRLeftLegIdx, g_VRLeftToeIdx, tB, uB)) {
+@@ -2472,8 +2485,8 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+                 camModelRot[0], camModelRot[1], camModelRot[2], camModelRot[3],
+                 camModelPos[0], camModelPos[1], camModelPos[2],
+                 trackAnchor[0], trackAnchor[1], trackAnchor[2],
+-                SharedLeg(116), SharedLeg(117), SharedLeg(118), SharedLeg(119),
+-                SharedLeg(120), SharedLeg(121), SharedLeg(122),
++                SharedPose(116), SharedPose(117), SharedPose(118), SharedPose(119),
++                SharedPose(120), SharedPose(121), SharedPose(122),
+                 SharedLeg(158), SharedLeg(159), SharedLeg(160),
+                 SharedLeg(161), SharedLeg(162), SharedLeg(163), SharedLeg(164),
+                 SharedLeg(166), SharedLeg(167), SharedLeg(168),
+diff --git a/src/vr/openxr/openxr_calibration.cpp b/src/vr/openxr/openxr_calibration.cpp
+index 6435f6c..9c0f0d9 100644
+--- a/src/vr/openxr/openxr_calibration.cpp
++++ b/src/vr/openxr/openxr_calibration.cpp
+@@ -410,12 +410,15 @@ bool OpenXRManager::SaveCalibrationToFile() {
+     // Per-foot mount correction quats solved by the T-pose calibration
+     // (plugin sampler -> [191..199] -> adopted here). Persisted so the feet
+     // keep their calibrated rotation across sessions without recalibrating.
+-    fprintf(f, "footMountLX=%.6f\nfootMountLY=%.6f\nfootMountLZ=%.6f\nfootMountLW=%.6f\n",
++    // Keys renamed footMount* -> footYawMount* in fix10: pre-fix10 values came
++    // from the poisoned three-axis solve (T-pose FK twist baked in) and must
++    // never load again -- the old keys are simply ignored on read.
++    fprintf(f, "footYawMountLX=%.6f\nfootYawMountLY=%.6f\nfootYawMountLZ=%.6f\nfootYawMountLW=%.6f\n",
+             m_legMountQuatL[0].load(std::memory_order_relaxed),
+             m_legMountQuatL[1].load(std::memory_order_relaxed),
+             m_legMountQuatL[2].load(std::memory_order_relaxed),
+             m_legMountQuatL[3].load(std::memory_order_relaxed));
+-    fprintf(f, "footMountRX=%.6f\nfootMountRY=%.6f\nfootMountRZ=%.6f\nfootMountRW=%.6f\n",
++    fprintf(f, "footYawMountRX=%.6f\nfootYawMountRY=%.6f\nfootYawMountRZ=%.6f\nfootYawMountRW=%.6f\n",
+             m_legMountQuatR[0].load(std::memory_order_relaxed),
+             m_legMountQuatR[1].load(std::memory_order_relaxed),
+             m_legMountQuatR[2].load(std::memory_order_relaxed),
+@@ -468,14 +471,16 @@ bool OpenXRManager::LoadCalibrationFromFile() {
+         if (sscanf_s(line, "%31[^=]=%f", key, (unsigned)_countof(key), &val) != 2) continue;
+         if (strcmp(key, "version") == 0) version = static_cast<int>(val);
+         // Per-foot T-pose-solved mount corrections (quat components).
+-        if (strcmp(key, "footMountLX") == 0) { mntL[0] = val; haveMntL = true; }
+-        if (strcmp(key, "footMountLY") == 0) { mntL[1] = val; }
+-        if (strcmp(key, "footMountLZ") == 0) { mntL[2] = val; }
+-        if (strcmp(key, "footMountLW") == 0) { mntL[3] = val; }
+-        if (strcmp(key, "footMountRX") == 0) { mntR[0] = val; haveMntR = true; }
+-        if (strcmp(key, "footMountRY") == 0) { mntR[1] = val; }
+-        if (strcmp(key, "footMountRZ") == 0) { mntR[2] = val; }
+-        if (strcmp(key, "footMountRW") == 0) { mntR[3] = val; }
++        if (strcmp(key, "footYawMountLX") == 0) { mntL[0] = val; haveMntL = true; }
++        if (strcmp(key, "footYawMountLY") == 0) { mntL[1] = val; }
++        if (strcmp(key, "footYawMountLZ") == 0) { mntL[2] = val; }
++        if (strcmp(key, "footYawMountLW") == 0) { mntL[3] = val; }
++        if (strcmp(key, "footYawMountRX") == 0) { mntR[0] = val; haveMntR = true; }
++        if (strcmp(key, "footYawMountRY") == 0) { mntR[1] = val; }
++        if (strcmp(key, "footYawMountRZ") == 0) { mntR[2] = val; }
++        if (strcmp(key, "footYawMountRW") == 0) { mntR[3] = val; }
++        // Legacy "footMountL*/R*" keys (pre-fix10, poisoned three-axis solve)
++        // are deliberately NOT read -- they stay in old ini files, ignored.
+         #define M(name, idx) if (strcmp(key, name) == 0) v[idx] = val;
+         #define E(name, idx) if (strcmp(key, name) == 0) e[idx] = val;
+         #define C(name, idx) if (strcmp(key, name) == 0) cb[idx] = val;
+diff --git a/src/vr/openxr/openxr_manager.cpp b/src/vr/openxr/openxr_manager.cpp
+index 8454b80..41ef7ae 100644
+--- a/src/vr/openxr/openxr_manager.cpp
++++ b/src/vr/openxr/openxr_manager.cpp
+@@ -1528,9 +1528,9 @@ void OpenXRManager::FlushHandsToShared() {
+     sShared[175] = m_legAnkleOffset.load(std::memory_order_relaxed);
+     sShared[176] = (m_legLenValid.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+     sShared[177] = static_cast<float>(m_viveTrackerCount.load(std::memory_order_relaxed));
+-    sShared[178] = m_legMountEulerDeg[0].load(std::memory_order_relaxed);
+-    sShared[179] = m_legMountEulerDeg[1].load(std::memory_order_relaxed);
+-    sShared[180] = m_legMountEulerDeg[2].load(std::memory_order_relaxed);
++    // [178..180] no longer carry the dead euler mount sliders (removed in
++    // fix6, never consumed since) -- they hold the ACTIVE right foot mount
++    // quat (hemisphere-packed) now, published in the mount block below.
+     sShared[181] = srcTrack[2].valid ? 1.0f : 0.0f;
+     sShared[182] = srcTrack[2].posX;
+     sShared[183] = srcTrack[2].posY;
+@@ -1542,9 +1542,10 @@ void OpenXRManager::FlushHandsToShared() {
+     sShared[189] = (m_waistTrackerEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+ 
+     // [190] T-pose mount-calibration sampling flag (openxr -> plugin). While
+-    // high, the plugin solves per-foot mount corrections against the
+-    // yaw-straightened animation feet (toes forced to bodyFwd); on the falling
+-    // edge it publishes them to [191..199] plus diagnostics on [233..249].
++    // high, the plugin solves per-foot YAW-ONLY mount corrections (the
++    // tracker's own orientation yaw-rotated so the toe lands on bodyFwd;
++    // pitch/roll stay with the tracker 1:1); on the falling edge it publishes
++    // them to [191..199] plus diagnostics on [233..249].
+     sShared[190] = (m_mountCalibSampling.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+ 
+     // Adopt the plugin's foot-rotation solve (runs in the short window after
+@@ -1570,18 +1571,18 @@ void OpenXRManager::FlushHandsToShared() {
+                 m_legMountQuatL[2].load(std::memory_order_relaxed), m_legMountQuatL[3].load(std::memory_order_relaxed),
+                 m_legMountQuatR[0].load(std::memory_order_relaxed), m_legMountQuatR[1].load(std::memory_order_relaxed),
+                 m_legMountQuatR[2].load(std::memory_order_relaxed), m_legMountQuatR[3].load(std::memory_order_relaxed));
+-            // Solve diagnostics ([233..249]): the CONSTRUCTED ground-frame
+-            // target each foot was matched to (toes -> body forward, dorsal
+-            // -> world up, built from the skeleton's toe/shin geometry), the
+-            // measured RAW animation toe directions, and how far the raw
+-            // animation orientation was from the constructed target.
++            // Solve diagnostics ([233..249]): the yaw-corrected tracker
++            // orientation each foot was bound to (fix10: the tracker's own
++            // orientation rotated about world +Z so the toe lands on body
++            // forward -- pitch/roll stay with the tracker), the measured RAW
++            // animation toe directions, and the signed yaw correction applied.
+             // toe (0,0,0) + angle 0 = no toe bone resolved, raw animation
+             // orientation was used as the target (old behaviour).
+             if (sShared[249] == 1.0f) {
+                 Log("Auto-calibration[FBT]: foot-rotation diag -- "
+                     "target L (%.3f, %.3f, %.3f, %.3f) R (%.3f, %.3f, %.3f, %.3f), "
+                     "anim toe L (%.3f, %.3f, %.3f) R (%.3f, %.3f, %.3f), "
+-                    "anim-vs-target L %.1f deg R %.1f deg.\n",
++                    "yaw correction L %+.1f deg R %+.1f deg.\n",
+                     sShared[233], sShared[234], sShared[235], sShared[236],
+                     sShared[237], sShared[238], sShared[239], sShared[240],
+                     sShared[241], sShared[242], sShared[243],
+@@ -1594,15 +1595,26 @@ void OpenXRManager::FlushHandsToShared() {
+             Log("Auto-calibration[FBT]: no foot-rotation solve received (old hands DLL or trackers off) -- keeping previous mount.\n");
+         }
+     }
+-    // [208..215] ACTIVE per-foot mount correction quats (openxr -> plugin).
+-    sShared[208] = m_legMountQuatL[0].load(std::memory_order_relaxed);
+-    sShared[209] = m_legMountQuatL[1].load(std::memory_order_relaxed);
+-    sShared[210] = m_legMountQuatL[2].load(std::memory_order_relaxed);
+-    sShared[211] = m_legMountQuatL[3].load(std::memory_order_relaxed);
+-    sShared[212] = m_legMountQuatR[0].load(std::memory_order_relaxed);
+-    sShared[213] = m_legMountQuatR[1].load(std::memory_order_relaxed);
+-    sShared[214] = m_legMountQuatR[2].load(std::memory_order_relaxed);
+-    sShared[215] = m_legMountQuatR[3].load(std::memory_order_relaxed);
++    // [137..139] / [178..180] ACTIVE per-foot mount correction quats
++    // (openxr -> plugin), HEMISPHERE-PACKED: x,y,z stored with w >= 0, the
++    // reader recovers w = +sqrt(1-|xyz|^2) and fails safe to identity on
++    // garbage. fix10 slot history: the first assignment ([208..215], full
++    // quats) collided with the plugin's legacy VRIK solve-stats block, which
++    // stomped the mounts with per-frame counters and left the feet running
++    // uncorrected (fix9 probe finding). These two 3-float holes are verified
++    // free by grep: [137..139] had its writer removed sessions ago, and
++    // [178..180] carried the dead euler mount sliders removed in fix6.
++    auto publishMount = [&](int slot, const std::atomic<float>* src) {
++        float q[4] = { src[0].load(std::memory_order_relaxed), src[1].load(std::memory_order_relaxed),
++                       src[2].load(std::memory_order_relaxed), src[3].load(std::memory_order_relaxed) };
++        const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
++        if (n2 < 0.25f || n2 > 4.0f) { q[0] = q[1] = q[2] = 0.0f; q[3] = 1.0f; }
++        else { const float inv = 1.0f / sqrtf(n2); for (int i = 0; i < 4; ++i) q[i] *= inv; }
++        if (q[3] < 0.0f) { q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2]; }   // w >= 0 hemisphere
++        sShared[slot] = q[0]; sShared[slot + 1] = q[1]; sShared[slot + 2] = q[2];
++    };
++    publishMount(137, m_legMountQuatL);
++    publishMount(178, m_legMountQuatR);
+ 
+     // ===== SEQLOCK END =====
+     // All payload slots are written; publish an EVEN sequence (= complete) so readers
+diff --git a/src/vr/openxr/openxr_manager.h b/src/vr/openxr/openxr_manager.h
+index a95ccb2..f8ed281 100644
+--- a/src/vr/openxr/openxr_manager.h
++++ b/src/vr/openxr/openxr_manager.h
+@@ -617,7 +617,7 @@ public:
+         m_legLenValid.store(v > 0.0f ? 1 : 0, std::memory_order_relaxed);
+     }
+     // Per-foot mount correction quats (T-pose solved, persisted in
+-    // vrik_calibration.ini, published to shared [208..215]). Identity default.
++    // vrik_calibration.ini, published hemisphere-packed to shared [137..139] (L) / [178..180] (R)). Identity default.
+     void GetLegMountQuat(int foot, float* out4) const {   // foot: 0 = L, 1 = R
+         const std::atomic<float>* src = (foot == 0) ? m_legMountQuatL : m_legMountQuatR;
+         for (int i = 0; i < 4; ++i) out4[i] = src[i].load(std::memory_order_relaxed);
+@@ -911,7 +911,8 @@ private:
+     std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg, legacy -- superseded by the per-foot quats below)
+     // PER-FOOT mount correction quats, solved by the plugin's T-pose sampler
+     // (published to [191..199]), adopted+persisted here, republished as the
+-    // ACTIVE mounts on [208..215]. Identity = never calibrated.
++    // ACTIVE mounts (hemisphere-packed) on [137..139] (L) / [178..180] (R).
++    // Identity = never calibrated.
+     std::atomic<float> m_legMountQuatL[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+     std::atomic<float> m_legMountQuatR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+     // T-pose mount-solve handshake (frame thread only): [190] sampling flag,

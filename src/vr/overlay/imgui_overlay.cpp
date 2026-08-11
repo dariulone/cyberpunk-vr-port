@@ -604,6 +604,91 @@ void DrawHandLocatorOverlay() {
     }
 }
 
+// ---- TRACKER ORIENTATION DEBUG GIZMO --------------------------------------
+// The VRIK plugin publishes the SOLVED foot's VISUAL axes -- toe and dorsal
+// (sole-normal) directions of the mount-corrected tracker orientation, model
+// space -- to shared [203..207]/[145] (left) and [250..255] (right) every
+// tracked frame. Drawn camera-relative and orthographic while the F10 menu is
+// open: screen right = the direction's right relative to your view, screen up
+// = its up. The pale pair is the T-pose ground truth: toes = your facing
+// (yellow), sole normal = world up (white). Standing straight after a T-pose
+// calibration, the bright solved arrows should sit exactly on the pale pair;
+// rotating a real foot should rotate the bright arrows 1:1.
+static bool g_showTrackerGizmo = false;
+void DrawTrackerGizmo() {
+    if (!g_menuVisible || !g_showTrackerGizmo) return;
+    if (OpenXRManager::Get().GetSharedSlot(173) < 0.5f) return;   // body tracking off
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    if (!dl) return;
+    const ImVec2 ds = ImGui::GetIO().DisplaySize;
+    if (ds.x <= 1.0f || ds.y <= 1.0f) return;
+
+    const float cqx = g_lastLocateQuat[0], cqy = g_lastLocateQuat[1],
+                cqz = g_lastLocateQuat[2], cqw = g_lastLocateQuat[3];
+
+    // Ground target in model space: forward = the camera's horizontal facing
+    // (same construction as the plugin's bodyFwd), up = +Z.
+    float fwx = 0.0f, fwy = 1.0f, fwz = 0.0f;
+    RotateVectorByQuaternion(0.0f, 1.0f, 0.0f, cqx, cqy, cqz, cqw, &fwx, &fwy, &fwz);
+    const float fl = sqrtf(fwx * fwx + fwy * fwy);
+    const float tgtToe[3] = { (fl > 1e-4f) ? fwx / fl : 0.0f, (fl > 1e-4f) ? fwy / fl : 1.0f, 0.0f };
+    const float tgtUp[3]  = { 0.0f, 0.0f, 1.0f };
+
+    auto arrowAt = [&](const ImVec2& anchor, const float* dir, float len, ImU32 col, float w) {
+        float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+        RotateVectorByQuaternion(dir[0], dir[1], dir[2], -cqx, -cqy, -cqz, cqw, &lx, &ly, &lz);
+        const ImVec2 end(anchor.x + lx * len, anchor.y - lz * len);
+        dl->AddLine(anchor, end, col, w);
+        // chevron arrowhead: two short barbs swept back from the tip, so the
+        // arrow's SENSE is readable at a glance (which way the toes point).
+        const float dx = end.x - anchor.x, dy = end.y - anchor.y;
+        const float dl2 = sqrtf(dx * dx + dy * dy);
+        if (dl2 > 4.0f) {
+            const float ux = dx / dl2, uy = dy / dl2;
+            const float hb = len * 0.24f, spread = 0.5f;
+            dl->AddLine(end, ImVec2(end.x - ux * hb - uy * hb * spread,
+                                    end.y - uy * hb + ux * hb * spread), col, w);
+            dl->AddLine(end, ImVec2(end.x - ux * hb + uy * hb * spread,
+                                    end.y - uy * hb - ux * hb * spread), col, w);
+        }
+    };
+
+    struct FootGizmo { const char* name; int toeBase; int d0; int d1; int d2; int validSlot;
+                       float ax; ImU32 col; };
+    const float sc = ds.y * 0.07f;
+    // Colours picked to NOT collide with anything else on the overlay: the hand
+    // lasers are cyan/green, the crosshair is red, the pale target is yellow.
+    const FootGizmo feet[2] = {
+        { "left foot",  203, 206, 207, 145, 157, ds.x * 0.10f, IM_COL32(255, 60, 255, 255) },
+        { "right foot", 250, 253, 254, 255, 165, ds.x * 0.90f, IM_COL32(255, 130, 20, 255) },
+    };
+    for (int i = 0; i < 2; ++i) {
+        const FootGizmo& f = feet[i];
+        const ImVec2 anchor(f.ax, ds.y * 0.66f);
+        const bool valid = OpenXRManager::Get().GetSharedSlot(f.validSlot) >= 0.5f;
+        dl->AddText(ImVec2(anchor.x - 42.0f, anchor.y + sc + 6.0f), f.col, f.name);
+        if (!valid) {
+            dl->AddText(ImVec2(anchor.x - 42.0f, anchor.y + sc + 20.0f),
+                        IM_COL32(170, 170, 170, 200), "tracker: --");
+            continue;
+        }
+        float toe[3] = { OpenXRManager::Get().GetSharedSlot(f.toeBase),
+                         OpenXRManager::Get().GetSharedSlot(f.toeBase + 1),
+                         OpenXRManager::Get().GetSharedSlot(f.toeBase + 2) };
+        float dor[3] = { OpenXRManager::Get().GetSharedSlot(f.d0),
+                         OpenXRManager::Get().GetSharedSlot(f.d1),
+                         OpenXRManager::Get().GetSharedSlot(f.d2) };
+        if (toe[0]*toe[0] + toe[1]*toe[1] + toe[2]*toe[2] < 0.04f) continue;   // never published
+        // pale T-pose target underneath, bright solved axes on top
+        arrowAt(anchor, tgtToe, sc,        IM_COL32(255, 235, 90, 110), 2.0f);
+        arrowAt(anchor, tgtUp,  sc * 0.7f, IM_COL32(255, 255, 255, 90), 2.0f);
+        arrowAt(anchor, toe,    sc,        f.col, 3.0f);
+        arrowAt(anchor, dor,    sc * 0.7f, (f.col & 0x00FFFFFFu) | 0xB4000000u, 2.0f);
+    }
+    dl->AddText(ImVec2(ds.x * 0.5f - 210.0f, ds.y * 0.95f), IM_COL32(200, 200, 200, 200),
+                "bright = where the game thinks the foot points (long = toes, short = sole normal)   pale = T-pose target");
+}
+
 // The barrel dot, in NDC, for the eye the overlay cannot reach. Written by DrawBarrelCrosshair
 // below; read by the VRCAM eye composite (openxr_capture.cpp) and by the desktop mirror
 // (sync_stereo.cpp). The tick is what makes a stale value harmless: the consumers ignore it once
@@ -1168,6 +1253,18 @@ void DrawVRHandsControls() {
             st.xrWaistTracker = waistTrack ? 1 : 0;
             SetLiveControlsUiState(&st, 1);
         }
+        // fix15: a fast physical foot strike taps the game's NATIVE melee
+        // attack (same RT-impulse channel the VR hand-swing melee uses), so
+        // the hit, damage numbers and armor are all the game's own. The
+        // plugin gates it to empty hands (with a weapon the attack would
+        // fire/swing it instead), on foot, in gameplay.
+        bool kickDmg = st.xrLegKickDamage != 0;
+        if (ImGui::Checkbox("Kicks damage NPCs (empty hands)", &kickDmg)) {
+            st.xrLegKickDamage = kickDmg ? 1 : 0;
+            SetLiveControlsUiState(&st, 1);
+        }
+        ImGui::TextDisabled("Strike fast at an enemy: the kick lands a native melee hit");
+        ImGui::TextDisabled("(damage / numbers / armor). Works with empty hands only.");
         const bool htcxOk = OpenXRManager::Get().HasViveTrackerExtension();
         const bool openvrOk = OpenXRManager::Get().HasOpenVRTrackerSupport();
         if (!htcxOk && !openvrOk) {
@@ -1191,14 +1288,50 @@ void DrawVRHandsControls() {
         }
         ImGui::TextDisabled("Lifts the ankle target off the floor (the puck sits above the sole).");
         if (legChanged) SetLiveControlsUiState(&st, 1);
-        // Foot ROTATION needs no sliders: T-pose auto-calibration measures each
-        // foot tracker against the avatar's feet and solves the correction
-        // automatically, per foot. Saved to vrik_calibration.ini.
-        ImGui::TextDisabled("Foot rotation: set automatically by T-pose auto-calibration.");
+        // fix12: MANUAL per-foot rotation trim, live (the T-pose auto-calibration
+        // still runs underneath; these stack on top of it in world space and are
+        // saved to vrport.ini). Zero = calibration result untouched. Standing
+        // straight, feet together: +yaw turns the toes left, +roll tips the
+        // boot's top to your right, +pitch lifts the toes.
+        // fix14: defaults are the play-tested boot-mesh correction (identical
+        // both feet): roll +90, pitch -45, yaw 0.
+        ImGui::TextUnformatted("Foot rotation trim (deg, live, saved; both feet):");
+        bool adjChanged = false;
+        // fix14: the corrections are identical for left and right, so one set
+        // of sliders drives both feet (R mirrors L below). The per-foot ini
+        // keys still exist -- hand-edit vrport.ini if a foot ever needs to
+        // differ.
+        adjChanged |= ImGui::SliderFloat("Yaw   (+ toes left)",   &st.xrLegAdjYawDegL,   -180.0f, 180.0f, "%.1f");
+        adjChanged |= ImGui::SliderFloat("Roll  (+ top right)",   &st.xrLegAdjRollDegL,  -180.0f, 180.0f, "%.1f");
+        adjChanged |= ImGui::SliderFloat("Pitch (+ toes up)",     &st.xrLegAdjPitchDegL, -180.0f, 180.0f, "%.1f");
+        if (adjChanged) {
+            st.xrLegAdjYawDegR = st.xrLegAdjYawDegL;
+            st.xrLegAdjRollDegR = st.xrLegAdjRollDegL;
+            st.xrLegAdjPitchDegR = st.xrLegAdjPitchDegL;
+        }
+        if (ImGui::Button("Reset foot trim to defaults")) {
+            st.xrLegAdjYawDegL = 0.0f;     // fix14: restore the play-tested
+            st.xrLegAdjRollDegL = 90.0f;   // defaults, not zero (zero leaves the
+            st.xrLegAdjPitchDegL = -45.0f; // boots rolled sideways)
+            st.xrLegAdjYawDegR = 0.0f;
+            st.xrLegAdjRollDegR = 90.0f;
+            st.xrLegAdjPitchDegR = -45.0f;
+            adjChanged = true;
+        }
+        if (adjChanged) SetLiveControlsUiState(&st, 1);
+        ImGui::TextDisabled("Defaults (roll +90, pitch -45, yaw 0) are the verified");
+        ImGui::TextDisabled("correction -- normally leave them alone. Drag while looking");
+        ImGui::TextDisabled("at your feet if you ever need to fine-tune. Order when");
+        ImGui::TextDisabled("combining: yaw, then roll, then pitch.");
         ImGui::TextDisabled("Setup: wake the trackers, put them on, stand straight with feet");
         ImGui::TextDisabled("together facing forward, arms out, and run T-pose auto-calibration.");
         ImGui::TextDisabled("It assigns left/right foot and waist, measures leg length, and sets");
-        ImGui::TextDisabled("each foot's rotation. Waist drives the hips (sitting, crouch, sway).");
+        ImGui::TextDisabled("each foot's base rotation. Waist drives the hips (sitting, crouch, sway).");
+        // Debug: camera-relative axes in the bottom corners of this menu showing
+        // where the game thinks each foot points vs where it should point.
+        ImGui::Checkbox("Tracker orientation debug axes", &g_showTrackerGizmo);
+        ImGui::TextDisabled("Draws where the game thinks each foot points (bright: long = toes,");
+        ImGui::TextDisabled("short = sole normal) against the T-pose target (pale) below.");
     }
 }
 
@@ -1924,6 +2057,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
 
     DrawHandLocatorOverlay();
     DrawBarrelCrosshair();
+    DrawTrackerGizmo();
 
     LiveControlsUiState state{};
     GetLiveControlsUiState(&state);

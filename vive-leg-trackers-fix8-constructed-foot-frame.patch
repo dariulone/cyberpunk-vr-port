@@ -1,0 +1,491 @@
+diff --git a/src/common/shared_slots.h b/src/common/shared_slots.h
+index d489b86..63a37b4 100644
+--- a/src/common/shared_slots.h
++++ b/src/common/shared_slots.h
+@@ -108,10 +108,12 @@
+ //              main.cpp, NO consumer; the snap-puppet-pre-rotation speed gate
+ //              consumed [132..134] briefly -- removed after live test)
+ //  [137..140]  located camera entity-local (writer removed)
+-//  [145]       FinalCamera poison-test counter (removed session 3)
++//  [145]       reclaimed by the tracker debug gizmo (L dorsal z; was: FinalCamera poison
++//              test counter, removed session 3)
+ //  [154..255]  mostly unused, but NOT a blank cheque -- [200..202] carry a right-hand debug
+-//              position read by the overlay and [227..230] an XR pose quaternion read by
+-//              vrik_hook. Check with a grep, not with this comment.
++//              position read by the overlay, [227..230] an XR pose quaternion read by
++//              vrik_hook, [203..207]/[250..255] the tracker debug gizmo and [233..249] the
++//              mount-calibration diagnostics. Check with a grep, not with this comment.
+ //  [154]       left trigger analog (0..1)     plugin -> Smoking CET bridge
+ //  [155]       left grip pressed (0/1)        plugin -> Smoking CET bridge
+ //  [156]       DEBUG logging on (0/1)         plugin -> every CET bridge
+@@ -143,6 +145,28 @@
+ //  [199]      solved-mount publish seq (incremented each solve)  plugin -> openxr
+ //  [208..211] ACTIVE left foot mount quat           openxr -> plugin
+ //  [212..215] ACTIVE right foot mount quat          openxr -> plugin
++//  [233..249] T-pose mount-calibration DIAGNOSTICS  plugin -> openxr
++//             (written on the same falling edge as [191..199]; read at adoption)
++//  [233..236] averaged CONSTRUCTED TARGET L foot orientation (model quat)
++//  [237..240] averaged CONSTRUCTED TARGET R foot orientation
++//  [241..243] measured animation TOE DIRECTION L (model space unit vector)
++//  [244..246] measured animation TOE DIRECTION R
++//  [247]      animation->target correction angle L (deg; 0 with toe (0,0,0)
++//             means no toe bone resolved -> raw animation target was used)
++//  [248]      animation->target correction angle R (deg)
++//  [249]      diag block valid for the last [199] seq (1.0)
++//             ([231..232] stay the legacy hand-shake slots zeroed in present)
++//  [203..207] + [145], [250..255] TRACKER ORIENTATION DEBUG GIZMO  plugin -> overlay
++//             (published every frame a foot tracker drives the foot; the F10
++//             overlay's "tracker orientation debug axes" checkbox draws them)
++//  [203..205] SOLVED left foot VISUAL TOE direction (model space unit vector)
++//  [206..207] + [145] SOLVED left foot VISUAL DORSAL direction (sole normal)
++//  [250..252] SOLVED right foot VISUAL TOE direction
++//  [253..255] SOLVED right foot VISUAL DORSAL direction
++//             ([203..207] were free; [145] and [250..255] reclaimed graveyard --
++//             [145] was the removed FinalCamera poison counter, [250..255] never
++//             used. Visual axes = footTrackRot * bone-local toe/dorsal constants;
++//             the overlay draws them next to the ground-truth target frame.)
+ //             ([190..199]/[208..215] ride the tracker feature; read raw, they
+ //             change at calibration time only. The plugin solves each mount
+ //             against the pristine animation feet during the T-pose window --
+@@ -199,4 +223,17 @@ constexpr int kMountSolveR       = 195;   // ..198: plugin-solved R mount quat
+ constexpr int kMountSolveSeq     = 199;
+ constexpr int kLegMountQuatL     = 208;   // ..211: ACTIVE L mount quat
+ constexpr int kLegMountQuatR     = 212;   // ..215: ACTIVE R mount quat
++constexpr int kMountDiagTgtL     = 233;   // ..236: averaged straightened target L
++constexpr int kMountDiagTgtR     = 237;   // ..240: averaged straightened target R
++constexpr int kMountDiagToeL     = 241;   // ..243: animation toe direction L
++constexpr int kMountDiagToeR     = 244;   // ..246: animation toe direction R
++constexpr int kMountDiagYawL     = 247;   // animation->target correction L (deg)
++constexpr int kMountDiagYawR     = 248;   // animation->target correction R (deg)
++constexpr int kMountDiagValid    = 249;
++// Tracker orientation debug gizmo (plugin -> overlay, every tracked frame).
++constexpr int kGizmoToeL         = 203;   // ..205: solved L visual toe dir
++constexpr int kGizmoDorsL        = 206;   // ..207 + [145]: solved L visual dorsal dir
++constexpr int kGizmoDorsLz       = 145;
++constexpr int kGizmoToeR         = 250;   // ..252: solved R visual toe dir
++constexpr int kGizmoDorsR        = 253;   // ..255: solved R visual dorsal dir
+ } // namespace vrshared
+diff --git a/src/red4ext_plugin/main.cpp b/src/red4ext_plugin/main.cpp
+index 07030ae..7bc48cf 100644
+--- a/src/red4ext_plugin/main.cpp
++++ b/src/red4ext_plugin/main.cpp
+@@ -484,6 +484,13 @@ volatile int       g_VRRightLegIdx      = -1; // RightLeg  (knee)
+ volatile int       g_VRLeftLegIdx       = -1; // LeftLeg   (knee)
+ volatile int       g_VRRightFootIdx     = -1; // RightFoot
+ volatile int       g_VRLeftFootIdx      = -1; // LeftFoot
++// Toe bones (RightToeBase/LeftToeBase on the player rig): the T-pose foot-mount
++// calibration measures the animation TOE DIRECTION from FK positions (toe minus
++// foot) -- a convention-free way to know which way the foot visually points, no
++// assumption about foot-bone axes. -1 = unresolved (calibration falls back to
++// matching the raw animation foot orientation).
++volatile int       g_VRRightToeIdx      = -1; // RightToeBase
++volatile int       g_VRLeftToeIdx       = -1; // LeftToeBase
+ volatile int       g_VRNeckIdx          = -1; // Neck (base of the neck, for the spine curve)
+ volatile int       g_VRNeck1Idx         = -1; // Neck1 (upper neck, if present)
+ 
+@@ -4563,6 +4570,18 @@ static int VRIK_DoArmPlayer() {
+                 if (EqualsInsensitive(nm, "LeftLeg"))      g_VRLeftLegIdx    = static_cast<int>(i);
+                 if (EqualsInsensitive(nm, "RightFoot"))    g_VRRightFootIdx  = static_cast<int>(i);
+                 if (EqualsInsensitive(nm, "LeftFoot"))     g_VRLeftFootIdx   = static_cast<int>(i);
++                // Toe bones for the T-pose foot-rotation calibration (toe direction from FK
++                // positions). Exact deform names always win; the fallback takes any short
++                // "toe" bone of the right side that is not a control joint ('_') or a chain
++                // tip ("end") -- same conservative filter as the finger capture below.
++                if (EqualsInsensitive(nm, "RightToeBase")) g_VRRightToeIdx   = static_cast<int>(i);
++                if (EqualsInsensitive(nm, "LeftToeBase"))  g_VRLeftToeIdx    = static_cast<int>(i);
++                if (g_VRRightToeIdx < 0 && ContainsInsensitive(nm, "toe") && ContainsInsensitive(nm, "right")
++                    && !ContainsInsensitive(nm, "_") && !ContainsInsensitive(nm, "end"))
++                    g_VRRightToeIdx = static_cast<int>(i);
++                if (g_VRLeftToeIdx < 0 && ContainsInsensitive(nm, "toe") && ContainsInsensitive(nm, "left")
++                    && !ContainsInsensitive(nm, "_") && !ContainsInsensitive(nm, "end"))
++                    g_VRLeftToeIdx = static_cast<int>(i);
+                 if (EqualsInsensitive(nm, "Hips"))         g_VRHipsIdx       = static_cast<int>(i);
+                 if (EqualsInsensitive(nm, "Neck"))         g_VRNeckIdx       = static_cast<int>(i);
+                 if (EqualsInsensitive(nm, "Neck1"))        g_VRNeck1Idx      = static_cast<int>(i);
+@@ -5996,6 +6015,7 @@ static void WriteVRDiagCore(float camX, float camY, float camZ,
+         out << "lowerbody idx: hips=" << g_VRHipsIdx
+             << " rUpLeg=" << g_VRRightUpLegIdx << " rLeg=" << g_VRRightLegIdx << " rFoot=" << g_VRRightFootIdx
+             << " lUpLeg=" << g_VRLeftUpLegIdx << " lLeg=" << g_VRLeftLegIdx << " lFoot=" << g_VRLeftFootIdx
++            << " rToe=" << g_VRRightToeIdx << " lToe=" << g_VRLeftToeIdx
+             << " neck=" << g_VRNeckIdx << "\n";
+         auto pfk = [&](int idx, const char* nm) {
+             if (idx >= 0 && idx < 256)
+@@ -6005,6 +6025,7 @@ static void WriteVRDiagCore(float camX, float camY, float camZ,
+         };
+         pfk(g_VRHipsIdx, "Hips"); pfk(g_VRRightUpLegIdx, "RUpLeg"); pfk(g_VRRightLegIdx, "RLeg"); pfk(g_VRRightFootIdx, "RFoot");
+         pfk(g_VRLeftUpLegIdx, "LUpLeg"); pfk(g_VRLeftLegIdx, "LLeg"); pfk(g_VRLeftFootIdx, "LFoot");
++        pfk(g_VRRightToeIdx, "RToe"); pfk(g_VRLeftToeIdx, "LToe");
+ 
+         // Current avatar arm length in FK (post-scale) vs the target userArmLen -- if these don't
+         // match, the bicep/forearm scaling isn't reaching the user's real arm length.
+diff --git a/src/red4ext_plugin/vrik/vrik_hook.h b/src/red4ext_plugin/vrik/vrik_hook.h
+index 77985ed..d0b3a86 100644
+--- a/src/red4ext_plugin/vrik/vrik_hook.h
++++ b/src/red4ext_plugin/vrik/vrik_hook.h
+@@ -163,6 +163,8 @@ extern volatile int       g_VRRightLegIdx;       // RightLeg (knee)
+ extern volatile int       g_VRLeftLegIdx;        // LeftLeg  (knee)
+ extern volatile int       g_VRRightFootIdx;      // RightFoot
+ extern volatile int       g_VRLeftFootIdx;       // LeftFoot
++extern volatile int       g_VRRightToeIdx;       // RightToeBase (foot-mount calibration toe dir)
++extern volatile int       g_VRLeftToeIdx;        // LeftToeBase  (-1 = unresolved)
+ extern volatile int       g_VRNeckIdx;           // Neck
+ extern volatile int       g_VRNeck1Idx;          // Neck1
+ extern volatile int       g_VRLeftBoneIdx;       // default 23 (LeftHand)
+@@ -2010,39 +2012,154 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+     }
+     const bool anyTrack = trackR || trackL;
+ 
++    // FOOT VISUAL AXES (bone->visual map). The foot BONE's axes are a rig
++    // convention, not the visual foot -- the calibration's job is to hide that.
++    // From one coherent FK we recover the two skeleton CONSTANTS:
++    //   t_b = bone-local TOE direction    (toe bone pos - foot bone pos)
++    //   u_b = bone-local DORSAL direction (shin axis, component perpendicular
++    //         to the toe -- the shin (ankle->knee) lies in the foot's sagittal
++    //         plane, so its toe-perpendicular part points out the top of the foot)
++    // They are pose-independent anatomy: any coherent FK yields the same
++    // constants, even if that pose's foot ORIENTATION is pre-IK weirdness --
++    // positions and orientations come from the same evaluation, so a twisted
++    // sampled pose twists the toe position along with the bone frame and the
++    // recovered constants are unaffected.
++    auto footVisual = [&](int boneIdx, int kneeIdx, int toeIdx, float* tB, float* uB) -> bool {
++        if (boneIdx < 0 || boneIdx >= VRIK_MAX_BONES) return false;
++        if (toeIdx < 0 || toeIdx >= VRIK_MAX_BONES) return false;
++        float tm[3] = { g_fkPos[toeIdx][0] - g_fkPos[boneIdx][0],
++                        g_fkPos[toeIdx][1] - g_fkPos[boneIdx][1],
++                        g_fkPos[toeIdx][2] - g_fkPos[boneIdx][2] };
++        if (VRIK_Norm3(tm) < 1e-5f) return false;
++        float dm[3] = { 0.0f, 0.0f, 1.0f };   // dorsal fallback: world up
++        if (kneeIdx >= 0 && kneeIdx < VRIK_MAX_BONES) {
++            float sh[3] = { g_fkPos[kneeIdx][0] - g_fkPos[boneIdx][0],
++                            g_fkPos[kneeIdx][1] - g_fkPos[boneIdx][1],
++                            g_fkPos[kneeIdx][2] - g_fkPos[boneIdx][2] };
++            if (VRIK_Norm3(sh) > 1e-5f) {
++                const float d = VRIK_Dot3(sh, tm);
++                dm[0] = sh[0] - tm[0]*d; dm[1] = sh[1] - tm[1]*d; dm[2] = sh[2] - tm[2]*d;
++                if (VRIK_Norm3(dm) < 1e-4f) { dm[0]=0.0f; dm[1]=0.0f; dm[2]=1.0f; }
++            }
++        }
++        const float* R = g_fkRot[boneIdx];
++        const float Rc[4] = { -R[0], -R[1], -R[2], R[3] };
++        VRIK_QuatRotateVec(Rc, tm, tB); VRIK_Norm3(tB);
++        VRIK_QuatRotateVec(Rc, dm, uB); VRIK_Norm3(uB);
++        return true;
++    };
++
++    // TRACKER ORIENTATION DEBUG GIZMO (overlay reads [203..207]/[145]/[250..255]):
++    // publish the SOLVED foot's VISUAL axes (toe + dorsal directions of
++    // footTrackRot) every frame, so the F10 overlay can draw "where the game
++    // thinks each foot points" next to the ground-truth target. Diagnostics
++    // only -- no behavioural effect.
++    if (g_pSharedHands && anyTrack) {
++        float tB[3], uB[3], tv[3], dv[3];
++        if (trackL && footVisual(g_VRLeftFootIdx, g_VRLeftLegIdx, g_VRLeftToeIdx, tB, uB)) {
++            VRIK_QuatRotateVec(footTrackRotL, tB, tv); VRIK_Norm3(tv);
++            VRIK_QuatRotateVec(footTrackRotL, uB, dv); VRIK_Norm3(dv);
++            g_pSharedHands[203] = tv[0]; g_pSharedHands[204] = tv[1]; g_pSharedHands[205] = tv[2];
++            g_pSharedHands[206] = dv[0]; g_pSharedHands[207] = dv[1]; g_pSharedHands[145] = dv[2];
++        }
++        if (trackR && footVisual(g_VRRightFootIdx, g_VRRightLegIdx, g_VRRightToeIdx, tB, uB)) {
++            VRIK_QuatRotateVec(footTrackRotR, tB, tv); VRIK_Norm3(tv);
++            VRIK_QuatRotateVec(footTrackRotR, uB, dv); VRIK_Norm3(dv);
++            g_pSharedHands[250] = tv[0]; g_pSharedHands[251] = tv[1]; g_pSharedHands[252] = tv[2];
++            g_pSharedHands[253] = dv[0]; g_pSharedHands[254] = dv[1]; g_pSharedHands[255] = dv[2];
++        }
++    }
++
+     // ---- T-POSE FOOT-ROTATION CALIBRATION SAMPLER ----------------------------
+     // While the stereo side runs its T-pose sample window it raises [190].
+     // Each frame we solve the tracker-local mount correction that maps the
+-    // CURRENT tracker orientation onto the CURRENT pristine-animation foot
+-    // bone orientation:  S = (camModelRot * map(lq))^-1 * animFootModelRot.
+-    // The user stands straight, feet forward -- the pose where the real feet
+-    // and the avatar's animation feet agree -- so the averaged S makes the
+-    // tracked foot match the T-pose exactly, for EACH foot independently.
++    // CURRENT tracker orientation onto the DESIRED foot orientation:
++    //   S = (camModelRot * map(lq))^-1 * T_desired.
++    //
++    // T_desired is NOT the raw animation foot orientation. The pose readable
++    // at this point is the engine's PRE-IK animation: the game's own foot IK
++    // plants the feet flat on the ground AFTER we sample, so the sampled foot
++    // orientation can be twisted/pitched in ways the rendered avatar never
++    // shows. Matching it (fix6) or yaw-straightening it (fix7) still anchored
++    // on a pose that isn't what the user sees. The calibration contract is
++    // the T-pose itself: toes where the user faces, soles flat on the ground.
++    // So T_desired is CONSTRUCTED: R_des maps the skeleton's bone-local toe
++    // direction to bodyFwd and the bone-local dorsal direction to +Z (see
++    // footVisual above) -- full three-axis, convention-free, independent of
++    // whatever the pre-IK animation is doing. Without resolved toe bones we
++    // keep the raw animation orientation (pre-fix6 behaviour) and the
++    // diagnostic log says so.
++    //
+     // Published to [191..199] on the falling edge; the stereo side adopts,
+     // persists (vrik_calibration.ini) and republishes the ACTIVE mounts on
+-    // [208..215]. g_fkRot at this point is still this frame's untouched
+-    // animation pose (same assumption as the foot-position capture above).
++    // [208..215]. Diagnostics (the averaged target, the measured toe
++    // directions, the applied yaw corrections) go to [233..249] so the
++    // adoption log shows exactly what was solved. g_fkRot/g_fkPos at this
++    // point are still this frame's untouched animation pose (same assumption
++    // as the foot-position capture above).
+     if (g_pSharedHands) {
+         static bool  s_mntWas = false;
+         static float s_mntAccL[4] = {0,0,0,0}, s_mntAccR[4] = {0,0,0,0};
+         static int   s_mntNL = 0, s_mntNR = 0;
++        static float s_tgtAccL[4] = {0,0,0,0}, s_tgtAccR[4] = {0,0,0,0};  // diag: averaged T_desired
++        static float s_toeAccL[3] = {0,0,0}, s_toeAccR[3] = {0,0,0};      // diag: averaged anim toe dir
++        static float s_yawAccL = 0.0f, s_yawAccR = 0.0f;                  // diag: averaged yawCorr (deg)
+         if (g_pSharedHands[190] == 1.0f && trackAnchor && SharedLeg(173) == 1.0f) {
+-            auto sampleFoot = [&](int base, int boneIdx, float* acc, int& n) {
++            auto sampleFoot = [&](int base, int boneIdx, int kneeIdx, int toeIdx, float* acc, int& n,
++                                  float* tgtAcc, float* toeAcc, float& yawAcc) {
+                 if (SharedLeg(base) != 1.0f) return;
+                 if (boneIdx < 0 || boneIdx >= VRIK_MAX_BONES) return;
+                 float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
+                 float M[4]; VRIK_QuatMul(camModelRot, lq, M); VRIK_QuatNorm(M);
++
++                // Desired orientation: CONSTRUCTED ground frame, not the sampled
++                // animation pose. The pose readable here is the PRE-IK animation:
++                // the engine's own foot IK plants the feet flat AFTER this point,
++                // so the foot orientation we sample can be twisted/pitched in ways
++                // the rendered avatar never shows -- matching it baked exactly that
++                // into the mounts (feet wrong on all three axes). The calibration
++                // contract is the user's T-pose instead: toes where you face, sole
++                // flat on the ground. Built from the pose-independent bone->visual
++                // map (footVisual above): R_des maps t_b -> bodyFwd, u_b -> +Z.
++                float T[4] = { g_fkRot[boneIdx][0], g_fkRot[boneIdx][1], g_fkRot[boneIdx][2], g_fkRot[boneIdx][3] };
++                float toeDir[3] = { 0.0f, 0.0f, 0.0f };
++                float yawDeg = 0.0f;   // |angle| = T_anim -> R_des correction; sign: + full, - yaw-only
++                float tB[3], uB[3];
++                if (footVisual(boneIdx, kneeIdx, toeIdx, tB, uB)) {
++                    // toe direction in model space (diagnostic): t_model = T_anim * t_b
++                    VRIK_QuatRotateVec(T, tB, toeDir); VRIK_Norm3(toeDir);
++                    const float upZ[3] = { 0.0f, 0.0f, 1.0f };
++                    float Rd[4];
++                    VRIK_QuatAlignTwo(tB, uB, bodyFwd, upZ, Rd);   // toes -> fwd, dorsal -> +Z
++                    // correction angle (any axis) between the raw animation and the target
++                    float dd = T[0]*Rd[0] + T[1]*Rd[1] + T[2]*Rd[2] + T[3]*Rd[3];
++                    if (dd < 0.0f) dd = -dd;
++                    if (dd > 1.0f) dd = 1.0f;
++                    yawDeg = 2.0f * std::acos(dd) * 57.2957795f;   // positive = full construction
++                    T[0]=Rd[0]; T[1]=Rd[1]; T[2]=Rd[2]; T[3]=Rd[3];
++                }
++
+                 const float Minv[4] = { -M[0], -M[1], -M[2], M[3] };
+-                float S[4]; VRIK_QuatMul(Minv, g_fkRot[boneIdx], S); VRIK_QuatNorm(S);
+-                if (n > 0) {   // hemisphere-fix against the running sum
++                float S[4]; VRIK_QuatMul(Minv, T, S); VRIK_QuatNorm(S);
++                const bool haveVis = (toeDir[0] != 0.0f || toeDir[1] != 0.0f || toeDir[2] != 0.0f);
++                if (n > 0) {   // hemisphere-fix quats against the running sums
+                     const float d = acc[0]*S[0] + acc[1]*S[1] + acc[2]*S[2] + acc[3]*S[3];
+                     if (d < 0.0f) { S[0]=-S[0]; S[1]=-S[1]; S[2]=-S[2]; S[3]=-S[3]; }
++                    const float dt = tgtAcc[0]*T[0] + tgtAcc[1]*T[1] + tgtAcc[2]*T[2] + tgtAcc[3]*T[3];
++                    if (dt < 0.0f) { T[0]=-T[0]; T[1]=-T[1]; T[2]=-T[2]; T[3]=-T[3]; }
++                    if (haveVis) {
++                        const float dv = toeAcc[0]*toeDir[0] + toeAcc[1]*toeDir[1] + toeAcc[2]*toeDir[2];
++                        if (dv < 0.0f) { toeDir[0]=-toeDir[0]; toeDir[1]=-toeDir[1]; toeDir[2]=-toeDir[2]; }
++                    }
+                 }
+                 acc[0]+=S[0]; acc[1]+=S[1]; acc[2]+=S[2]; acc[3]+=S[3];
++                tgtAcc[0]+=T[0]; tgtAcc[1]+=T[1]; tgtAcc[2]+=T[2]; tgtAcc[3]+=T[3];
++                if (haveVis) { toeAcc[0]+=toeDir[0]; toeAcc[1]+=toeDir[1]; toeAcc[2]+=toeDir[2]; }
++                yawAcc += yawDeg;
+                 ++n;
+             };
+-            sampleFoot(157, g_VRLeftFootIdx,  s_mntAccL, s_mntNL);
+-            sampleFoot(165, g_VRRightFootIdx, s_mntAccR, s_mntNR);
++            sampleFoot(157, g_VRLeftFootIdx,  g_VRLeftLegIdx,  g_VRLeftToeIdx,  s_mntAccL, s_mntNL, s_tgtAccL, s_toeAccL, s_yawAccL);
++            sampleFoot(165, g_VRRightFootIdx, g_VRRightLegIdx, g_VRRightToeIdx, s_mntAccR, s_mntNR, s_tgtAccR, s_toeAccR, s_yawAccR);
+             s_mntWas = true;
+         } else if (s_mntWas) {
+             // Falling edge: publish the averaged solve. An under-sampled foot
+@@ -2064,11 +2181,45 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+             };
+             publishFoot(191, 208, s_mntAccL, s_mntNL);
+             publishFoot(195, 212, s_mntAccR, s_mntNR);
+-            g_pSharedHands[199] = g_pSharedHands[199] + 1.0f;   // publish seq
++
++            // Diagnostics for the stereo-side adoption log ([233..249]): the
++            // constructed target actually solved against, the measured
++            // animation toe directions, and the T_anim -> target correction
++            // angle (deg; positive = full ground-frame construction, 0 with
++            // toe dir (0,0,0) = no toe bone, raw animation target was used).
++            // Pure diagnostics -- no behavioural effect.
++            auto publishDiag = [&](int slotT, int slotToe, int slotYaw,
++                                   float* tgtAcc, float* toeAcc, float yawAcc, int n) {
++                float t[4] = {0,0,0,1}; float td[3] = {0,0,0}; float yd = 0.0f;
++                if (n >= 20) {
++                    t[0]=tgtAcc[0]; t[1]=tgtAcc[1]; t[2]=tgtAcc[2]; t[3]=tgtAcc[3];
++                    VRIK_QuatNorm(t);
++                    const float tl = std::sqrt(toeAcc[0]*toeAcc[0] + toeAcc[1]*toeAcc[1] + toeAcc[2]*toeAcc[2]);
++                    if (tl > 1e-5f) { td[0]=toeAcc[0]/tl; td[1]=toeAcc[1]/tl; td[2]=toeAcc[2]/tl; }
++                    yd = yawAcc / static_cast<float>(n);
++                }
++                g_pSharedHands[slotT]   = t[0];  g_pSharedHands[slotT+1] = t[1];
++                g_pSharedHands[slotT+2] = t[2];  g_pSharedHands[slotT+3] = t[3];
++                g_pSharedHands[slotToe]   = td[0]; g_pSharedHands[slotToe+1] = td[1];
++                g_pSharedHands[slotToe+2] = td[2];
++                g_pSharedHands[slotYaw] = yd;
++            };
++            publishDiag(233, 241, 247, s_tgtAccL, s_toeAccL, s_yawAccL, s_mntNL);
++            publishDiag(237, 244, 248, s_tgtAccR, s_toeAccR, s_yawAccR, s_mntNR);
++            g_pSharedHands[249] = 1.0f;   // diag block valid for the seq about to bump
++            // Publish seq LAST: the stereo side adopts on the seq change, so the
++            // mounts AND the diagnostics must already be in place when it reads.
++            g_pSharedHands[199] = g_pSharedHands[199] + 1.0f;
++
+             s_mntWas = false;
+             s_mntNL = s_mntNR = 0;
+             s_mntAccL[0]=s_mntAccL[1]=s_mntAccL[2]=s_mntAccL[3]=0.0f;
+             s_mntAccR[0]=s_mntAccR[1]=s_mntAccR[2]=s_mntAccR[3]=0.0f;
++            s_tgtAccL[0]=s_tgtAccL[1]=s_tgtAccL[2]=s_tgtAccL[3]=0.0f;
++            s_tgtAccR[0]=s_tgtAccR[1]=s_tgtAccR[2]=s_tgtAccR[3]=0.0f;
++            s_toeAccL[0]=s_toeAccL[1]=s_toeAccL[2]=0.0f;
++            s_toeAccR[0]=s_toeAccR[1]=s_toeAccR[2]=0.0f;
++            s_yawAccL = s_yawAccR = 0.0f;
+         }
+     }
+ 
+diff --git a/src/vr/openxr/openxr_manager.cpp b/src/vr/openxr/openxr_manager.cpp
+index 182f471..8454b80 100644
+--- a/src/vr/openxr/openxr_manager.cpp
++++ b/src/vr/openxr/openxr_manager.cpp
+@@ -1542,8 +1542,9 @@ void OpenXRManager::FlushHandsToShared() {
+     sShared[189] = (m_waistTrackerEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+ 
+     // [190] T-pose mount-calibration sampling flag (openxr -> plugin). While
+-    // high, the plugin solves per-foot mount corrections against the pristine
+-    // animation feet; on the falling edge it publishes them to [191..199].
++    // high, the plugin solves per-foot mount corrections against the
++    // yaw-straightened animation feet (toes forced to bodyFwd); on the falling
++    // edge it publishes them to [191..199] plus diagnostics on [233..249].
+     sShared[190] = (m_mountCalibSampling.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+ 
+     // Adopt the plugin's foot-rotation solve (runs in the short window after
+@@ -1569,6 +1570,24 @@ void OpenXRManager::FlushHandsToShared() {
+                 m_legMountQuatL[2].load(std::memory_order_relaxed), m_legMountQuatL[3].load(std::memory_order_relaxed),
+                 m_legMountQuatR[0].load(std::memory_order_relaxed), m_legMountQuatR[1].load(std::memory_order_relaxed),
+                 m_legMountQuatR[2].load(std::memory_order_relaxed), m_legMountQuatR[3].load(std::memory_order_relaxed));
++            // Solve diagnostics ([233..249]): the CONSTRUCTED ground-frame
++            // target each foot was matched to (toes -> body forward, dorsal
++            // -> world up, built from the skeleton's toe/shin geometry), the
++            // measured RAW animation toe directions, and how far the raw
++            // animation orientation was from the constructed target.
++            // toe (0,0,0) + angle 0 = no toe bone resolved, raw animation
++            // orientation was used as the target (old behaviour).
++            if (sShared[249] == 1.0f) {
++                Log("Auto-calibration[FBT]: foot-rotation diag -- "
++                    "target L (%.3f, %.3f, %.3f, %.3f) R (%.3f, %.3f, %.3f, %.3f), "
++                    "anim toe L (%.3f, %.3f, %.3f) R (%.3f, %.3f, %.3f), "
++                    "anim-vs-target L %.1f deg R %.1f deg.\n",
++                    sShared[233], sShared[234], sShared[235], sShared[236],
++                    sShared[237], sShared[238], sShared[239], sShared[240],
++                    sShared[241], sShared[242], sShared[243],
++                    sShared[244], sShared[245], sShared[246],
++                    sShared[247], sShared[248]);
++            }
+             SaveCalibrationToFile();
+         } else if (FbtNowSeconds() - m_mountSolveAwaitStart > 2.0) {
+             m_mountSolveAwaiting = false;
+diff --git a/src/vr/overlay/imgui_overlay.cpp b/src/vr/overlay/imgui_overlay.cpp
+index 468044a..cf30f47 100644
+--- a/src/vr/overlay/imgui_overlay.cpp
++++ b/src/vr/overlay/imgui_overlay.cpp
+@@ -604,6 +604,78 @@ void DrawHandLocatorOverlay() {
+     }
+ }
+ 
++// ---- TRACKER ORIENTATION DEBUG GIZMO --------------------------------------
++// The VRIK plugin publishes the SOLVED foot's VISUAL axes -- toe and dorsal
++// (sole-normal) directions of the mount-corrected tracker orientation, model
++// space -- to shared [203..207]/[145] (left) and [250..255] (right) every
++// tracked frame. Drawn camera-relative and orthographic while the F10 menu is
++// open: screen right = the direction's right relative to your view, screen up
++// = its up. The pale pair is the T-pose ground truth: toes = your facing
++// (yellow), sole normal = world up (white). Standing straight after a T-pose
++// calibration, the bright solved arrows should sit exactly on the pale pair;
++// rotating a real foot should rotate the bright arrows 1:1.
++static bool g_showTrackerGizmo = false;
++void DrawTrackerGizmo() {
++    if (!g_menuVisible || !g_showTrackerGizmo) return;
++    if (OpenXRManager::Get().GetSharedSlot(173) < 0.5f) return;   // body tracking off
++    ImDrawList* dl = ImGui::GetForegroundDrawList();
++    if (!dl) return;
++    const ImVec2 ds = ImGui::GetIO().DisplaySize;
++    if (ds.x <= 1.0f || ds.y <= 1.0f) return;
++
++    const float cqx = g_lastLocateQuat[0], cqy = g_lastLocateQuat[1],
++                cqz = g_lastLocateQuat[2], cqw = g_lastLocateQuat[3];
++
++    // Ground target in model space: forward = the camera's horizontal facing
++    // (same construction as the plugin's bodyFwd), up = +Z.
++    float fwx = 0.0f, fwy = 1.0f, fwz = 0.0f;
++    RotateVectorByQuaternion(0.0f, 1.0f, 0.0f, cqx, cqy, cqz, cqw, &fwx, &fwy, &fwz);
++    const float fl = sqrtf(fwx * fwx + fwy * fwy);
++    const float tgtToe[3] = { (fl > 1e-4f) ? fwx / fl : 0.0f, (fl > 1e-4f) ? fwy / fl : 1.0f, 0.0f };
++    const float tgtUp[3]  = { 0.0f, 0.0f, 1.0f };
++
++    auto arrowAt = [&](const ImVec2& anchor, const float* dir, float len, ImU32 col, float w) {
++        float lx = 0.0f, ly = 0.0f, lz = 0.0f;
++        RotateVectorByQuaternion(dir[0], dir[1], dir[2], -cqx, -cqy, -cqz, cqw, &lx, &ly, &lz);
++        const ImVec2 end(anchor.x + lx * len, anchor.y - lz * len);
++        dl->AddLine(anchor, end, col, w);
++        dl->AddCircleFilled(end, w * 1.7f, col);
++    };
++
++    struct FootGizmo { const char* name; int toeBase; int d0; int d1; int d2; int validSlot;
++                       float ax; ImU32 col; };
++    const float sc = ds.y * 0.07f;
++    const FootGizmo feet[2] = {
++        { "left foot",  203, 206, 207, 145, 157, ds.x * 0.10f, IM_COL32(0, 210, 255, 255) },
++        { "right foot", 250, 253, 254, 255, 165, ds.x * 0.90f, IM_COL32(255, 160, 60, 255) },
++    };
++    for (int i = 0; i < 2; ++i) {
++        const FootGizmo& f = feet[i];
++        const ImVec2 anchor(f.ax, ds.y * 0.86f);
++        const bool valid = OpenXRManager::Get().GetSharedSlot(f.validSlot) >= 0.5f;
++        dl->AddText(ImVec2(anchor.x - 42.0f, anchor.y + sc + 6.0f), f.col, f.name);
++        if (!valid) {
++            dl->AddText(ImVec2(anchor.x - 42.0f, anchor.y + sc + 20.0f),
++                        IM_COL32(170, 170, 170, 200), "tracker: --");
++            continue;
++        }
++        float toe[3] = { OpenXRManager::Get().GetSharedSlot(f.toeBase),
++                         OpenXRManager::Get().GetSharedSlot(f.toeBase + 1),
++                         OpenXRManager::Get().GetSharedSlot(f.toeBase + 2) };
++        float dor[3] = { OpenXRManager::Get().GetSharedSlot(f.d0),
++                         OpenXRManager::Get().GetSharedSlot(f.d1),
++                         OpenXRManager::Get().GetSharedSlot(f.d2) };
++        if (toe[0]*toe[0] + toe[1]*toe[1] + toe[2]*toe[2] < 0.04f) continue;   // never published
++        // pale T-pose target underneath, bright solved axes on top
++        arrowAt(anchor, tgtToe, sc,        IM_COL32(255, 235, 90, 110), 2.0f);
++        arrowAt(anchor, tgtUp,  sc * 0.7f, IM_COL32(255, 255, 255, 90), 2.0f);
++        arrowAt(anchor, toe,    sc,        f.col, 3.0f);
++        arrowAt(anchor, dor,    sc * 0.7f, (f.col & 0x00FFFFFFu) | 0xB4000000u, 2.0f);
++    }
++    dl->AddText(ImVec2(ds.x * 0.5f - 210.0f, ds.y * 0.95f), IM_COL32(200, 200, 200, 200),
++                "bright = where the game thinks the foot points (long = toes, short = sole normal)   pale = T-pose target");
++}
++
+ // The barrel dot, in NDC, for the eye the overlay cannot reach. Written by DrawBarrelCrosshair
+ // below; read by the VRCAM eye composite (openxr_capture.cpp) and by the desktop mirror
+ // (sync_stereo.cpp). The tick is what makes a stale value harmless: the consumers ignore it once
+@@ -1199,6 +1271,11 @@ void DrawVRHandsControls() {
+         ImGui::TextDisabled("together facing forward, arms out, and run T-pose auto-calibration.");
+         ImGui::TextDisabled("It assigns left/right foot and waist, measures leg length, and sets");
+         ImGui::TextDisabled("each foot's rotation. Waist drives the hips (sitting, crouch, sway).");
++        // Debug: camera-relative axes in the bottom corners of this menu showing
++        // where the game thinks each foot points vs where it should point.
++        ImGui::Checkbox("Tracker orientation debug axes", &g_showTrackerGizmo);
++        ImGui::TextDisabled("Draws where the game thinks each foot points (bright: long = toes,");
++        ImGui::TextDisabled("short = sole normal) against the T-pose target (pale) below.");
+     }
+ }
+ 
+@@ -1924,6 +2001,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
+ 
+     DrawHandLocatorOverlay();
+     DrawBarrelCrosshair();
++    DrawTrackerGizmo();
+ 
+     LiveControlsUiState state{};
+     GetLiveControlsUiState(&state);

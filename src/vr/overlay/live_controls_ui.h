@@ -124,6 +124,21 @@ struct LiveControlsUiState {
     float xrLegMountPitchDeg;
     float xrLegMountYawDeg;
     float xrLegMountRollDeg;
+    // fix12: per-foot manual rotation trim (deg), stacked on the calibrated
+    // mount by the stereo side at publish time, in world space: yaw about
+    // world up (+ = toes turn left), roll about body forward (+ = tips the
+    // boot's top to your right), pitch about body right (+ = toes up).
+    // Zero = calibration result untouched. F10 -> VRIK tab, live.
+    float xrLegAdjYawDegL;
+    float xrLegAdjRollDegL;
+    float xrLegAdjPitchDegL;
+    float xrLegAdjYawDegR;
+    float xrLegAdjRollDegR;
+    float xrLegAdjPitchDegR;
+    // fix15: 1 = a fast physical foot strike taps the native melee attack
+    // (shared[29] RT impulse) so kicks damage NPCs with the game's own
+    // damage/numbers/armor. Empty hands only (the plugin gates it). 0 default.
+    int xrLegKickDamage;
 };
 
 extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState);

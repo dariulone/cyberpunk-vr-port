@@ -484,6 +484,13 @@ volatile int       g_VRRightLegIdx      = -1; // RightLeg  (knee)
 volatile int       g_VRLeftLegIdx       = -1; // LeftLeg   (knee)
 volatile int       g_VRRightFootIdx     = -1; // RightFoot
 volatile int       g_VRLeftFootIdx      = -1; // LeftFoot
+// Toe bones (RightToeBase/LeftToeBase on the player rig): the T-pose foot-mount
+// calibration measures the animation TOE DIRECTION from FK positions (toe minus
+// foot) -- a convention-free way to know which way the foot visually points, no
+// assumption about foot-bone axes. -1 = unresolved (calibration falls back to
+// matching the raw animation foot orientation).
+volatile int       g_VRRightToeIdx      = -1; // RightToeBase
+volatile int       g_VRLeftToeIdx       = -1; // LeftToeBase
 volatile int       g_VRNeckIdx          = -1; // Neck (base of the neck, for the spine curve)
 volatile int       g_VRNeck1Idx         = -1; // Neck1 (upper neck, if present)
 
@@ -4563,6 +4570,18 @@ static int VRIK_DoArmPlayer() {
                 if (EqualsInsensitive(nm, "LeftLeg"))      g_VRLeftLegIdx    = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "RightFoot"))    g_VRRightFootIdx  = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "LeftFoot"))     g_VRLeftFootIdx   = static_cast<int>(i);
+                // Toe bones for the T-pose foot-rotation calibration (toe direction from FK
+                // positions). Exact deform names always win; the fallback takes any short
+                // "toe" bone of the right side that is not a control joint ('_') or a chain
+                // tip ("end") -- same conservative filter as the finger capture below.
+                if (EqualsInsensitive(nm, "RightToeBase")) g_VRRightToeIdx   = static_cast<int>(i);
+                if (EqualsInsensitive(nm, "LeftToeBase"))  g_VRLeftToeIdx    = static_cast<int>(i);
+                if (g_VRRightToeIdx < 0 && ContainsInsensitive(nm, "toe") && ContainsInsensitive(nm, "right")
+                    && !ContainsInsensitive(nm, "_") && !ContainsInsensitive(nm, "end"))
+                    g_VRRightToeIdx = static_cast<int>(i);
+                if (g_VRLeftToeIdx < 0 && ContainsInsensitive(nm, "toe") && ContainsInsensitive(nm, "left")
+                    && !ContainsInsensitive(nm, "_") && !ContainsInsensitive(nm, "end"))
+                    g_VRLeftToeIdx = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "Hips"))         g_VRHipsIdx       = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "Neck"))         g_VRNeckIdx       = static_cast<int>(i);
                 if (EqualsInsensitive(nm, "Neck1"))        g_VRNeck1Idx      = static_cast<int>(i);
@@ -5996,6 +6015,7 @@ static void WriteVRDiagCore(float camX, float camY, float camZ,
         out << "lowerbody idx: hips=" << g_VRHipsIdx
             << " rUpLeg=" << g_VRRightUpLegIdx << " rLeg=" << g_VRRightLegIdx << " rFoot=" << g_VRRightFootIdx
             << " lUpLeg=" << g_VRLeftUpLegIdx << " lLeg=" << g_VRLeftLegIdx << " lFoot=" << g_VRLeftFootIdx
+            << " rToe=" << g_VRRightToeIdx << " lToe=" << g_VRLeftToeIdx
             << " neck=" << g_VRNeckIdx << "\n";
         auto pfk = [&](int idx, const char* nm) {
             if (idx >= 0 && idx < 256)
@@ -6005,6 +6025,7 @@ static void WriteVRDiagCore(float camX, float camY, float camZ,
         };
         pfk(g_VRHipsIdx, "Hips"); pfk(g_VRRightUpLegIdx, "RUpLeg"); pfk(g_VRRightLegIdx, "RLeg"); pfk(g_VRRightFootIdx, "RFoot");
         pfk(g_VRLeftUpLegIdx, "LUpLeg"); pfk(g_VRLeftLegIdx, "LLeg"); pfk(g_VRLeftFootIdx, "LFoot");
+        pfk(g_VRRightToeIdx, "RToe"); pfk(g_VRLeftToeIdx, "LToe");
 
         // Current avatar arm length in FK (post-scale) vs the target userArmLen -- if these don't
         // match, the bicep/forearm scaling isn't reaching the user's real arm length.

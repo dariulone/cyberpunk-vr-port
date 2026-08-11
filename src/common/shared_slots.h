@@ -32,7 +32,9 @@
 //  [24..26]   muzzle forward             plugin (SetVRMuzzleQuat) -> overlay
 //  [27]       muzzle valid               plugin -> overlay
 //  [28]       zoom level                 plugin -> overlay
-//  [29]       melee impulse              dxgi reads/decrements
+//  [29]       melee impulse              dxgi reads/decrements (CET weapon mod
+//             pulses it on a VR hand swing; the plugin's kick detector pulses
+//             it on a foot strike -- fix15, gated by [140])
 //  [30]       right trigger held (bool)  dxgi -> plugin native
 //  [31]       in-vehicle flag            dxgi -> plugin hook (arms-only VRIK in vehicles)
 //  [32]       hand-tracking / VRIK bind request   openxr -> plugin
@@ -61,6 +63,11 @@
 //  [104..107] render view quat            dxgi -> hook   (seqlock [143])
 //  [108..110] world translation delta     dxgi -> hook   (seqlock [143])
 //  [111]      view-pose semantics flag (2.0 = delta v2)  dxgi -> hook
+//  [112..114] coherent hand anchor (this-sample head pos)  openxr -> hook
+//  [115]      hand-anchor valid           openxr -> hook
+//             (LIVE since the arm-shake fix -- the graveyard note below
+//             claiming these were the removed view stabilizer was stale;
+//             verified by grep in fix10. Do NOT reclaim.)
 //  [116..119] eye-view offset + valid     plugin (hook) -> dxgi
 //  [120..123] total view offset + valid   dxgi -> hook
 //  [124..126] HMD position                openxr -> hook ([126] is HMD Z!)
@@ -103,15 +110,26 @@
 //              itself and a grip that was never released.
 //  [84]        reclaimed by [CAMWRITE] mode flag (was: never used)
 //  [100..103]  reclaimed by [CAMWRITE] desired quat (was: never used)
-//  [112..115]  old view stabilizer delta+valid (removed session 3)
+//  [112..115]  NOT FREE -- the graveyard note here was stale: this is the
+//             coherent hand anchor (see the LIVE list above), written every
+//             frame by openxr since the arm-shake fix. (Was: old view
+//             stabilizer delta+valid, removed session 3, then reused.)
 //  [132..136]  entity velocity/timestamp extrapolation (writer exists in
 //              main.cpp, NO consumer; the snap-puppet-pre-rotation speed gate
 //              consumed [132..134] briefly -- removed after live test)
-//  [137..140]  located camera entity-local (writer removed)
-//  [145]       FinalCamera poison-test counter (removed session 3)
+//  [137..139]  RECLAIMED (fix10): ACTIVE left foot mount quat, hemisphere-
+//             packed x,y,z (w = +sqrt(1-|xyz|^2) at the reader)  openxr -> plugin
+//             (was: located camera entity-local, writer removed)
+//  [140]       RECLAIMED (fix15): kick-damage enable (vrport.ini
+//             xr_leg_kick_damage, F10 checkbox)  openxr -> plugin
+//             The plugin's kick detector reads it and pulses the melee RT
+//             impulse [29] on a fast foot strike (empty hands, on foot only).
+//  [145]       reclaimed by the tracker debug gizmo (L dorsal z; was: FinalCamera poison
+//              test counter, removed session 3)
 //  [154..255]  mostly unused, but NOT a blank cheque -- [200..202] carry a right-hand debug
-//              position read by the overlay and [227..230] an XR pose quaternion read by
-//              vrik_hook. Check with a grep, not with this comment.
+//              position read by the overlay, [227..230] an XR pose quaternion read by
+//              vrik_hook, [203..207]/[250..255] the tracker debug gizmo and [233..249] the
+//              mount-calibration diagnostics. Check with a grep, not with this comment.
 //  [154]       left trigger analog (0..1)     plugin -> Smoking CET bridge
 //  [155]       left grip pressed (0/1)        plugin -> Smoking CET bridge
 //  [156]       DEBUG logging on (0/1)         plugin -> every CET bridge
@@ -132,22 +150,59 @@
 //  [175]      tracker->ankle vertical offset (m)                openxr -> plugin
 //  [176]      leg calibration valid (0/1)
 //  [177]      connected trackers with a body role (0..3)        openxr -> overlay
-//  [178..180] foot mount correction euler p/y/r (deg)           openxr -> plugin
+//  [178..180] ACTIVE right foot mount quat, hemisphere-packed x,y,z
+//             (fix10; was: foot mount euler sliders, dead since fix6)  openxr -> plugin
 //  [181]      waist tracker valid (0/1)       openxr -> plugin, overlay
 //  [182..184] waist pos (HMD-local, same convention as feet)
 //  [185..188] waist quat
 //  [189]      waist tracker enable (vrport.ini xr_waist_tracker) openxr -> plugin
 //  [190]      T-pose mount-calibration sampling flag (1 = window open)  openxr -> plugin
 //  [191..194] T-pose SOLVED left foot mount quat    plugin -> openxr
+//             (fix11: yaw-solve result post-composed with the boot-mesh visual
+//              fix from vrik_footfix.ini, folded through the tracker frame)
 //  [195..198] T-pose SOLVED right foot mount quat   plugin -> openxr
 //  [199]      solved-mount publish seq (incremented each solve)  plugin -> openxr
-//  [208..211] ACTIVE left foot mount quat           openxr -> plugin
-//  [212..215] ACTIVE right foot mount quat          openxr -> plugin
-//             ([190..199]/[208..215] ride the tracker feature; read raw, they
-//             change at calibration time only. The plugin solves each mount
-//             against the pristine animation feet during the T-pose window --
-//             replaces the old shared manual euler sliders [178..180], which
-//             are no longer consumed. [200..202] stay the overlay debug pos.)
+//  [208..217] + [221..223] LEGACY VRIK SOLVE STATS  plugin (hook) -> dxgi present
+//             (predates the tracker work; openxr_present.cpp logs them
+//             periodically and zeroes the peaks [213]/[216]/[217]):
+//             [208] AnimPoseMatch calls, [209] fresh solves, [210] replays,
+//             [211] pose-age sum ms, [213] pose-age peak, [214] hand seqs
+//             consumed, [215] view-age sum ms, [216] view-age peak, [217]
+//             head-turn peak deg, [221..222] anchor-gap sum/peak mm,
+//             [223] coherent-frame count.
+//             WARNING (fix10): the tracker ACTIVE mounts were first assigned
+//             to [208..215] on top of this block -- the stats stomped the
+//             mounts every frame and the feet ran uncorrected. Mounts moved
+//             to [137..139]/[178..180]; do NOT reuse [208..223].
+//  [233..249] T-pose mount-calibration DIAGNOSTICS  plugin -> openxr
+//             (written on the same falling edge as [191..199]; read at adoption)
+//  [233..236] averaged TARGET L foot orientation (model quat; fix10: the
+//             tracker's own orientation yaw-rotated so the toe lands on
+//             body forward -- pitch/roll stay with the tracker)
+//  [237..240] averaged TARGET R foot orientation
+//  [241..243] measured animation TOE DIRECTION L (model space unit vector)
+//  [244..246] measured animation TOE DIRECTION R
+//  [247]      signed yaw correction L (deg about +Z; 0 with toe (0,0,0)
+//             means no toe bone resolved -> raw animation target was used)
+//  [248]      signed yaw correction R (deg)
+//  [249]      diag block valid for the last [199] seq (1.0)
+//             ([231..232] stay the legacy hand-shake slots zeroed in present)
+//  [203..207] + [145], [250..255] TRACKER ORIENTATION DEBUG GIZMO  plugin -> overlay
+//             (published every frame a foot tracker drives the foot; the F10
+//             overlay's "tracker orientation debug axes" checkbox draws them)
+//  [203..205] SOLVED left foot VISUAL TOE direction (model space unit vector)
+//  [206..207] + [145] SOLVED left foot VISUAL DORSAL direction (sole normal)
+//  [250..252] SOLVED right foot VISUAL TOE direction
+//  [253..255] SOLVED right foot VISUAL DORSAL direction
+//             ([203..207] were free; [145] and [250..255] reclaimed graveyard --
+//             [145] was the removed FinalCamera poison counter, [250..255] never
+//             used. Visual axes = footTrackRot * bone-local toe/dorsal constants;
+//             the overlay draws them next to the ground-truth target frame.)
+//             ([190..199] and [137..139]/[178..180] ride the tracker feature;
+//             read raw, they change at calibration time only. The plugin solves
+//             each mount during the T-pose window -- replaces the old shared
+//             manual euler sliders, dead since fix6. [200..202] stay the
+//             overlay debug pos.)
 // ============================================================================
 
 namespace vrshared {
@@ -190,13 +245,26 @@ constexpr int kLegLen            = 174;
 constexpr int kLegAnkleOffset    = 175;
 constexpr int kLegCalibValid     = 176;
 constexpr int kViveTrackerCount  = 177;
-constexpr int kLegMountEuler     = 178;   // ..180: pitch/yaw/roll (deg)
+constexpr int kLegMountQuatR     = 178;   // ..180: ACTIVE R mount quat, hemisphere-packed xyz (was kLegMountEuler)
 constexpr int kWaistTrack        = 181;   // ..188: valid, pos(3), quat(4)
 constexpr int kWaistTrackEnable  = 189;
 constexpr int kMountCalibSampling = 190;  // T-pose window flag
 constexpr int kMountSolveL       = 191;   // ..194: plugin-solved L mount quat
 constexpr int kMountSolveR       = 195;   // ..198: plugin-solved R mount quat
 constexpr int kMountSolveSeq     = 199;
-constexpr int kLegMountQuatL     = 208;   // ..211: ACTIVE L mount quat
-constexpr int kLegMountQuatR     = 212;   // ..215: ACTIVE R mount quat
+constexpr int kLegMountQuatL     = 137;   // ..139: ACTIVE L mount quat, hemisphere-packed xyz (fix10: was 208, slot collision)
+constexpr int kKickDamageEnable  = 140;   // kick-damage checkbox (openxr -> plugin, fix15)
+constexpr int kMountDiagTgtL     = 233;   // ..236: averaged straightened target L
+constexpr int kMountDiagTgtR     = 237;   // ..240: averaged straightened target R
+constexpr int kMountDiagToeL     = 241;   // ..243: animation toe direction L
+constexpr int kMountDiagToeR     = 244;   // ..246: animation toe direction R
+constexpr int kMountDiagYawL     = 247;   // animation->target correction L (deg)
+constexpr int kMountDiagYawR     = 248;   // animation->target correction R (deg)
+constexpr int kMountDiagValid    = 249;
+// Tracker orientation debug gizmo (plugin -> overlay, every tracked frame).
+constexpr int kGizmoToeL         = 203;   // ..205: solved L visual toe dir
+constexpr int kGizmoDorsL        = 206;   // ..207 + [145]: solved L visual dorsal dir
+constexpr int kGizmoDorsLz       = 145;
+constexpr int kGizmoToeR         = 250;   // ..252: solved R visual toe dir
+constexpr int kGizmoDorsR        = 253;   // ..255: solved R visual dorsal dir
 } // namespace vrshared

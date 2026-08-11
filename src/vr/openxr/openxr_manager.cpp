@@ -1524,13 +1524,17 @@ void OpenXRManager::FlushHandsToShared() {
     sShared[171] = srcTrack[1].oriZ;
     sShared[172] = srcTrack[1].oriW;
     sShared[173] = (m_legTrackersEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+    // fix15: kick-damage checkbox. Lives outside the [157..189] tracker block
+    // ([140], reclaimed graveyard) but rides the same seqlocked publish.
+    sShared[vrshared::kKickDamageEnable] =
+        (m_legKickDamageEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
     sShared[174] = m_userLegLen.load(std::memory_order_relaxed);
     sShared[175] = m_legAnkleOffset.load(std::memory_order_relaxed);
     sShared[176] = (m_legLenValid.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
     sShared[177] = static_cast<float>(m_viveTrackerCount.load(std::memory_order_relaxed));
-    sShared[178] = m_legMountEulerDeg[0].load(std::memory_order_relaxed);
-    sShared[179] = m_legMountEulerDeg[1].load(std::memory_order_relaxed);
-    sShared[180] = m_legMountEulerDeg[2].load(std::memory_order_relaxed);
+    // [178..180] no longer carry the dead euler mount sliders (removed in
+    // fix6, never consumed since) -- they hold the ACTIVE right foot mount
+    // quat (hemisphere-packed) now, published in the mount block below.
     sShared[181] = srcTrack[2].valid ? 1.0f : 0.0f;
     sShared[182] = srcTrack[2].posX;
     sShared[183] = srcTrack[2].posY;
@@ -1542,8 +1546,10 @@ void OpenXRManager::FlushHandsToShared() {
     sShared[189] = (m_waistTrackerEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
 
     // [190] T-pose mount-calibration sampling flag (openxr -> plugin). While
-    // high, the plugin solves per-foot mount corrections against the pristine
-    // animation feet; on the falling edge it publishes them to [191..199].
+    // high, the plugin solves per-foot YAW-ONLY mount corrections (the
+    // tracker's own orientation yaw-rotated so the toe lands on bodyFwd;
+    // pitch/roll stay with the tracker 1:1); on the falling edge it publishes
+    // them to [191..199] plus diagnostics on [233..249].
     sShared[190] = (m_mountCalibSampling.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
 
     // Adopt the plugin's foot-rotation solve (runs in the short window after
@@ -1569,21 +1575,83 @@ void OpenXRManager::FlushHandsToShared() {
                 m_legMountQuatL[2].load(std::memory_order_relaxed), m_legMountQuatL[3].load(std::memory_order_relaxed),
                 m_legMountQuatR[0].load(std::memory_order_relaxed), m_legMountQuatR[1].load(std::memory_order_relaxed),
                 m_legMountQuatR[2].load(std::memory_order_relaxed), m_legMountQuatR[3].load(std::memory_order_relaxed));
+            // Solve diagnostics ([233..249]): the yaw-corrected tracker
+            // orientation each foot was bound to (fix10: the tracker's own
+            // orientation rotated about world +Z so the toe lands on body
+            // forward -- pitch/roll stay with the tracker), the measured RAW
+            // animation toe directions, and the signed yaw correction applied.
+            // toe (0,0,0) + angle 0 = no toe bone resolved, raw animation
+            // orientation was used as the target (old behaviour).
+            if (sShared[249] == 1.0f) {
+                // fix11 note: the adopted mounts now also carry the boot-mesh
+                // visual fix (plugin-side, angles from vrik_footfix.ini), so
+                // they are no longer pure Z/yaw rotations -- x/y components
+                // are expected. The "yaw correction" below is still only the
+                // skeleton toe-heading part of the solve.
+                Log("Auto-calibration[FBT]: foot-rotation diag -- "
+                    "target L (%.3f, %.3f, %.3f, %.3f) R (%.3f, %.3f, %.3f, %.3f), "
+                    "anim toe L (%.3f, %.3f, %.3f) R (%.3f, %.3f, %.3f), "
+                    "yaw correction L %+.1f deg R %+.1f deg.\n",
+                    sShared[233], sShared[234], sShared[235], sShared[236],
+                    sShared[237], sShared[238], sShared[239], sShared[240],
+                    sShared[241], sShared[242], sShared[243],
+                    sShared[244], sShared[245], sShared[246],
+                    sShared[247], sShared[248]);
+            }
             SaveCalibrationToFile();
         } else if (FbtNowSeconds() - m_mountSolveAwaitStart > 2.0) {
             m_mountSolveAwaiting = false;
             Log("Auto-calibration[FBT]: no foot-rotation solve received (old hands DLL or trackers off) -- keeping previous mount.\n");
         }
     }
-    // [208..215] ACTIVE per-foot mount correction quats (openxr -> plugin).
-    sShared[208] = m_legMountQuatL[0].load(std::memory_order_relaxed);
-    sShared[209] = m_legMountQuatL[1].load(std::memory_order_relaxed);
-    sShared[210] = m_legMountQuatL[2].load(std::memory_order_relaxed);
-    sShared[211] = m_legMountQuatL[3].load(std::memory_order_relaxed);
-    sShared[212] = m_legMountQuatR[0].load(std::memory_order_relaxed);
-    sShared[213] = m_legMountQuatR[1].load(std::memory_order_relaxed);
-    sShared[214] = m_legMountQuatR[2].load(std::memory_order_relaxed);
-    sShared[215] = m_legMountQuatR[3].load(std::memory_order_relaxed);
+    // [137..139] / [178..180] ACTIVE per-foot mount correction quats
+    // (openxr -> plugin), HEMISPHERE-PACKED: x,y,z stored with w >= 0, the
+    // reader recovers w = +sqrt(1-|xyz|^2) and fails safe to identity on
+    // garbage. fix10 slot history: the first assignment ([208..215], full
+    // quats) collided with the plugin's legacy VRIK solve-stats block, which
+    // stomped the mounts with per-frame counters and left the feet running
+    // uncorrected (fix9 probe finding). These two 3-float holes are verified
+    // free by grep: [137..139] had its writer removed sessions ago, and
+    // [178..180] carried the dead euler mount sliders removed in fix6.
+    auto publishMount = [&](int slot, const std::atomic<float>* src, const std::atomic<float>* adj) {
+        float q[4] = { src[0].load(std::memory_order_relaxed), src[1].load(std::memory_order_relaxed),
+                       src[2].load(std::memory_order_relaxed), src[3].load(std::memory_order_relaxed) };
+        const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+        if (n2 < 0.25f || n2 > 4.0f) { q[0] = q[1] = q[2] = 0.0f; q[3] = 1.0f; }
+        else { const float inv = 1.0f / sqrtf(n2); for (int i = 0; i < 4; ++i) q[i] *= inv; }
+        // fix12: manual per-foot trim from the F10 sliders, stacked on the
+        // calibrated mount as a WORLD-space rotation (left-multiply):
+        //   Q = Rx(pitch) * Ry(roll) * Rz(yaw)   (yaw about world up, then roll
+        //   about body forward, then pitch about body right). Standing, that
+        //   reads exactly like the slider labels: +yaw turns the toes left,
+        //   +roll tips the boot's top to your right, +pitch lifts the toes.
+        const float yawDeg   = adj[0].load(std::memory_order_relaxed);
+        const float pitchDeg = adj[1].load(std::memory_order_relaxed);
+        const float rollDeg  = adj[2].load(std::memory_order_relaxed);
+        if (yawDeg != 0.0f || pitchDeg != 0.0f || rollDeg != 0.0f) {
+            const float ky = yawDeg   * 0.00872664626f;   // pi/360 (half-angle)
+            const float kp = pitchDeg * 0.00872664626f;
+            const float kr = rollDeg  * 0.00872664626f;
+            const float qy[4] = { 0.0f, 0.0f, sinf(ky), cosf(ky) };
+            const float qp[4] = { sinf(kp), 0.0f, 0.0f, cosf(kp) };
+            const float qr[4] = { 0.0f, sinf(kr), 0.0f, cosf(kr) };
+            auto qmul = [](const float* a, const float* b, float* o) {
+                o[0] = a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1];
+                o[1] = a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0];
+                o[2] = a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3];
+                o[3] = a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2];
+            };
+            float t[4], u[4];
+            qmul(qr, qy, t);          // un-yaw first
+            qmul(qp, t, u);           // then roll, then pitch
+            qmul(u, q, t);
+            q[0] = t[0]; q[1] = t[1]; q[2] = t[2]; q[3] = t[3];
+        }
+        if (q[3] < 0.0f) { q[0] = -q[0]; q[1] = -q[1]; q[2] = -q[2]; }   // w >= 0 hemisphere
+        sShared[slot] = q[0]; sShared[slot + 1] = q[1]; sShared[slot + 2] = q[2];
+    };
+    publishMount(137, m_legMountQuatL, m_legFootAdjDegL);
+    publishMount(178, m_legMountQuatR, m_legFootAdjDegR);
 
     // ===== SEQLOCK END =====
     // All payload slots are written; publish an EVEN sequence (= complete) so readers

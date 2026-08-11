@@ -1,0 +1,157 @@
+diff --git a/src/red4ext_plugin/vrik/vrik_hook.h b/src/red4ext_plugin/vrik/vrik_hook.h
+index 861c348..7c65f03 100644
+--- a/src/red4ext_plugin/vrik/vrik_hook.h
++++ b/src/red4ext_plugin/vrik/vrik_hook.h
+@@ -360,19 +360,22 @@ static inline void VRIK_EnsureFootFixFile(const char* path) {
+           "#            boot rests on its RIGHT edge (sole faces left): decrease\n"
+           "#   pitch -- toes dig into the floor: increase lifts them; toes pointing\n"
+           "#            up: decrease. (degrees, decimals allowed, per foot L/R)\n"
+-          "footFixYawDegL=-45.0\n"
++          "# Defaults below are the play-tested boot-mesh correction (fix14,\n"
++          "# identical both feet): roll +90, pitch -45, yaw 0.\n"
++          "footFixYawDegL=0.0\n"
+           "footFixRollDegL=90.0\n"
+-          "footFixPitchDegL=0.0\n"
+-          "footFixYawDegR=-45.0\n"
++          "footFixPitchDegL=-45.0\n"
++          "footFixYawDegR=0.0\n"
+           "footFixRollDegR=90.0\n"
+-          "footFixPitchDegR=0.0\n", f);
++          "footFixPitchDegR=-45.0\n", f);
+     fclose(f);
+ }
+ 
+ // ang = { yawL, rollL, pitchL, yawR, rollR, pitchR } in degrees.
+ static inline void VRIK_ReadFootFix(float ang[6]) {
+-    ang[0] = -45.0f; ang[1] = 90.0f; ang[2] = 0.0f;
+-    ang[3] = -45.0f; ang[4] = 90.0f; ang[5] = 0.0f;
++    // fix14 defaults: play-tested boot-mesh correction, identical both feet.
++    ang[0] = 0.0f; ang[1] = 90.0f; ang[2] = -45.0f;
++    ang[3] = 0.0f; ang[4] = 90.0f; ang[5] = -45.0f;
+     char path[MAX_PATH];
+     VRIK_FootFixPath(path, MAX_PATH);
+     VRIK_EnsureFootFixFile(path);
+@@ -2236,7 +2239,7 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+         static float s_yawAccL = 0.0f, s_yawAccR = 0.0f;                  // diag: averaged yawCorr (deg)
+         static float s_trkAccL[4] = {0,0,0,0}, s_trkAccR[4] = {0,0,0,0};  // fix11: averaged mapped tracker orientation M
+         static int   s_visNL = 0, s_visNR = 0;                            // fix11: samples with resolved toe bones
+-        static float s_fixAng[6] = { -45.0f, 90.0f, 0.0f, -45.0f, 90.0f, 0.0f };  // vrik_footfix.ini (read at calib start)
++        static float s_fixAng[6] = { 0.0f, 90.0f, -45.0f, 0.0f, 90.0f, -45.0f };  // vrik_footfix.ini (read at calib start; fix14 defaults)
+         if (g_pSharedHands[190] == 1.0f && trackAnchor && SharedLeg(173) == 1.0f) {
+             if (!s_mntWas) VRIK_ReadFootFix(s_fixAng);   // re-read EVERY calibration: edit -> recalibrate, no restart
+             auto sampleFoot = [&](int base, int boneIdx, int kneeIdx, int toeIdx, float* acc, int& n,
+diff --git a/src/vr/core/vr_core.cpp b/src/vr/core/vr_core.cpp
+index 74a9ecc..c7c9d78 100644
+--- a/src/vr/core/vr_core.cpp
++++ b/src/vr/core/vr_core.cpp
+@@ -123,12 +123,15 @@ struct LiveControls {
+     volatile float xrLegMountPitchDeg; // foot mount correction euler (deg), defaults 0
+     volatile float xrLegMountYawDeg;
+     volatile float xrLegMountRollDeg;
+-    volatile float xrLegAdjYawDegL;    // fix12: per-foot manual rotation trim (deg), defaults 0
+-    volatile float xrLegAdjRollDegL;
+-    volatile float xrLegAdjPitchDegL;
+-    volatile float xrLegAdjYawDegR;
+-    volatile float xrLegAdjRollDegR;
+-    volatile float xrLegAdjPitchDegR;
++    // fix12: per-foot manual rotation trim (deg). fix14 defaults = the
++    // play-tested boot-mesh correction (identical both feet, user-verified):
++    // yaw 0, roll +90, pitch -45. vrport.ini values override these.
++    volatile float xrLegAdjYawDegL = 0.0f;
++    volatile float xrLegAdjRollDegL = 90.0f;
++    volatile float xrLegAdjPitchDegL = -45.0f;
++    volatile float xrLegAdjYawDegR = 0.0f;
++    volatile float xrLegAdjRollDegR = 90.0f;
++    volatile float xrLegAdjPitchDegR = -45.0f;
+ };
+ 
+ static constexpr int kEnablePatchBufferTracer = 0;
+@@ -267,6 +270,16 @@ static void EnsureLiveControlFileExists() {
+     fprintf(file, "xr_mono_xqueue_wait=0\n");
+     fprintf(file, "xr_snap_turn_pulse_ms=30\n");
+     fprintf(file, "xr_mono_depth_capture=1\n");
++    // fix14: leg foot trim defaults = play-tested boot-mesh correction
++    // (identical both feet): yaw 0, roll +90, pitch -45. Written so a fresh
++    // file documents the keys; the in-code defaults match, and any value the
++    // user sets here or via the F10 sliders wins over these.
++    fprintf(file, "xr_leg_adj_yaw_l=0.0\n");
++    fprintf(file, "xr_leg_adj_roll_l=90.0\n");
++    fprintf(file, "xr_leg_adj_pitch_l=-45.0\n");
++    fprintf(file, "xr_leg_adj_yaw_r=0.0\n");
++    fprintf(file, "xr_leg_adj_roll_r=90.0\n");
++    fprintf(file, "xr_leg_adj_pitch_r=-45.0\n");
+     fclose(file);
+ }
+ 
+diff --git a/src/vr/openxr/openxr_manager.h b/src/vr/openxr/openxr_manager.h
+index 51b9d6a..301bb2c 100644
+--- a/src/vr/openxr/openxr_manager.h
++++ b/src/vr/openxr/openxr_manager.h
+@@ -918,8 +918,11 @@ private:
+     std::atomic<int>   m_waistTrackerEnable{0};    // optional 3rd point: waist drives hips
+     std::atomic<float> m_legAnkleOffset{0.10f};    // tracker-on-shoe -> ankle joint (m)
+     std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg, legacy -- superseded by the per-foot quats below)
+-    std::atomic<float> m_legFootAdjDegL[3]{};      // fix12: manual trim y/p/r (deg), F10 sliders, default 0
+-    std::atomic<float> m_legFootAdjDegR[3]{};
++    // fix12/fix14: manual trim y/p/r (deg), F10 sliders. Defaults are the
++    // play-tested boot-mesh correction (same both feet): yaw 0, pitch -45,
++    // roll +90 -- the boots render flat with toes forward out of the box.
++    std::atomic<float> m_legFootAdjDegL[3] = { 0.0f, -45.0f, 90.0f };
++    std::atomic<float> m_legFootAdjDegR[3] = { 0.0f, -45.0f, 90.0f };
+     // PER-FOOT mount correction quats, solved by the plugin's T-pose sampler
+     // (published to [191..199]), adopted+persisted here, republished as the
+     // ACTIVE mounts (hemisphere-packed) on [137..139] (L) / [178..180] (R).
+diff --git a/src/vr/overlay/imgui_overlay.cpp b/src/vr/overlay/imgui_overlay.cpp
+index 1d9f20b..00d1ea1 100644
+--- a/src/vr/overlay/imgui_overlay.cpp
++++ b/src/vr/overlay/imgui_overlay.cpp
+@@ -1281,23 +1281,36 @@ void DrawVRHandsControls() {
+         // saved to vrport.ini). Zero = calibration result untouched. Standing
+         // straight, feet together: +yaw turns the toes left, +roll tips the
+         // boot's top to your right, +pitch lifts the toes.
+-        ImGui::TextUnformatted("Foot rotation trim (deg, live, saved):");
++        // fix14: defaults are the play-tested boot-mesh correction (identical
++        // both feet): roll +90, pitch -45, yaw 0.
++        ImGui::TextUnformatted("Foot rotation trim (deg, live, saved; both feet):");
+         bool adjChanged = false;
+-        adjChanged |= ImGui::SliderFloat("L yaw   (+ toes left)",   &st.xrLegAdjYawDegL,   -180.0f, 180.0f, "%.1f");
+-        adjChanged |= ImGui::SliderFloat("L roll  (+ top right)",   &st.xrLegAdjRollDegL,  -180.0f, 180.0f, "%.1f");
+-        adjChanged |= ImGui::SliderFloat("L pitch (+ toes up)",     &st.xrLegAdjPitchDegL, -180.0f, 180.0f, "%.1f");
+-        adjChanged |= ImGui::SliderFloat("R yaw   (+ toes left)",   &st.xrLegAdjYawDegR,   -180.0f, 180.0f, "%.1f");
+-        adjChanged |= ImGui::SliderFloat("R roll  (+ top right)",   &st.xrLegAdjRollDegR,  -180.0f, 180.0f, "%.1f");
+-        adjChanged |= ImGui::SliderFloat("R pitch (+ toes up)",     &st.xrLegAdjPitchDegR, -180.0f, 180.0f, "%.1f");
+-        if (ImGui::Button("Reset foot rotation trim")) {
+-            st.xrLegAdjYawDegL = st.xrLegAdjRollDegL = st.xrLegAdjPitchDegL = 0.0f;
+-            st.xrLegAdjYawDegR = st.xrLegAdjRollDegR = st.xrLegAdjPitchDegR = 0.0f;
++        // fix14: the corrections are identical for left and right, so one set
++        // of sliders drives both feet (R mirrors L below). The per-foot ini
++        // keys still exist -- hand-edit vrport.ini if a foot ever needs to
++        // differ.
++        adjChanged |= ImGui::SliderFloat("Yaw   (+ toes left)",   &st.xrLegAdjYawDegL,   -180.0f, 180.0f, "%.1f");
++        adjChanged |= ImGui::SliderFloat("Roll  (+ top right)",   &st.xrLegAdjRollDegL,  -180.0f, 180.0f, "%.1f");
++        adjChanged |= ImGui::SliderFloat("Pitch (+ toes up)",     &st.xrLegAdjPitchDegL, -180.0f, 180.0f, "%.1f");
++        if (adjChanged) {
++            st.xrLegAdjYawDegR = st.xrLegAdjYawDegL;
++            st.xrLegAdjRollDegR = st.xrLegAdjRollDegL;
++            st.xrLegAdjPitchDegR = st.xrLegAdjPitchDegL;
++        }
++        if (ImGui::Button("Reset foot trim to defaults")) {
++            st.xrLegAdjYawDegL = 0.0f;     // fix14: restore the play-tested
++            st.xrLegAdjRollDegL = 90.0f;   // defaults, not zero (zero leaves the
++            st.xrLegAdjPitchDegL = -45.0f; // boots rolled sideways)
++            st.xrLegAdjYawDegR = 0.0f;
++            st.xrLegAdjRollDegR = 90.0f;
++            st.xrLegAdjPitchDegR = -45.0f;
+             adjChanged = true;
+         }
+         if (adjChanged) SetLiveControlsUiState(&st, 1);
+-        ImGui::TextDisabled("Drag while looking at your feet; applies on top of the");
+-        ImGui::TextDisabled("T-pose calibration. Order when combining: yaw, then roll,");
+-        ImGui::TextDisabled("then pitch. Reset button returns to the calibration result.");
++        ImGui::TextDisabled("Defaults (roll +90, pitch -45, yaw 0) are the verified");
++        ImGui::TextDisabled("correction -- normally leave them alone. Drag while looking");
++        ImGui::TextDisabled("at your feet if you ever need to fine-tune. Order when");
++        ImGui::TextDisabled("combining: yaw, then roll, then pitch.");
+         ImGui::TextDisabled("Setup: wake the trackers, put them on, stand straight with feet");
+         ImGui::TextDisabled("together facing forward, arms out, and run T-pose auto-calibration.");
+         ImGui::TextDisabled("It assigns left/right foot and waist, measures leg length, and sets");

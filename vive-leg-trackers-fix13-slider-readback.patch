@@ -1,0 +1,17 @@
+diff --git a/src/vr/core/vr_core.cpp b/src/vr/core/vr_core.cpp
+index b432265..74a9ecc 100644
+--- a/src/vr/core/vr_core.cpp
++++ b/src/vr/core/vr_core.cpp
+@@ -948,6 +948,12 @@ static LiveControlsUiState MakeLiveControlsUiState() {
+     state.xrLegMountPitchDeg = g_liveControls.xrLegMountPitchDeg;
+     state.xrLegMountYawDeg = g_liveControls.xrLegMountYawDeg;
+     state.xrLegMountRollDeg = g_liveControls.xrLegMountRollDeg;
++    state.xrLegAdjYawDegL = g_liveControls.xrLegAdjYawDegL;      // fix13: these six copies
++    state.xrLegAdjRollDegL = g_liveControls.xrLegAdjRollDegL;    // were missing in fix12 --
++    state.xrLegAdjPitchDegL = g_liveControls.xrLegAdjPitchDegL;  // the menu read back zeros,
++    state.xrLegAdjYawDegR = g_liveControls.xrLegAdjYawDegR;      // persist wrote zeros, and the
++    state.xrLegAdjRollDegR = g_liveControls.xrLegAdjRollDegR;    // next slider push zeroed the
++    state.xrLegAdjPitchDegR = g_liveControls.xrLegAdjPitchDegR;  // previous foot's correction
+     state.xrXInputInstall = g_liveControls.xrXInputInstall;
+     state.xrInputActions = g_liveControls.xrInputActions;
+     state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;

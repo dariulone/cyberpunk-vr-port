@@ -599,11 +599,22 @@ public:
     int  GetLegTrackersEnable() const { return m_legTrackersEnable.load(std::memory_order_relaxed); }
     void SetWaistTrackerEnable(int v) { m_waistTrackerEnable.store(v != 0 ? 1 : 0, std::memory_order_relaxed); }
     int  GetWaistTrackerEnable() const { return m_waistTrackerEnable.load(std::memory_order_relaxed); }
+    // fix15: kick-damage checkbox (published to shared [140] next to [173]).
+    void SetLegKickDamageEnable(int v) { m_legKickDamageEnable.store(v != 0 ? 1 : 0, std::memory_order_relaxed); }
     void SetLegTrackerTuning(float ankleOffsetM, float mountPitchDeg, float mountYawDeg, float mountRollDeg) {
         m_legAnkleOffset.store(ankleOffsetM, std::memory_order_relaxed);
         m_legMountEulerDeg[0].store(mountPitchDeg, std::memory_order_relaxed);
         m_legMountEulerDeg[1].store(mountYawDeg, std::memory_order_relaxed);
         m_legMountEulerDeg[2].store(mountRollDeg, std::memory_order_relaxed);
+    }
+    // fix12: per-foot MANUAL rotation trim (deg), F10 -> VRIK sliders. Stacked
+    // on the calibrated mount at publish time (world space: yaw about up,
+    // pitch about body right, roll about body forward). foot: 0 = L, 1 = R.
+    void SetLegFootAdjDeg(int foot, float yawDeg, float pitchDeg, float rollDeg) {
+        std::atomic<float>* dst = (foot == 0) ? m_legFootAdjDegL : m_legFootAdjDegR;
+        dst[0].store(yawDeg, std::memory_order_relaxed);
+        dst[1].store(pitchDeg, std::memory_order_relaxed);
+        dst[2].store(rollDeg, std::memory_order_relaxed);
     }
     void GetLegTrackerTuning(float* ankleOff, float* mp, float* my, float* mr) const {
         *ankleOff = m_legAnkleOffset.load(std::memory_order_relaxed);
@@ -617,7 +628,7 @@ public:
         m_legLenValid.store(v > 0.0f ? 1 : 0, std::memory_order_relaxed);
     }
     // Per-foot mount correction quats (T-pose solved, persisted in
-    // vrik_calibration.ini, published to shared [208..215]). Identity default.
+    // vrik_calibration.ini, published hemisphere-packed to shared [137..139] (L) / [178..180] (R)). Identity default.
     void GetLegMountQuat(int foot, float* out4) const {   // foot: 0 = L, 1 = R
         const std::atomic<float>* src = (foot == 0) ? m_legMountQuatL : m_legMountQuatR;
         for (int i = 0; i < 4; ++i) out4[i] = src[i].load(std::memory_order_relaxed);
@@ -907,11 +918,18 @@ private:
     float              m_openvrHmdStageY = 0.0f;
     std::atomic<int>   m_legTrackersEnable{0};
     std::atomic<int>   m_waistTrackerEnable{0};    // optional 3rd point: waist drives hips
+    std::atomic<int>   m_legKickDamageEnable{0};   // fix15: kicks tap the native melee attack
     std::atomic<float> m_legAnkleOffset{0.10f};    // tracker-on-shoe -> ankle joint (m)
     std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg, legacy -- superseded by the per-foot quats below)
+    // fix12/fix14: manual trim y/p/r (deg), F10 sliders. Defaults are the
+    // play-tested boot-mesh correction (same both feet): yaw 0, pitch -45,
+    // roll +90 -- the boots render flat with toes forward out of the box.
+    std::atomic<float> m_legFootAdjDegL[3] = { 0.0f, -45.0f, 90.0f };
+    std::atomic<float> m_legFootAdjDegR[3] = { 0.0f, -45.0f, 90.0f };
     // PER-FOOT mount correction quats, solved by the plugin's T-pose sampler
     // (published to [191..199]), adopted+persisted here, republished as the
-    // ACTIVE mounts on [208..215]. Identity = never calibrated.
+    // ACTIVE mounts (hemisphere-packed) on [137..139] (L) / [178..180] (R).
+    // Identity = never calibrated.
     std::atomic<float> m_legMountQuatL[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     std::atomic<float> m_legMountQuatR[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     // T-pose mount-solve handshake (frame thread only): [190] sampling flag,

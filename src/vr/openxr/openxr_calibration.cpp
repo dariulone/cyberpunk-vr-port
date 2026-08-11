@@ -410,12 +410,18 @@ bool OpenXRManager::SaveCalibrationToFile() {
     // Per-foot mount correction quats solved by the T-pose calibration
     // (plugin sampler -> [191..199] -> adopted here). Persisted so the feet
     // keep their calibrated rotation across sessions without recalibrating.
-    fprintf(f, "footMountLX=%.6f\nfootMountLY=%.6f\nfootMountLZ=%.6f\nfootMountLW=%.6f\n",
+    // fix11: the solved values now also embed the boot-mesh visual fix whose
+    // angles live in vrik_footfix.ini -- after changing those angles just
+    // recalibrate; these stored mounts refresh with the new fix.
+    // Keys renamed footMount* -> footYawMount* in fix10: pre-fix10 values came
+    // from the poisoned three-axis solve (T-pose FK twist baked in) and must
+    // never load again -- the old keys are simply ignored on read.
+    fprintf(f, "footYawMountLX=%.6f\nfootYawMountLY=%.6f\nfootYawMountLZ=%.6f\nfootYawMountLW=%.6f\n",
             m_legMountQuatL[0].load(std::memory_order_relaxed),
             m_legMountQuatL[1].load(std::memory_order_relaxed),
             m_legMountQuatL[2].load(std::memory_order_relaxed),
             m_legMountQuatL[3].load(std::memory_order_relaxed));
-    fprintf(f, "footMountRX=%.6f\nfootMountRY=%.6f\nfootMountRZ=%.6f\nfootMountRW=%.6f\n",
+    fprintf(f, "footYawMountRX=%.6f\nfootYawMountRY=%.6f\nfootYawMountRZ=%.6f\nfootYawMountRW=%.6f\n",
             m_legMountQuatR[0].load(std::memory_order_relaxed),
             m_legMountQuatR[1].load(std::memory_order_relaxed),
             m_legMountQuatR[2].load(std::memory_order_relaxed),
@@ -468,14 +474,16 @@ bool OpenXRManager::LoadCalibrationFromFile() {
         if (sscanf_s(line, "%31[^=]=%f", key, (unsigned)_countof(key), &val) != 2) continue;
         if (strcmp(key, "version") == 0) version = static_cast<int>(val);
         // Per-foot T-pose-solved mount corrections (quat components).
-        if (strcmp(key, "footMountLX") == 0) { mntL[0] = val; haveMntL = true; }
-        if (strcmp(key, "footMountLY") == 0) { mntL[1] = val; }
-        if (strcmp(key, "footMountLZ") == 0) { mntL[2] = val; }
-        if (strcmp(key, "footMountLW") == 0) { mntL[3] = val; }
-        if (strcmp(key, "footMountRX") == 0) { mntR[0] = val; haveMntR = true; }
-        if (strcmp(key, "footMountRY") == 0) { mntR[1] = val; }
-        if (strcmp(key, "footMountRZ") == 0) { mntR[2] = val; }
-        if (strcmp(key, "footMountRW") == 0) { mntR[3] = val; }
+        if (strcmp(key, "footYawMountLX") == 0) { mntL[0] = val; haveMntL = true; }
+        if (strcmp(key, "footYawMountLY") == 0) { mntL[1] = val; }
+        if (strcmp(key, "footYawMountLZ") == 0) { mntL[2] = val; }
+        if (strcmp(key, "footYawMountLW") == 0) { mntL[3] = val; }
+        if (strcmp(key, "footYawMountRX") == 0) { mntR[0] = val; haveMntR = true; }
+        if (strcmp(key, "footYawMountRY") == 0) { mntR[1] = val; }
+        if (strcmp(key, "footYawMountRZ") == 0) { mntR[2] = val; }
+        if (strcmp(key, "footYawMountRW") == 0) { mntR[3] = val; }
+        // Legacy "footMountL*/R*" keys (pre-fix10, poisoned three-axis solve)
+        // are deliberately NOT read -- they stay in old ini files, ignored.
         #define M(name, idx) if (strcmp(key, name) == 0) v[idx] = val;
         #define E(name, idx) if (strcmp(key, name) == 0) e[idx] = val;
         #define C(name, idx) if (strcmp(key, name) == 0) cb[idx] = val;

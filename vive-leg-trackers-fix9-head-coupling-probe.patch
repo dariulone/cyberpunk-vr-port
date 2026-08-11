@@ -1,0 +1,135 @@
+diff --git a/src/red4ext_plugin/vrik/vrik_hook.h b/src/red4ext_plugin/vrik/vrik_hook.h
+index d0b3a86..2ce6a01 100644
+--- a/src/red4ext_plugin/vrik/vrik_hook.h
++++ b/src/red4ext_plugin/vrik/vrik_hook.h
+@@ -297,6 +297,28 @@ inline void VRIK_SnapTraceLog(const char* fmt, ...) {
+     fflush(s_tf);
+ }
+ 
++// Append-mode continuous probe (full-body-tracking space diagnostics, fix9).
++// One line per call in bin\x64\cyberpunkvr_fbtprobe.log, accumulates across the
++// whole session so head/body poses can be compared term by term.
++inline void VRIK_FbtProbeLog(const char* fmt, ...) {
++    static FILE* s_pf = nullptr;
++    if (!s_pf) {
++        char p[MAX_PATH];
++        GetModuleFileNameA(nullptr, p, MAX_PATH);
++        char* sl = strrchr(p, '\\');
++        if (sl) *(sl + 1) = 0;
++        strcat_s(p, "cyberpunkvr_fbtprobe.log");
++        s_pf = _fsopen(p, "a", _SH_DENYNO);
++    }
++    if (!s_pf) return;
++    va_list args;
++    va_start(args, fmt);
++    vfprintf(s_pf, fmt, args);
++    va_end(args);
++    fputc('\n', s_pf);
++    fflush(s_pf);
++}
++
+ inline void VRIK_LatchViewPacket() {
+     g_viewPktValid = false;
+     if (!g_pSharedHands) return;
+@@ -2413,6 +2435,60 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+     }
+     if (anyTrack) VRIK_ComputeFK(boneBuf, VRIK_FKCount());
+ 
++    // FBT SPACE PROBE (fix9): while trackers drive the feet, dump every
++    // space-composition term ~every 2s so head-motion coupling can be isolated
++    // from the log: camModelRot/Pos, the tracker anchor, the eye-bake slots the
++    // anchor is built from, the RAW shared tracker quats, the solved foot
++    // rotations, the adopted mounts, and the resulting visual toe/dorsal dirs.
++    // If the composition were head-invariant, ftL/ftR and toe*/dor* would stay
++    // put while only cmR/cmP/anchor move -- the probe shows which term doesn't.
++    if (anyTrack && g_pSharedHands) {
++        static uint32_t s_fbtProbeN = 0;
++        if (++s_fbtProbeN % 150u == 0u) {
++            float mL[4] = { SharedLeg(208), SharedLeg(209), SharedLeg(210), SharedLeg(211) };
++            float mR[4] = { SharedLeg(212), SharedLeg(213), SharedLeg(214), SharedLeg(215) };
++            float toeL[3] = {0,0,0}, dorL[3] = {0,0,0}, toeR[3] = {0,0,0}, dorR[3] = {0,0,0};
++            float tB[3], uB[3];
++            if (trackL && footVisual(g_VRLeftFootIdx, g_VRLeftLegIdx, g_VRLeftToeIdx, tB, uB)) {
++                VRIK_QuatRotateVec(footTrackRotL, tB, toeL); VRIK_Norm3(toeL);
++                VRIK_QuatRotateVec(footTrackRotL, uB, dorL); VRIK_Norm3(dorL);
++            }
++            if (trackR && footVisual(g_VRRightFootIdx, g_VRRightLegIdx, g_VRRightToeIdx, tB, uB)) {
++                VRIK_QuatRotateVec(footTrackRotR, tB, toeR); VRIK_Norm3(toeR);
++                VRIK_QuatRotateVec(footTrackRotR, uB, dorR); VRIK_Norm3(dorR);
++            }
++            const float fkLz = (g_VRLeftFootIdx  >= 0 && g_VRLeftFootIdx  < VRIK_MAX_BONES) ? g_fkPos[g_VRLeftFootIdx][2]  : 0.0f;
++            const float fkRz = (g_VRRightFootIdx >= 0 && g_VRRightFootIdx < VRIK_MAX_BONES) ? g_fkPos[g_VRRightFootIdx][2] : 0.0f;
++            VRIK_FbtProbeLog(
++                "FBTPROBE n=%u cmR=(%+.4f %+.4f %+.4f %+.4f) cmP=(%+.4f %+.4f %+.4f) "
++                "anchor=(%+.4f %+.4f %+.4f) eye=(%+.4f %+.4f %+.4f)v%.0f sh120=(%+.4f %+.4f %+.4f) "
++                "rawL=(%+.4f %+.4f %+.4f | %+.4f %+.4f %+.4f %+.4f) rawR=(%+.4f %+.4f %+.4f | %+.4f %+.4f %+.4f %+.4f) "
++                "ftL=(%+.4f %+.4f %+.4f %+.4f) ftR=(%+.4f %+.4f %+.4f %+.4f) "
++                "mL=(%+.4f %+.4f %+.4f %+.4f) mR=(%+.4f %+.4f %+.4f %+.4f) "
++                "fwd=(%+.3f %+.3f) toeL=(%+.3f %+.3f %+.3f) dorL=(%+.3f %+.3f %+.3f) "
++                "toeR=(%+.3f %+.3f %+.3f) dorR=(%+.3f %+.3f %+.3f) "
++                "tgtL=(%+.3f %+.3f %+.3f) tgtR=(%+.3f %+.3f %+.3f) fkZ=(%+.3f %+.3f)",
++                s_fbtProbeN,
++                camModelRot[0], camModelRot[1], camModelRot[2], camModelRot[3],
++                camModelPos[0], camModelPos[1], camModelPos[2],
++                trackAnchor[0], trackAnchor[1], trackAnchor[2],
++                SharedLeg(116), SharedLeg(117), SharedLeg(118), SharedLeg(119),
++                SharedLeg(120), SharedLeg(121), SharedLeg(122),
++                SharedLeg(158), SharedLeg(159), SharedLeg(160),
++                SharedLeg(161), SharedLeg(162), SharedLeg(163), SharedLeg(164),
++                SharedLeg(166), SharedLeg(167), SharedLeg(168),
++                SharedLeg(169), SharedLeg(170), SharedLeg(171), SharedLeg(172),
++                footTrackRotL[0], footTrackRotL[1], footTrackRotL[2], footTrackRotL[3],
++                footTrackRotR[0], footTrackRotR[1], footTrackRotR[2], footTrackRotR[3],
++                mL[0], mL[1], mL[2], mL[3], mR[0], mR[1], mR[2], mR[3],
++                bodyFwd[0], bodyFwd[1],
++                toeL[0], toeL[1], toeL[2], dorL[0], dorL[1], dorL[2],
++                toeR[0], toeR[1], toeR[2], dorR[0], dorR[1], dorR[2],
++                footL[0], footL[1], footL[2], footR[0], footR[1], footR[2],
++                fkLz, fkRz);
++        }
++    }
++
+     // 5. Head follows the real head: orient the head bone to the HMD.
+     {
+         int hp = g_VRBoneParent[headIdx];
+diff --git a/src/vr/overlay/imgui_overlay.cpp b/src/vr/overlay/imgui_overlay.cpp
+index cf30f47..b7abe6b 100644
+--- a/src/vr/overlay/imgui_overlay.cpp
++++ b/src/vr/overlay/imgui_overlay.cpp
+@@ -639,19 +639,32 @@ void DrawTrackerGizmo() {
+         RotateVectorByQuaternion(dir[0], dir[1], dir[2], -cqx, -cqy, -cqz, cqw, &lx, &ly, &lz);
+         const ImVec2 end(anchor.x + lx * len, anchor.y - lz * len);
+         dl->AddLine(anchor, end, col, w);
+-        dl->AddCircleFilled(end, w * 1.7f, col);
++        // chevron arrowhead: two short barbs swept back from the tip, so the
++        // arrow's SENSE is readable at a glance (which way the toes point).
++        const float dx = end.x - anchor.x, dy = end.y - anchor.y;
++        const float dl2 = sqrtf(dx * dx + dy * dy);
++        if (dl2 > 4.0f) {
++            const float ux = dx / dl2, uy = dy / dl2;
++            const float hb = len * 0.24f, spread = 0.5f;
++            dl->AddLine(end, ImVec2(end.x - ux * hb - uy * hb * spread,
++                                    end.y - uy * hb + ux * hb * spread), col, w);
++            dl->AddLine(end, ImVec2(end.x - ux * hb + uy * hb * spread,
++                                    end.y - uy * hb - ux * hb * spread), col, w);
++        }
+     };
+ 
+     struct FootGizmo { const char* name; int toeBase; int d0; int d1; int d2; int validSlot;
+                        float ax; ImU32 col; };
+     const float sc = ds.y * 0.07f;
++    // Colours picked to NOT collide with anything else on the overlay: the hand
++    // lasers are cyan/green, the crosshair is red, the pale target is yellow.
+     const FootGizmo feet[2] = {
+-        { "left foot",  203, 206, 207, 145, 157, ds.x * 0.10f, IM_COL32(0, 210, 255, 255) },
+-        { "right foot", 250, 253, 254, 255, 165, ds.x * 0.90f, IM_COL32(255, 160, 60, 255) },
++        { "left foot",  203, 206, 207, 145, 157, ds.x * 0.10f, IM_COL32(255, 60, 255, 255) },
++        { "right foot", 250, 253, 254, 255, 165, ds.x * 0.90f, IM_COL32(255, 130, 20, 255) },
+     };
+     for (int i = 0; i < 2; ++i) {
+         const FootGizmo& f = feet[i];
+-        const ImVec2 anchor(f.ax, ds.y * 0.86f);
++        const ImVec2 anchor(f.ax, ds.y * 0.66f);
+         const bool valid = OpenXRManager::Get().GetSharedSlot(f.validSlot) >= 0.5f;
+         dl->AddText(ImVec2(anchor.x - 42.0f, anchor.y + sc + 6.0f), f.col, f.name);
+         if (!valid) {

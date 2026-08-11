@@ -163,6 +163,8 @@ extern volatile int       g_VRRightLegIdx;       // RightLeg (knee)
 extern volatile int       g_VRLeftLegIdx;        // LeftLeg  (knee)
 extern volatile int       g_VRRightFootIdx;      // RightFoot
 extern volatile int       g_VRLeftFootIdx;       // LeftFoot
+extern volatile int       g_VRRightToeIdx;       // RightToeBase (foot-mount calibration toe dir)
+extern volatile int       g_VRLeftToeIdx;        // LeftToeBase  (-1 = unresolved)
 extern volatile int       g_VRNeckIdx;           // Neck
 extern volatile int       g_VRNeck1Idx;          // Neck1
 extern volatile int       g_VRLeftBoneIdx;       // default 23 (LeftHand)
@@ -293,6 +295,107 @@ inline void VRIK_SnapTraceLog(const char* fmt, ...) {
     vfprintf(s_tf, fmt, args);
     va_end(args);
     fflush(s_tf);
+}
+
+// Append-mode continuous probe (full-body-tracking space diagnostics, fix9).
+// One line per call in bin\x64\cyberpunkvr_fbtprobe.log, accumulates across the
+// whole session so head/body poses can be compared term by term.
+inline void VRIK_FbtProbeLog(const char* fmt, ...) {
+    static FILE* s_pf = nullptr;
+    if (!s_pf) {
+        char p[MAX_PATH];
+        GetModuleFileNameA(nullptr, p, MAX_PATH);
+        char* sl = strrchr(p, '\\');
+        if (sl) *(sl + 1) = 0;
+        strcat_s(p, "cyberpunkvr_fbtprobe.log");
+        s_pf = _fsopen(p, "a", _SH_DENYNO);
+    }
+    if (!s_pf) return;
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(s_pf, fmt, args);
+    va_end(args);
+    fputc('\n', s_pf);
+    fflush(s_pf);
+}
+
+// ---- Panda Trackers foot visual fix (fix11) --------------------------------
+// The T-pose solve below aligns the foot BONE's yaw using the rig-constant toe
+// direction t_b, with the tracker's own pitch/roll passing through 1:1. The
+// fix10 probe proved that math lands the skeleton frame exactly right (toe =
+// bodyFwd, dorsal = +Z, feet level) -- yet the RENDERED boots still sat ~90
+// deg rolled onto their left edge with the toes ~45 deg left of forward: the
+// mesh's visual axes carry a constant offset from the bone frame (the same
+// offset the idle animation's own pose compensates -- a bone pose corrected
+// this way matches the animation's standing foot pose to ~1 deg). The mesh
+// can't be read from here, so the residual is corrected by a fixed
+// world-space-at-calibration rotation Q_fix, folded into the solved mount
+// through the tracker's own frame:
+//     mount_eff = conj(M_cal) * Q_fix * M_cal * mount_solved
+// (M_cal = the tracker's mapped orientation averaged over the T-pose sample).
+// The conjugation makes the correction act in world space at the calibration
+// pose and lets it rotate with the foot afterwards -- exactly like the
+// physical mesh offset it stands in for. The defaults below reproduce the
+// measured fix10 error (toes 45 deg LEFT, soles facing RIGHT). Tweaking: edit
+// vrik_footfix.ini, T-pose, calibrate again -- no restart, no rebuild. The
+// file lives next to vrik_calibration.ini; it is created with defaults when
+// missing and never rewritten otherwise (the stereo side never touches it).
+static inline void VRIK_FootFixPath(char* out, size_t cap) {
+    GetModuleFileNameA(nullptr, out, (DWORD)cap);
+    char* sl = strrchr(out, '\\');
+    if (sl) *(sl + 1) = 0;
+    strcat_s(out, cap, "red4ext\\plugins\\CyberpunkVR_Stereo\\vrik_footfix.ini");
+}
+
+static inline void VRIK_EnsureFootFixFile(const char* path) {
+    if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) return;
+    FILE* f = _fsopen(path, "w", _SH_DENYNO);
+    if (!f) return;
+    fputs("# Panda Trackers foot visual fix (read at every T-pose calibration).\n"
+          "# If, right after calibrating, the boots are still twisted, edit the\n"
+          "# numbers, stand in the T-pose and calibrate again -- no restart needed.\n"
+          "#   yaw   -- toes point LEFT of forward:  more negative turns them right\n"
+          "#            toes point RIGHT of forward: more positive turns them left\n"
+          "#   roll  -- boot rests on its LEFT edge (sole faces right): increase\n"
+          "#            boot rests on its RIGHT edge (sole faces left): decrease\n"
+          "#   pitch -- toes dig into the floor: increase lifts them; toes pointing\n"
+          "#            up: decrease. (degrees, decimals allowed, per foot L/R)\n"
+          "# Defaults below are the play-tested boot-mesh correction (fix14,\n"
+          "# identical both feet): roll +90, pitch -45, yaw 0.\n"
+          "footFixYawDegL=0.0\n"
+          "footFixRollDegL=90.0\n"
+          "footFixPitchDegL=-45.0\n"
+          "footFixYawDegR=0.0\n"
+          "footFixRollDegR=90.0\n"
+          "footFixPitchDegR=-45.0\n", f);
+    fclose(f);
+}
+
+// ang = { yawL, rollL, pitchL, yawR, rollR, pitchR } in degrees.
+static inline void VRIK_ReadFootFix(float ang[6]) {
+    // fix14 defaults: play-tested boot-mesh correction, identical both feet.
+    ang[0] = 0.0f; ang[1] = 90.0f; ang[2] = -45.0f;
+    ang[3] = 0.0f; ang[4] = 90.0f; ang[5] = -45.0f;
+    char path[MAX_PATH];
+    VRIK_FootFixPath(path, MAX_PATH);
+    VRIK_EnsureFootFixFile(path);
+    FILE* f = _fsopen(path, "r", _SH_DENYNO);
+    if (!f) return;
+    static const char* kKeys[6] = {
+        "footFixYawDegL", "footFixRollDegL", "footFixPitchDegL",
+        "footFixYawDegR", "footFixRollDegR", "footFixPitchDegR" };
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' || line[0] == ';') continue;
+        for (int k = 0; k < 6; ++k) {
+            const size_t kl = strlen(kKeys[k]);
+            if (strncmp(line, kKeys[k], kl) == 0 && line[kl] == '=') {
+                float v = 0.0f;
+                if (sscanf(line + kl + 1, "%f", &v) == 1) ang[k] = v;
+            }
+        }
+    }
+    fclose(f);
 }
 
 inline void VRIK_LatchViewPacket() {
@@ -571,10 +674,37 @@ static inline void VRIK_QuatConj(const float* q, float* o) {
     o[0] = -q[0]; o[1] = -q[1]; o[2] = -q[2]; o[3] = q[3];
 }
 
+// Axis-angle -> quaternion (degrees; the axis need not be normalised).
+static inline void VRIK_QuatAxisAngle(float ax, float ay, float az, float deg, float* o) {
+    const float n = std::sqrt(ax*ax + ay*ay + az*az);
+    if (n < 1e-8f) { o[0]=0.0f; o[1]=0.0f; o[2]=0.0f; o[3]=1.0f; return; }
+    const float h = deg * (3.14159265358979f / 180.0f) * 0.5f;
+    const float s = std::sin(h) / n;
+    o[0] = ax*s; o[1] = ay*s; o[2] = az*s; o[3] = std::cos(h);
+}
+
 static inline void VRIK_QuatNorm(float* q) {
     float n = std::sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
     if (n > 1e-8f) { float inv = 1.0f / n; q[0]*=inv; q[1]*=inv; q[2]*=inv; q[3]*=inv; }
     else { q[0]=0.0f; q[1]=0.0f; q[2]=0.0f; q[3]=1.0f; }
+}
+
+// Hemisphere-packed mount quat reader (fix10; ACTIVE mounts live at [137..139]
+// for the left foot and [178..180] for the right). The writer stores x,y,z
+// with w >= 0; the reader recovers w = +sqrt(1-|xyz|^2) -- every rotation has
+// a w>=0 representative, so this is lossless. Identity is stored as (0,0,0).
+// Garbage (|xyz| > 1, e.g. a stray counter ever stomping these slots again)
+// fails safe to identity: the worst a slot collision can do now is
+// neutralize the correction, never inject a nonsense rotation.
+static inline void VRIK_ReadPackedMount(const volatile float* sh, int slotBase, float* out) {
+    out[0] = out[1] = out[2] = 0.0f; out[3] = 1.0f;
+    if (!sh) return;
+    const float x = sh[slotBase], y = sh[slotBase + 1], z = sh[slotBase + 2];
+    const float v2 = x*x + y*y + z*z;
+    if (v2 < 1e-8f || v2 > 1.0001f) return;
+    out[0] = x; out[1] = y; out[2] = z;
+    out[3] = std::sqrt(1.0f - (v2 > 1.0f ? 1.0f : v2));
+    VRIK_QuatNorm(out);
 }
 
 static inline float VRIK_Dot3(const float* a, const float* b) {
@@ -1968,29 +2098,28 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
     // fallback: a lost tracker keeps its animation-driven leg.
     bool trackR = false, trackL = false;
     float footTrackRotR[4] = {0,0,0,1}, footTrackRotL[4] = {0,0,0,1};
+    // fix15: rp (the head-invariant rotated foot offset) captured per foot for
+    // the kick detector below.
+    float footRpL[3] = {0,0,0}, footRpR[3] = {0,0,0};
     if (trackAnchor && SharedLeg(173) == 1.0f) {
         const float ankleOff = SharedLeg(175);
-        // PER-FOOT mount correction quats (slots [208..211] L / [212..215] R),
-        // solved automatically by the T-pose calibration sampler below and
-        // persisted in vrik_calibration.ini. They replace the old shared
-        // euler mount sliders ([178..180], no longer consumed): one manual
-        // correction could never fit both feet -- a yaw that fixed one foot
-        // pointed the other backwards. Identity when never calibrated.
-        auto mountOf = [](int slotBase, float* out) {
-            out[0] = out[1] = out[2] = 0.0f; out[3] = 1.0f;
-            if (!g_pSharedHands) return;
-            float q[4] = { g_pSharedHands[slotBase], g_pSharedHands[slotBase+1],
-                           g_pSharedHands[slotBase+2], g_pSharedHands[slotBase+3] };
-            const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
-            if (n2 > 0.25f && n2 < 4.0f) {   // sane published quat -> use it
-                VRIK_QuatNorm(q);
-                out[0]=q[0]; out[1]=q[1]; out[2]=q[2]; out[3]=q[3];
-            }
-        };
-        auto buildFoot = [&](int base, int mountBase, float* outFoot, float* outRot) -> bool {
+        // PER-FOOT mount correction quats (hemisphere-packed: [137..139] L,
+        // [178..180] R), solved automatically by the T-pose calibration
+        // sampler below and persisted in vrik_calibration.ini. They replace
+        // the old shared euler mount sliders (removed): one manual correction
+        // could never fit both feet -- a yaw that fixed one foot pointed the
+        // other backwards. Identity when never calibrated.
+        // fix10 slot history: the first assignment ([208..215]) collided with
+        // the legacy VRIK solve-stats block the hook itself publishes every
+        // frame, which stomped the mounts with counters and left them
+        // permanently at the identity fallback (the fix9 probe caught the
+        // feet running raw). The packed reader above fails safe to identity
+        // on any such garbage now.
+        auto buildFoot = [&](int base, int mountBase, float* outFoot, float* outRot, float* outRp) -> bool {
             if (SharedLeg(base) != 1.0f) return false;
             float mapPos[3] = { SharedLeg(base+1), -SharedLeg(base+3), SharedLeg(base+2) };
             float rp[3]; VRIK_QuatRotateVec(camModelRot, mapPos, rp);
+            outRp[0] = rp[0]; outRp[1] = rp[1]; outRp[2] = rp[2];
             outFoot[0] = trackAnchor[0] + rp[0];
             outFoot[1] = trackAnchor[1] + rp[1];
             outFoot[2] = trackAnchor[2] + rp[2] + ankleOff;
@@ -1999,76 +2128,337 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
             float d2 = rp[0]*rp[0] + rp[1]*rp[1] + rp[2]*rp[2];
             if (d2 > 6.25f) return false;
             float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
-            float mount[4]; mountOf(mountBase, mount);
+            float mount[4]; VRIK_ReadPackedMount(g_pSharedHands, mountBase, mount);
             float mq[4]; VRIK_QuatMul(camModelRot, lq, mq);
             VRIK_QuatMul(mq, mount, outRot);
             VRIK_QuatNorm(outRot);
             return true;
         };
-        trackR = haveR && buildFoot(165, 212, footR, footTrackRotR);
-        trackL = haveL && buildFoot(157, 208, footL, footTrackRotL);
+        trackR = haveR && buildFoot(165, 178, footR, footTrackRotR, footRpR);
+        trackL = haveL && buildFoot(157, 137, footL, footTrackRotL, footRpL);
     }
     const bool anyTrack = trackR || trackL;
+
+    // ---- KICK DAMAGE (fix15) -------------------------------------------------
+    // F10 "Kicks damage NPCs" (vrport.ini xr_leg_kick_damage, published to
+    // [140]). A fast physical foot strike taps the SAME melee-RT impulse
+    // channel the CET weapon mod pulses for hand swings (shared[29]): the
+    // dxgi XInput merge turns it into the game's NATIVE attack -- native
+    // damage / numbers / armor, no damage pipeline of our own to get wrong.
+    // Signal: the frame-to-frame velocity of rp = camModelRot*(x,-z,y), the
+    // foot's HMD-local offset rotated into the anchor frame. rp is invariant
+    // to head motion (fix9 probe-validated composition) and to anchor
+    // translation (sprint/walk with the stick), so ONLY physical foot motion
+    // relative to the room trips it -- walking-in-place foot swings stay
+    // under ~2.5 m/s, a real kick peaks 4+.
+    // Gates: trackers driving the feet, no weapon equipped ([144] -- with a
+    // gun the RT tap would fire it, with fists it is a native punch), not in
+    // a vehicle ([31]), no menu open ([81]), not mid-calibration ([190]).
+    {
+        static float   s_kickRp[2][3] = {};
+        static bool    s_kickHave[2]  = { false, false };
+        static double  s_kickT        = 0.0;
+        static double  s_kickReadyAt  = 0.0;
+        LARGE_INTEGER qpc, qpf;
+        QueryPerformanceCounter(&qpc);
+        QueryPerformanceFrequency(&qpf);
+        const double tNow = (double)qpc.QuadPart / (double)qpf.QuadPart;
+        const double dt = (s_kickT > 0.0) ? (tNow - s_kickT) : 0.0;
+        s_kickT = tNow;
+        const bool kickEnabled =
+            g_pSharedHands && g_pSharedHands[140] == 1.0f &&
+            g_pSharedHands[144] < 0.5f &&          // empty hands only
+            g_pSharedHands[31]  < 0.5f &&          // not driving
+            g_pSharedHands[81]  == 0.0f &&         // no menu / world map
+            g_pSharedHands[190] != 1.0f;           // not calibrating
+        const float rpIn[2][3] = { { footRpL[0], footRpL[1], footRpL[2] },
+                                   { footRpR[0], footRpR[1], footRpR[2] } };
+        const bool have[2] = { trackL, trackR };
+        bool fired = false;
+        for (int f = 0; f < 2 && !fired; ++f) {
+            if (!have[f]) { s_kickHave[f] = false; continue; }
+            if (kickEnabled && s_kickHave[f] && dt > 0.001 && dt < 0.2 &&
+                tNow >= s_kickReadyAt && g_pSharedHands[29] < 0.5f) {
+                const float dx = rpIn[f][0] - s_kickRp[f][0];
+                const float dy = rpIn[f][1] - s_kickRp[f][1];
+                const float dz = rpIn[f][2] - s_kickRp[f][2];
+                const double speed = sqrt((double)(dx*dx + dy*dy + dz*dz)) / dt;
+                if (speed > 3.2) {
+                    g_pSharedHands[29] = 4.0f;   // proven CET pulse: 4 XInput polls of RT
+                    s_kickReadyAt = tNow + 0.7;  // one attack per cooldown window
+                    fired = true;
+                    VRIK_FbtProbeLog("KICK %s speed=%.2f m/s dt=%.1f ms -> melee RT impulse [29]=4",
+                                     f == 0 ? "L" : "R", speed, dt * 1000.0);
+                }
+            }
+            s_kickRp[f][0] = rpIn[f][0]; s_kickRp[f][1] = rpIn[f][1]; s_kickRp[f][2] = rpIn[f][2];
+            s_kickHave[f] = true;
+        }
+    }
+
+    // FOOT VISUAL AXES (bone->visual map). The foot BONE's axes are a rig
+    // convention, not the visual foot -- the calibration's job is to hide that.
+    // From one coherent FK we recover the two skeleton CONSTANTS:
+    //   t_b = bone-local TOE direction    (toe bone pos - foot bone pos)
+    //   u_b = bone-local DORSAL direction (shin axis, component perpendicular
+    //         to the toe -- the shin (ankle->knee) lies in the foot's sagittal
+    //         plane, so its toe-perpendicular part points out the top of the foot)
+    // They are pose-independent anatomy: any coherent FK yields the same
+    // constants, even if that pose's foot ORIENTATION is pre-IK weirdness --
+    // positions and orientations come from the same evaluation, so a twisted
+    // sampled pose twists the toe position along with the bone frame and the
+    // recovered constants are unaffected.
+    auto footVisual = [&](int boneIdx, int kneeIdx, int toeIdx, float* tB, float* uB) -> bool {
+        if (boneIdx < 0 || boneIdx >= VRIK_MAX_BONES) return false;
+        if (toeIdx < 0 || toeIdx >= VRIK_MAX_BONES) return false;
+        float tm[3] = { g_fkPos[toeIdx][0] - g_fkPos[boneIdx][0],
+                        g_fkPos[toeIdx][1] - g_fkPos[boneIdx][1],
+                        g_fkPos[toeIdx][2] - g_fkPos[boneIdx][2] };
+        if (VRIK_Norm3(tm) < 1e-5f) return false;
+        float dm[3] = { 0.0f, 0.0f, 1.0f };   // dorsal fallback: world up
+        if (kneeIdx >= 0 && kneeIdx < VRIK_MAX_BONES) {
+            float sh[3] = { g_fkPos[kneeIdx][0] - g_fkPos[boneIdx][0],
+                            g_fkPos[kneeIdx][1] - g_fkPos[boneIdx][1],
+                            g_fkPos[kneeIdx][2] - g_fkPos[boneIdx][2] };
+            if (VRIK_Norm3(sh) > 1e-5f) {
+                const float d = VRIK_Dot3(sh, tm);
+                dm[0] = sh[0] - tm[0]*d; dm[1] = sh[1] - tm[1]*d; dm[2] = sh[2] - tm[2]*d;
+                if (VRIK_Norm3(dm) < 1e-4f) { dm[0]=0.0f; dm[1]=0.0f; dm[2]=1.0f; }
+            }
+        }
+        const float* R = g_fkRot[boneIdx];
+        const float Rc[4] = { -R[0], -R[1], -R[2], R[3] };
+        VRIK_QuatRotateVec(Rc, tm, tB); VRIK_Norm3(tB);
+        VRIK_QuatRotateVec(Rc, dm, uB); VRIK_Norm3(uB);
+        return true;
+    };
+
+    // TRACKER ORIENTATION DEBUG GIZMO (overlay reads [203..207]/[145]/[250..255]):
+    // publish the SOLVED foot's VISUAL axes (toe + dorsal directions of
+    // footTrackRot) every frame, so the F10 overlay can draw "where the game
+    // thinks each foot points" next to the ground-truth target. Diagnostics
+    // only -- no behavioural effect.
+    if (g_pSharedHands && anyTrack) {
+        float tB[3], uB[3], tv[3], dv[3];
+        if (trackL && footVisual(g_VRLeftFootIdx, g_VRLeftLegIdx, g_VRLeftToeIdx, tB, uB)) {
+            VRIK_QuatRotateVec(footTrackRotL, tB, tv); VRIK_Norm3(tv);
+            VRIK_QuatRotateVec(footTrackRotL, uB, dv); VRIK_Norm3(dv);
+            g_pSharedHands[203] = tv[0]; g_pSharedHands[204] = tv[1]; g_pSharedHands[205] = tv[2];
+            g_pSharedHands[206] = dv[0]; g_pSharedHands[207] = dv[1]; g_pSharedHands[145] = dv[2];
+        }
+        if (trackR && footVisual(g_VRRightFootIdx, g_VRRightLegIdx, g_VRRightToeIdx, tB, uB)) {
+            VRIK_QuatRotateVec(footTrackRotR, tB, tv); VRIK_Norm3(tv);
+            VRIK_QuatRotateVec(footTrackRotR, uB, dv); VRIK_Norm3(dv);
+            g_pSharedHands[250] = tv[0]; g_pSharedHands[251] = tv[1]; g_pSharedHands[252] = tv[2];
+            g_pSharedHands[253] = dv[0]; g_pSharedHands[254] = dv[1]; g_pSharedHands[255] = dv[2];
+        }
+    }
 
     // ---- T-POSE FOOT-ROTATION CALIBRATION SAMPLER ----------------------------
     // While the stereo side runs its T-pose sample window it raises [190].
     // Each frame we solve the tracker-local mount correction that maps the
-    // CURRENT tracker orientation onto the CURRENT pristine-animation foot
-    // bone orientation:  S = (camModelRot * map(lq))^-1 * animFootModelRot.
-    // The user stands straight, feet forward -- the pose where the real feet
-    // and the avatar's animation feet agree -- so the averaged S makes the
-    // tracked foot match the T-pose exactly, for EACH foot independently.
+    // CURRENT tracker orientation onto the DESIRED foot orientation:
+    //   S = (camModelRot * map(lq))^-1 * T_desired.
+    //
+    // T_desired is the YAW-ONLY corrected tracker orientation (fix10). The
+    // pose readable at this point is the engine's PRE-IK animation, and of
+    // the two bone->visual constants only the toe direction t_b is a true
+    // rig constant (rigid toe-bone child -- the fix9 probe measured it
+    // stable to 0.0003 across kicks and toe-twists). The dorsal direction
+    // comes from the SHIN, whose foot-frame direction swings with the ankle
+    // angle of whatever mangled pre-IK pose gets sampled: fix8's three-axis
+    // construction (t_b -> fwd AND u_b -> +Z) baked the T-pose's garbage
+    // twist into the mounts (~90 deg roll). The tracker itself supplies the
+    // ankle's absolute pitch/roll (the probe showed soles flat with NO
+    // mount at all), so the only thing the calibration has to fix is the
+    // toe HEADING: T_desired = Rz(phi) * M, where phi rotates the tracker's
+    // current toe heading onto bodyFwd about world +Z. Without resolved toe
+    // bones we keep the raw animation orientation (pre-fix6 behaviour) and
+    // the diagnostic log says so.
+    //
+    // fix11: the solve above aligns the BONE frame, but the rendered boot mesh
+    // carries a constant offset from it (fix10 evidence: skeleton toe/dorsal
+    // read perfectly while the boots sat rolled ~90 deg with toes ~45 deg
+    // left). On publish, the solved mount is post-composed with that visual
+    // fix through the averaged tracker frame -- see the fix11 comment above
+    // VRIK_FootFixPath. The angles come from vrik_footfix.ini (re-read at
+    // every calibration start, so tuning = edit + recalibrate).
+    //
     // Published to [191..199] on the falling edge; the stereo side adopts,
     // persists (vrik_calibration.ini) and republishes the ACTIVE mounts on
-    // [208..215]. g_fkRot at this point is still this frame's untouched
-    // animation pose (same assumption as the foot-position capture above).
+    // [137..139]/[178..180]. Diagnostics (the averaged target, the measured
+    // toe directions, the applied yaw corrections) go to [233..249] so the
+    // adoption log shows exactly what was solved. g_fkRot/g_fkPos at this
+    // point are still this frame's untouched animation pose (same assumption
+    // as the foot-position capture above).
     if (g_pSharedHands) {
         static bool  s_mntWas = false;
         static float s_mntAccL[4] = {0,0,0,0}, s_mntAccR[4] = {0,0,0,0};
         static int   s_mntNL = 0, s_mntNR = 0;
+        static float s_tgtAccL[4] = {0,0,0,0}, s_tgtAccR[4] = {0,0,0,0};  // diag: averaged T_desired
+        static float s_toeAccL[3] = {0,0,0}, s_toeAccR[3] = {0,0,0};      // diag: averaged anim toe dir
+        static float s_yawAccL = 0.0f, s_yawAccR = 0.0f;                  // diag: averaged yawCorr (deg)
+        static float s_trkAccL[4] = {0,0,0,0}, s_trkAccR[4] = {0,0,0,0};  // fix11: averaged mapped tracker orientation M
+        static int   s_visNL = 0, s_visNR = 0;                            // fix11: samples with resolved toe bones
+        static float s_fixAng[6] = { 0.0f, 90.0f, -45.0f, 0.0f, 90.0f, -45.0f };  // vrik_footfix.ini (read at calib start; fix14 defaults)
         if (g_pSharedHands[190] == 1.0f && trackAnchor && SharedLeg(173) == 1.0f) {
-            auto sampleFoot = [&](int base, int boneIdx, float* acc, int& n) {
+            if (!s_mntWas) VRIK_ReadFootFix(s_fixAng);   // re-read EVERY calibration: edit -> recalibrate, no restart
+            auto sampleFoot = [&](int base, int boneIdx, int kneeIdx, int toeIdx, float* acc, int& n,
+                                  float* tgtAcc, float* toeAcc, float& yawAcc,
+                                  float* trkAcc, int& visN) {
                 if (SharedLeg(base) != 1.0f) return;
                 if (boneIdx < 0 || boneIdx >= VRIK_MAX_BONES) return;
                 float lq[4] = { SharedLeg(base+4), -SharedLeg(base+6), SharedLeg(base+5), SharedLeg(base+7) };
                 float M[4]; VRIK_QuatMul(camModelRot, lq, M); VRIK_QuatNorm(M);
+                {   // fix11: remember the tracker's mapped orientation for the
+                    // visual-fix frame (plain average over the window, hemisphere-fixed)
+                    float Mc[4] = { M[0], M[1], M[2], M[3] };
+                    if (n > 0) {
+                        const float dm = trkAcc[0]*Mc[0] + trkAcc[1]*Mc[1] + trkAcc[2]*Mc[2] + trkAcc[3]*Mc[3];
+                        if (dm < 0.0f) { Mc[0]=-Mc[0]; Mc[1]=-Mc[1]; Mc[2]=-Mc[2]; Mc[3]=-Mc[3]; }
+                    }
+                    trkAcc[0]+=Mc[0]; trkAcc[1]+=Mc[1]; trkAcc[2]+=Mc[2]; trkAcc[3]+=Mc[3];
+                }
+
+                // Desired orientation: the tracker's own orientation, YAW-rotated
+                // so the toe heading lands on bodyFwd (fix10). Pitch/roll stay
+                // with the tracker 1:1 -- it reports the ankle's absolute
+                // orientation, and the fix9 probe showed soles flat with no
+                // mount at all. Only t_b is used: it is a rigid rig constant,
+                // while the shin-derived dorsal swings with the sampled pose's
+                // ankle angle and poisoned fix8's three-axis solve.
+                float T[4] = { g_fkRot[boneIdx][0], g_fkRot[boneIdx][1], g_fkRot[boneIdx][2], g_fkRot[boneIdx][3] };
+                float toeDir[3] = { 0.0f, 0.0f, 0.0f };
+                float yawDeg = 0.0f;   // signed yaw correction about +Z (deg)
+                float tB[3], uB[3];
+                if (footVisual(boneIdx, kneeIdx, toeIdx, tB, uB)) {
+                    // toe direction in model space (diagnostic): t_model = T_anim * t_b
+                    VRIK_QuatRotateVec(T, tB, toeDir); VRIK_Norm3(toeDir);
+                    // current tracker-driven toe heading -> rotate onto bodyFwd
+                    float v[3]; VRIK_QuatRotateVec(M, tB, v);
+                    const float vl = std::sqrt(v[0]*v[0] + v[1]*v[1]);
+                    if (vl > 1e-4f) {
+                        const float vhx = v[0]/vl, vhy = v[1]/vl;
+                        const float cph = vhx*bodyFwd[0] + vhy*bodyFwd[1];
+                        const float sph = vhx*bodyFwd[1] - vhy*bodyFwd[0];
+                        const float phi = std::atan2(sph, cph);   // rad, about world +Z
+                        float W[4] = { 0.0f, 0.0f, std::sin(phi*0.5f), std::cos(phi*0.5f) };
+                        VRIK_QuatMul(W, M, T); VRIK_QuatNorm(T);   // T = Rz(phi) * M
+                        yawDeg = phi * 57.2957795f;
+                    }
+                }
+
                 const float Minv[4] = { -M[0], -M[1], -M[2], M[3] };
-                float S[4]; VRIK_QuatMul(Minv, g_fkRot[boneIdx], S); VRIK_QuatNorm(S);
-                if (n > 0) {   // hemisphere-fix against the running sum
+                float S[4]; VRIK_QuatMul(Minv, T, S); VRIK_QuatNorm(S);
+                const bool haveVis = (toeDir[0] != 0.0f || toeDir[1] != 0.0f || toeDir[2] != 0.0f);
+                if (n > 0) {   // hemisphere-fix quats against the running sums
                     const float d = acc[0]*S[0] + acc[1]*S[1] + acc[2]*S[2] + acc[3]*S[3];
                     if (d < 0.0f) { S[0]=-S[0]; S[1]=-S[1]; S[2]=-S[2]; S[3]=-S[3]; }
+                    const float dt = tgtAcc[0]*T[0] + tgtAcc[1]*T[1] + tgtAcc[2]*T[2] + tgtAcc[3]*T[3];
+                    if (dt < 0.0f) { T[0]=-T[0]; T[1]=-T[1]; T[2]=-T[2]; T[3]=-T[3]; }
+                    if (haveVis) {
+                        const float dv = toeAcc[0]*toeDir[0] + toeAcc[1]*toeDir[1] + toeAcc[2]*toeDir[2];
+                        if (dv < 0.0f) { toeDir[0]=-toeDir[0]; toeDir[1]=-toeDir[1]; toeDir[2]=-toeDir[2]; }
+                    }
                 }
                 acc[0]+=S[0]; acc[1]+=S[1]; acc[2]+=S[2]; acc[3]+=S[3];
+                tgtAcc[0]+=T[0]; tgtAcc[1]+=T[1]; tgtAcc[2]+=T[2]; tgtAcc[3]+=T[3];
+                if (haveVis) { toeAcc[0]+=toeDir[0]; toeAcc[1]+=toeDir[1]; toeAcc[2]+=toeDir[2]; }
+                yawAcc += yawDeg;
                 ++n;
             };
-            sampleFoot(157, g_VRLeftFootIdx,  s_mntAccL, s_mntNL);
-            sampleFoot(165, g_VRRightFootIdx, s_mntAccR, s_mntNR);
+            sampleFoot(157, g_VRLeftFootIdx,  g_VRLeftLegIdx,  g_VRLeftToeIdx,  s_mntAccL, s_mntNL, s_tgtAccL, s_toeAccL, s_yawAccL, s_trkAccL, s_visNL);
+            sampleFoot(165, g_VRRightFootIdx, g_VRRightLegIdx, g_VRRightToeIdx, s_mntAccR, s_mntNR, s_tgtAccR, s_toeAccR, s_yawAccR, s_trkAccR, s_visNR);
             s_mntWas = true;
         } else if (s_mntWas) {
             // Falling edge: publish the averaged solve. An under-sampled foot
             // echoes its current ACTIVE mount so adoption is a no-op for it.
-            auto publishFoot = [&](int slotBase, int activeBase, float* acc, int n) {
-                float q[4] = { g_pSharedHands[activeBase], g_pSharedHands[activeBase+1],
-                               g_pSharedHands[activeBase+2], g_pSharedHands[activeBase+3] };
+            auto publishFoot = [&](int slotBase, int activeBase, float* acc, int n,
+                                   const float* trkAcc, int visN, const float* fixAng, const char* tag) {
+                float q[4];
+                VRIK_ReadPackedMount(g_pSharedHands, activeBase, q);   // under-sampled foot echoes its ACTIVE mount
                 if (n >= 20) {
                     q[0]=acc[0]; q[1]=acc[1]; q[2]=acc[2]; q[3]=acc[3];
                     VRIK_QuatNorm(q);
-                } else {
-                    const float n2 = q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3];
-                    if (n2 < 0.25f || n2 > 4.0f) { q[0]=q[1]=q[2]=0.0f; q[3]=1.0f; }
+                }
+                if (n >= 20 && visN >= 20) {
+                    // fix11: fold the boot-mesh visual fix into the mount through
+                    // the averaged tracker frame:  q_eff = conj(M_cal) * Q_fix * M_cal * q.
+                    // Q_fix = Rx(pitch) * Ry(roll) * Rz(yaw) acts in world space at
+                    // the calibration pose (un-yaw about +Z first, then un-roll about
+                    // the body-forward +Y, then pitch about body-right +X); the
+                    // conj(M_cal)..M_cal wrap turns that world-space correction into
+                    // a tracker-local constant that rotates with the foot afterwards.
+                    // NOT applied on the raw-animation fallback path (visN < 20):
+                    // there the mount already anchors to the animation's own --
+                    // visually correct -- foot pose, so no mesh fix is needed.
+                    float Mcal[4] = { trkAcc[0], trkAcc[1], trkAcc[2], trkAcc[3] };
+                    VRIK_QuatNorm(Mcal);
+                    float qy[4], qr[4], qp[4], Qf[4], t1[4];
+                    VRIK_QuatAxisAngle(0.0f, 0.0f, 1.0f, fixAng[0], qy);
+                    VRIK_QuatAxisAngle(0.0f, 1.0f, 0.0f, fixAng[1], qr);
+                    VRIK_QuatAxisAngle(1.0f, 0.0f, 0.0f, fixAng[2], qp);
+                    VRIK_QuatMul(qr, qy, t1);
+                    VRIK_QuatMul(qp, t1, Qf); VRIK_QuatNorm(Qf);
+                    float Mi[4]; VRIK_QuatConj(Mcal, Mi);
+                    float C[4]; VRIK_QuatMul(Mi, Qf, t1); VRIK_QuatMul(t1, Mcal, C); VRIK_QuatNorm(C);
+                    float qe[4]; VRIK_QuatMul(C, q, qe); VRIK_QuatNorm(qe);
+                    VRIK_FbtProbeLog(
+                        "FBTFIX %s ang=(y%+.1f r%+.1f p%+.1f) Mcal=(%+.4f %+.4f %+.4f %+.4f) "
+                        "C=(%+.4f %+.4f %+.4f %+.4f) q=(%+.4f %+.4f %+.4f %+.4f) qe=(%+.4f %+.4f %+.4f %+.4f)",
+                        tag, fixAng[0], fixAng[1], fixAng[2],
+                        Mcal[0], Mcal[1], Mcal[2], Mcal[3], C[0], C[1], C[2], C[3],
+                        q[0], q[1], q[2], q[3], qe[0], qe[1], qe[2], qe[3]);
+                    q[0]=qe[0]; q[1]=qe[1]; q[2]=qe[2]; q[3]=qe[3];
                 }
                 g_pSharedHands[slotBase]   = q[0];
                 g_pSharedHands[slotBase+1] = q[1];
                 g_pSharedHands[slotBase+2] = q[2];
                 g_pSharedHands[slotBase+3] = q[3];
             };
-            publishFoot(191, 208, s_mntAccL, s_mntNL);
-            publishFoot(195, 212, s_mntAccR, s_mntNR);
-            g_pSharedHands[199] = g_pSharedHands[199] + 1.0f;   // publish seq
+            publishFoot(191, 137, s_mntAccL, s_mntNL, s_trkAccL, s_visNL, &s_fixAng[0], "L");
+            publishFoot(195, 178, s_mntAccR, s_mntNR, s_trkAccR, s_visNR, &s_fixAng[3], "R");
+
+            // Diagnostics for the stereo-side adoption log ([233..249]): the
+            // yaw-corrected target actually solved against, the measured
+            // animation toe directions, and the signed yaw correction (deg
+            // about +Z; 0 with toe dir (0,0,0) = no toe bone, raw animation
+            // target was used). Pure diagnostics -- no behavioural effect.
+            auto publishDiag = [&](int slotT, int slotToe, int slotYaw,
+                                   float* tgtAcc, float* toeAcc, float yawAcc, int n) {
+                float t[4] = {0,0,0,1}; float td[3] = {0,0,0}; float yd = 0.0f;
+                if (n >= 20) {
+                    t[0]=tgtAcc[0]; t[1]=tgtAcc[1]; t[2]=tgtAcc[2]; t[3]=tgtAcc[3];
+                    VRIK_QuatNorm(t);
+                    const float tl = std::sqrt(toeAcc[0]*toeAcc[0] + toeAcc[1]*toeAcc[1] + toeAcc[2]*toeAcc[2]);
+                    if (tl > 1e-5f) { td[0]=toeAcc[0]/tl; td[1]=toeAcc[1]/tl; td[2]=toeAcc[2]/tl; }
+                    yd = yawAcc / static_cast<float>(n);
+                }
+                g_pSharedHands[slotT]   = t[0];  g_pSharedHands[slotT+1] = t[1];
+                g_pSharedHands[slotT+2] = t[2];  g_pSharedHands[slotT+3] = t[3];
+                g_pSharedHands[slotToe]   = td[0]; g_pSharedHands[slotToe+1] = td[1];
+                g_pSharedHands[slotToe+2] = td[2];
+                g_pSharedHands[slotYaw] = yd;
+            };
+            publishDiag(233, 241, 247, s_tgtAccL, s_toeAccL, s_yawAccL, s_mntNL);
+            publishDiag(237, 244, 248, s_tgtAccR, s_toeAccR, s_yawAccR, s_mntNR);
+            g_pSharedHands[249] = 1.0f;   // diag block valid for the seq about to bump
+            // Publish seq LAST: the stereo side adopts on the seq change, so the
+            // mounts AND the diagnostics must already be in place when it reads.
+            g_pSharedHands[199] = g_pSharedHands[199] + 1.0f;
+
             s_mntWas = false;
             s_mntNL = s_mntNR = 0;
             s_mntAccL[0]=s_mntAccL[1]=s_mntAccL[2]=s_mntAccL[3]=0.0f;
             s_mntAccR[0]=s_mntAccR[1]=s_mntAccR[2]=s_mntAccR[3]=0.0f;
+            s_tgtAccL[0]=s_tgtAccL[1]=s_tgtAccL[2]=s_tgtAccL[3]=0.0f;
+            s_tgtAccR[0]=s_tgtAccR[1]=s_tgtAccR[2]=s_tgtAccR[3]=0.0f;
+            s_toeAccL[0]=s_toeAccL[1]=s_toeAccL[2]=0.0f;
+            s_toeAccR[0]=s_toeAccR[1]=s_toeAccR[2]=0.0f;
+            s_yawAccL = s_yawAccR = 0.0f;
+            s_trkAccL[0]=s_trkAccL[1]=s_trkAccL[2]=s_trkAccL[3]=0.0f;
+            s_trkAccR[0]=s_trkAccR[1]=s_trkAccR[2]=s_trkAccR[3]=0.0f;
+            s_visNL = s_visNR = 0;
         }
     }
 
@@ -2261,6 +2651,61 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
         VRIK_WriteLocalRot(boneBuf, g_VRLeftFootIdx, (p>=0&&p<VRIK_MAX_BONES)?g_fkRot[p]:id, footTrackRotL);
     }
     if (anyTrack) VRIK_ComputeFK(boneBuf, VRIK_FKCount());
+
+    // FBT SPACE PROBE (fix9): while trackers drive the feet, dump every
+    // space-composition term ~every 2s so head-motion coupling can be isolated
+    // from the log: camModelRot/Pos, the tracker anchor, the eye-bake slots the
+    // anchor is built from, the RAW shared tracker quats, the solved foot
+    // rotations, the adopted mounts, and the resulting visual toe/dorsal dirs.
+    // If the composition were head-invariant, ftL/ftR and toe*/dor* would stay
+    // put while only cmR/cmP/anchor move -- the probe shows which term doesn't.
+    if (anyTrack && g_pSharedHands) {
+        static uint32_t s_fbtProbeN = 0;
+        if (++s_fbtProbeN % 150u == 0u) {
+            float mL[4], mR[4];
+            VRIK_ReadPackedMount(g_pSharedHands, 137, mL);
+            VRIK_ReadPackedMount(g_pSharedHands, 178, mR);
+            float toeL[3] = {0,0,0}, dorL[3] = {0,0,0}, toeR[3] = {0,0,0}, dorR[3] = {0,0,0};
+            float tB[3], uB[3];
+            if (trackL && footVisual(g_VRLeftFootIdx, g_VRLeftLegIdx, g_VRLeftToeIdx, tB, uB)) {
+                VRIK_QuatRotateVec(footTrackRotL, tB, toeL); VRIK_Norm3(toeL);
+                VRIK_QuatRotateVec(footTrackRotL, uB, dorL); VRIK_Norm3(dorL);
+            }
+            if (trackR && footVisual(g_VRRightFootIdx, g_VRRightLegIdx, g_VRRightToeIdx, tB, uB)) {
+                VRIK_QuatRotateVec(footTrackRotR, tB, toeR); VRIK_Norm3(toeR);
+                VRIK_QuatRotateVec(footTrackRotR, uB, dorR); VRIK_Norm3(dorR);
+            }
+            const float fkLz = (g_VRLeftFootIdx  >= 0 && g_VRLeftFootIdx  < VRIK_MAX_BONES) ? g_fkPos[g_VRLeftFootIdx][2]  : 0.0f;
+            const float fkRz = (g_VRRightFootIdx >= 0 && g_VRRightFootIdx < VRIK_MAX_BONES) ? g_fkPos[g_VRRightFootIdx][2] : 0.0f;
+            VRIK_FbtProbeLog(
+                "FBTPROBE n=%u cmR=(%+.4f %+.4f %+.4f %+.4f) cmP=(%+.4f %+.4f %+.4f) "
+                "anchor=(%+.4f %+.4f %+.4f) eye=(%+.4f %+.4f %+.4f)v%.0f sh120=(%+.4f %+.4f %+.4f) "
+                "rawL=(%+.4f %+.4f %+.4f | %+.4f %+.4f %+.4f %+.4f) rawR=(%+.4f %+.4f %+.4f | %+.4f %+.4f %+.4f %+.4f) "
+                "ftL=(%+.4f %+.4f %+.4f %+.4f) ftR=(%+.4f %+.4f %+.4f %+.4f) "
+                "mL=(%+.4f %+.4f %+.4f %+.4f) mR=(%+.4f %+.4f %+.4f %+.4f) "
+                "fwd=(%+.3f %+.3f) toeL=(%+.3f %+.3f %+.3f) dorL=(%+.3f %+.3f %+.3f) "
+                "toeR=(%+.3f %+.3f %+.3f) dorR=(%+.3f %+.3f %+.3f) "
+                "tgtL=(%+.3f %+.3f %+.3f) tgtR=(%+.3f %+.3f %+.3f) fkZ=(%+.3f %+.3f)",
+                s_fbtProbeN,
+                camModelRot[0], camModelRot[1], camModelRot[2], camModelRot[3],
+                camModelPos[0], camModelPos[1], camModelPos[2],
+                trackAnchor[0], trackAnchor[1], trackAnchor[2],
+                SharedPose(116), SharedPose(117), SharedPose(118), SharedPose(119),
+                SharedPose(120), SharedPose(121), SharedPose(122),
+                SharedLeg(158), SharedLeg(159), SharedLeg(160),
+                SharedLeg(161), SharedLeg(162), SharedLeg(163), SharedLeg(164),
+                SharedLeg(166), SharedLeg(167), SharedLeg(168),
+                SharedLeg(169), SharedLeg(170), SharedLeg(171), SharedLeg(172),
+                footTrackRotL[0], footTrackRotL[1], footTrackRotL[2], footTrackRotL[3],
+                footTrackRotR[0], footTrackRotR[1], footTrackRotR[2], footTrackRotR[3],
+                mL[0], mL[1], mL[2], mL[3], mR[0], mR[1], mR[2], mR[3],
+                bodyFwd[0], bodyFwd[1],
+                toeL[0], toeL[1], toeL[2], dorL[0], dorL[1], dorL[2],
+                toeR[0], toeR[1], toeR[2], dorR[0], dorR[1], dorR[2],
+                footL[0], footL[1], footL[2], footR[0], footR[1], footR[2],
+                fkLz, fkRz);
+        }
+    }
 
     // 5. Head follows the real head: orient the head bone to the HMD.
     {

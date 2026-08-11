@@ -1,0 +1,312 @@
+diff --git a/src/common/shared_slots.h b/src/common/shared_slots.h
+index ce5f1ce..2f6a19b 100644
+--- a/src/common/shared_slots.h
++++ b/src/common/shared_slots.h
+@@ -32,7 +32,9 @@
+ //  [24..26]   muzzle forward             plugin (SetVRMuzzleQuat) -> overlay
+ //  [27]       muzzle valid               plugin -> overlay
+ //  [28]       zoom level                 plugin -> overlay
+-//  [29]       melee impulse              dxgi reads/decrements
++//  [29]       melee impulse              dxgi reads/decrements (CET weapon mod
++//             pulses it on a VR hand swing; the plugin's kick detector pulses
++//             it on a foot strike -- fix15, gated by [140])
+ //  [30]       right trigger held (bool)  dxgi -> plugin native
+ //  [31]       in-vehicle flag            dxgi -> plugin hook (arms-only VRIK in vehicles)
+ //  [32]       hand-tracking / VRIK bind request   openxr -> plugin
+@@ -117,7 +119,11 @@
+ //              consumed [132..134] briefly -- removed after live test)
+ //  [137..139]  RECLAIMED (fix10): ACTIVE left foot mount quat, hemisphere-
+ //             packed x,y,z (w = +sqrt(1-|xyz|^2) at the reader)  openxr -> plugin
+-//             (was: located camera entity-local, writer removed; [140] free)
++//             (was: located camera entity-local, writer removed)
++//  [140]       RECLAIMED (fix15): kick-damage enable (vrport.ini
++//             xr_leg_kick_damage, F10 checkbox)  openxr -> plugin
++//             The plugin's kick detector reads it and pulses the melee RT
++//             impulse [29] on a fast foot strike (empty hands, on foot only).
+ //  [145]       reclaimed by the tracker debug gizmo (L dorsal z; was: FinalCamera poison
+ //              test counter, removed session 3)
+ //  [154..255]  mostly unused, but NOT a blank cheque -- [200..202] carry a right-hand debug
+@@ -247,6 +253,7 @@ constexpr int kMountSolveL       = 191;   // ..194: plugin-solved L mount quat
+ constexpr int kMountSolveR       = 195;   // ..198: plugin-solved R mount quat
+ constexpr int kMountSolveSeq     = 199;
+ constexpr int kLegMountQuatL     = 137;   // ..139: ACTIVE L mount quat, hemisphere-packed xyz (fix10: was 208, slot collision)
++constexpr int kKickDamageEnable  = 140;   // kick-damage checkbox (openxr -> plugin, fix15)
+ constexpr int kMountDiagTgtL     = 233;   // ..236: averaged straightened target L
+ constexpr int kMountDiagTgtR     = 237;   // ..240: averaged straightened target R
+ constexpr int kMountDiagToeL     = 241;   // ..243: animation toe direction L
+diff --git a/src/red4ext_plugin/vrik/vrik_hook.h b/src/red4ext_plugin/vrik/vrik_hook.h
+index 7c65f03..b1087a7 100644
+--- a/src/red4ext_plugin/vrik/vrik_hook.h
++++ b/src/red4ext_plugin/vrik/vrik_hook.h
+@@ -2098,6 +2098,9 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+     // fallback: a lost tracker keeps its animation-driven leg.
+     bool trackR = false, trackL = false;
+     float footTrackRotR[4] = {0,0,0,1}, footTrackRotL[4] = {0,0,0,1};
++    // fix15: rp (the head-invariant rotated foot offset) captured per foot for
++    // the kick detector below.
++    float footRpL[3] = {0,0,0}, footRpR[3] = {0,0,0};
+     if (trackAnchor && SharedLeg(173) == 1.0f) {
+         const float ankleOff = SharedLeg(175);
+         // PER-FOOT mount correction quats (hemisphere-packed: [137..139] L,
+@@ -2112,10 +2115,11 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+         // permanently at the identity fallback (the fix9 probe caught the
+         // feet running raw). The packed reader above fails safe to identity
+         // on any such garbage now.
+-        auto buildFoot = [&](int base, int mountBase, float* outFoot, float* outRot) -> bool {
++        auto buildFoot = [&](int base, int mountBase, float* outFoot, float* outRot, float* outRp) -> bool {
+             if (SharedLeg(base) != 1.0f) return false;
+             float mapPos[3] = { SharedLeg(base+1), -SharedLeg(base+3), SharedLeg(base+2) };
+             float rp[3]; VRIK_QuatRotateVec(camModelRot, mapPos, rp);
++            outRp[0] = rp[0]; outRp[1] = rp[1]; outRp[2] = rp[2];
+             outFoot[0] = trackAnchor[0] + rp[0];
+             outFoot[1] = trackAnchor[1] + rp[1];
+             outFoot[2] = trackAnchor[2] + rp[2] + ankleOff;
+@@ -2130,11 +2134,68 @@ static inline void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
+             VRIK_QuatNorm(outRot);
+             return true;
+         };
+-        trackR = haveR && buildFoot(165, 178, footR, footTrackRotR);
+-        trackL = haveL && buildFoot(157, 137, footL, footTrackRotL);
++        trackR = haveR && buildFoot(165, 178, footR, footTrackRotR, footRpR);
++        trackL = haveL && buildFoot(157, 137, footL, footTrackRotL, footRpL);
+     }
+     const bool anyTrack = trackR || trackL;
+ 
++    // ---- KICK DAMAGE (fix15) -------------------------------------------------
++    // F10 "Kicks damage NPCs" (vrport.ini xr_leg_kick_damage, published to
++    // [140]). A fast physical foot strike taps the SAME melee-RT impulse
++    // channel the CET weapon mod pulses for hand swings (shared[29]): the
++    // dxgi XInput merge turns it into the game's NATIVE attack -- native
++    // damage / numbers / armor, no damage pipeline of our own to get wrong.
++    // Signal: the frame-to-frame velocity of rp = camModelRot*(x,-z,y), the
++    // foot's HMD-local offset rotated into the anchor frame. rp is invariant
++    // to head motion (fix9 probe-validated composition) and to anchor
++    // translation (sprint/walk with the stick), so ONLY physical foot motion
++    // relative to the room trips it -- walking-in-place foot swings stay
++    // under ~2.5 m/s, a real kick peaks 4+.
++    // Gates: trackers driving the feet, no weapon equipped ([144] -- with a
++    // gun the RT tap would fire it, with fists it is a native punch), not in
++    // a vehicle ([31]), no menu open ([81]), not mid-calibration ([190]).
++    {
++        static float   s_kickRp[2][3] = {};
++        static bool    s_kickHave[2]  = { false, false };
++        static double  s_kickT        = 0.0;
++        static double  s_kickReadyAt  = 0.0;
++        LARGE_INTEGER qpc, qpf;
++        QueryPerformanceCounter(&qpc);
++        QueryPerformanceFrequency(&qpf);
++        const double tNow = (double)qpc.QuadPart / (double)qpf.QuadPart;
++        const double dt = (s_kickT > 0.0) ? (tNow - s_kickT) : 0.0;
++        s_kickT = tNow;
++        const bool kickEnabled =
++            g_pSharedHands && g_pSharedHands[140] == 1.0f &&
++            g_pSharedHands[144] < 0.5f &&          // empty hands only
++            g_pSharedHands[31]  < 0.5f &&          // not driving
++            g_pSharedHands[81]  == 0.0f &&         // no menu / world map
++            g_pSharedHands[190] != 1.0f;           // not calibrating
++        const float rpIn[2][3] = { { footRpL[0], footRpL[1], footRpL[2] },
++                                   { footRpR[0], footRpR[1], footRpR[2] } };
++        const bool have[2] = { trackL, trackR };
++        bool fired = false;
++        for (int f = 0; f < 2 && !fired; ++f) {
++            if (!have[f]) { s_kickHave[f] = false; continue; }
++            if (kickEnabled && s_kickHave[f] && dt > 0.001 && dt < 0.2 &&
++                tNow >= s_kickReadyAt && g_pSharedHands[29] < 0.5f) {
++                const float dx = rpIn[f][0] - s_kickRp[f][0];
++                const float dy = rpIn[f][1] - s_kickRp[f][1];
++                const float dz = rpIn[f][2] - s_kickRp[f][2];
++                const double speed = sqrt((double)(dx*dx + dy*dy + dz*dz)) / dt;
++                if (speed > 3.2) {
++                    g_pSharedHands[29] = 4.0f;   // proven CET pulse: 4 XInput polls of RT
++                    s_kickReadyAt = tNow + 0.7;  // one attack per cooldown window
++                    fired = true;
++                    VRIK_FbtProbeLog("KICK %s speed=%.2f m/s dt=%.1f ms -> melee RT impulse [29]=4",
++                                     f == 0 ? "L" : "R", speed, dt * 1000.0);
++                }
++            }
++            s_kickRp[f][0] = rpIn[f][0]; s_kickRp[f][1] = rpIn[f][1]; s_kickRp[f][2] = rpIn[f][2];
++            s_kickHave[f] = true;
++        }
++    }
++
+     // FOOT VISUAL AXES (bone->visual map). The foot BONE's axes are a rig
+     // convention, not the visual foot -- the calibration's job is to hide that.
+     // From one coherent FK we recover the two skeleton CONSTANTS:
+diff --git a/src/vr/core/vr_core.cpp b/src/vr/core/vr_core.cpp
+index c7c9d78..a8f2ebf 100644
+--- a/src/vr/core/vr_core.cpp
++++ b/src/vr/core/vr_core.cpp
+@@ -132,6 +132,9 @@ struct LiveControls {
+     volatile float xrLegAdjYawDegR = 0.0f;
+     volatile float xrLegAdjRollDegR = 90.0f;
+     volatile float xrLegAdjPitchDegR = -45.0f;
++    // fix15: 1 = a fast physical foot strike taps the game's native melee
++    // attack (shared[29] RT impulse) so kicks damage NPCs. 0 (default).
++    volatile int xrLegKickDamage = 0;
+ };
+ 
+ static constexpr int kEnablePatchBufferTracer = 0;
+@@ -280,6 +283,9 @@ static void EnsureLiveControlFileExists() {
+     fprintf(file, "xr_leg_adj_yaw_r=0.0\n");
+     fprintf(file, "xr_leg_adj_roll_r=90.0\n");
+     fprintf(file, "xr_leg_adj_pitch_r=-45.0\n");
++    // fix15: kicks damage NPCs (native melee hit on a fast foot strike,
++    // empty hands only). Default OFF.
++    fprintf(file, "xr_leg_kick_damage=0\n");
+     fclose(file);
+ }
+ 
+@@ -514,6 +520,7 @@ static void PollLiveControls() {
+     float xrLegAdjYawDegR = g_liveControls.xrLegAdjYawDegR;
+     float xrLegAdjRollDegR = g_liveControls.xrLegAdjRollDegR;
+     float xrLegAdjPitchDegR = g_liveControls.xrLegAdjPitchDegR;
++    int xrLegKickDamage = g_liveControls.xrLegKickDamage;
+ 
+     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
+     if (!file) return;
+@@ -771,6 +778,11 @@ static void PollLiveControls() {
+             xrLegAdjPitchDegR = value;
+             continue;
+         }
++        if (sscanf_s(line, "xr_leg_kick_damage=%d", &intValue) == 1 ||
++            sscanf_s(line, "xr_leg_kick_damage = %d", &intValue) == 1) {
++            xrLegKickDamage = intValue;
++            continue;
++        }
+         if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
+             sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
+             xrXInputInstall = intValue;
+@@ -883,6 +895,8 @@ static void PollLiveControls() {
+     OpenXRManager::Get().SetLegFootAdjDeg(1, g_liveControls.xrLegAdjYawDegR,
+                                           g_liveControls.xrLegAdjPitchDegR,
+                                           g_liveControls.xrLegAdjRollDegR);
++    g_liveControls.xrLegKickDamage = xrLegKickDamage != 0 ? 1 : 0;
++    OpenXRManager::Get().SetLegKickDamageEnable(g_liveControls.xrLegKickDamage);
+     OpenXRManager::Get().SetLegTrackersEnable(g_liveControls.xrLegTrackers);
+     OpenXRManager::Get().SetWaistTrackerEnable(g_liveControls.xrWaistTracker);
+     OpenXRManager::Get().SetLegTrackerTuning(g_liveControls.xrLegAnkleOffset,
+@@ -967,6 +981,7 @@ static LiveControlsUiState MakeLiveControlsUiState() {
+     state.xrLegAdjYawDegR = g_liveControls.xrLegAdjYawDegR;      // persist wrote zeros, and the
+     state.xrLegAdjRollDegR = g_liveControls.xrLegAdjRollDegR;    // next slider push zeroed the
+     state.xrLegAdjPitchDegR = g_liveControls.xrLegAdjPitchDegR;  // previous foot's correction
++    state.xrLegKickDamage = g_liveControls.xrLegKickDamage;
+     state.xrXInputInstall = g_liveControls.xrXInputInstall;
+     state.xrInputActions = g_liveControls.xrInputActions;
+     state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
+@@ -1031,6 +1046,7 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
+     fprintf(file, "xr_leg_adj_yaw_r=%.1f\n", state.xrLegAdjYawDegR);
+     fprintf(file, "xr_leg_adj_roll_r=%.1f\n", state.xrLegAdjRollDegR);
+     fprintf(file, "xr_leg_adj_pitch_r=%.1f\n", state.xrLegAdjPitchDegR);
++    fprintf(file, "xr_leg_kick_damage=%d\n", state.xrLegKickDamage != 0 ? 1 : 0);
+     fprintf(file, "xr_xinput_install=%d\n", state.xrXInputInstall != 0 ? 1 : 0);
+     fprintf(file, "xr_input_actions=%d\n", state.xrInputActions != 0 ? 1 : 0);
+     fprintf(file, "xr_mono_xqueue_wait=%d\n", state.xrMonoXQueueWait != 0 ? 1 : 0);
+@@ -1103,6 +1119,8 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
+     g_liveControls.xrLegAdjYawDegR = clampAdjDeg(state->xrLegAdjYawDegR);
+     g_liveControls.xrLegAdjRollDegR = clampAdjDeg(state->xrLegAdjRollDegR);
+     g_liveControls.xrLegAdjPitchDegR = clampAdjDeg(state->xrLegAdjPitchDegR);
++    g_liveControls.xrLegKickDamage = state->xrLegKickDamage != 0 ? 1 : 0;
++    OpenXRManager::Get().SetLegKickDamageEnable(g_liveControls.xrLegKickDamage);
+     OpenXRManager::Get().SetLegFootAdjDeg(0, g_liveControls.xrLegAdjYawDegL,
+                                           g_liveControls.xrLegAdjPitchDegL,
+                                           g_liveControls.xrLegAdjRollDegL);
+@@ -6903,8 +6921,23 @@ static DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState
+     // count it down. Otherwise merge the physical trigger into RT normally (guns shooting / held attack).
+     float meleeImpulse = OpenXRManager::Get().GetSharedSlot(29);
+     if (meleeImpulse > 0.5f) {
+-        pState->Gamepad.bRightTrigger = 255;
+-        OpenXRManager::Get().SetSharedSlot(29, meleeImpulse - 1.0f);
++        // fix15: never inject attacks into MENUS. Swings (CET) and kicks
++        // (plugin, fix15) are PHYSICAL -- they can happen while paused, and
++        // RT is UI-confirm there (one tap = buy/sell/equip whatever is
++        // focused). Drop the pulse instead of counting it down so a closed
++        // menu doesn't fire a stored attack later either.
++        bool menuOpenNow = (g_menuModeValue != 0);
++        if (!menuOpenNow) {
++            if (float* sh = GetShotShared()) {
++                if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenNow = true;
++            }
++        }
++        if (menuOpenNow) {
++            OpenXRManager::Get().SetSharedSlot(29, 0.0f);
++        } else {
++            pState->Gamepad.bRightTrigger = 255;
++            OpenXRManager::Get().SetSharedSlot(29, meleeImpulse - 1.0f);
++        }
+     } else {
+         if (rt > pState->Gamepad.bRightTrigger) pState->Gamepad.bRightTrigger = rt;
+     }
+diff --git a/src/vr/openxr/openxr_manager.cpp b/src/vr/openxr/openxr_manager.cpp
+index 4f75042..21c3950 100644
+--- a/src/vr/openxr/openxr_manager.cpp
++++ b/src/vr/openxr/openxr_manager.cpp
+@@ -1524,6 +1524,10 @@ void OpenXRManager::FlushHandsToShared() {
+     sShared[171] = srcTrack[1].oriZ;
+     sShared[172] = srcTrack[1].oriW;
+     sShared[173] = (m_legTrackersEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
++    // fix15: kick-damage checkbox. Lives outside the [157..189] tracker block
++    // ([140], reclaimed graveyard) but rides the same seqlocked publish.
++    sShared[vrshared::kKickDamageEnable] =
++        (m_legKickDamageEnable.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+     sShared[174] = m_userLegLen.load(std::memory_order_relaxed);
+     sShared[175] = m_legAnkleOffset.load(std::memory_order_relaxed);
+     sShared[176] = (m_legLenValid.load(std::memory_order_relaxed) != 0) ? 1.0f : 0.0f;
+diff --git a/src/vr/openxr/openxr_manager.h b/src/vr/openxr/openxr_manager.h
+index 301bb2c..24b4252 100644
+--- a/src/vr/openxr/openxr_manager.h
++++ b/src/vr/openxr/openxr_manager.h
+@@ -599,6 +599,8 @@ public:
+     int  GetLegTrackersEnable() const { return m_legTrackersEnable.load(std::memory_order_relaxed); }
+     void SetWaistTrackerEnable(int v) { m_waistTrackerEnable.store(v != 0 ? 1 : 0, std::memory_order_relaxed); }
+     int  GetWaistTrackerEnable() const { return m_waistTrackerEnable.load(std::memory_order_relaxed); }
++    // fix15: kick-damage checkbox (published to shared [140] next to [173]).
++    void SetLegKickDamageEnable(int v) { m_legKickDamageEnable.store(v != 0 ? 1 : 0, std::memory_order_relaxed); }
+     void SetLegTrackerTuning(float ankleOffsetM, float mountPitchDeg, float mountYawDeg, float mountRollDeg) {
+         m_legAnkleOffset.store(ankleOffsetM, std::memory_order_relaxed);
+         m_legMountEulerDeg[0].store(mountPitchDeg, std::memory_order_relaxed);
+@@ -916,6 +918,7 @@ private:
+     float              m_openvrHmdStageY = 0.0f;
+     std::atomic<int>   m_legTrackersEnable{0};
+     std::atomic<int>   m_waistTrackerEnable{0};    // optional 3rd point: waist drives hips
++    std::atomic<int>   m_legKickDamageEnable{0};   // fix15: kicks tap the native melee attack
+     std::atomic<float> m_legAnkleOffset{0.10f};    // tracker-on-shoe -> ankle joint (m)
+     std::atomic<float> m_legMountEulerDeg[3]{};    // foot mount correction p/y/r (deg, legacy -- superseded by the per-foot quats below)
+     // fix12/fix14: manual trim y/p/r (deg), F10 sliders. Defaults are the
+diff --git a/src/vr/overlay/imgui_overlay.cpp b/src/vr/overlay/imgui_overlay.cpp
+index 00d1ea1..e258332 100644
+--- a/src/vr/overlay/imgui_overlay.cpp
++++ b/src/vr/overlay/imgui_overlay.cpp
+@@ -1253,6 +1253,18 @@ void DrawVRHandsControls() {
+             st.xrWaistTracker = waistTrack ? 1 : 0;
+             SetLiveControlsUiState(&st, 1);
+         }
++        // fix15: a fast physical foot strike taps the game's NATIVE melee
++        // attack (same RT-impulse channel the VR hand-swing melee uses), so
++        // the hit, damage numbers and armor are all the game's own. The
++        // plugin gates it to empty hands (with a weapon the attack would
++        // fire/swing it instead), on foot, in gameplay.
++        bool kickDmg = st.xrLegKickDamage != 0;
++        if (ImGui::Checkbox("Kicks damage NPCs (empty hands)", &kickDmg)) {
++            st.xrLegKickDamage = kickDmg ? 1 : 0;
++            SetLiveControlsUiState(&st, 1);
++        }
++        ImGui::TextDisabled("Strike fast at an enemy: the kick lands a native melee hit");
++        ImGui::TextDisabled("(damage / numbers / armor). Works with empty hands only.");
+         const bool htcxOk = OpenXRManager::Get().HasViveTrackerExtension();
+         const bool openvrOk = OpenXRManager::Get().HasOpenVRTrackerSupport();
+         if (!htcxOk && !openvrOk) {
+diff --git a/src/vr/overlay/live_controls_ui.h b/src/vr/overlay/live_controls_ui.h
+index d94a00d..410a36d 100644
+--- a/src/vr/overlay/live_controls_ui.h
++++ b/src/vr/overlay/live_controls_ui.h
+@@ -135,6 +135,10 @@ struct LiveControlsUiState {
+     float xrLegAdjYawDegR;
+     float xrLegAdjRollDegR;
+     float xrLegAdjPitchDegR;
++    // fix15: 1 = a fast physical foot strike taps the native melee attack
++    // (shared[29] RT impulse) so kicks damage NPCs with the game's own
++    // damage/numbers/armor. Empty hands only (the plugin gates it). 0 default.
++    int xrLegKickDamage;
+ };
+ 
+ extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState);

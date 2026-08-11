@@ -123,6 +123,18 @@ struct LiveControls {
     volatile float xrLegMountPitchDeg; // foot mount correction euler (deg), defaults 0
     volatile float xrLegMountYawDeg;
     volatile float xrLegMountRollDeg;
+    // fix12: per-foot manual rotation trim (deg). fix14 defaults = the
+    // play-tested boot-mesh correction (identical both feet, user-verified):
+    // yaw 0, roll +90, pitch -45. vrport.ini values override these.
+    volatile float xrLegAdjYawDegL = 0.0f;
+    volatile float xrLegAdjRollDegL = 90.0f;
+    volatile float xrLegAdjPitchDegL = -45.0f;
+    volatile float xrLegAdjYawDegR = 0.0f;
+    volatile float xrLegAdjRollDegR = 90.0f;
+    volatile float xrLegAdjPitchDegR = -45.0f;
+    // fix15: 1 = a fast physical foot strike taps the game's native melee
+    // attack (shared[29] RT impulse) so kicks damage NPCs. 0 (default).
+    volatile int xrLegKickDamage = 0;
 };
 
 static constexpr int kEnablePatchBufferTracer = 0;
@@ -261,6 +273,19 @@ static void EnsureLiveControlFileExists() {
     fprintf(file, "xr_mono_xqueue_wait=0\n");
     fprintf(file, "xr_snap_turn_pulse_ms=30\n");
     fprintf(file, "xr_mono_depth_capture=1\n");
+    // fix14: leg foot trim defaults = play-tested boot-mesh correction
+    // (identical both feet): yaw 0, roll +90, pitch -45. Written so a fresh
+    // file documents the keys; the in-code defaults match, and any value the
+    // user sets here or via the F10 sliders wins over these.
+    fprintf(file, "xr_leg_adj_yaw_l=0.0\n");
+    fprintf(file, "xr_leg_adj_roll_l=90.0\n");
+    fprintf(file, "xr_leg_adj_pitch_l=-45.0\n");
+    fprintf(file, "xr_leg_adj_yaw_r=0.0\n");
+    fprintf(file, "xr_leg_adj_roll_r=90.0\n");
+    fprintf(file, "xr_leg_adj_pitch_r=-45.0\n");
+    // fix15: kicks damage NPCs (native melee hit on a fast foot strike,
+    // empty hands only). Default OFF.
+    fprintf(file, "xr_leg_kick_damage=0\n");
     fclose(file);
 }
 
@@ -489,6 +514,13 @@ static void PollLiveControls() {
     float xrLegMountPitchDeg = g_liveControls.xrLegMountPitchDeg;
     float xrLegMountYawDeg = g_liveControls.xrLegMountYawDeg;
     float xrLegMountRollDeg = g_liveControls.xrLegMountRollDeg;
+    float xrLegAdjYawDegL = g_liveControls.xrLegAdjYawDegL;
+    float xrLegAdjRollDegL = g_liveControls.xrLegAdjRollDegL;
+    float xrLegAdjPitchDegL = g_liveControls.xrLegAdjPitchDegL;
+    float xrLegAdjYawDegR = g_liveControls.xrLegAdjYawDegR;
+    float xrLegAdjRollDegR = g_liveControls.xrLegAdjRollDegR;
+    float xrLegAdjPitchDegR = g_liveControls.xrLegAdjPitchDegR;
+    int xrLegKickDamage = g_liveControls.xrLegKickDamage;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -716,6 +748,41 @@ static void PollLiveControls() {
             xrLegMountRollDeg = value;
             continue;
         }
+        if (sscanf_s(line, "xr_leg_adj_yaw_l=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_adj_yaw_l = %f", &value) == 1) {
+            xrLegAdjYawDegL = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_adj_roll_l=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_adj_roll_l = %f", &value) == 1) {
+            xrLegAdjRollDegL = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_adj_pitch_l=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_adj_pitch_l = %f", &value) == 1) {
+            xrLegAdjPitchDegL = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_adj_yaw_r=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_adj_yaw_r = %f", &value) == 1) {
+            xrLegAdjYawDegR = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_adj_roll_r=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_adj_roll_r = %f", &value) == 1) {
+            xrLegAdjRollDegR = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_adj_pitch_r=%f", &value) == 1 ||
+            sscanf_s(line, "xr_leg_adj_pitch_r = %f", &value) == 1) {
+            xrLegAdjPitchDegR = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_leg_kick_damage=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_leg_kick_damage = %d", &intValue) == 1) {
+            xrLegKickDamage = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
             xrXInputInstall = intValue;
@@ -816,6 +883,20 @@ static void PollLiveControls() {
     g_liveControls.xrLegMountPitchDeg = xrLegMountPitchDeg;
     g_liveControls.xrLegMountYawDeg = xrLegMountYawDeg;
     g_liveControls.xrLegMountRollDeg = xrLegMountRollDeg;
+    g_liveControls.xrLegAdjYawDegL = xrLegAdjYawDegL;
+    g_liveControls.xrLegAdjRollDegL = xrLegAdjRollDegL;
+    g_liveControls.xrLegAdjPitchDegL = xrLegAdjPitchDegL;
+    g_liveControls.xrLegAdjYawDegR = xrLegAdjYawDegR;
+    g_liveControls.xrLegAdjRollDegR = xrLegAdjRollDegR;
+    g_liveControls.xrLegAdjPitchDegR = xrLegAdjPitchDegR;
+    OpenXRManager::Get().SetLegFootAdjDeg(0, g_liveControls.xrLegAdjYawDegL,
+                                          g_liveControls.xrLegAdjPitchDegL,
+                                          g_liveControls.xrLegAdjRollDegL);
+    OpenXRManager::Get().SetLegFootAdjDeg(1, g_liveControls.xrLegAdjYawDegR,
+                                          g_liveControls.xrLegAdjPitchDegR,
+                                          g_liveControls.xrLegAdjRollDegR);
+    g_liveControls.xrLegKickDamage = xrLegKickDamage != 0 ? 1 : 0;
+    OpenXRManager::Get().SetLegKickDamageEnable(g_liveControls.xrLegKickDamage);
     OpenXRManager::Get().SetLegTrackersEnable(g_liveControls.xrLegTrackers);
     OpenXRManager::Get().SetWaistTrackerEnable(g_liveControls.xrWaistTracker);
     OpenXRManager::Get().SetLegTrackerTuning(g_liveControls.xrLegAnkleOffset,
@@ -894,6 +975,13 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrLegMountPitchDeg = g_liveControls.xrLegMountPitchDeg;
     state.xrLegMountYawDeg = g_liveControls.xrLegMountYawDeg;
     state.xrLegMountRollDeg = g_liveControls.xrLegMountRollDeg;
+    state.xrLegAdjYawDegL = g_liveControls.xrLegAdjYawDegL;      // fix13: these six copies
+    state.xrLegAdjRollDegL = g_liveControls.xrLegAdjRollDegL;    // were missing in fix12 --
+    state.xrLegAdjPitchDegL = g_liveControls.xrLegAdjPitchDegL;  // the menu read back zeros,
+    state.xrLegAdjYawDegR = g_liveControls.xrLegAdjYawDegR;      // persist wrote zeros, and the
+    state.xrLegAdjRollDegR = g_liveControls.xrLegAdjRollDegR;    // next slider push zeroed the
+    state.xrLegAdjPitchDegR = g_liveControls.xrLegAdjPitchDegR;  // previous foot's correction
+    state.xrLegKickDamage = g_liveControls.xrLegKickDamage;
     state.xrXInputInstall = g_liveControls.xrXInputInstall;
     state.xrInputActions = g_liveControls.xrInputActions;
     state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
@@ -952,6 +1040,13 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_leg_mount_pitch=%.1f\n", state.xrLegMountPitchDeg);
     fprintf(file, "xr_leg_mount_yaw=%.1f\n", state.xrLegMountYawDeg);
     fprintf(file, "xr_leg_mount_roll=%.1f\n", state.xrLegMountRollDeg);
+    fprintf(file, "xr_leg_adj_yaw_l=%.1f\n", state.xrLegAdjYawDegL);
+    fprintf(file, "xr_leg_adj_roll_l=%.1f\n", state.xrLegAdjRollDegL);
+    fprintf(file, "xr_leg_adj_pitch_l=%.1f\n", state.xrLegAdjPitchDegL);
+    fprintf(file, "xr_leg_adj_yaw_r=%.1f\n", state.xrLegAdjYawDegR);
+    fprintf(file, "xr_leg_adj_roll_r=%.1f\n", state.xrLegAdjRollDegR);
+    fprintf(file, "xr_leg_adj_pitch_r=%.1f\n", state.xrLegAdjPitchDegR);
+    fprintf(file, "xr_leg_kick_damage=%d\n", state.xrLegKickDamage != 0 ? 1 : 0);
     fprintf(file, "xr_xinput_install=%d\n", state.xrXInputInstall != 0 ? 1 : 0);
     fprintf(file, "xr_input_actions=%d\n", state.xrInputActions != 0 ? 1 : 0);
     fprintf(file, "xr_mono_xqueue_wait=%d\n", state.xrMonoXQueueWait != 0 ? 1 : 0);
@@ -1017,6 +1112,21 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrLegMountPitchDeg = state->xrLegMountPitchDeg;
     g_liveControls.xrLegMountYawDeg = state->xrLegMountYawDeg;
     g_liveControls.xrLegMountRollDeg = state->xrLegMountRollDeg;
+    auto clampAdjDeg = [](float v) { return v < -180.0f ? -180.0f : (v > 180.0f ? 180.0f : v); };
+    g_liveControls.xrLegAdjYawDegL = clampAdjDeg(state->xrLegAdjYawDegL);
+    g_liveControls.xrLegAdjRollDegL = clampAdjDeg(state->xrLegAdjRollDegL);
+    g_liveControls.xrLegAdjPitchDegL = clampAdjDeg(state->xrLegAdjPitchDegL);
+    g_liveControls.xrLegAdjYawDegR = clampAdjDeg(state->xrLegAdjYawDegR);
+    g_liveControls.xrLegAdjRollDegR = clampAdjDeg(state->xrLegAdjRollDegR);
+    g_liveControls.xrLegAdjPitchDegR = clampAdjDeg(state->xrLegAdjPitchDegR);
+    g_liveControls.xrLegKickDamage = state->xrLegKickDamage != 0 ? 1 : 0;
+    OpenXRManager::Get().SetLegKickDamageEnable(g_liveControls.xrLegKickDamage);
+    OpenXRManager::Get().SetLegFootAdjDeg(0, g_liveControls.xrLegAdjYawDegL,
+                                          g_liveControls.xrLegAdjPitchDegL,
+                                          g_liveControls.xrLegAdjRollDegL);
+    OpenXRManager::Get().SetLegFootAdjDeg(1, g_liveControls.xrLegAdjYawDegR,
+                                          g_liveControls.xrLegAdjPitchDegR,
+                                          g_liveControls.xrLegAdjRollDegR);
     OpenXRManager::Get().SetLegTrackersEnable(g_liveControls.xrLegTrackers);
     OpenXRManager::Get().SetWaistTrackerEnable(g_liveControls.xrWaistTracker);
     OpenXRManager::Get().SetLegTrackerTuning(g_liveControls.xrLegAnkleOffset,
@@ -6811,8 +6921,23 @@ static DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState
     // count it down. Otherwise merge the physical trigger into RT normally (guns shooting / held attack).
     float meleeImpulse = OpenXRManager::Get().GetSharedSlot(29);
     if (meleeImpulse > 0.5f) {
-        pState->Gamepad.bRightTrigger = 255;
-        OpenXRManager::Get().SetSharedSlot(29, meleeImpulse - 1.0f);
+        // fix15: never inject attacks into MENUS. Swings (CET) and kicks
+        // (plugin, fix15) are PHYSICAL -- they can happen while paused, and
+        // RT is UI-confirm there (one tap = buy/sell/equip whatever is
+        // focused). Drop the pulse instead of counting it down so a closed
+        // menu doesn't fire a stored attack later either.
+        bool menuOpenNow = (g_menuModeValue != 0);
+        if (!menuOpenNow) {
+            if (float* sh = GetShotShared()) {
+                if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenNow = true;
+            }
+        }
+        if (menuOpenNow) {
+            OpenXRManager::Get().SetSharedSlot(29, 0.0f);
+        } else {
+            pState->Gamepad.bRightTrigger = 255;
+            OpenXRManager::Get().SetSharedSlot(29, meleeImpulse - 1.0f);
+        }
     } else {
         if (rt > pState->Gamepad.bRightTrigger) pState->Gamepad.bRightTrigger = rt;
     }
