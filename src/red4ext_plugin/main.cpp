@@ -7045,6 +7045,15 @@ void SetVRMeleeFire(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, 
     int32_t v = 0; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
     if (g_pSharedHands) g_pSharedHands[29] = (float)v;
 }
+// Player scene tier -> shared[157]. The VRIK CET mod reads PlayerStateMachine.SceneTier
+// (a GameplayTier: 0 = Tier1_FullGameplay .. 3 = Tier4_FPPCinematic, 4 = Tier5_Cinematic) each
+// frame and pushes it here. The pose-apply hook combines it with the overlay's suspend threshold
+// in [158] to fully suspend VRIK during cutscenes (see vrik_hook.h).
+void SetVRSceneTier(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t v = 0; RED4ext::GetParameter(aFrame, &v); aFrame->code++;
+    EnsureSharedMemory();
+    if (g_pSharedHands) g_pSharedHands[157] = (float)v;
+}
 // Live MODE of the Aim_JNT shake kill (g_VRCamBoneFreeze: 0 stock / 1 yaw-live / 2 full /
 // 3 swing-only).
 void SetVRCamBoneFreeze(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
@@ -7571,6 +7580,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     fZoom->flags = flags; fZoom->AddParam("Float","zoom"); rtti->RegisterFunction(fZoom);
     auto fMeleeFire = RED4ext::CGlobalFunction::Create("SetVRMeleeFire", "SetVRMeleeFire", &SetVRMeleeFire);
     fMeleeFire->flags = flags; fMeleeFire->AddParam("Int32","fire"); rtti->RegisterFunction(fMeleeFire);
+    auto fSceneTier = RED4ext::CGlobalFunction::Create("SetVRSceneTier", "SetVRSceneTier", &SetVRSceneTier);
+    fSceneTier->flags = flags; fSceneTier->AddParam("Int32","tier"); rtti->RegisterFunction(fSceneTier);
     auto fCamFreeze = RED4ext::CGlobalFunction::Create("SetVRCamBoneFreeze", "SetVRCamBoneFreeze", &SetVRCamBoneFreeze);
     fCamFreeze->flags = flags; fCamFreeze->AddParam("Int32","on"); rtti->RegisterFunction(fCamFreeze);
     auto fPairSlew = RED4ext::CGlobalFunction::Create("SetVRPairSlew", "SetVRPairSlew", &SetVRPairSlew);

@@ -483,6 +483,22 @@ registerForEvent('onUpdate', function(dt)
         pcall(function() UpdateVRIKAnimInputs() end)
     end
 
+    -- CUTSCENE SUSPEND: publish the player's live scene tier so the plugin's pose-apply
+    -- hook can fully suspend VRIK during scripted scenes / cinematics (the engine plays an
+    -- authored body+arm animation there and VRIK fighting it looks wrong). SceneTier is a
+    -- GameplayTier int on the per-entity PlayerStateMachine blackboard: 0 = Tier1_FullGameplay,
+    -- 1 = Tier2_StagedGameplay, 2 = Tier3, 3 = Tier4_FPPCinematic, 4 = Tier5_Cinematic. The
+    -- overlay owns the threshold (F10 VRIK tab); here we only report the current tier.
+    if type(SetVRSceneTier) == 'function' then
+        pcall(function()
+            local defs = Game.GetAllBlackboardDefs()
+            local bb = Game.GetBlackboardSystem():GetLocalInstanced(player:GetEntityID(), defs.PlayerStateMachine)
+            if bb then
+                SetVRSceneTier(bb:GetInt(defs.PlayerStateMachine.SceneTier))
+            end
+        end)
+    end
+
     local player = Game.GetPlayer()
     if not player then return end
     

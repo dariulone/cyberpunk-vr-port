@@ -115,6 +115,11 @@
 //  [154]       left trigger analog (0..1)     plugin -> Smoking CET bridge
 //  [155]       left grip pressed (0/1)        plugin -> Smoking CET bridge
 //  [156]       DEBUG logging on (0/1)         plugin -> every CET bridge
+//  [157]       player scene tier (GameplayTier int: 0=Tier1_FullGameplay ..
+//              3=Tier4_FPPCinematic, 4=Tier5_Cinematic)   VRIK CET -> hook
+//  [158]       cutscene VRIK-suspend threshold, encoded (0 = disabled; else the
+//              hook suspends the WHOLE body+arm solve while [157] >= [158]-1)
+//              stereo/overlay (LiveControls) -> hook
 // ============================================================================
 
 namespace vrshared {
@@ -149,4 +154,10 @@ constexpr int kLeftGripPressed   = 155;
 // smoking one alone in a single session, and as much again from the weapon one. A log nobody can
 // open is a log nobody reads.
 constexpr int kDebugLog          = 156;
+// Cutscene body suspend. [157] is the live player GameplayTier int published by the VRIK CET mod
+// (0 = Tier1_FullGameplay .. 3 = Tier4_FPPCinematic, 4 = Tier5_Cinematic). [158] is the encoded
+// suspend threshold from the overlay: 0 = feature off, otherwise the VRIK hook fully suspends the
+// body+arm solve (leaving the engine's authored cinematic pose) while sceneTier >= [158] - 1.
+constexpr int kSceneTier         = 157;
+constexpr int kCutsceneSuspendEnc = 158;
 } // namespace vrshared

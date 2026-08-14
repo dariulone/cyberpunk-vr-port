@@ -2140,6 +2140,23 @@ extern "C" inline void* Hooked_AnimPoseApply(void* a1, void* a2, void* a3, unsig
                 // present thread).
                 RefreshHandsSnapshot();
 
+                // CUTSCENE FULL-SUSPEND. During scripted scenes / cinematics the engine plays a
+                // fully authored body+arm animation; letting VRIK keep solving fights it and the
+                // avatar looks wrong. The VRIK CET mod publishes the live GameplayTier into raw
+                // slot [157] and the overlay publishes an encoded threshold into [158] (0 = off;
+                // else suspend while tier >= [158]-1). Read RAW here (NOT SharedPose: the seqlock
+                // snapshot only latches [0..126], so 157/158 are out of that array). We bail before
+                // any bone write, leaving the engine's native cinematic pose untouched -- and after
+                // ++g_AnimPoseMatchCalls above, so the CET desync detector stays healthy and does
+                // not re-arm in a storm during the scene.
+                if (g_pSharedHands) {
+                    const int sceneTier = static_cast<int>(g_pSharedHands[157] + 0.5f);
+                    const int suspendEnc = static_cast<int>(g_pSharedHands[158] + 0.5f);
+                    if (suspendEnc > 0 && sceneTier >= (suspendEnc - 1)) {
+                        return result;
+                    }
+                }
+
                 // SMOKE FINGER-HOLD (fingers-only grip). Runs on EVERY player pass, BEFORE
                 // the solve/replay split, so the curl is bit-identical across the 4-5
                 // passes/tick -> no finger flicker. The original ran at the top of this

@@ -110,6 +110,10 @@ struct LiveControlsUiState {
     // camera to full head-look + head-relative movement). 0 (default) = classic
     // stick / snap-turn heading. Vehicles are unaffected either way. F10 -> VRIK tab.
     int xrPhysicalBodyRotation;
+    // Cutscene VRIK suspend. The minimum GameplayTier at which the plugin fully suspends the
+    // body+arm solve (leaving the engine's authored cinematic pose): -1 = never suspend, 0..4 =
+    // Tier1..Tier5. Default 3 (Tier4_FPPCinematic = true cinematics). F10 -> VRIK tab.
+    int xrCutsceneSuspendTier;
 };
 
 extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState);

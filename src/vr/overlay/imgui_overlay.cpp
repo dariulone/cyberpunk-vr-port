@@ -1012,6 +1012,41 @@ void DrawVRHandsControls() {
     }
 
     ImGui::Separator();
+    // Cutscene VRIK suspend (default: true cinematics). Picks the minimum scene tier at which the
+    // plugin fully suspends the body+arm solve so the engine's authored cinematic pose plays clean.
+    // Persisted via the LiveControls bridge (vrport.ini xr_cutscene_suspend_tier) and republished
+    // to shared[158] each tick by the runtime.
+    {
+        LiveControlsUiState st{};
+        GetLiveControlsUiState(&st);
+        // Combo index -> stored min-tier: Never(-1), Tier2+(1), Tier3+(2), Tier4+(3), Tier5(4).
+        static const int kTierValues[] = { -1, 1, 2, 3, 4 };
+        const char* kTierLabels[] = {
+            "Never (VRIK always on)",
+            "Staged scenes and up (Tier 2+)",
+            "Tier 3 and up",
+            "Cinematics (Tier 4+)  [default]",
+            "Full cinematics only (Tier 5)",
+        };
+        int cur = st.xrCutsceneSuspendTier;
+        int idx = 3; // default Tier4+
+        for (int i = 0; i < 5; ++i) { if (kTierValues[i] == cur) { idx = i; break; } }
+        ImGui::TextUnformatted("Suspend VRIK in cutscenes");
+        ImGui::SetNextItemWidth(280.0f);
+        if (ImGui::Combo("##cutsceneSuspend", &idx, kTierLabels, 5)) {
+            st.xrCutsceneSuspendTier = kTierValues[idx];
+            SetLiveControlsUiState(&st, 1);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("During scripted scenes the game plays a full authored body+arm animation.\n"
+                              "VRIK keeps solving on top of it, which looks wrong -- so above the chosen\n"
+                              "scene tier the avatar is left entirely to the engine's cutscene pose.\n"
+                              "'Cinematics (Tier 4+)' is the safe default; lower tiers also suspend during\n"
+                              "lighter staged/walk-and-talk moments. Vehicles use their own arms-only path.");
+        }
+    }
+
+    ImGui::Separator();
     ImGui::TextUnformatted("Hand IK Calibration (per hand: R = right, L = left)");
 
     // Defaults mirror the plugin's baked calibration (main.cpp globals).

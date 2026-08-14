@@ -117,6 +117,7 @@ struct LiveControls {
     volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
     volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
     volatile int xrPhysicalBodyRotation; // 1 = physical body rotation (avatar body follows HMD/aim heading). 0 (default) = classic stick/snap heading. Gates the aiming/weapon body-turn paths; vehicles unaffected.
+    volatile int xrCutsceneSuspendTier;  // min GameplayTier to fully suspend VRIK during scenes (-1 = never, 0..4 = Tier1..Tier5). Default 3 (Tier4 cinematics). Published (encoded) to shared[158] for the pose-apply hook.
 };
 
 static constexpr int kEnablePatchBufferTracer = 0;
@@ -171,6 +172,10 @@ void InitRuntimePaths() {
 
     // Default: immersive holsters ON (current behaviour -- equip by visual holster).
     g_liveControls.xrImmersiveHolsters = 1;
+
+    // Default: suspend VRIK during true cinematics (Tier4_FPPCinematic and up). The avatar
+    // is driven by the engine's authored scene animation there; VRIK fighting it looks wrong.
+    g_liveControls.xrCutsceneSuspendTier = 3;
 
     // Default ON: VR controller -> XInput gamepad pipeline. Both the entry-point
     // detour (xrXInputInstall) and the gameplay action set (xrInputActions) are
@@ -477,6 +482,7 @@ static void PollLiveControls() {
     int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
     int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
     int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
+    int xrCutsceneSuspendTier = g_liveControls.xrCutsceneSuspendTier;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -674,6 +680,11 @@ static void PollLiveControls() {
             xrPhysicalBodyRotation = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_cutscene_suspend_tier=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_cutscene_suspend_tier = %d", &intValue) == 1) {
+            xrCutsceneSuspendTier = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_xinput_install=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_xinput_install = %d", &intValue) == 1) {
             xrXInputInstall = intValue;
@@ -768,6 +779,7 @@ static void PollLiveControls() {
     g_liveControls.xrMovementSource = xrMovementSource;
     g_liveControls.xrMovementControl = xrMovementSource != 0 ? 1 : 0;
     g_liveControls.xrPhysicalBodyRotation = xrPhysicalBodyRotation != 0 ? 1 : 0;
+    g_liveControls.xrCutsceneSuspendTier = (xrCutsceneSuspendTier < -1) ? -1 : (xrCutsceneSuspendTier > 4 ? 4 : xrCutsceneSuspendTier);
     g_liveControls.xrDisableMouseY = xrDisableMouseY != 0 ? 1 : 0;
     g_liveControls.xrXInputHook = xrXInputHook != 0 ? 1 : 0;
     g_liveControls.xrSnapTurn = xrSnapTurn != 0 ? 1 : 0;
@@ -834,6 +846,7 @@ static LiveControlsUiState MakeLiveControlsUiState() {
     state.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg;
     state.xrMovementSource = g_liveControls.xrMovementSource;
     state.xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
+    state.xrCutsceneSuspendTier = g_liveControls.xrCutsceneSuspendTier;
     state.xrXInputInstall = g_liveControls.xrXInputInstall;
     state.xrInputActions = g_liveControls.xrInputActions;
     state.xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
@@ -886,6 +899,7 @@ static void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn_angle_deg=%.2f\n", state.xrSnapTurnAngleDeg > 0.0f ? state.xrSnapTurnAngleDeg : 30.0f);
     fprintf(file, "xr_movement_source=%d\n", state.xrMovementSource < 0 ? 0 : (state.xrMovementSource > 3 ? 3 : state.xrMovementSource));
     fprintf(file, "xr_physical_body_rotation=%d\n", state.xrPhysicalBodyRotation != 0 ? 1 : 0);
+    fprintf(file, "xr_cutscene_suspend_tier=%d\n", state.xrCutsceneSuspendTier < -1 ? -1 : (state.xrCutsceneSuspendTier > 4 ? 4 : state.xrCutsceneSuspendTier));
     fprintf(file, "xr_xinput_install=%d\n", state.xrXInputInstall != 0 ? 1 : 0);
     fprintf(file, "xr_input_actions=%d\n", state.xrInputActions != 0 ? 1 : 0);
     fprintf(file, "xr_mono_xqueue_wait=%d\n", state.xrMonoXQueueWait != 0 ? 1 : 0);
@@ -945,6 +959,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         g_liveControls.xrMovementControl = src != 0 ? 1 : 0;
     }
     g_liveControls.xrPhysicalBodyRotation = state->xrPhysicalBodyRotation != 0 ? 1 : 0;
+    g_liveControls.xrCutsceneSuspendTier = (state->xrCutsceneSuspendTier < -1) ? -1 : (state->xrCutsceneSuspendTier > 4 ? 4 : state->xrCutsceneSuspendTier);
     g_liveControls.xrDisableMouseY = state->xrDisableMouseY != 0 ? 1 : 0;
     g_liveControls.xrXInputHook = state->xrXInputHook != 0 ? 1 : 0;
     g_liveControls.xrSnapTurn = state->xrSnapTurn != 0 ? 1 : 0;
@@ -2837,6 +2852,17 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             // the vehicle drives the puppet, body IK fights it and breaks the
             // character/camera position. Arms-only in vehicles.
             OpenXRManager::Get().SetSharedSlot(31, g_isInVehicle ? 1.0f : 0.0f);
+            // Cutscene VRIK-suspend threshold [158], encoded for the pose-apply hook: 0 = feature
+            // off, else (minTier + 1) so the hook suspends the body+arm solve while the CET-published
+            // scene tier [157] >= (this - 1). Only Tier2..Tier5 (stored 1..4) arm it -- a stored 0
+            // (zero-initialised before the ini loads) or -1 both publish 0, so there is no window
+            // where an uninitialised value could suspend normal gameplay. Republished each tick so a
+            // live overlay change (or a fresh mapping) is picked up without a restart.
+            {
+                const int susp = g_liveControls.xrCutsceneSuspendTier;
+                const float enc = (susp >= 1 && susp <= 4) ? static_cast<float>(susp + 1) : 0.0f;
+                OpenXRManager::Get().SetSharedSlot(158, enc);
+            }
         }
     }
     
