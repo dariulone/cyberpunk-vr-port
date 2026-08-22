@@ -1,14 +1,21 @@
-CyberpunkVRPort
+CyberpunkVRPort 0.1.3
 
 An open-source 6-DoF VR mod for Cyberpunk 2077. It integrates OpenXR directly into the game
 engine as a RED4ext plugin - there is no dxgi.dll proxy any more.
 
 https://github.com/dariulone/cyberpunk-vr-port
 
+Not playable for storyline.
+
 
 ============================================================================
 INSTALLATION
 ============================================================================
+
+Make sure you don't have CPU Tweaks that prevent RPC calls, disable windows core isolation,
+memory isolation.
+
+Vortex (automatic) installation is not recommended!
 
 Disable OpenXR Toolkit, RivaTuner, NVIDIA overlays and any other overlay.
 
@@ -18,40 +25,73 @@ Disable OpenXR Toolkit, RivaTuner, NVIDIA overlays and any other overlay.
    Grain, Chromatic Aberration, Motion Blur, Lens Flare, Depth of Field and Frame
    Generation. Set the display mode to borderless window.
 
+   You do not have to do this by hand. On its FIRST launch the plugin installs the settings
+   this mod was tuned against, over your own - and copies yours to
+   UserSettings.pre-vr-<date>-<time>.json beside it first. It happens exactly once; after
+   that the file is yours. To skip it entirely, create bin\x64\vrport.ini yourself with the
+   single line first_launch=0 BEFORE you start the game.
+
+   The two Cascaded Shadow rows are now removed from Graphics -> Advanced. The shadow atlas
+   is shared between the two views this mod renders, so raising them gives you artefacts
+   the mod cannot fix from its side.
+
 3. If you used an earlier build of this mod, DELETE bin\x64\dxgi.dll. It is no longer part
    of the mod, and leaving it in place means two copies of every engine hook fighting over
    the same addresses.
 
+   Also delete any red4ext\plugins\CyberpunkVR_Hands\ folder from an older build. That
+   plugin is GONE - its code is inside CyberpunkVR_Stereo.dll now, and leaving the old one
+   in place makes two plugins detour one address, which crashes with a fault at
+   FFFFFFFFFFFFFFFF.
+
 4. Download the latest release archive and extract it into your Cyberpunk 2077 game folder,
    so the files land in:
 
-     red4ext\plugins\CyberpunkVR_Stereo\      the VR plugin: OpenXR, stereo, overlay,
-                                              sight shaders, settings
-     red4ext\plugins\CyberpunkVR_Hands\       avatar, hands, weapon aim, smoking poses
+     red4ext\plugins\CyberpunkVR_Stereo\      the ONE plugin: OpenXR, stereo, overlay, the
+                                              VR avatar and hands, weapon aim, sight
+                                              shaders, the settings template
      bin\x64\openvr_api.dll                   for the SteamVR (OpenVR) runtime path
-     bin\x64\CyberpunkVR_SmokeGrip_right.ini  smoking / lighter hand poses
-     bin\x64\CyberpunkVR_SmokeGrip_Left.ini
-     bin\x64\CyberpunkVR_LighterGrip_Left.ini
-     bin\x64\plugins\cyber_engine_tweaks\mods\   CET mods: Stereo, HUD, Holster, VRIK,
-                                              Weapon, WorldMap, Smoking, Crosshair
-     r6\scripts\                              redscript: HUD, Holster, Melee, NoAnims,
-                                              WeaponUp, WorldMap, Smoking
+     bin\x64\CyberpunkVR_*Grip*.ini           captured hand poses - the smoking and lighter
+                                              grips, the resting left hand, and one
+                                              two-handed hold per weapon
+     bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_*\
+                                              CET mods: Stereo, VRIK, Weapon, Reload,
+                                              HandCollision, Holster, Smoking, Basketball,
+                                              WorldMap, Crosshair
+     r6\scripts\CyberpunkVRPort_*\            redscript: Holster, Melee, NoAnims, WeaponUp,
+                                              WorldMap, Smoking, Hold, Basketball,
+                                              SettingsGuard
      r6\tweaks\vrcigarette\                   TweakXL entries for the smoking props
-     archive\pc\mod\                          the packed assets (the VR camera components)
+     archive\pc\mod\                          the packed assets: the VR camera components,
+                                              the held props, the weapon parts the reload
+                                              drives, the case-ejection effects
      engine\config\platform\pc\               CPU tweaks tuned for two views
+     r6\input\HUDitor.xml                     HUDitor's editor moved to F11 (needs Input
+                                              Loader) - REPLACES HUDitor's own file
+     bin\x64\plugins\...\mods\HUDitor\persistency.json
+                                              the VR HUD layout - REPLACES yours
 
-   Keep exactly ONE .dll in each of the two red4ext\plugins\CyberpunkVR_ folders. RED4ext
-   loads every DLL it finds there, so a renamed backup beside the real build loads as a
-   second copy of the plugin and the two fight over the same hooks.
+   Keep exactly ONE .dll in red4ext\plugins\CyberpunkVR_Stereo\. RED4ext loads every DLL it
+   finds there, so a renamed backup beside the real build loads as a second copy of the
+   plugin and the two fight over the same hooks.
 
 5. Start your OpenXR runtime first.
 
 6. Run Cyberpunk2077.exe, pick the render resolution and runtime in the launcher, then
    launch the game.
 
-7. F10 - toggle the VR menu / settings.   F7 - recenter VR.
+7. F10 or Insert - toggle the VR menu / settings.   F7 - recenter VR.
+   F8 - switch the VR menu between the full headset view and a small panel.
+   F11 - HUDitor's editor, if you installed it.
 
 Calibration: stand in a T-pose.
+
+Smoking: CET -> Game.GetPlayer():VRSmokeToggle()
+
+Uninstall: run UNINSTALL.bat from the game folder. It removes every path the package added
+and then offers your own Cyberpunk settings back. UNINSTALL.txt is the same thing written
+out by hand, including the two things neither of them can put back for you - HUDitor's own
+binding file and your HUD layout.
 
 
 ============================================================================
@@ -70,6 +110,11 @@ DEPENDENCIES
   Equipment-EX
   Nova Optics
 
+Only if you want HUD placement:
+
+  HUDitor
+  Input Loader   <- it is what merges r6\input\*.xml, so without it the F11 binding is inert
+
 Install RED4ext, CET and redscript first - the usual Nexus dependency order.
 
 Learn how Visual Holsters and Equipment-EX work; the hand-to-holster system reads them.
@@ -82,23 +127,61 @@ CONTROLS
 VR controller input is merged into the native gamepad, so the game's own Controller
 bindings apply.
 
-  Left stick fully forward      sprint (partial = jog)
-  Right stick X                 turn (snap or smooth)
-  Right stick fully down        crouch
-  Triggers                      fire / aim
-  A / B                         jump / dodge
+ON FOOT
+
+  Left stick                    move - ONE speed whatever the deflection, direction from
+                                the stick. A thumb tremor no longer changes your pace.
+  Left stick fully forward,
+  held 0.2 s                    sprint. Held rather than toggled, and it survives a dash.
+  Right stick X                 turn (snap needs a FULL push, so a resting thumb cannot
+                                turn you)
+  Right stick fully UP          dash / dodge - once per push
+  Right stick fully DOWN        crouch
+  Right stick CLICK             slide release - racks the weapon (physical reload)
+  Triggers                      fire / aim (left trigger is also melee block)
+  A                             jump - double jump and charge jump unchanged
+  B, weapon in hand             drop the magazine (physical reload)
+  B, holstered                  the game's own B again - close the phone, back out
   X / Y                         reload, interact / weapon switch
   Right grip + reach to
   shoulder or hip               equip / unequip a weapon (hand-to-holster)
+  Left grip                     grab the magazine during a reload
+  Left hand to your LEFT EAR
+  + left grip                   scanner, held as long as the gesture is
   Swing a melee weapon          native VR melee along the blade
 
   D-pad chord                   hold the LEFT stick clicked in, then pick the direction
                                 with the RIGHT stick. The right stick is taken out of the
                                 camera while the chord is held, so choosing a direction
                                 cannot snap-turn you. Release without choosing and it emits
-                                the normal sprint click instead.
+                                the normal left stick click instead.
 
-Driving is untouched.
+B is the mod's only while a weapon is actually in your hand, because a magazine drop is the
+only thing the mod needs it for. Holstered it reaches the game, so the phone and the radial
+close normally.
+
+DRIVING
+
+  Grip, hand at the wheel
+  or handlebars                 grab it - that arm goes back to the driving animation
+  Tilt of the line through
+  both controllers              steering. One hand: that controller against the wheel
+                                centre. Adjustable deadzone and full-lock angle.
+  Hand on the MIDDLE of
+  the wheel                     horn - no grip needed, and a hand that is grabbing the
+                                wheel never honks
+  Triggers                      throttle / brake
+  Right trigger, weapon
+  drawn                         FIRE. The throttle latches at the speed it had, so the car
+                                keeps rolling.
+  Left stick fwd / back,
+  weapon drawn                  trim the latched throttle
+  X, HELD                       get out. B is never the exit in a car, so no stray press
+                                can eject you at speed.
+
+Each hand is independent, so you can hold the wheel with one and keep the other on a gun.
+Nothing here needs to know which vehicle you are in - the reference pose is the game's own
+driving animation, bikes included.
 
 
 ============================================================================
@@ -116,8 +199,11 @@ Stereo
   menus, loading screens, or the component being off - so those never show one live eye
   next to one frozen one.
 
-  Mono is still the baseline and is smooth: the submitted pose is bound to the exact render
-  camera the engine used for that frame.
+  The two views now agree about far more than they did. Sun cascade shadows, the shader
+  clock, the foliage wind volume and the reflection march are all render structures the
+  engine SHARES between views, and the second one used to rebuild each from its own
+  frustum. That is where blinking shadows, dead cloth flags, jittering vegetation and a
+  mirror-finish ceiling came from. All four are lent from one view now.
 
 Full-body VR avatar
 
@@ -125,12 +211,27 @@ Full-body VR avatar
   the avatar lowers when you physically crouch.
 
   Motion-controlled hands with a complete shoulder -> elbow -> hand IK chain. The forearm
-  does not stretch; wrist orientation, elbow bend and swivel follow the controller.
+  does not stretch; wrist orientation, elbow bend and swivel follow the controller. The
+  shoulder girdle and the elbows hang off the BODY rather than the head, so looking around
+  no longer swings your arms, and the solve is clocked by the engine's own animation batch
+  rather than by a script callback.
 
-  It runs as a RED4ext plugin that writes the resolved bone rotations every frame;
-  controller poses reach it through shared memory.
+  VRIK suspends itself entirely during cutscenes, so the avatar stops fighting an authored
+  scene.
 
   Weapon tracking works.
+
+The physical reload
+
+  A reload is no longer an animation the game plays at you. Grab the magazine with your
+  free hand's grip, pull it out along the path the weapon's own well defines, carry it,
+  push it home. Rack the slide with your other palm and release it with the right stick
+  click. Ammo count and sound follow the hands, not a timeline.
+
+  Thirteen weapons are tuned individually: Unity, Tamayura, Tsunami Nue, Constitutional
+  Liberty, Arasaka Kenshin, Militech Lexington, Militech Omaha, Kang Tao Chao, Tsunami
+  Kappa, Arasaka Yukimura, Militech Ticon, Silverhand's Malorian, and the Malorian Overture
+  revolver - which rolls its cylinder, ejects its cases and reloads from a real speedloader.
 
 
 ============================================================================
@@ -142,16 +243,40 @@ FEATURES
   - Real second engine view for the second eye, with automatic mono fallback.
 
   - The game HUD in BOTH eyes - the engine's own HUD composite is ported shader for shader
-    for the second eye and placed at a finite distance, so icons fuse instead of doubling.
+    for the second eye. By default it is pasted at the same PIXEL in both eyes so markers
+    land in the same place; the finite-distance placement is still there behind one
+    setting, because wide-FOV headsets want the opposite.
+
+  - The F10 overlay in BOTH eyes, so opening a settings panel no longer costs you stereo
+    the way a full-screen game menu does.
 
   - Correct projection. The frustum we submit matches the one the engine actually rendered
     on both axes, and the resolution list follows the headset's field of view rather than
-    its panel aspect. This is what fixes the "world looks too big" stretch.
+    its panel aspect. This is what fixes the "world looks too big" stretch. Off-axis lenses
+    (Quest 3 and family) get a frustum sized to COVER the panel rather than match its span,
+    so there is no black band down the outer edge.
 
   - Head tracking with in-engine camera injection, world-scale and IPD controls.
 
-  - Decoupled VR weapon aim - bullets follow the real weapon muzzle, not the camera.
+  - The physical reload, on thirteen weapons - see CURRENT STATE.
+
+  - Decoupled VR weapon aim - bullets follow the real weapon muzzle, not the camera. The
+    hit is redirected inside the engine's own PhysicalRay evaluator, so shotgun spread
+    stays spread and every other shooter in the world keeps firing from their own barrel.
     Optional barrel dot, drawn in both eyes, zoom aware.
+
+  - Recoil in the HANDS, not the camera - the shot turns the wrist on a damped spring, and
+    every weapon kicks by its own measured amount.
+
+  - A resting hand and a real two-handed hold. With a weapon out the empty hand relaxes
+    instead of clawing at nothing, and bringing it to the weapon offers the support grip:
+    squeeze and the wrist locks on, the off hand steers the aim, and the kick drops. Twelve
+    weapons have a captured hold.
+
+  - Physical body rotation (optional) - the character turns to follow the headset through
+    the engine's own heading channel, so the mesh, the collision capsule, the aim and the
+    movement direction all move with it. The view does not move and the hands stay on the
+    controllers.
 
   - Collimated reflex sights - the reticle is placed by angle along the sight's own optical
     axis, so the dot stays on the bore instead of sliding across the glass when you look at
@@ -166,28 +291,42 @@ FEATURES
   - VR smoking - cigarette and lighter as real props, with a captured finger grip, a
     hands-free mouth anchor, and the game's own effects and audio.
 
-  - VR controller mapping merged into XInput: full-forward sprint, full-down crouch, snap
-    or smooth turn, HMD or hand relative locomotion, D-pad chord.
+  - VR driving - grab the actual wheel with your own hands and steer by the tilt of the
+    line through your controllers, one-handed or two. A palm on the hub is the horn, and
+    drawing a weapon turns the right trigger into the gun while the throttle latches.
+    Ported from iPowerTech's work.
 
-  - VR HUD with per-element placement and scale, world-map head-lock, CAS sharpening, and
-    DLSS / NGX handling - the second view gets its own upscaler viewport automatically.
+  - VR controller mapping merged into XInput: one movement speed whatever the stick
+    deflection, sprint on a held detent, dash and crouch on the right stick, the scanner as
+    a one-hand gesture, snap or smooth turn, HMD or hand relative locomotion, D-pad chord.
 
-  - In-headset F10 overlay, live and persisted, with five tabs:
-      General    world scale, IPD, stereo separation, VR menu FOV and quad size,
-                 motion prediction, head offset
+  - World-map head-lock and DLSS / NGX handling - the second view gets its own upscaler
+    viewport automatically.
+
+  - HUD placement is HUDitor's job, not this mod's. The mod shipped its own HUD mod until
+    2026-08-20 and it is gone: it scaled the shared HUD root around screen centre, which is
+    too blunt to be comfortable and actively fights a real HUD editor. What the mod still
+    does for the HUD is the part only it can do - compositing the engine's own HUD into the
+    SECOND eye. Its HUDitor setup ships as opt-in config: the editor on F11 plus a VR-tuned
+    layout for all 26 widgets.
+
+  - In-headset F10 overlay, live and persisted, with four tabs:
+      General    world scale, IPD, stereo separation, VR menu FOV and quad size, motion
+                 prediction, and the head offset - with a second set for vehicles
       Controls   weapon aim and its laser dot, locomotion source, snap turn and angle,
-                 immersive holsters
+                 immersive holsters, the whole driving block, and the current binding list
       Stereo     which eye the second view goes to, how stale its last frame may get before
                  falling back to mono, the HUD composite, and live counters for whether the
                  second view is rendering, being captured and reaching the headset
-      VRIK       start / stop tracking, IK calibration, diagnostics
-      HUD        per-element X / Y / scale
+      VRIK       start / stop tracking, physical body rotation and its free-look cone, the
+                 cutscene-suspend tier, IK calibration, diagnostics
 
   - SteamVR (OpenVR) runtime selectable alongside OpenXR. On canted headsets (Pimax, Index)
     prefer the headset's own OpenXR runtime - PimaxXR is clean, SteamVR is not, and the fix
     for that is still to come.
 
-  - Pre-launch render-resolution selector, with per-headset presets.
+  - Pre-launch render-resolution selector: 13 headsets, 60 resolutions, every ladder
+    reaching 6000 px. PlayStation VR2 and the Bigscreen Beyond 2/2e are new here.
 
   - Runtime and hardware diagnostics in the log: OpenXR runtime and system, GPU and driver,
     swapchain init, frame-pipeline events.
@@ -200,12 +339,48 @@ FEATURES
 KNOWN ISSUES
 ============================================================================
 
-  - Magnifying scopes (Split Focus OptiX) do not converge: the reticle is drawn outside the
-    optic, so the target is magnified and the dot is not. Reflex sights are correct.
+Fixed since the last release, so do not report these: grass jitter when you stand in it,
+tree and grass shadow mismatches between the eyes, the overlay missing from one eye, cloth
+elements on buildings not swaying, Quest 3 screen edges at the borders, and not being able
+to shoot while driving.
 
-  - On canted headsets use the vendor's OpenXR runtime rather than SteamVR.
+  - Hands judder slightly on fast head turns.
 
-  - Closing a menu costs the second eye's HUD a single-frame blip.
+  - The body judders for two or three frames at random while running.
+
+  - With a weapon DRAWN, B cannot close the phone. Holster the weapon and B works.
+
+  - Hand and weapon collision is DISABLED in this release. It was launching vehicles into
+    the air, so the body capsules and the weapon colliders came back out of the archive.
+
+  - Projectile weapons still spawn on the camera axis. The hitscan path leaves the muzzle
+    now, but a projectile - an explosive round, for one - is a different mechanism and has
+    not been moved yet.
+
+  - Ironsights are not recalculated for zoom, and magnifying scopes (Split Focus OptiX) do
+    not converge: the reticle is drawn outside the optic, so the target is magnified and
+    the dot is not. Reflex sights are correct.
+
+  - The scanner's green screen tint does not reach the second eye, so it is switched off in
+    both. Its cause is identified (an envparam area override on the player's view); the fix
+    is open.
+
+  - Cameras and monitors do not show in the second eye.
+
+  - The HUD is sometimes missing from one eye, and closing a menu costs it a single-frame
+    blip.
+
+  - Stereo can fall back to mono. That is by design when the second view has nothing fresh
+    - menus, loading - but if it happens in ordinary play it is worth reporting with a log.
+
+  - Changing the graphics settings away from the state the mod installed can put the eyes
+    out of agreement. The same applies to mods that change them for you, UltraPlus among
+    them.
+
+  - Pimax Dream Air via SteamVR is crosseyed / double vision. Via PimaxXR it is fine.
+
+  - Cutscenes are lightly tested. VRIK now suspends itself for them, so the avatar no
+    longer fights the scene, but the whole of the storyline is not playable yet.
 
 
 ============================================================================
@@ -224,6 +399,15 @@ so check red4ext\logs\ first when several things stop working at once.
 
 This is an open-source project. Please consult the relevant resources if you do not know
 what that means. An incomplete fix request will not be reviewed.
+
+
+============================================================================
+CREDITS
+============================================================================
+
+  iPowerTech - VR driving. Grabbing the wheel with your own hands, the steering geometry,
+  the deadzone and lock-angle controls, the horn on the wheel hub, and shooting while you
+  drive are all his work.   https://github.com/iPowerTech
 
 
 ============================================================================

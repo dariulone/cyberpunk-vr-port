@@ -276,8 +276,7 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 | `CyberpunkVRPort_VRIK` | CET | Starts hand tracking, bridges calibration, publishes the locomotion state |
 | `CyberpunkVRPort_Weapon` | CET | Decoupled weapon aim + VR motion-melee detection |
 | `CyberpunkVRPort_Reload` | CET | The physical reload — thirteen per-weapon configs, the magazine, the slide, the revolver cylinder |
-| `CyberpunkVRPort_ReloadRecorder` | CET | Authoring tool: records the game's own reload animation per frame, which is where the grips and wrist placements come from |
-| `CyberpunkVRPort_HandCollision` | CET | Hand / finger / weapon push-out. **Off in 0.1.2** (`COLL_ON = false`) — the body capsules came back out of the archive after a vehicle launched the player |
+| `CyberpunkVRPort_HandCollision` | CET | Hand / finger / weapon push-out. **Off since 0.1.2** (`COLL_ON = false`) — the body capsules came back out of the archive after a vehicle launched the player |
 | `CyberpunkVRPort_Crosshair` | CET | Hides the game's own crosshair while decoupled VR aim is on |
 | `CyberpunkVRPort_Holster` | CET + reds | Hand-to-holster equip/unequip (immersive / simple) |
 | `CyberpunkVRPort_Smoking` | CET + reds | Cigarette / lighter props, FX, audio, auto-puff |

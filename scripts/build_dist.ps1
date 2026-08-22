@@ -1,4 +1,4 @@
-# Assemble a tester package under dist\, laid out exactly as it must land in the game root.
+﻿# Assemble a tester package under dist\, laid out exactly as it must land in the game root.
 #
 # Everything comes from the repo or from a build output -- nothing is read out of the installed
 # game -- so what a tester gets is what is committed. Run scripts\sync_assets.ps1 first if the
@@ -20,7 +20,12 @@ $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $Out      = Join-Path $RepoRoot "dist\CyberpunkVRPort-$Version"
 
 # Folders that exist for development and have no business in a tester's game.
-$SkipMods  = @("CyberpunkVRPort_WorldMapDiag")
+#
+# ReloadRecorder is an AUTHORING tool, not a feature: it records the game's own reload
+# animation per frame with VRIK off, and every grip pose and wrist placement the reload
+# ships was lifted from those takes. A player has nothing to record and nothing to do with
+# the takes, and it puts a third onUpdate on a pair of hands that already carry two solvers.
+$SkipMods  = @("CyberpunkVRPort_WorldMapDiag", "CyberpunkVRPort_ReloadRecorder")
 # *.md too: the notes beside a script are for whoever maintains it, not for a tester's game folder.
 $SkipFiles = @("db.sqlite3", "*.log", "*.bak", "*.orig", "*.rar", "*.zip", "*.md")
 
@@ -212,12 +217,284 @@ IF SOMETHING IS WRONG
     red4ext\logs\                          script validation errors land here
     bin\x64\plugins\cyber_engine_tweaks\   per-mod CET logs
 
-    Uninstall: delete the files listed above. Nothing is written outside the game folder except
-    the settings file named at the top, and its backup sits next to it.
+    Uninstall: run UNINSTALL.bat, in the same folder as this file. It removes every path this
+    package added and then offers your own settings back. UNINSTALL.txt is the same thing
+    written out by hand, including the two things neither of them can put back for you.
 
 Built from commit $(git -C $RepoRoot rev-parse --short HEAD 2>$null) on $(Get-Date -Format "yyyy-MM-dd").
 "@
 Set-Content (Join-Path $Out "INSTALL.txt") $readme -Encoding utf8
+
+# ---- the uninstaller, GENERATED from the manifest ----------------------------------------------
+# Both the runnable UNINSTALL.bat and the UNINSTALL.txt beside it are derived from what this run
+# actually copied. Typed by hand they go stale on the first mod added -- exactly the way the grip
+# list and the CET folder list in INSTALL.txt both did, each of which shipped wrong for a while.
+#
+# The folders are the ones this run copied whole, the loose files are the ones it added into
+# folders that are NOT ours, and a file inside a listed folder is left out rather than named twice.
+# That last part is why the .bat can use rmdir /s on the folder list without ever aiming it at a
+# directory the game or another mod owns.
+#
+# What neither file can DERIVE is the three things deleting files does not undo -- the replaced
+# UserSettings.json, HUDitor's own binding file, and the HUDitor layout. Those are written out by
+# hand, and the .bat offers to put the settings back because it is the only one of the three it
+# can do safely: the backup is the player's own file and restoring it is a copy, not a guess.
+$ownDirs = @("red4ext\plugins\CyberpunkVR_Stereo")
+foreach ($e in $manifest) {
+    if ($e.Bytes -eq 0 -and $e.Path -match '^(.*?)\\\s+\(\d+ files\)$') { $ownDirs += $Matches[1] }
+}
+$ownDirs = $ownDirs | Sort-Object -Unique
+
+$loose = @()
+foreach ($e in $manifest) {
+    if ($e.Bytes -le 0) { continue }
+    $inDir = $false
+    foreach ($d in $ownDirs) { if ($e.Path.StartsWith($d + "\")) { $inDir = $true; break } }
+    if (-not $inDir) { $loose += $e.Path }
+}
+$loose = $loose | Sort-Object -Unique
+
+$dirLines   = ($ownDirs | ForEach-Object { "    " + $_ + "\" }) -join "`r`n"
+$looseLines = ($loose   | ForEach-Object { "    " + $_        }) -join "`r`n"
+
+$uninstall = @"
+CyberpunkVRPort $Version -- UNINSTALL
+=====================================
+
+Run UNINSTALL.bat in this folder and it does all of part 1, 2 and 3 below for you, then offers to
+put your own Cyberpunk settings back. This file is the same thing written out, for anyone who
+would rather delete by hand or wants to know what the .bat touches before running it.
+
+Nothing here installs to Windows. There is no installer, no registry key and no service: every
+file this mod adds is inside the Cyberpunk 2077 game folder, and deleting them IS the uninstall.
+The two lists below are generated from the package itself, so they name exactly what it added.
+
+If you only want to TURN IT OFF for a session you need none of this. Delete
+red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_Stereo.dll and the game starts flat, with the CET
+and redscript mods idle because the natives they call are gone with it.
+
+1. DELETE THESE FOLDERS -- every one of them is ours, nothing else lives in them
+
+$dirLines
+
+2. DELETE THESE FILES -- these sit in folders that are NOT ours, so delete the file, not the folder
+
+$looseLines
+
+3. AND THESE -- the plugin writes them at runtime, so they are not in the package
+
+    bin\x64\vrport.ini                     every setting you changed in the F10 overlay
+    bin\x64\vrport-launcher.ini            the launcher's headset, resolution and DEBUG choice
+    bin\x64\cyberpunkvrport.log            the plugin's log
+
+4. THREE THINGS DELETING FILES DOES NOT UNDO -- read this part
+
+    YOUR GAME SETTINGS. On its first launch the plugin replaced
+
+        %LOCALAPPDATA%\CD Projekt Red\Cyberpunk 2077\UserSettings.json
+
+    with the one this mod was tuned against, and copied yours to
+    UserSettings.pre-vr-<date>-<time>.json in the same folder. Removing the mod does not put it
+    back. UNINSTALL.bat offers to; by hand, rename that backup over UserSettings.json yourself
+    with the game closed. Skip it and you keep the mod's graphics, comfort and language settings
+    for good.
+
+    HUDITOR'S OWN BINDING FILE. r6\input\HUDitor.xml in the list above REPLACED the one HUDitor
+    ships, to move its editor off F7 onto F11. Deleting ours leaves HUDitor with no binding file at
+    all, so reinstall HUDitor -- or restore its own HUDitor.xml -- if you want the editor back. The
+    game rebuilds r6\cache\inputUserMappings.xml from r6\input\*.xml on the next launch, so there
+    is nothing to clean up there.
+
+    YOUR HUD LAYOUT. persistency.json in the list above OVERWROTE whatever HUDitor layout you had.
+    Deleting it leaves HUDitor to generate a default, which is not the layout you had before
+    installing this unless you kept a copy.
+
+5. IF YOU MOVED A dxgi.dll ASIDE FOR THIS MOD
+
+    R.E.A.L. VR and some other VR mods install bin\x64\dxgi.dll, and this port cannot share a
+    process with one, so you may have renamed it -- deploy_stereo.ps1 renames it to
+    dxgi.dll.disabled-red4ext. Rename it back if you want that mod again.
+
+6. WHAT IS NOT TOUCHED, so you do not go looking for it
+
+    Your saves. Nothing here reads or writes them, and nothing this mod does is persisted into a
+    save: no custom quest facts, no items that stop existing, no scripted entities parked in the
+    world. A save made with the mod loads without it.
+
+    The other mods this one requires -- RED4ext, Cyber Engine Tweaks, redscript, ArchiveXL,
+    TweakXL, Codeware, Visual Holsters, Visible Bullets, Equipment-EX, Nova Optics, Input Loader,
+    HUDitor. Each has its own uninstall; the lists above remove only what carries the
+    CyberpunkVRPort name.
+
+Generated from commit $(git -C $RepoRoot rev-parse --short HEAD 2>$null) on $(Get-Date -Format "yyyy-MM-dd").
+"@
+Set-Content (Join-Path $Out "UNINSTALL.txt") $uninstall -Encoding utf8
+
+# ---- and the same lists as a batch file anyone can double-click --------------------------------
+# A .bat rather than a .ps1 on purpose: no ExecutionPolicy to explain, no "right-click, Run with
+# PowerShell", and the player can read every line of it in Notepad before running it. Written
+# ASCII, NOT utf8: Set-Content -Encoding utf8 puts a BOM on it, and cmd.exe reads that BOM as part
+# of the first command, so `@echo off` becomes an unknown command and the whole window fills up.
+$batDirs  = ($ownDirs | ForEach-Object { 'call :killdir "' + $_ + '"' }) -join "`r`n"
+$batFiles = ($loose   | ForEach-Object { 'call :killfile "' + $_ + '"' }) -join "`r`n"
+
+$bat = @"
+@echo off
+setlocal EnableDelayedExpansion
+cd /d "%~dp0"
+
+echo.
+echo   CyberpunkVRPort $Version  --  uninstall
+echo   =======================================
+echo.
+
+rem ---- refuse to run anywhere but the game root ----------------------------------------------
+rem Every path below is relative, so in the wrong folder this would delete nothing rather than
+rem something -- but saying so beats a run that reports "already gone" 45 times and looks done.
+if not exist "bin\x64\Cyberpunk2077.exe" goto :notgameroot
+
+rem ---- and not while the game is running ------------------------------------------------------
+rem A locked DLL fails silently enough to leave half a mod behind, and the settings restore below
+rem would be overwritten by the running game on exit.
+tasklist /fi "imagename eq Cyberpunk2077.exe" 2>nul | find /i "Cyberpunk2077.exe" >nul
+if not errorlevel 1 goto :stillrunning
+
+echo   Game folder:  %CD%
+echo.
+echo   This removes every file CyberpunkVRPort installed -- $($ownDirs.Count) folders, $($loose.Count) loose files,
+echo   plus the three the plugin writes at runtime.
+echo.
+echo   It does NOT restore HUDitor's own binding file or your HUD layout. UNINSTALL.txt,
+echo   section 4, says what that means. Your Cyberpunk settings are offered back at the end.
+echo.
+set "GO="
+set /p "GO=  Remove CyberpunkVRPort now? [y/N] "
+rem First character only, so y / Y / yes / a stray trailing space all mean yes, and an empty
+rem answer (just Enter) does not.
+if /i not "!GO:~0,1!"=="y" goto :nothingdone
+echo.
+
+set /a GONE=0
+set /a ABSENT=0
+set /a STUCK=0
+
+$batDirs
+
+$batFiles
+
+call :killfile "bin\x64\vrport.ini"
+call :killfile "bin\x64\vrport-launcher.ini"
+call :killfile "bin\x64\cyberpunkvrport.log"
+
+echo.
+echo   Removed !GONE!, already gone !ABSENT!, could not remove !STUCK!.
+if !STUCK! GTR 0 (
+  echo.
+  echo   Something is holding those files. Close the game and Steam and run this again.
+)
+
+rem ---- offer the player's own settings back ---------------------------------------------------
+rem The newest backup, because the plugin only ever writes one and only on a first launch, but a
+rem reinstall makes a second and the newest is the one from the install being removed.
+set "CFG=%LOCALAPPDATA%\CD Projekt Red\Cyberpunk 2077"
+set "BAK="
+for /f "delims=" %%F in ('dir /b /o-d "%CFG%\UserSettings.pre-vr-*.json" 2^>nul') do (
+  if not defined BAK set "BAK=%%F"
+)
+if not defined BAK goto :nobackup
+
+echo.
+echo   Your own Cyberpunk settings were saved before this mod replaced them:
+echo     !BAK!
+set "GO2="
+set /p "GO2=  Put them back now? [y/N] "
+if /i not "!GO2:~0,1!"=="y" (
+  echo   Left alone. It is still there whenever you want it.
+  goto :done
+)
+copy /y "%CFG%\!BAK!" "%CFG%\UserSettings.json" >nul
+if errorlevel 1 (
+  echo   FAILED. Do it by hand: rename
+  echo       %CFG%\!BAK!
+  echo       over UserSettings.json
+) else (
+  echo   Restored. Your graphics, comfort and language settings are yours again.
+)
+goto :done
+
+:nobackup
+echo.
+echo   No UserSettings.pre-vr-*.json found in
+echo     %CFG%
+echo   So either the settings were never replaced, or the backup has been moved.
+goto :done
+
+:done
+echo.
+echo   Done. UNINSTALL.txt is still here if you want to check anything by hand --
+echo   delete it, INSTALL.txt and this file whenever you like.
+echo.
+pause
+exit /b 0
+
+:notgameroot
+echo   This is not the Cyberpunk 2077 folder:
+echo     %CD%
+echo.
+echo   bin\x64\Cyberpunk2077.exe is not here. UNINSTALL.bat belongs in the game root --
+echo   the folder that holds bin\, r6\, red4ext\ and archive\ -- and has to run there.
+echo.
+pause
+exit /b 1
+
+:stillrunning
+echo   Cyberpunk 2077 is running.
+echo.
+echo   Close it first: the plugin DLL is locked while the game is up, and the game
+echo   rewrites its settings file on exit, which would undo the restore below.
+echo.
+pause
+exit /b 1
+
+:nothingdone
+echo.
+echo   Nothing was deleted.
+echo.
+pause
+exit /b 0
+
+rem ---- helpers, past every exit so nothing falls into them ------------------------------------
+:killdir
+if not exist "%~1\" (
+  set /a ABSENT+=1
+  exit /b 0
+)
+rmdir /s /q "%~1" 2>nul
+if exist "%~1\" (
+  echo   LOCKED      %~1\
+  set /a STUCK+=1
+) else (
+  echo   removed     %~1\
+  set /a GONE+=1
+)
+exit /b 0
+
+:killfile
+if not exist "%~1" (
+  set /a ABSENT+=1
+  exit /b 0
+)
+del /f /q "%~1" 2>nul
+if exist "%~1" (
+  echo   LOCKED      %~1
+  set /a STUCK+=1
+) else (
+  echo   removed     %~1
+  set /a GONE+=1
+)
+exit /b 0
+"@
+Set-Content (Join-Path $Out "UNINSTALL.bat") $bat -Encoding ascii
 
 # ---- report -------------------------------------------------------------------------------------
 Write-Host "dist\CyberpunkVRPort-$Version"

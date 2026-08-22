@@ -1326,13 +1326,20 @@ if (g_VRRecordFK) {
                                         }
                                     }
                                     float rvM[4]; VRIK_QuatMul(ec, vqUse, rvM); VRIK_QuatNorm(rvM);
-                                    // Position and rotation have different clocks by design here.
-                                    // `handAnchor` is already the final view origin in model space,
-                                    // built from the native camera/entity pair plus the same view offsets.
-                                    // Reconstructing it again through VRIK_ResolveViewPos used the Lua
-                                    // camera/entity globals and reintroduced their staircase into the IK
-                                    // target even after camModelPos itself became native.
-                                    float vpM[3] = { handAnchor[0], handAnchor[1], handAnchor[2] };
+                                    // THE VIEW-FRAME BRANCH TAKES THE VIEW ORIGIN, NOT THE ANCHOR.
+                                    // 64e706fc replaced this with `handAnchor` to get the Lua globals
+                                    // out of the IK target, and that part of its reasoning stands. But
+                                    // handAnchor is camModelPos PLUS the view-only offsets
+                                    // ([120..122] - [91..93]), so assigning it here collapsed this
+                                    // branch onto the fallback below and added those offsets to the
+                                    // target. Bisected in the headset: bd0f5aca alone is clean,
+                                    // bd0f5aca+64e706fc puts both hands visibly ABOVE the gizmo.
+                                    // The view origin is what the gizmo is drawn from, so it is what
+                                    // the hand must be built on.
+                                    float vpW[3] = { vpView[0] - g_VREntityPosX,
+                                                     vpView[1] - g_VREntityPosY,
+                                                     vpView[2] - g_VREntityPosZ };
+                                    float vpM[3]; VRIK_QuatRotateVec(ec, vpW, vpM);
                                     vrViewPosM[0]=vpM[0]; vrViewPosM[1]=vpM[1]; vrViewPosM[2]=vpM[2];
                                     vrViewRotM[0]=rvM[0]; vrViewRotM[1]=rvM[1]; vrViewRotM[2]=rvM[2]; vrViewRotM[3]=rvM[3];
                                     vrViewFrameOk = true;
@@ -1788,10 +1795,20 @@ if (g_VRRecordFK) {
                                         }
                                     }
                                     float rvM[4]; VRIK_QuatMul(ec, vqUse, rvM); VRIK_QuatNorm(rvM);
-                                    // Same single native model-space origin as the right hand. The
-                                    // world-space resolver above remains for smoke/script publication,
-                                    // but its Lua reconstruction must not drive either arm.
-                                    float vpM[3] = { handAnchor[0], handAnchor[1], handAnchor[2] };
+                                    // THE VIEW-FRAME BRANCH TAKES THE VIEW ORIGIN, NOT THE ANCHOR.
+                                    // 64e706fc replaced this with `handAnchor` to get the Lua globals
+                                    // out of the IK target, and that part of its reasoning stands. But
+                                    // handAnchor is camModelPos PLUS the view-only offsets
+                                    // ([120..122] - [91..93]), so assigning it here collapsed this
+                                    // branch onto the fallback below and added those offsets to the
+                                    // target. Bisected in the headset: bd0f5aca alone is clean,
+                                    // bd0f5aca+64e706fc puts both hands visibly ABOVE the gizmo.
+                                    // The view origin is what the gizmo is drawn from, so it is what
+                                    // the hand must be built on.
+                                    float vpW[3] = { vpView[0] - g_VREntityPosX,
+                                                     vpView[1] - g_VREntityPosY,
+                                                     vpView[2] - g_VREntityPosZ };
+                                    float vpM[3]; VRIK_QuatRotateVec(ec, vpW, vpM);
                                     float mp[3] = { vrPos[0]*g_VRScaleL, -vrPos[2]*g_VRScaleL, vrPos[1]*g_VRScaleL };
                                     float rp[3]; VRIK_QuatRotateVec(rvM, mp, rp);
                                     target[0] = vpM[0] + rp[0] + offL[0];
