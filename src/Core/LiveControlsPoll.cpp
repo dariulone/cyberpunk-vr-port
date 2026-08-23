@@ -83,6 +83,8 @@ static void PollVrikRecenterRequest() {
 // Tracking-smoothing accessors (atomics live in openxr_manager.cpp). The proxy
 // owns their ini persistence: parse -> Set* on file change, Get* -> write on Save.
 extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(float);
+// How near the support point the off hand has to be before the two-handed hold is offered, in metres.
+extern "C" __declspec(dllexport) extern float CyberpunkVR_TwoHandRadius;
 // The hand filter is UEVR-form now and lives in FlushHandsToShared; its speed is this.
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSpeed;
 // 1 = hand offsets measured from the filtered head (the one they are re-anchored on).
@@ -150,6 +152,7 @@ void PollLiveControls() {
     int xrSnapTurn = g_liveControls.xrSnapTurn;
     float xrHmdSmooth = GetHmdTrackingSmooth();
     float xrHandLerp = CyberpunkVR_HandLerpSpeed;
+    float xrTwoHandRadius = CyberpunkVR_TwoHandRadius;
     int   xrHandRelFiltered = CyberpunkVR_HandRelToFilteredHead;
     int   xrHandPerFrame    = CyberpunkVR_HandLocatePerFrame;
     static const char kLegacyReuseLastFrameKey[] = {
@@ -340,6 +343,11 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_hand_lerp_speed=%f", &value) == 1 ||
             sscanf_s(line, "xr_hand_lerp_speed = %f", &value) == 1) {
             xrHandLerp = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_two_hand_radius=%f", &value) == 1 ||
+            sscanf_s(line, "xr_two_hand_radius = %f", &value) == 1) {
+            xrTwoHandRadius = value;
             continue;
         }
         if (sscanf_s(line, "xr_render_pose_submit=%d", &intValue) == 1 ||
@@ -603,6 +611,10 @@ void PollLiveControls() {
                                          : (xrVehicleThrottleTrim > 3.0f ? 3.0f : xrVehicleThrottleTrim);
     SetHmdTrackingSmooth(xrHmdSmooth);
     CyberpunkVR_HandLerpSpeed = (xrHandLerp < 0.0f) ? 0.0f : ((xrHandLerp > 30.0f) ? 30.0f : xrHandLerp);
+    // Clamped rather than trusted: at 0 the hold can never be offered and at a third of a metre it is
+    // offered for a hand nowhere near the weapon, and both read as "the feature is broken".
+    CyberpunkVR_TwoHandRadius = (xrTwoHandRadius < 0.02f) ? 0.02f
+                              : ((xrTwoHandRadius > 0.30f) ? 0.30f : xrTwoHandRadius);
     CyberpunkVR_HandRelToFilteredHead = xrHandRelFiltered;
     CyberpunkVR_HandLocatePerFrame = xrHandPerFrame;
     // NEGATIVE IS ALLOWED, down to one period BEHIND the frame's target, and that is not a mistake.
@@ -741,6 +753,9 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // The hand filter's speed, in UEVR's units (follow per second, multiplied by dt at the point of
     // use). Replaces xr_hand_smooth, which was a fraction per FRAME and therefore frame-rate dependent.
     fprintf(file, "xr_hand_lerp_speed=%.3f\n", CyberpunkVR_HandLerpSpeed);
+    // How near the support point the off hand has to come before the two-handed hold is offered, in
+    // metres. Clamped to [0.02, 0.30] on read.
+    fprintf(file, "xr_two_hand_radius=%.3f\n", CyberpunkVR_TwoHandRadius);
     fprintf(file, "xr_movement_control=%d\n", state.xrMovementControl != 0 ? 1 : 0);
     fprintf(file, "xr_disable_mouse_y=%d\n", state.xrDisableMouseY != 0 ? 1 : 0);
     fprintf(file, "xr_xinput_hook=%d\n", state.xrXInputHook != 0 ? 1 : 0);

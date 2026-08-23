@@ -256,6 +256,9 @@ volatile LONG g_provRecoilSeqSeen = -1;
 // and every one of them means the same thing: this attack is the player's.
 static constexpr int kProvAttackHandleOffsets[4] = { 0xA8, 0xB8, 0xC8, 0xD8 };
 volatile uintptr_t g_playerEntityPtr = 0;
+// The launcher DEBUG box. Used below to decide whether the out-quaternion of a slot that does
+// nothing functional is worth a VirtualQuery.
+extern "C" __declspec(dllexport) extern int CyberpunkVR_XrDeepDiag;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkCalls   = 0;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugAtkNoMatch = 0;
 // bit i = the handle at attack+8*i held the player. Kept because it is the cheapest way to see the
@@ -344,7 +347,38 @@ static uintptr_t __fastcall ProvStub(uintptr_t rcx, uintptr_t rdx, uintptr_t r8,
     Fn orig = reinterpret_cast<Fn>(g_provOrig[C][S]);
     uintptr_t ret = orig ? orig(rcx, rdx, r8, r9) : 0;
     uintptr_t outp = rdx ? rdx : ret;   // out-quat: rdx buffer (or returned rax)
-    if (IsReadable(outp, 16)) {
+    // DO NOT TOUCH THE OUT-BUFFER ON A SLOT THAT DOES NOT NEED IT.
+    //
+    // IsReadable is a VirtualQuery -- a kernel transition -- and this stub is installed over 48
+    // vtable slots on three provider classes, so it runs for every entity in the world that has an
+    // orientation provider. A gun pays it once per pellet; a SECURITY CAMERA sweeping its lens and a
+    // TURRET tracking a target evaluate their provider EVERY FRAME, so the cost scaled with how many
+    // of those were active nearby. That is the frame rate collapsing around cameras and turrets in
+    // 0.1.2, which is the release this VMT hook landed in. The note above ProvPlausiblePtr already
+    // says a VirtualQuery on this path costs visible frame time; the fix went to the sibling
+    // function and never reached the hottest line in the file.
+    //
+    // Removing the check is NOT the answer -- tried, and it crashes during loading, because the
+    // engine's vectored handler takes the violation before our __try ever sees it (the same trap
+    // documented at the attack walk below). So the read stays guarded and the GUARD stays; what goes
+    // is the read itself, everywhere it was only ever feeding a diagnostic.
+    //
+    // Three ways a slot can still need it:
+    //   * it is one of the three that carry the shot -- entFunc real slots 33/36/37 -- which is a
+    //     compile-time constant per instantiation, so the other 141 stubs fold this to false;
+    //   * the manual native override is pointed at exactly this (class, slot);
+    //   * DEBUG is on, and the sampling that FOUND slots 33/36/37 in the first place is wanted.
+    // SLOT 30 ON EVERY CLASS, and that is not a detail: the launch override below is gated on
+    // `S == 30` with NO class test -- its own comment says "on ANY provider class (pistol=entFunc,
+    // grenade=entEntity)". A first version of this gate read `C == 2 && ...`, which is entFunc
+    // alone, so for a grenade or any projectile coming through entEntity the out-buffer was never
+    // read and the whole override block never ran. Slots 33 and 34 are the hitscan orientation
+    // reads and those really are entFunc-only.
+    constexpr bool kSlotCarriesTheShot = (S == 30) || (C == 2 && (S == 33 || S == 34));
+    const bool needOut = kSlotCarriesTheShot
+                      || (g_provOverrideCls == C && g_provOverrideSlot == S)
+                      || (CyberpunkVR_XrDeepDiag != 0);
+    if (needOut && IsReadable(outp, 16)) {
         __try {
             float* q = reinterpret_cast<float*>(outp);
             // Record BEFORE the unit-quaternion test, so the slots that are not orientations --

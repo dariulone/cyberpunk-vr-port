@@ -1482,17 +1482,28 @@ extern "C" inline char Hooked_WaPhysicalRayOrigin(void* rcx, void* rdx, float* o
     if (!result || !out || !CyberpunkVR_HitscanFromMuzzle) return result;
 
     __try {
-        // IDENTITY FIRST. Everything below only runs for a ray the game itself marked as fired by
-        // the local player's weapon; see WaPlayerOwnedWeapon for why no distance appears here.
-        if (!WaPlayerOwnedWeapon(rdx)) {
-            WaCount(CyberpunkVR_DebugPhysicalRayForeign);
-            return result;
-        }
-
+        // THE FREE CHECKS COME FIRST, AND THE ORDER IS THE WHOLE BUG.
+        //
+        // WaPlayerOwnedWeapon costs THREE VirtualQuery calls -- the blackboard, its key array, its
+        // value array -- and a VirtualQuery is a kernel transition. It used to run before anything
+        // else, so EVERY ray in the world paid it. PhysicalRay is not only the firearm: a security
+        // camera sweeping for the player and a turret tracking one cast rays continuously, from
+        // several worker threads, and the frame rate went from 60-70 to about 10 near either.
+        // Confirmed by gating the whole family off and watching the drop disappear.
+        //
+        // This is the trap the note above ProvPlausiblePtr in OrientationProvider.cpp calls
+        // "three of them per call". That note was written about THIS function. It was fixed on
+        // that side and never came back here.
+        //
+        // Nothing is weakened. The conjunction is identical and every guard is still in place;
+        // only the order changed. WaMuzzle reads our own shared block and the distance bound reads
+        // the out-buffer the original evaluator just wrote, so both are free -- and both are false
+        // for any ray that did not start at the player's own barrel. A camera across the street is
+        // rejected before the first syscall.
         float muzzle[3], forward[3];
         if (!WaMuzzle(muzzle, forward)) return result;
 
-        // NOT identity -- a staleness bound. The muzzle slot keeps its last value when the weapon is
+        // A staleness bound, not identity. The muzzle slot keeps its last value when the weapon is
         // holstered, and one was measured 192 m from the camera that way. A published muzzle that far
         // from the ray's own origin cannot be the barrel that fired it, and firing along it would
         // throw the bullet sideways. 3 m is well past any real weapon-to-eye distance.
@@ -1502,6 +1513,12 @@ extern "C" inline char Hooked_WaPhysicalRayOrigin(void* rcx, void* rdx, float* o
         const float distanceSq = dx*dx + dy*dy + dz*dz;
         if (!std::isfinite(distanceSq) || distanceSq > 3.0f * 3.0f) {
             WaCount(CyberpunkVR_DebugPhysicalRayStaleMuzzle);
+            return result;
+        }
+
+        // ...and only now the expensive one, on a ray that already starts at the player's barrel.
+        if (!WaPlayerOwnedWeapon(rdx)) {
+            WaCount(CyberpunkVR_DebugPhysicalRayForeign);
             return result;
         }
 
@@ -1643,8 +1660,22 @@ inline bool InstallWeaponPhysicalRayHook() {
 // second call is harmless: MinHook refuses a duplicate and this code only enables what it created.
 namespace {
 bool InstallWeaponAimAtBoot() { return InstallWeaponAimHooks(); }
+
+// KILL SWITCH for the whole family, kept because it earned its place.
+//
+// 0.1.2 shipped a frame-rate collapse from 60-70 to about 10 near security cameras and turrets.
+// It was isolated by setting this to 0: with the family off the drop is gone, with it on the drop
+// is back, and neither deleting every CET and redscript mod nor dropping to mono changed
+// anything -- so it was in the DLL, on a path indifferent to the second view. This hook installs
+// AT BOOT (see the note below), which is why removing the scripts proved nothing.
+//
+// The cause was the check order in Hooked_WaPhysicalRayOrigin, fixed there. Leave this at 1.
+// Set it to 0 and the log says so -- [hooks] boot WeaponAim skipped (disabled) -- at the cost of
+// bullets from the muzzle, hitscan hand recoil, and the shot signal the barrel dot uses.
+constexpr int kEnableWeaponAimFamily = 1;
+bool WeaponAimWanted() { return kEnableWeaponAimFamily != 0; }
 }
-CVR_HOOK("WeaponAim", ::cvr::hooks::Stage::Boot, 80, InstallWeaponAimAtBoot);
+CVR_HOOK_IF("WeaponAim", ::cvr::hooks::Stage::Boot, 80, InstallWeaponAimAtBoot, WeaponAimWanted);
 
 bool InstallWeaponAimHooks() {
     HMODULE h = GetModuleHandleA("Cyberpunk2077.exe");

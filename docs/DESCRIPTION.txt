@@ -1,4 +1,4 @@
-CyberpunkVRPort 0.1.3
+CyberpunkVRPort 0.1.4
 
 An open-source 6-DoF VR mod for Cyberpunk 2077. It integrates OpenXR directly into the game
 engine as a RED4ext plugin - there is no dxgi.dll proxy any more.

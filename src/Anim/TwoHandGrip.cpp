@@ -40,9 +40,12 @@ extern "C" __declspec(dllexport) extern char CyberpunkVR_WeaponName[64];
 
 // ---- the switches, and every one of them is a fact rather than a taste ----
 extern "C" __declspec(dllexport) int   CyberpunkVR_TwoHandGrip    = 1;      // the feature
-// How near the support point the hand has to be for the fingers to offer the hold. 12 cm is the reach of a
-// hand that means it; smaller and the offer is hard to find, larger and it appears while passing by.
-extern "C" __declspec(dllexport) float CyberpunkVR_TwoHandRadius  = 0.12f;
+// How near the support point the hand has to be for the fingers to offer the hold. It shipped at 12 cm
+// on the argument that that is the reach of a hand which means it -- and in play that was too wide: the
+// offer appeared for a hand merely passing the weapon, which is the failure the same note predicted for
+// a larger value. 6 cm on the user's call. It is an ini key now (xr_two_hand_radius) because this is a
+// number to settle by feel, and settling it by feel must not cost a rebuild per attempt.
+extern "C" __declspec(dllexport) float CyberpunkVR_TwoHandRadius  = 0.06f;
 // What a second hand takes off the kick. Two hands roughly triple the effective mass resisting the same
 // impulse and add a second lever against the muzzle rise, so a fifth of the one-handed flip is what the
 // physics of it says -- and it is the number asked for.

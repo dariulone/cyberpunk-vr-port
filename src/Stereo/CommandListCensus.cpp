@@ -1468,7 +1468,12 @@ static bool cascade_draw_withheld() {
 // SetMarker rather than BeginEvent/EndEvent: a marker needs no matching close, so there is no path by which
 // this can leave a command list with an unbalanced scope. Metadata 1 is the PIX convention for a
 // null-terminated ANSI string.
-extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CaptureMarkers = 1;
+// DEFAULT 0. This is RenderDoc scaffolding and it shipped armed. Every change of
+// (command list, node, view, cascade) formats a label with sprintf_s and calls SetMarker on one of
+// the game's own command lists -- and a camera feed or a monitor is an EXTRA view (it classifies as
+// neither-eye), so each active one multiplies the marker count. Turn it on for a capture; it has no
+// business costing frame time in play.
+extern "C" __declspec(dllexport) int32_t  CyberpunkVR_CaptureMarkers = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugCaptureMarkers = 0;
 extern "C" __declspec(dllexport) const char* CyberpunkVR_ProfNodeName(uint32_t rva);
 
