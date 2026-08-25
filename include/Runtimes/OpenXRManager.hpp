@@ -568,6 +568,34 @@ public:
         return static_cast<uint32_t>(m_renderedFrameTail - m_renderedFrameHead);
     }
 
+    // THE SECOND EYE'S OWN QUEUE. Identical to the three above in every respect -- same depth, same drop
+    // rule, same pop-at-capture -- because the reason the read-back was MAIN-only was that ONE queue
+    // cannot carry two views ("taking both would push two entries for one presented frame and the queue
+    // would run at double rate"). Two queues can. Filled from the same site in FinalCamera, off the
+    // VRCAM view's own render camera, so the eye is labelled with the pose its own pixels were drawn
+    // with rather than with the other eye's.
+    void PushVrcamRenderedFramePose(const OpenXRHeadPose& pose) {
+        std::lock_guard<std::mutex> lock(m_vrcamRenderedFrameMutex);
+        m_vrcamRenderedFrameQ[m_vrcamRenderedFrameTail & (kRenderedFrameQ - 1)] = pose;
+        ++m_vrcamRenderedFrameTail;
+        if (m_vrcamRenderedFrameTail - m_vrcamRenderedFrameHead > 4) {
+            m_vrcamRenderedFrameHead = m_vrcamRenderedFrameTail - 4;
+        }
+    }
+    bool PopVrcamRenderedFramePose(OpenXRHeadPose* out) {
+        if (!out) return false;
+        std::lock_guard<std::mutex> lock(m_vrcamRenderedFrameMutex);
+        if (m_vrcamRenderedFrameHead == m_vrcamRenderedFrameTail) return false;
+        *out = m_vrcamRenderedFrameQ[m_vrcamRenderedFrameHead & (kRenderedFrameQ - 1)];
+        ++m_vrcamRenderedFrameHead;
+        return out->valid;
+    }
+    uint32_t VrcamRenderedFrameQueueDepth() const {
+        std::lock_guard<std::mutex> lock(m_vrcamRenderedFrameMutex);
+        return static_cast<uint32_t>(m_vrcamRenderedFrameTail - m_vrcamRenderedFrameHead);
+    }
+
+
     void PushRenderHeadPose(const OpenXRHeadPose& pose) {
         std::lock_guard<std::mutex> lock(m_pendingRenderPoseMutex);
         const uint32_t slot = static_cast<uint32_t>(m_renderPoseRingHead & 15);
@@ -1113,6 +1141,10 @@ private:
     OpenXRHeadPose        m_renderedFrameQ[kRenderedFrameQ]{};
     uint64_t              m_renderedFrameHead = 0;
     uint64_t              m_renderedFrameTail = 0;
+    mutable std::mutex    m_vrcamRenderedFrameMutex;
+    OpenXRHeadPose        m_vrcamRenderedFrameQ[kRenderedFrameQ]{};
+    uint64_t              m_vrcamRenderedFrameHead = 0;
+    uint64_t              m_vrcamRenderedFrameTail = 0;
     std::mutex      m_depthStageMutex;
     std::atomic<uint64_t> m_depthStageFrame{~0ull};   // one inline copy per present interval
     bool m_depthLayerSupported = false;  // runtime supports XR_KHR_composition_layer_depth and a depth swapchain format

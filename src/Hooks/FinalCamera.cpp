@@ -112,6 +112,32 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
                 }
             }
         }
+
+        // THE SECOND VIEW, IDENTIFIED THE SAME WAY, INTO ITS OWN QUEUE.
+        //
+        // The read-back above is MAIN-only, and the reason recorded for that is the QUEUE -- one queue
+        // cannot carry two views without running at double rate -- not that the second view is
+        // unidentifiable. It is identified by exactly the same means: its render camera's quaternion is
+        // one we wrote, so the ring says which XR sample produced it. With a queue of its own the eye can
+        // be submitted with the pose ITS pixels were drawn with instead of the other eye's, which is what
+        // an OpenXR projection layer's per-view pose is for.
+        //
+        // The barrel packet above is NOT duplicated: that restriction exists to keep VRCAM from
+        // overwriting MAIN's render camera, and it is unrelated to the pose.
+        if (isVrcam && CyberpunkVR_PoseReadBack) {
+            float camq[4] = {};
+            if (ReadFloatArraySafe(rsiPtr + 4, camq, 4) && IsPlausibleUnitQuaternion(camq)) {
+                OpenXRHeadPose matched{};
+                uint32_t age = 0, ties = 0;
+                if (cvr::camera::CamWriteRecordFind(camq, &matched, &age, &ties)) {
+                    CyberpunkVR_DebugVrcamFinalAge = age;
+                    ++CyberpunkVR_DebugVrcamFinalMatch;
+                    OpenXRManager::Get().PushVrcamRenderedFramePose(matched);
+                } else {
+                    ++CyberpunkVR_DebugVrcamFinalNoMatch;
+                }
+            }
+        }
     }
 
     // ---- MONO: THE PER-VIEW WRITE SITE -------------------------------------------------------

@@ -120,6 +120,21 @@ void SetVRLocomotionState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, i
 void SetVRWeaponPoseState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRWeaponRaiseTransition(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRMenuOpen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// The scanner's HUD layout, for the CyberpunkVRPort_ScannerHud redscript and its in-game editor.
+// The forearm readout's watchdog: one 8-byte read per frame of the world widget's render-target
+// handle, and a single component toggle on the frame it is swapped. See src/Natives/WristGuard.cpp for
+// why that is the only repair and how the offset was located.
+void VRWristGuard(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+
+// Which surveillance camera the player took over, published from a CET tick because the plugin's own
+// poll runs on the worker thread and must not call the script VM. See src/Natives/RemoteCamera.cpp.
+void VRRemoteCamera(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+
+void VRScannerSlotGet(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t);
+void VRScannerSlotSet(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
+void VRScannerSlotSave(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
+// 1 while a device screen (computer, terminal) is up; lets the right stick's Y reach the game's UI.
+void SetVRDeviceScreen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
 void SetVRMuzzlePos(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void SetVRMuzzleQuat(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void SetVRPairLead(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);

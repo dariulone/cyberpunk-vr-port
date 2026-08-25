@@ -99,11 +99,90 @@ static bool WriteFirstLaunchFlag(int value) {
 // Called from the RED4ext entry, before the game creates its D3D12 device -- the earliest point we
 // have. Whether the game has already read its settings by then is not something this can know, so
 // the log says plainly that a fresh install may need one more launch for them to take.
+// ONE SETTING'S VALUE, out of a UserSettings.json, without a JSON parser and without depending on
+// whitespace -- the shipped file and the player's are indented differently (10 spaces against 20), so
+// anything keyed on layout would compare two files that say the same thing and call them different.
+//
+// The shape is fixed by the game: an entry names itself and then carries its value.
+//
+//     "name": "CascadedShadowsRange",
+//     "value": "Low",
+//
+// So: find the quoted setting name, then the next "value" after it, then the quoted string after that.
+// Returns false when the setting is absent, which is treated as "cannot tell" rather than "differs".
+static bool ReadSettingValue(const char* aPath, const char* aSetting, char* aOut, size_t aOutLen) {
+    if (!aPath || !aSetting || !aOut || aOutLen == 0) return false;
+    aOut[0] = '\0';
+
+    FILE* f = _fsopen(aPath, "rb", _SH_DENYNO);
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    const long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    // A UserSettings.json measures 60-100 KB. The cap is a bound on nonsense, not on the game.
+    if (size <= 0 || size > 4 * 1024 * 1024) { fclose(f); return false; }
+    char* buf = static_cast<char*>(malloc(static_cast<size_t>(size) + 1));
+    if (!buf) { fclose(f); return false; }
+    const size_t got = fread(buf, 1, static_cast<size_t>(size), f);
+    fclose(f);
+    buf[got] = '\0';
+
+    bool ok = false;
+    char needle[128] = {};
+    _snprintf_s(needle, sizeof(needle), _TRUNCATE, "\"%s\"", aSetting);
+    if (const char* at = strstr(buf, needle)) {
+        if (const char* v = strstr(at, "\"value\"")) {
+            const char* q = strchr(v + 7, '"');
+            if (q) {
+                const char* end = strchr(q + 1, '"');
+                if (end && static_cast<size_t>(end - q - 1) < aOutLen) {
+                    const size_t n = static_cast<size_t>(end - q - 1);
+                    memcpy(aOut, q + 1, n);
+                    aOut[n] = '\0';
+                    ok = true;
+                }
+            }
+        }
+    }
+    free(buf);
+    return ok;
+}
+
+// THE CASCADE GUARD. The shadow cascades are not a taste setting for this port: the second view
+// rasterises the SHARED cascade atlas itself, so both views have to agree about it -- see the note in
+// src/Stereo/ViewReuse.cpp and CyberpunkVR_CascadeSaveMain. A player (or a driver profile, or a preset
+// the game reapplies) moving them off the shipped value is a visible fault in the headset, not a
+// preference, so unlike everything else in this file it is CHECKED on every launch rather than installed
+// once.
+//
+// Compared against the SHIPPED file rather than against a hardcoded "Low", so the value lives in exactly
+// one place and a future release that ships a different one is followed automatically.
+static const char* const kCascadeSettings[] = { "CascadedShadowsRange", "CascadedShadowsResolution" };
+
+static bool CascadesDiffer(const char* aShipped, const char* aPlayers, char* aWhy, size_t aWhyLen) {
+    for (const char* name : kCascadeSettings) {
+        char want[64] = {}, have[64] = {};
+        if (!ReadSettingValue(aShipped, name, want, sizeof(want))) continue;   // not ours to enforce
+        if (!ReadSettingValue(aPlayers, name, have, sizeof(have))) continue;   // cannot tell
+        if (_stricmp(want, have) != 0) {
+            if (aWhy) _snprintf_s(aWhy, aWhyLen, _TRUNCATE, "%s is \"%s\", shipped is \"%s\"",
+                                  name, have, want);
+            return true;
+        }
+    }
+    return false;
+}
+
 extern "C" void ApplyFirstLaunchGameSettings() {
     InitRuntimePaths();
     EnsureLiveControlFileExists();
     PollLiveControls();
-    if (g_liveControls.xrFirstLaunch == 0) return;
+    // TWO REASONS TO INSTALL, and they are not the same reason.
+    //
+    // first_launch is the original one-shot: a fresh install has never seen these settings. It is
+    // decided here, but the CASCADE GUARD below can only be judged once both file paths are known, so
+    // the early-out for "neither applies" happens after they are resolved.
+    const bool firstLaunch = (g_liveControls.xrFirstLaunch != 0);
 
     // The shipped copy sits next to this DLL, which is the only directory the plugin owns.
     char src[MAX_PATH] = {};
@@ -139,16 +218,42 @@ extern "C" void ApplyFirstLaunchGameSettings() {
         return;
     }
 
+    // NOW both files are known to exist, so the guard can be judged.
+    char why[192] = {};
+    const bool cascadeDrifted = CascadesDiffer(src, dst, why, sizeof(why));
+    if (!firstLaunch && !cascadeDrifted) return;
+    if (!firstLaunch) {
+        Log("FirstLaunch: cascade guard tripped -- %s. Replacing the whole file, as the shadow\n"
+            "             cascades are shared between the two views and cannot be left disagreeing.\n",
+            why);
+    }
+
+    // THE BACKUP. On a first launch it is timestamped, as it always was -- that file is the player's
+    // own pre-VR configuration and is worth keeping every copy of. The guard is a different case: it can
+    // fire on any launch, so a timestamp there would leave a new 90 KB file behind every time. One
+    // deterministic name, written only if it is not already there, keeps exactly one.
     SYSTEMTIME t{};
     GetLocalTime(&t);
     char bak[MAX_PATH] = {};
-    _snprintf_s(bak, sizeof(bak), _TRUNCATE,
-                "%s\\CD Projekt Red\\Cyberpunk 2077\\UserSettings.pre-vr-%04u%02u%02u-%02u%02u%02u.json",
-                local, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
-    if (!CopyFileA(dst, bak, TRUE)) {
-        Log("FirstLaunch: could not back up %s (err %lu) -- settings NOT installed\n",
-            dst, GetLastError());
-        return;
+    if (firstLaunch) {
+        _snprintf_s(bak, sizeof(bak), _TRUNCATE,
+                    "%s\\CD Projekt Red\\Cyberpunk 2077\\UserSettings.pre-vr-%04u%02u%02u-%02u%02u%02u.json",
+                    local, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+        if (!CopyFileA(dst, bak, TRUE)) {
+            Log("FirstLaunch: could not back up %s (err %lu) -- settings NOT installed\n",
+                dst, GetLastError());
+            return;
+        }
+    } else {
+        _snprintf_s(bak, sizeof(bak), _TRUNCATE,
+                    "%s\\CD Projekt Red\\Cyberpunk 2077\\UserSettings.pre-vr-cascade.json", local);
+        // TRUE = do not overwrite: the first one is the interesting one, and a failure because it
+        // already exists is not a failure at all.
+        if (!CopyFileA(dst, bak, TRUE) && GetLastError() != ERROR_FILE_EXISTS) {
+            Log("FirstLaunch: could not back up %s (err %lu) -- settings NOT installed\n",
+                dst, GetLastError());
+            return;
+        }
     }
     if (!CopyFileA(src, dst, FALSE)) {
         Log("FirstLaunch: could not write %s (err %lu) -- the backup at %s is untouched\n",

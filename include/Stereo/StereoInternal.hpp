@@ -635,6 +635,9 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_HudNodeProbe;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudSnapSkips;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudSnaps;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisionSnaps;
+// How long the last outline snapshot stays usable, ms. 0 = no limit. The HUD's equivalent is
+// CyberpunkVR_HudMaxAgeMs and this one exists because it was a hardcoded 250 ms.
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VisionMaxAgeMs;
 extern ID3D12Resource* g_hud_res;
 extern bool g_hud_batch_listed;
 extern bool g_rtv_dim_wrapped_logged;

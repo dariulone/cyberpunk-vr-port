@@ -1360,7 +1360,31 @@ bool VRIK_ComputeCamModel(float* outPos, float* outRot, float* outEntityQuat,
     if (CyberpunkVR_VrikNativeFramePair || CyberpunkVR_VrikTransformsFromPlugin) {
         VrikTransformSnapshot snap{};
         bool haveSnapshot = false;
-        if (CyberpunkVR_VrikNativeFramePair) {
+        // MOUNTED, THE NATIVE PAIR IS THE WRONG FRAME -- and by this function's own stated principle.
+        //
+        // Its entity orientation is built in BodyYawFollowTick as a pure Rz(yaw) reconstructed from the
+        // body-yaw store site. On foot that is exact: the player entity is upright, so yaw is all of it.
+        // Seated in a car the body pitches and rolls with the shell, so a yaw-only frame is wrong by a
+        // quantity that changes every frame the car moves -- which is the jitter. That same store site is
+        // already known not to describe a mounted player: the [vehyaw] census caught it flat at 0.0 deg
+        // while the car swung through 260, which is why the camera writer gates ViewYawFromEngine on
+        // !g_isInVehicle.
+        //
+        // The Lua pair carries the FULL entity world quaternion (g_VREntityQ*, "world->model =
+        // conjugate(this)") paired coherently with its own camera under one seqlock, so it is preferred
+        // while mounted and only while mounted. Not a filter: the wobble is not noise, it is a frame
+        // built from the wrong quantity.
+        const bool preferFullEntityQuat = g_isInVehicle &&
+                                          CyberpunkVR_VrikVehicleFullEntityQuat &&
+                                          CyberpunkVR_VrikTransformsFromPlugin;
+        if (preferFullEntityQuat) {
+            haveSnapshot = VRIK_ReadTransformSnapshot(&snap);
+            if (haveSnapshot) {
+                std::atomic_ref<uint64_t>(CyberpunkVR_DebugVrikLuaPairFallback)
+                    .fetch_add(1u, std::memory_order_relaxed);
+            }
+        }
+        if (!haveSnapshot && CyberpunkVR_VrikNativeFramePair) {
             haveSnapshot = VRIK_ReadNativeTransformSnapshot(&snap);
             if (haveSnapshot) {
                 std::atomic_ref<uint64_t>(CyberpunkVR_DebugVrikNativePairUsed)

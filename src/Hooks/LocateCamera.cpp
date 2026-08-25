@@ -763,6 +763,19 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
             if (ww < 0.0f) { wz = -wz; ww = -ww; }
             if (wz != 0.0f || ww != 0.0f) flatYaw = 2.0f * atan2f(wz, ww);
         }
+        // MOUNTED, TAKE THE YAW THE VIEW WAS ACTUALLY COMPOSED WITH. The note above is explicit that this
+        // matrix belongs in the VIEW's frame -- "two consumers, two headings, and they are no longer the
+        // same number" -- and on foot the engine-yaw substitution above is what makes them the same. In a
+        // vehicle nothing did: the view is composed from the camera's pre-write quaternion, assembled per
+        // rendered frame, while bodyGameForward advances on the entity tick. While the car TURNS that
+        // difference grows every frame and the eye is rotated by it -- jitter proportional to the turn
+        // rate, absent parked and absent in a straight line, which is what was observed.
+        //
+        // PatchCamera publishes this at the instant it uses it and runs before this function in the frame,
+        // so it is a same-frame number rather than a cached one.
+        if (g_isInVehicle && CyberpunkVR_VehicleAnchorFromViewYaw && g_viewYawUsedValid) {
+            flatYaw = g_viewYawUsedRad;
+        }
         // (The realign is already out of bodyGameForward at the top of this function, so this matrix
         // is the VIEW's heading -- which is what takes the room position into the world without
         // swinging the play space every time the body comes around.)

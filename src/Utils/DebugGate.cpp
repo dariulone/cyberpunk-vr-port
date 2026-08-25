@@ -86,6 +86,7 @@ extern __declspec(dllexport) int32_t CyberpunkVR_CloudLightProbe;
 extern __declspec(dllexport) int32_t CyberpunkVR_SightAxisProbe;
 extern __declspec(dllexport) int32_t CyberpunkVR_SightPsDump;
 extern __declspec(dllexport) int32_t CyberpunkVR_VisionDump;
+extern __declspec(dllexport) int32_t CyberpunkVR_VisionMap;
 extern __declspec(dllexport) int32_t CyberpunkVR_ViewDataDiff;
 extern __declspec(dllexport) int32_t CyberpunkVR_DebugRtvPickLog;
 extern __declspec(dllexport) uint32_t CyberpunkVR_LodThreshOverrideEnable;   // uint32_t, see below
@@ -154,6 +155,11 @@ const DebugFlag kFlags[] = {
     { "SightAxisProbe",     &CyberpunkVR_SightAxisProbe,     1, true  },
     { "SightPsDump",        &CyberpunkVR_SightPsDump,        1, true  },
     { "VisionDump",         &CyberpunkVR_VisionDump,         1, true  },
+    // ABSENT UNTIL NOW, and its absence cost three sessions. [vismap] is the only instrument that
+    // can say why the scanner outline is missing from the second eye, and it is gated on this flag --
+    // which DEBUG did not arm, so every one of those sessions printed nothing and the silence was read
+    // as "no surface matched" when it only meant "the probe was off".
+    { "VisionMap",          &CyberpunkVR_VisionMap,          1, true  },
     // Mode 2 prints every differing run with BOTH views' values. Mode 1 only shows the
     // MAIN-set/VRCAM-zero holes and is blind to "both have values, different ones", which is
     // the whole class of per-view bug this catches -- so 2 is the useful setting.

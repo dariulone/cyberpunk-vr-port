@@ -1,0 +1,127 @@
+<?xml version="1.0"?>
+<!--
+  CyberpunkVRPort. The scanner's own HUD editor: RIGHT SHIFT opens it, the mouse works it.
+
+  NOTE ON STYLE: not a double hyphen anywhere in these comments. XML forbids it inside a comment, and
+  the first version of this file was full of them. The game's parser swallowed that quietly, which is
+  the worst outcome available: a file that only works until something reads it strictly.
+
+  Structure copied from HUDitor's own binding file rather than written from scratch, because that file
+  is the working proof that a mod-declared action reaches a redscript input listener in gameplay: a
+  context, an include into UIToggles, the accepted events, the hold timeout, the mappings. Only the
+  names and the keys differ.
+
+  WHY THE EDITOR DECLARES ITS OWN MOUSE AND WHEEL instead of borrowing the game's actions. Both
+  attempts at borrowing were reported broken, and the reasons are in the game's own files:
+
+    * Scaling sat on UI_MoveUp / UI_MoveDown, which is the wheel, but ALSO IK_W and IK_S: the game
+      binds those to them as secondary UI navigation (overridableUI="prevItemSecondary" and
+      "nextItemSecondary"). So W and S scaled the piece while they were also meant to nudge it. One
+      key, two jobs, and the nudge was the half that looked broken.
+    * 'mouse_wheel', tried before that, exists only in the UIShared context, which gameplay never
+      enters, so the wheel delivered nothing at all.
+    * The VERTICAL axis never arrived while the horizontal one did. CameraMouseX and CameraMouseY sit
+      side by side in the same CameraMovement context, mapped to MouseX and MouseY, with identical
+      sensitivity in UserSettings.json, so nothing in the declaration explains it. Focus mode stacks
+      contexts of its own on top of gameplay; an action of ours in a context of ours is the one
+      arrangement that does not depend on which of the game's contexts survive that.
+
+  RIGHT SHIFT and not F11, which is where this port already moved HUDitor's editor. Sharing the key
+  would open both editors on one press, and HUDitor's has no idea the scanner exists.
+
+  Needs RED4ext's input_loader, which merges r6\input\*.xml into r6\cache\inputUserMappings.xml on
+  launch. Without it every binding here is inert: the same dependency the port's HUDitor.xml carries.
+-->
+<bindings>
+	<!-- inputContexts -->
+	<context name="CyberpunkVRPortScannerHud" >
+		<action name="VRPortScannerEditor" map="VRPortScannerEditor_Button" />
+		<action name="VRPortScannerScaleUp" map="VRPortScannerScaleUp_Button" />
+		<action name="VRPortScannerScaleDown" map="VRPortScannerScaleDown_Button" />
+		<action name="VRPortScannerMoveX" map="VRPortScannerMoveX_Axis" />
+		<action name="VRPortScannerMoveY" map="VRPortScannerMoveY_Axis" />
+	</context>
+
+	<!-- THE SCANNER'S ZOOM, on the game's OWN action names.
+
+	     The player state machine zooms on IsActionJustPressed(n"ZoomIn") / n"ZoomOut"
+	     (player/psm/zoomTransitions.swift), and those actions are declared in Aiming, the vehicle
+	     contexts and a few others. They are NOT declared in UI_QuickHackPanel, which is the context
+	     that owns the panel while a hackable target is scanned, and in that context the D pad is
+	     UI_MoveUp / UI_MoveDown instead. That is exactly what was reported: the zoom gesture paged
+	     the script list. Every pad input the panel leaves free falls through to something else
+	     (D pad left and right are QH_MoveLeft and QH_MoveRight, R3 is Tag_Button and also crouch,
+	     the shoulders carry a dozen things between them), so the way out is not another pad button.
+
+	     So the ACTION NAMES ARE THE GAME'S and the keys are ours: IK_Insert and IK_Delete are bound
+	     to nothing at all in inputUserMappings.xml. The plugin presses them when the left trigger is
+	     held and the right stick is pushed, the state machine sees ZoomIn / ZoomOut, and no list
+	     moves because no UI action shares those keys. -->
+	<context name="CyberpunkVRPortScannerZoom" >
+		<action name="ZoomIn" map="VRPortZoomIn_Button" />
+		<action name="ZoomOut" map="VRPortZoomOut_Button" />
+	</context>
+
+	<context name="UIToggles" append="true">
+		<include name="CyberpunkVRPortScannerZoom" />
+	</context>
+
+	<context name="VisionActions" append="true">
+		<include name="CyberpunkVRPortScannerZoom" />
+	</context>
+
+	<context name="UI_QuickHackPanel" append="true">
+		<include name="CyberpunkVRPortScannerZoom" />
+	</context>
+
+	<context name="UIToggles" append="true">
+		<include name="CyberpunkVRPortScannerHud" />
+	</context>
+
+	<!-- The editor key carries two meanings, so it has to ask for both events: the tap steps to the
+	     next piece, the hold leaves and saves. Without this block only the press arrives. -->
+	<acceptedEvents action="VRPortScannerEditor" >
+		<event name="BUTTON_HOLD_COMPLETE" />
+		<event name="BUTTON_RELEASED" />
+	</acceptedEvents>
+
+	<hold action="VRPortScannerEditor"  timeout="0.4" />
+
+	<!-- inputUserMapping -->
+	<mapping name="VRPortScannerEditor_Button" type="Button" >
+		<button id="IK_RShift" />
+	</mapping>
+
+	<!-- The wheel, and nothing else on these two. No shared identity with W, S, Q, E or the D-pad,
+	     which is what made the previous arrangement scale a piece while trying to nudge it. -->
+	<mapping name="VRPortScannerScaleUp_Button" type="Button" >
+		<button id="IK_MouseWheelUp" />
+	</mapping>
+
+	<mapping name="VRPortScannerScaleDown_Button" type="Button" >
+		<button id="IK_MouseWheelDown" />
+	</mapping>
+
+	<!-- The two mouse axes, declared the way the game declares its own (type="Relative"), under names
+	     only this editor listens for. preset="relative" on BOTH, so neither arrives pre-inverted and
+	     the sign is decided in one place: the editor's code. The game's own MouseY carries
+	     preset="invertRelative", which is right for a camera and would be a surprise here. -->
+	<mapping name="VRPortScannerMoveX_Axis" type="Relative" preset="relative" >
+		<button id="IK_MouseX" />
+	</mapping>
+
+	<!-- Free keys, checked against the game's own mappings: nothing binds End or Delete.
+	     NOT Insert: this port's ImGui overlay toggles on VK_F10 or VK_INSERT, so a zoom step on
+	     Insert opened the overlay as well. -->
+	<mapping name="VRPortZoomIn_Button" type="Button" >
+		<button id="IK_End" />
+	</mapping>
+
+	<mapping name="VRPortZoomOut_Button" type="Button" >
+		<button id="IK_Delete" />
+	</mapping>
+
+	<mapping name="VRPortScannerMoveY_Axis" type="Relative" preset="relative" >
+		<button id="IK_MouseY" />
+	</mapping>
+</bindings>

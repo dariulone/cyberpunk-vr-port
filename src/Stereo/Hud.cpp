@@ -376,6 +376,17 @@ static std::atomic<bool> g_vision_fresh{false};
 // When the node stops running (view torn down, scanner gone) the last snapshot would otherwise
 // keep painting an outline over the second eye for ever. Time-stamped, so it simply expires.
 std::atomic<uint64_t> g_vision_tick{0};
+// HOW LONG THE LAST OUTLINE STAYS USABLE, and it is the HUD's number and the HUD's escape hatch
+// rather than a constant, because the two are the same problem. It was hardcoded at 250 ms, and
+// that is what made the outline leave the second eye a moment after each scan: MAIN composites
+// from the LIVE surface every frame and does not care whether the compute pass ran again, while
+// the second eye works from a snapshot and the pass only runs while something needs redrawing.
+// A quarter of a second after the scan settled, our copy aged out and MAIN's did not.
+// 0 = no limit.
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VisionMaxAgeMs = 1000;
+// Demand, recorded by the consumer, for the same reason the HUD records it: so that the producer
+// can key on it without the two latching each other off. See the note in CyberpunkVR_GetHudTexture.
+std::atomic<uint64_t> g_vision_consumed_tick{0};
 // Demand-driven: the copy is ~35 MB a frame at 2560x2560x5mips, so it must not run when nothing
 // consumes it. Measured with the headset off, it ran every single frame for nothing. The eye-1
 // path stamps this each time it takes the texture; one bootstrap copy is allowed so the very
@@ -542,9 +553,15 @@ ColorBlit::HudParams hud_composite_params() {
 // has actually drawn one (i.e. until something is being scanned).
 extern "C" __declspec(dllexport) ID3D12Resource* CyberpunkVR_GetVisionTexture() {
     if (!CyberpunkVR_VisionSnap) return nullptr;
+    // Shaped like CyberpunkVR_GetHudTexture below, line for line, because that path already solved
+    // this: demand first and unconditionally, then freshness, then a liveness window that can be
+    // widened or switched off. The differences from it were the bug, not a design.
+    g_vision_consumed_tick.store(GetTickCount64(), std::memory_order_release);
     if (!g_vision_fresh.load(std::memory_order_acquire)) return nullptr;
-    const uint64_t t = g_vision_tick.load(std::memory_order_acquire);
-    if (!t || GetTickCount64() - t > 250) return nullptr;   // stale -> no overlay
+    if (CyberpunkVR_VisionMaxAgeMs) {
+        const uint64_t t = g_vision_tick.load(std::memory_order_acquire);
+        if (!t || GetTickCount64() - t > CyberpunkVR_VisionMaxAgeMs) return nullptr;
+    }
     std::lock_guard<std::mutex> lk(g_hud_snap_mtx);
     return g_vision_snap;
 }

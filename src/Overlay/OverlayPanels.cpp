@@ -695,7 +695,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                                       "the weapon arm. Either way the shot leaves the real muzzle, for guns and\n"
                                       "projectiles alike, and free-look while aiming is preserved.");
                 }
-                ImGui::Checkbox("Weapon Aim lasewr dot (where the bullet hits)", &g_drawBarrelCross);
+                ImGui::Checkbox("Weapon Aim laser dot (where the bullet hits)", &g_drawBarrelCross);
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Red dot projected from the actual weapon muzzle direction through the\n"
                                       "game camera -- marks exactly where the bullet will fly.");
@@ -879,15 +879,30 @@ bool DrawLiveControls(LiveControlsUiState& state) {
             ImGui::BulletText("Right trigger - fire | Left trigger - aim / melee block");
             ImGui::BulletText("Right grip    - holster equip / unequip (reach to the holster first)");
             ImGui::BulletText("Left  grip    - grab the magazine during a reload");
-            ImGui::BulletText("Left  grip at the LEFT EAR - scanner, held as long as the gesture is");
+            ImGui::BulletText("Left  grip at the LEFT EAR - scanner, TOGGLED: squeeze to open,");
+            ImGui::BulletText("                squeeze again to close. The hand is free in between");
             ImGui::BulletText("Left  menu button - pause menu");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("While the scanner is open, the same hand works it:");
+            ImGui::BulletText("Left stick UP / DOWN, to the stop - page the quickhack list");
+            ImGui::BulletText("                below the stop the stick still walks; only a full push pages");
+            ImGui::BulletText("Left  X       - apply the selected hack (a plain press)");
+            ImGui::BulletText("Right trigger - tag the target. It does NOT fire while the scanner is up");
+            ImGui::BulletText("Right stick click - change the scanner tab");
+            ImGui::BulletText("Left trigger + right stick - zoom in / out");
             ImGui::Spacing();
             ImGui::TextUnformatted("D-Pad, as a chord: HOLD the LEFT stick click, pick with the RIGHT stick");
             ImGui::BulletText("Right stick UP / DOWN / LEFT / RIGHT -> D-Pad UP / DOWN / LEFT / RIGHT");
+            ImGui::BulletText("                to the stop, like every other gesture here -- a resting");
+            ImGui::BulletText("                thumb must not step a list");
             ImGui::BulletText("Released with no direction = the vanilla left stick click (L3)");
             ImGui::Spacing();
             ImGui::TextUnformatted("In a vehicle (the gestures above do not apply):");
+            ImGui::BulletText("The camera is HELD IN FIRST PERSON: the perspective toggle does nothing,");
+            ImGui::BulletText("                and a car entered in third person is put back");
             ImGui::BulletText("HOLD X        - get out. B is never the exit here, so no stray press ejects you");
+            ImGui::BulletText("Right A       - confirm a dialogue line (it is X on foot, and X is the");
+            ImGui::BulletText("                exit in here). The handbrake on A keeps working");
             ImGui::BulletText("Left trigger  - brake | Right trigger - throttle (see the Vehicle section)");
 
             ImGui::TextWrapped("Buttons follow each runtime's interaction profile (Touch / Index / "

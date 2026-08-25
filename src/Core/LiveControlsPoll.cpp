@@ -85,6 +85,52 @@ static void PollVrikRecenterRequest() {
 extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(float);
 // How near the support point the off hand has to be before the two-handed hold is offered, in metres.
 extern "C" __declspec(dllexport) extern float CyberpunkVR_TwoHandRadius;
+// WHERE THE SCANNER'S HUD SITS -- four movable pieces of it, as (x, y, scale) each. Written by the
+// in-game editor through VRScannerSlotSet, read back by the CyberpunkVRPort_ScannerHud redscript.
+//
+//   [0..2]    the scanner frame      scannerGameController
+//   [3..5]    the details panel      scannerDetailsGameController
+//   [6..8]    the quickhack panel    QuickhacksListGameController
+//   [9..11]   the hint line          ScannerHintInkGameController
+//   [12..14]  the cyberdeck memory   the panel's top_panel container
+//   [15..17]  the script list        the panel's left_panel container
+//   [18..20]  the script description the panel's right_panel container
+//
+// The last three are CHILDREN of the quickhack panel above them, which is the point: they shared
+// one movable block and could not be separated. Their offsets compose with the parent's -- move
+// the panel and they follow, then nudge one of them on top of that.
+//
+// They are CONTAINERS, named as the .inkwidget names them, and that is a correction: the first
+// version moved the widgets the controller keeps private refs to -- cells_memory and the list --
+// which are INSIDE those containers, so the background, the separator line and the headings stayed
+// behind. top_panel holds the memory's title, line, fluff and cells; left_panel holds the list and
+// its heading; right_panel holds the description block.
+//
+// It started as ONE triple for the whole scanner, which was wrong before it was written: these are
+// four separate widgets sitting in four places, so a single offset can only be right for one of them.
+//
+// Offsets are in the HUD's own design pixels (1920x1080), positive x right and positive y down, which
+// is the convention inkWidget.SetTranslation takes. All four ship at (0, 0, 1): a mod that moves
+// somebody's HUD before they ask it to is a bug, however good the default.
+//
+// AND THIS FILE IS THE PERSISTENCE, not just the source. A redscript cannot write a file and the CET
+// bridge is not a dependency this wants, so the editor writes into these globals and asks for one ini
+// save when it closes. The poll below only re-reads the ini when its write time CHANGES, so a live
+// drag is not clobbered by the next poll.
+// NOT ZEROES ANY MORE. These are the numbers the layout was actually dragged to in the headset, read
+// back out of vrport.ini, and they ship because that ini is per-install and never enters the
+// repository: on a fresh install zeroes mean the vanilla layout and every tester hunting the same
+// numbers again. An existing ini still wins -- the poll below reads the file over these -- so nobody's
+// own layout is touched. Same trade the port already makes with HUDitor's persistency.json.
+extern "C" __declspec(dllexport) float CyberpunkVR_ScannerSlots[21] = {
+    -10.4f,    0.0f, 1.000f,   // the scanner frame
+   -178.2f,  -57.4f, 0.400f,   // the details panel
+    -75.4f,    1.8f, 0.800f,   // the quickhack panel
+      0.4f,    1.0f, 1.000f,   // the hint line
+     17.6f,  517.8f, 0.700f,   // top_panel: the cyberdeck memory, whole
+    260.8f,   -8.0f, 0.600f,   // left_panel: the script list and its heading
+      0.0f,    0.0f, 1.000f,   // right_panel: the description block, left where it was
+};
 // The hand filter is UEVR-form now and lives in FlushHandsToShared; its speed is this.
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSpeed;
 // 1 = hand offsets measured from the filtered head (the one they are re-anchored on).
@@ -153,6 +199,8 @@ void PollLiveControls() {
     float xrHmdSmooth = GetHmdTrackingSmooth();
     float xrHandLerp = CyberpunkVR_HandLerpSpeed;
     float xrTwoHandRadius = CyberpunkVR_TwoHandRadius;
+    float xrScannerSlots[21];
+    for (int i = 0; i < 21; ++i) xrScannerSlots[i] = CyberpunkVR_ScannerSlots[i];
     int   xrHandRelFiltered = CyberpunkVR_HandRelToFilteredHead;
     int   xrHandPerFrame    = CyberpunkVR_HandLocatePerFrame;
     static const char kLegacyReuseLastFrameKey[] = {
@@ -344,6 +392,25 @@ void PollLiveControls() {
             sscanf_s(line, "xr_hand_lerp_speed = %f", &value) == 1) {
             xrHandLerp = value;
             continue;
+        }
+        // Three numbers on one line per piece, because twelve keys for one feature is a wall of ini
+        // nobody can read. The editor writes them back in exactly this shape.
+        {
+            float sx = 0.0f, sy = 0.0f, ss = 0.0f;
+            int slot = -1;
+            if      (sscanf_s(line, "xr_scanner_frame=%f,%f,%f",   &sx, &sy, &ss) == 3) slot = 0;
+            else if (sscanf_s(line, "xr_scanner_details=%f,%f,%f", &sx, &sy, &ss) == 3) slot = 1;
+            else if (sscanf_s(line, "xr_scanner_hacks=%f,%f,%f",   &sx, &sy, &ss) == 3) slot = 2;
+            else if (sscanf_s(line, "xr_scanner_hint=%f,%f,%f",    &sx, &sy, &ss) == 3) slot = 3;
+            else if (sscanf_s(line, "xr_scanner_memory=%f,%f,%f",  &sx, &sy, &ss) == 3) slot = 4;
+            else if (sscanf_s(line, "xr_scanner_scripts=%f,%f,%f", &sx, &sy, &ss) == 3) slot = 5;
+            else if (sscanf_s(line, "xr_scanner_desc=%f,%f,%f",    &sx, &sy, &ss) == 3) slot = 6;
+            if (slot >= 0) {
+                xrScannerSlots[slot * 3 + 0] = sx;
+                xrScannerSlots[slot * 3 + 1] = sy;
+                xrScannerSlots[slot * 3 + 2] = ss;
+                continue;
+            }
         }
         if (sscanf_s(line, "xr_two_hand_radius=%f", &value) == 1 ||
             sscanf_s(line, "xr_two_hand_radius = %f", &value) == 1) {
@@ -615,6 +682,18 @@ void PollLiveControls() {
     // offered for a hand nowhere near the weapon, and both read as "the feature is broken".
     CyberpunkVR_TwoHandRadius = (xrTwoHandRadius < 0.02f) ? 0.02f
                               : ((xrTwoHandRadius > 0.30f) ? 0.30f : xrTwoHandRadius);
+    // Clamped to one screen either way, and to a scale that leaves something on screen. A piece dragged
+    // ten thousand pixels off or scaled to nothing looks exactly like a broken mod, and an ini edited by
+    // hand is the likeliest way to get there. The scale range matches what the editor's wheel allows,
+    // so a saved layout and a live one cannot disagree.
+    for (int i = 0; i < 7; ++i) {
+        float sx = xrScannerSlots[i * 3 + 0];
+        float sy = xrScannerSlots[i * 3 + 1];
+        float ss = xrScannerSlots[i * 3 + 2];
+        CyberpunkVR_ScannerSlots[i * 3 + 0] = (sx < -1920.0f) ? -1920.0f : ((sx > 1920.0f) ? 1920.0f : sx);
+        CyberpunkVR_ScannerSlots[i * 3 + 1] = (sy < -1080.0f) ? -1080.0f : ((sy > 1080.0f) ? 1080.0f : sy);
+        CyberpunkVR_ScannerSlots[i * 3 + 2] = (ss < 0.10f) ? 0.10f : ((ss > 5.0f) ? 5.0f : ss);
+    }
     CyberpunkVR_HandRelToFilteredHead = xrHandRelFiltered;
     CyberpunkVR_HandLocatePerFrame = xrHandPerFrame;
     // NEGATIVE IS ALLOWED, down to one period BEHIND the frame's target, and that is not a mistake.
@@ -756,6 +835,20 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // How near the support point the off hand has to come before the two-handed hold is offered, in
     // metres. Clamped to [0.02, 0.30] on read.
     fprintf(file, "xr_two_hand_radius=%.3f\n", CyberpunkVR_TwoHandRadius);
+    // The scanner's four movable pieces, x,y,scale each, in 1920x1080 design pixels. Normally written by
+    // the in-game editor rather than by hand -- hold RIGHT SHIFT while scanning.
+    {
+        static const char* kScannerKeys[7] = { "xr_scanner_frame", "xr_scanner_details",
+                                              "xr_scanner_hacks", "xr_scanner_hint",
+                                              "xr_scanner_memory", "xr_scanner_scripts",
+                                              "xr_scanner_desc" };
+        for (int i = 0; i < 7; ++i) {
+            fprintf(file, "%s=%.1f,%.1f,%.3f\n", kScannerKeys[i],
+                    CyberpunkVR_ScannerSlots[i * 3 + 0],
+                    CyberpunkVR_ScannerSlots[i * 3 + 1],
+                    CyberpunkVR_ScannerSlots[i * 3 + 2]);
+        }
+    }
     fprintf(file, "xr_movement_control=%d\n", state.xrMovementControl != 0 ? 1 : 0);
     fprintf(file, "xr_disable_mouse_y=%d\n", state.xrDisableMouseY != 0 ? 1 : 0);
     fprintf(file, "xr_xinput_hook=%d\n", state.xrXInputHook != 0 ? 1 : 0);

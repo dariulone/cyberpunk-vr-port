@@ -12,6 +12,10 @@
 
 #include "Core/LiveControls.hpp"
 #include "Core/VrCoreShared.hpp"
+// LiveControlsUiState, which MakeLiveControlsUiState below returns BY VALUE. This header used to
+// borrow it from whichever .cpp happened to include the overlay first, so it only compiled inside
+// the two files that already did -- a natives file including it got a syntax error on line 19.
+#include "Overlay/LiveControlsUi.hpp"
 
 #include <windows.h>
 #include <cstdint>

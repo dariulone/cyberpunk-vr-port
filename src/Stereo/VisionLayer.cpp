@@ -108,13 +108,57 @@ extern "C" __declspec(dllexport) float CyberpunkVR_VisionOffX = 0.0f;
 extern "C" __declspec(dllexport) float CyberpunkVR_VisionOffY = 0.0f;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisionOverlays = 0;
 
+// IS THIS SURFACE AT LEAST AS BIG AS THE SECOND VIEW? Measured, not guessed. One ungated line at the
+// point of copy settled it:
+//
+//     [vision] snapshot node=61FDE4 ord=0 layer=3072x3072 fmt=28 mips=1 view=1782x1782
+//
+// The layer is written at the OUTPUT resolution; g_vrcam_view_w/h holds the DLSS RENDER resolution.
+// 3072 against 1782, a ratio of 1.72. The test used to demand those two be EQUAL, which under
+// upscaling they never are -- that is the whole defect, and it is why the outline was there with DLSS
+// off and gone with it on.
+//
+// NO UPPER BOUND, deliberately: an upper bound is what broke this. A first attempt allowed up to twice
+// the view, which admits 1.72 and nothing more -- DLSS Performance sits at exactly 2.0 and Ultra
+// Performance near 3.0, and the cut would come back. What the test is really for is excluding the
+// half-res intermediates of the same node, and those are half of the LAYER (1536 here) rather than of
+// the view (1782), so 'at least the view' excludes them.
+//
+// Residual risk, said out loud: at an extreme preset (view 1024, layer 3072) the 1536 intermediate
+// would clear this too. What separates them then is the ordinal, which is what separated them before
+// any size test existed -- ordinal 0 is PS1213's output, ordinal 1 is PS1040's -- and VisionPick is a
+// live knob if it ever picks wrong.
+static bool vision_about_view(const D3D12_RESOURCE_DESC& d) {
+    const uint32_t vw = g_vrcam_view_w.load(std::memory_order_acquire);
+    const uint32_t vh = g_vrcam_view_h.load(std::memory_order_acquire);
+    if (!vw || !vh) return false;
+    return d.Width >= vw && d.Height >= vh;
+}
+
 bool vision_layer_signature(const D3D12_RESOURCE_DESC& d) {
+    // RELAXED, and deliberately. This is only a PRE-FILTER: what actually identifies the layer is the
+    // node (rva 0x61FDE4, still named RenderVisionElements by the 166-entry table, so the address has
+    // not moved), its per-node ordinal, and the exact VRCAM render-rect size -- the three things the
+    // original hunt selected on. The clauses removed here described ONE measured allocation rather than
+    // a requirement: exactly R8G8B8A8_UNORM, exactly one mip, and RENDER_TARGET as well as
+    // UNORDERED_ACCESS. When the views went from 2444x2560 to 3072x3072 nothing matched them any more,
+    // and because the [vismap] probe was called INSIDE this test, the feature and the only instrument
+    // that could explain it went quiet together. Keep what cannot be anything else: a 2D UAV texture
+    // the size of a view.
+    // THE SIZE IS THE PRE-FILTER, not the format. Dropping the old format/mip/RENDER_TARGET clauses was
+    // right -- they described one measured allocation -- but 'any UAV texture over 1000px' was far too
+    // wide: node 1F8928 alone dispatches tens of thousands of 1536x1536 UAVs, which filled the 64-entry
+    // map to its cap and left no room to record a VRCAM row at all. A table that silently stops
+    // recording when full is this file's oldest failure shape.
+    //
+    // A view-sized surface is the honest discriminator, through the range above rather than an
+    // equality. Half-res intermediates go away -- node 1F8928 alone dispatches tens of thousands of
+    // 1536x1536 UAVs, which filled the 64-entry map to its cap and left no room to record a VRCAM row
+    // at all, this file's oldest failure shape.
     return d.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
-           d.MipLevels == 1 && d.DepthOrArraySize == 1 && d.SampleDesc.Count == 1 &&
-           d.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+           d.DepthOrArraySize == 1 && d.SampleDesc.Count == 1 &&
            (d.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) &&
-           (d.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) &&
-           d.Width >= 1000 && d.Height >= 1000;
+           vision_about_view(d);
 }
 
 bool vision_matches_last_dispatch(const D3D12_RESOURCE_DESC& d) {
@@ -125,10 +169,10 @@ bool vision_matches_last_dispatch(const D3D12_RESOURCE_DESC& d) {
 }
 
 // Is this the second view's OWN full-size surface, rather than one of its half-res intermediates?
+// The same range the pre-filter uses, and for the same reason: under DLSS the layer's resolution and
+// the recorded render rect are two different numbers, and this test asked them to be one.
 bool vision_is_vrcam_full_size(const D3D12_RESOURCE_DESC& d) {
-    const uint32_t w = g_vrcam_view_w.load(std::memory_order_acquire);
-    const uint32_t h = g_vrcam_view_h.load(std::memory_order_acquire);
-    return w && h && d.Width == w && d.Height == h;
+    return vision_about_view(d);
 }
 
 // Per-node ordinal of full-size matches, on the recording thread.
@@ -223,15 +267,21 @@ struct VisMapEntry {
     int32_t  ord;
     uint64_t hits[2];
 };
-static std::array<VisMapEntry, 64> g_vismap{};
+// 256, NOT 64, AND IT SAYS SO WHEN IT FILLS. At 64 the table saturated in an ordinary session --
+// MAIN contributed 60 distinct rows and VRCAM 18, and the two views share ONE table -- so entries
+// were dropped in silence and the node being hunted was simply missing from the map. Reading that
+// absence as 'the node never ran' is exactly the wrong conclusion, and it is the third time a fixed
+// table in this area has produced one. A probe must be able to say it ran out of room.
+static std::array<VisMapEntry, 256> g_vismap{};
 static uint32_t g_vismap_n = 0;
+static bool g_vismap_full_said = false;
 static std::mutex g_vismap_mtx;
 
 static void vision_report() {
     static uint64_t s_last = 0;
     const uint64_t now = GetTickCount64();
     if (s_last && now - s_last < 20000) return;
-    VisMapEntry e[64];
+    VisMapEntry e[256];   // must match g_vismap's size, or the report truncates silently
     uint32_t n;
     {
         std::lock_guard<std::mutex> lk(g_vismap_mtx);
@@ -241,8 +291,11 @@ static void vision_report() {
     if (!n) return;
     s_last = now;
     for (int pass = 0; pass < 2; ++pass) {
-        char line[1200];
-        int u = 0, c = 0;
+        // 4096, because the table holds 256 rows now and the guard below drops whatever does not fit
+        // WITHOUT saying so -- the same silence that made this map unreadable to begin with. What is
+        // left out is counted and printed.
+        char line[4096];
+        int u = 0, c = 0, dropped = 0;
         line[0] = 0;
         for (uint32_t i = 0; i < n; ++i) {
             if (!e[i].hits[pass]) continue;
@@ -251,9 +304,11 @@ static void vision_report() {
                 u += snprintf(line + u, sizeof(line) - u, "%X#%d:%ux%u(%llu) ",
                               e[i].node_rva, e[i].ord, e[i].w, e[i].h,
                               (unsigned long long)e[i].hits[pass]);
+            else
+                ++dropped;
         }
-        log("[vismap] %-5s node#ordinal:size(hits) (%d): %s",
-            pass ? "VRCAM" : "MAIN", c, c ? line : "(none)");
+        log("[vismap] %-5s node#ordinal:size(hits) (%d, %d not shown): %s",
+            pass ? "VRCAM" : "MAIN", c, dropped, c ? line : "(none)");
     }
 }
 
@@ -268,7 +323,14 @@ void vision_note_surface(ID3D12Resource* res, bool vrcam,
             if (g_vismap[i].node_rva == node_rva && g_vismap[i].ord == ord &&
                 g_vismap[i].w == (uint32_t)d.Width && g_vismap[i].h == d.Height) break;
         if (i == g_vismap_n) {
-            if (g_vismap_n >= g_vismap.size()) return;
+            if (g_vismap_n >= g_vismap.size()) {
+                if (!g_vismap_full_said) {
+                    g_vismap_full_said = true;
+                    log("[vismap] TABLE FULL at %u entries -- rows are being dropped, so a node's"
+                        " absence from the map below proves nothing", (unsigned)g_vismap_n);
+                }
+                return;
+            }
             g_vismap[g_vismap_n++] = { node_rva, (uint32_t)d.Width, d.Height, ord, {0, 0} };
         }
         ++g_vismap[i].hits[vrcam ? 1 : 0];

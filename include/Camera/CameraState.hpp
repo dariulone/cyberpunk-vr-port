@@ -119,6 +119,15 @@ extern "C" __declspec(dllexport) extern int      CyberpunkVR_VrikTransformsFromP
 // Prefer the per-frame native camera(N-1)/entity(N-1) snapshot. The Lua snapshot above remains a
 // startup/failure fallback and a live A/B path.
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_VrikNativeFramePair;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_VrikVehicleFullEntityQuat;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_VehicleAnchorFromViewYaw;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_CamWriteOrientInVehicle;
+// The yaw the VIEW was composed with, published by PatchCamera at the instant it uses it and consumed by
+// LocateCamera in the same frame (PatchCamera writes the camera; LocateCamera runs downstream of it).
+extern "C" __declspec(dllexport) extern int CyberpunkVR_YawCatchUpOnSharedEpoch;
+extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawCaughtUp;
+extern volatile float g_viewYawUsedRad;
+extern volatile int   g_viewYawUsedValid;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrikNativePairUsed;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrikLuaPairFallback;
 // 1 = keep the fresh XR orientation for the head bone only; arms and model/world conversion use
@@ -236,6 +245,40 @@ extern "C" uint32_t GetRenderedCameraSeq();
 float GetDesiredHalfIpd();
 float GetWorldScale();
 int ClassifyPatchCameraOwner(void* ownerState);
+// Is the player looking through a device camera right now -- a surveillance camera it has taken over.
+// True for 300 ms after the last write to such a camera component, so it arms and clears itself with no
+// polling and no script call (the periodic poll runs on the worker thread, where the script VM is not
+// safe to touch). Read by the VRIK suspend in src/Hooks/AnimPose.cpp.
+bool DeviceCamActive();
+// The device camera's own aim and place, latched once per takeover in ClassifyPatchCameraOwner's
+// neighbourhood and consumed by the camera writer: the base the head pose is composed onto, and the
+// position the second eye is moved to.
+extern float g_devCamBase[4];
+extern std::atomic<int> g_devCamBaseValid;
+extern std::atomic<int32_t> g_devCamPosFP[3];
+extern std::atomic<int> g_devCamPosValid;
+// The gate and the target the script side publishes: 1 while the player controls a remote camera, and
+// that camera's world position in 1/131072 m. Written by the VRRemoteCamera native.
+// The head-steering experiment for a device camera: off by default, see src/Core/VrCore.cpp for why.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DeviceCamOrient;
+extern float g_devCamLastWritten[4];
+extern float g_devCamViewQuat[4];
+extern std::atomic<int> g_devCamViewValid;
+// The lens heading, as yaw and pitch, published by the device camera's own write and consumed by every
+// camera's composition while a takeover is live -- one base for all three, which is what stops the
+// per-epoch composer race from handing one camera another's base.
+extern float g_devCamAimYaw;
+extern float g_devCamAimPitch;
+extern std::atomic<int> g_devCamAimValid;
+// The camera's authored FOV and whether it has been saved, so the object is handed back unchanged.
+extern float g_devCamFovOrig;
+extern std::atomic<int> g_devCamFovSaved;
+void DeviceCamRestoreFov();
+// How many times a device camera has been patched, so its rate can be compared against the other two in
+// the census line -- a view that is not patched in a frame keeps whatever the engine left in it.
+extern "C" __declspec(dllexport) extern unsigned int CyberpunkVR_DebugPatchCamDevice;
+extern std::atomic<int> g_remoteCamOn;
+extern std::atomic<int32_t> g_remoteCamPosFP[3];
 void ApplyFinalCameraOrientationFromQuat(float* rsiPtr, const float* q);
 void ComputeRightVectorFromQuaternion(const float* q, float* outRight);
 void InitializeMountedVehicleCache();

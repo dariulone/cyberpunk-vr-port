@@ -12,6 +12,7 @@
 #include <locale>
 #include <clocale>
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
+#include "Core/CoreInternal.hpp"   // PersistLiveControlsUiState: the scanner editor saves its layout
 #include <RED4ext/Containers/StaticArray.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <RED4ext/Scripting/Utils.hpp>
@@ -388,6 +389,69 @@ void SetVRMenuOpen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame,
     EnsureSharedMemory();
     if (g_pSharedHands) {
         reinterpret_cast<volatile uint32_t*>(g_pSharedHands)[kWorldMapMenuOpenSharedSlot] = static_cast<uint32_t>(open ? 1 : 0);
+    }
+    if (aOut) *aOut = open;
+}
+
+// THE SCANNER'S HUD LAYOUT, both ways. The redscript editor reads a piece's place to apply it and
+// writes it back as the player drags; the plugin owns the number because a script has nowhere to put
+// one. No shared slot is involved: nothing here crosses into Lua, and a native reads the global
+// directly, so publishing into the map first would only add a second place for it to go stale.
+extern "C" __declspec(dllexport) extern float CyberpunkVR_ScannerSlots[12];
+
+// comp: 0 = x, 1 = y, 2 = scale. An out-of-range read answers 1.0 for the SCALE and 0 otherwise, so a
+// script that asks the wrong question moves nothing rather than collapsing a widget to a point.
+void VRScannerSlotGet(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t) {
+    int32_t idx = 0, comp = 0;
+    RED4ext::GetParameter(aFrame, &idx);
+    RED4ext::GetParameter(aFrame, &comp);
+    aFrame->code++;
+    float v = (comp == 2) ? 1.0f : 0.0f;
+    if (idx >= 0 && idx < 7 && comp >= 0 && comp < 3) v = CyberpunkVR_ScannerSlots[idx * 3 + comp];
+    if (aOut) *aOut = v;
+}
+
+// Clamped HERE as well as in the ini read, and not out of tidiness: this is the path a live drag takes,
+// so it is the one that decides whether a flick of the mouse can throw a panel off the screen.
+void VRScannerSlotSet(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    int32_t idx = 0;
+    float x = 0.0f, y = 0.0f, s = 1.0f;
+    RED4ext::GetParameter(aFrame, &idx);
+    RED4ext::GetParameter(aFrame, &x);
+    RED4ext::GetParameter(aFrame, &y);
+    RED4ext::GetParameter(aFrame, &s);
+    aFrame->code++;
+    if (idx >= 0 && idx < 7) {
+        CyberpunkVR_ScannerSlots[idx * 3 + 0] = (x < -1920.0f) ? -1920.0f : ((x > 1920.0f) ? 1920.0f : x);
+        CyberpunkVR_ScannerSlots[idx * 3 + 1] = (y < -1080.0f) ? -1080.0f : ((y > 1080.0f) ? 1080.0f : y);
+        CyberpunkVR_ScannerSlots[idx * 3 + 2] = (s < 0.10f) ? 0.10f : ((s > 5.0f) ? 5.0f : s);
+    }
+    if (aOut) *aOut = idx;
+}
+
+// ONE WRITE, WHEN THE EDITOR CLOSES. Not per drag frame: the mouse delta arrives every frame it moves,
+// and rewriting the whole ini at that rate would be hundreds of file writes for one gesture. The poll
+// only re-reads the ini when its write time changes, so the drag itself needs no file at all.
+void VRScannerSlotSave(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    PersistLiveControlsUiState(MakeLiveControlsUiState());
+    if (aOut) *aOut = 1;
+}
+
+// A DEVICE SCREEN IS UP -- and it is a different fact from "a menu is open", which is why it gets
+// its own slot rather than reusing the one above. The world-map flag stops the HMD driving the game
+// camera; a computer screen must NOT do that, because the head still has to look around it. All this
+// one changes is that the XInput merge stops consuming the right stick's Y, so the game's own
+// UI_MoveY_Axis -- which is bound to IK_Pad_RightAxisY and nothing else -- can scroll the list.
+void SetVRDeviceScreen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t open = 0;
+    RED4ext::GetParameter(aFrame, &open);
+    aFrame->code++;
+    EnsureSharedMemory();
+    if (g_pSharedHands) {
+        reinterpret_cast<volatile uint32_t*>(g_pSharedHands)[vrshared::kDeviceScreenOpen] =
+            static_cast<uint32_t>(open ? 1 : 0);
     }
     if (aOut) *aOut = open;
 }

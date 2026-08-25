@@ -156,3 +156,9 @@ bool BarrelFrameRead(BarrelFrame* out);
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugFinalExact;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugFinalApprox;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugFinalExactTies;
+// The same identification, counted for the SECOND view and kept apart from MAIN's so the two can be
+// compared. Tracking one for one means both eyes are drawn from the same frames; a gap IS the second
+// eye's lag, which was invisible while that eye borrowed MAIN's label.
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrcamFinalMatch;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugVrcamFinalNoMatch;
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_DebugVrcamFinalAge;

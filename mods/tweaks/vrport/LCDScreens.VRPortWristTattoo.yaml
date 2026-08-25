@@ -1,0 +1,40 @@
+# The wrist tattoo's CONTENT: a screen record whose resource is the player's own health bar.
+#
+# WHY A TWEAKDB RECORD AT ALL. The tattoo is a mesh on the forearm plus a widget drawn onto it through
+# meshTargetBinding, and the component that actually drives a mesh that way is a screen component.
+# Screen components do not take a widget path directly -- they take a TweakDB id and read the path out
+# of the record. Measured on the game's own:
+#
+#     LCDScreens.LCDScreenStatic_1x1   (gamedataLCDScreen_Record)
+#         resource       = base\gameplay\gui\world\street_signs\generic_screens\lcdscreen_1x1.inkwidget
+#         styleStateName = Default
+#         message        = (empty)
+#         isUnique       = False
+#
+# So this is that record with one field changed. Two component classes were tried before this and both
+# were wrong for the job: WidgetMenuComponent is the fullscreen menu's component -- it accepted a
+# widgetResource and drew nothing on the mesh -- and StreetSignWidgetComponent pointed at the game's own
+# advert record showed nothing either, which is consistent with an advert screen that has no message to
+# display rather than with a broken surface.
+#
+# WHY THE HEALTH BAR AND NOT A WIDGET OF OURS. playerhealthbar.inkwidget carries its own game
+# controller: its "RootVert" item declares gameuiHudHealthbarGameController, and that class subscribes
+# to the player stats blackboard on its own -- health, overshield, cyberdeck memory, weapon info. So a
+# live readout needs no script from us, which is the whole point of pointing a record at it.
+#
+# It is also the first real test of whether a HUD controller will initialise when a WORLD screen
+# instantiates it rather than the HUD layer. If it does not, the fallback is a widget of ours with a
+# controller of ours -- more work, same mechanism.
+
+LCDScreens.VRPortWristTattoo:
+  $base: LCDScreens.LCDScreenStatic_1x1
+  # THE SCREEN'S OWN WIDGET FIRST, not the health bar. With the screen surface in place the plate
+  # renders as a dark panel and nothing draws in it, and the likeliest reason is the widget:
+  # playerhealthbar carries a HUD controller (gameuiHudHealthbarGameController, an
+  # inkHUDGameController) and a HUD controller expects the HUD layer and a player owner, not a
+  # world screen. lcdscreen_1x1.inkwidget is what this record type ships with, so if THAT draws,
+  # the mechanism is proven and only the widget has to become ours; if it does not, the surface
+  # is still the problem and no widget would have helped.
+  resource: base\gameplay\gui\world\street_signs\generic_screens\lcdscreen_1x1.inkwidget
+  styleStateName: Default
+  isUnique: False

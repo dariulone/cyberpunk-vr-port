@@ -138,6 +138,20 @@ if (Test-Path $hud) {
     Add-File (Need (Join-Path $hud "persistency.json") "persistency.json") "bin\x64\plugins\cyber_engine_tweaks\mods\HUDitor\persistency.json"
 }
 
+# ---- the scanner's own HUD editor: RIGHT SHIFT ------------------------------------------------
+# HUDitor cannot move the scanner. Its movable set is a fixed list of HUD controllers -- minimap,
+# tracker, health, hotkeys, the car HUD family -- and the scanner is in none of them; all it does with
+# the scanner is slide the minimap out of its way. So CyberpunkVRPort_ScannerHud brings its own
+# editor, and this file is the key that opens it.
+#
+# Same folder and the same input_loader dependency as HUDitor.xml above. A SEPARATE key rather than
+# F11, because sharing it would open HUDitor's editor on the same press -- and HUDitor's editor has no
+# idea the scanner exists, so the two would fight over one key for different widgets.
+$inputDir = Join-Path $RepoRoot "mods\config\input"
+if (Test-Path $inputDir) {
+    Add-File (Need (Join-Path $inputDir "CyberpunkVRPort_ScannerHud.xml") "CyberpunkVRPort_ScannerHud.xml") "r6\input\CyberpunkVRPort_ScannerHud.xml"
+}
+
 # ---- the OpenXR probe is NOT packaged ---------------------------------------------------------
 # It stays in tools\xr_probe\ and goes to a tester by hand, when there is something to measure.
 # Registering a MACHINE-WIDE OpenXR API layer is not a thing to ship to everyone who installs a

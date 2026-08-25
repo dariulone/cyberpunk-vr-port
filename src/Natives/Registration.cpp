@@ -75,6 +75,14 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto f15m = RED4ext::CGlobalFunction::Create("GetVRAnimPoseStats", "GetVRAnimPoseStats", &GetVRAnimPoseStats);
     f15m->flags = flags; f15m->SetReturnType("Int32"); f15m->AddParam("Int32", "mode"); rtti->RegisterFunction(f15m);
 
+    auto fRC = RED4ext::CGlobalFunction::Create("VRRemoteCamera", "VRRemoteCamera", &VRRemoteCamera);
+    fRC->flags = flags; fRC->SetReturnType("Int32");
+    fRC->AddParam("Int32", "active"); fRC->AddParam("Float", "x"); fRC->AddParam("Float", "y");
+    fRC->AddParam("Float", "z"); rtti->RegisterFunction(fRC);
+
+    auto fWG = RED4ext::CGlobalFunction::Create("VRWristGuard", "VRWristGuard", &VRWristGuard);
+    fWG->flags = flags; fWG->SetReturnType("Int32"); fWG->AddParam("Int32", "mode"); rtti->RegisterFunction(fWG);
+
     auto f15o = RED4ext::CGlobalFunction::Create("DumpPlayerBoneNames", "DumpPlayerBoneNames", &DumpPlayerBoneNames);
     f15o->flags = flags; f15o->SetReturnType("Int32"); rtti->RegisterFunction(f15o);
 
@@ -804,7 +812,18 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     f72->flags = flags; f72->SetReturnType("Int32"); f72->AddParam("Int32", "mode"); rtti->RegisterFunction(f72);
 
     auto fMenu = RED4ext::CGlobalFunction::Create("SetVRMenuOpen", "SetVRMenuOpen", &SetVRMenuOpen);
+    auto fDevScr = RED4ext::CGlobalFunction::Create("SetVRDeviceScreen", "SetVRDeviceScreen", &SetVRDeviceScreen);
+    auto fSlG = RED4ext::CGlobalFunction::Create("VRScannerSlotGet", "VRScannerSlotGet", &VRScannerSlotGet);
+    fSlG->flags = flags; fSlG->SetReturnType("Float");
+    fSlG->AddParam("Int32", "idx"); fSlG->AddParam("Int32", "comp"); rtti->RegisterFunction(fSlG);
+    auto fSlS = RED4ext::CGlobalFunction::Create("VRScannerSlotSet", "VRScannerSlotSet", &VRScannerSlotSet);
+    fSlS->flags = flags; fSlS->SetReturnType("Int32");
+    fSlS->AddParam("Int32", "idx"); fSlS->AddParam("Float", "x");
+    fSlS->AddParam("Float", "y");   fSlS->AddParam("Float", "scale"); rtti->RegisterFunction(fSlS);
+    auto fSlV = RED4ext::CGlobalFunction::Create("VRScannerSlotSave", "VRScannerSlotSave", &VRScannerSlotSave);
+    fSlV->flags = flags; fSlV->SetReturnType("Int32"); rtti->RegisterFunction(fSlV);
     fMenu->flags = flags; fMenu->SetReturnType("Int32"); fMenu->AddParam("Int32", "open"); rtti->RegisterFunction(fMenu);
+    fDevScr->flags = flags; fDevScr->SetReturnType("Int32"); fDevScr->AddParam("Int32", "open"); rtti->RegisterFunction(fDevScr);
 
     auto f73 = RED4ext::CGlobalFunction::Create("SetVRHeadLocal", "SetVRHeadLocal", &SetVRHeadLocal);
     f73->flags = flags; f73->SetReturnType("Int32"); f73->AddParam("Int32", "enable"); f73->AddParam("Int32", "conv");

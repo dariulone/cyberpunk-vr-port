@@ -1261,17 +1261,11 @@ extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugPhysicalRay
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugPhysicalRayRawForward[4] = {};
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugPhysicalRayOutForward[4] = {};
 
-// Readability, checked here rather than borrowed: this file is the hooks layer and does not pull in
-// the natives' helpers. Only used off the hot path, on the blackboard container itself.
-static bool WaReadable(uint64_t aAddr, size_t aLen) {
-    if (aAddr < 0x10000) return false;
-    MEMORY_BASIC_INFORMATION mbi{};
-    if (!VirtualQuery(reinterpret_cast<void*>(aAddr), &mbi, sizeof(mbi))) return false;
-    if (mbi.State != MEM_COMMIT) return false;
-    if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return false;
-    const uint64_t end = reinterpret_cast<uint64_t>(mbi.BaseAddress) + mbi.RegionSize;
-    return aAddr + aLen <= end;
-}
+// NO READABILITY PROBE IN THIS FILE ANY MORE. There was one -- WaReadable, a VirtualQuery wrapper --
+// and behind it a per-thread region cache, both there to make three syscalls per ray affordable. The
+// syscalls are gone instead: see the note above WaPlayerOwnedWeapon for why the engine's own successful
+// call on the same object is the guarantee they were standing in for. If a probe is ever needed here
+// again it belongs on a one-shot path, never on one that runs per ray.
 
 // The barrel, as the rest of the port publishes it: the muzzle slot's world position (shared[200..202],
 // valid at [203]) and the muzzle transform's world +Y axis (shared[24..26], valid at [27]). The latter
@@ -1362,18 +1356,42 @@ extern volatile float g_lastLocateQuat[4];
 static constexpr uint64_t kWaPlayerOwnedWeaponCName = 0x8CB4C0891BD255EDull;  // FNV1a64
 static constexpr uint64_t kWaWeaponItemRecordCName  = 0x8DBDD9257C33612Full;  // FNV1a64
 
+// Range and alignment only, copied from ProvPlausiblePtr in src/Natives/OrientationProvider.cpp rather
+// than reinvented: it is the same question asked in the same process, and this file needs the cheap half
+// of it on a path that runs per ray.
+static inline bool WaPlausiblePtr(uintptr_t p) {
+    return p >= 0x10000ull && p < 0x00007FFFFFFFFFFFull && (p & 7ull) == 0;
+}
+
+// NO SYSCALL ON THIS PATH, and that is sound rather than brave.
+//
+// The caller runs the ENGINE'S OWN evaluator first and returns early unless it succeeded, so by the time
+// this function looks at the blackboard the engine has just read that same object and reported success:
+// it is a live container of the expected class, and keys/count/vals are its own documented fields. The
+// three VirtualQuery calls that used to guard them were guarding a possibility the successful original
+// call already excludes -- and they were the whole cost. Measured under one camera with a weapon drawn:
+// 17538 rays, 15222 of them foreign and all of them past the geometric bound, 9053 reaching the kernel
+// even with a region cache in front, because the container and its arrays are allocated PER EFFECT and so
+// land in regions no cache has seen.
+//
+// This is NOT the act that crashed the orientation provider. That note is about walking EVERY qword of a
+// struct as if it were a pointer -- "a word that passes a range-and-alignment test is not a pointer" --
+// which is a different thing from reading three named fields of a container the engine just used. What is
+// kept from it is the cheap half: non-null, aligned, user space, and a bounded count. Any torn or absent
+// field still falls out as "not ours", which leaves the shot vanilla.
 static bool WaPlayerOwnedWeapon(const void* aBlackboard) {
     if (!aBlackboard) return false;
     const uint8_t* bb = static_cast<const uint8_t*>(aBlackboard);
-    if (!WaReadable(reinterpret_cast<uint64_t>(bb), 0x60)) return false;
+    if (!WaPlausiblePtr(reinterpret_cast<uintptr_t>(bb))) return false;
 
     const uint64_t* keys = *reinterpret_cast<const uint64_t* const*>(bb + 0x48);
     const uint32_t count = *reinterpret_cast<const uint32_t*>(bb + 0x54);
     const uint8_t* vals = *reinterpret_cast<const uint8_t* const*>(bb + 0x58);
-    // 256 is a bound on nonsense, not on the game: the shot's own container holds 24 entries.
+    // 256 is a bound on nonsense, not on the game: the shot's own container holds 24 entries -- read live
+    // in the debugger, with weaponItemRecord at key 0 and playerOwnedWeapon at key 12.
     if (!keys || !vals || count == 0 || count > 256) return false;
-    if (!WaReadable(reinterpret_cast<uint64_t>(keys), static_cast<size_t>(count) * 8)) return false;
-    if (!WaReadable(reinterpret_cast<uint64_t>(vals), static_cast<size_t>(count) * 24)) return false;
+    if (!WaPlausiblePtr(reinterpret_cast<uintptr_t>(keys))) return false;
+    if (!WaPlausiblePtr(reinterpret_cast<uintptr_t>(vals))) return false;
 
     bool fromWeapon = false;
     bool playerOwned = false;
@@ -1481,6 +1499,11 @@ extern "C" inline char Hooked_WaPhysicalRayOrigin(void* rcx, void* rdx, float* o
     WaCount(CyberpunkVR_DebugPhysicalRayCalls);
     if (!result || !out || !CyberpunkVR_HitscanFromMuzzle) return result;
 
+    // NO SHOT-SCOPE GATE HERE, and that was tried. Gating this leaf on g_shotInProgress / g_shotTick
+    // looked right -- the sibling Go hook is gated on exactly that -- but those are stamped by the
+    // PROJECTILE path, and hitscan does not go through it, so the window shut on our own rays and the
+    // bullet went back to the game's native aim. What separates our ray from a camera's is the
+    // ownership flag on the effect's own blackboard, and that test is now free: see WaPlayerOwnedWeapon.
     __try {
         // THE FREE CHECKS COME FIRST, AND THE ORDER IS THE WHOLE BUG.
         //

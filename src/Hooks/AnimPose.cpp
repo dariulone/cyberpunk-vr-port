@@ -196,7 +196,13 @@ if (g_VRRecordFK) {
                     const int tier = g_sceneTier.load(std::memory_order_relaxed);
                     const int minTier = g_liveControls.xrCutsceneSuspendTier;
                     const bool suspend = (minTier >= 1 && minTier <= 4 && tier >= minTier);
-                    if (suspend) {
+                    // A SURVEILLANCE CAMERA IS THE SAME CASE, and it is suspended through this same
+                    // early-out rather than a second mechanism: the player is looking through a camera
+                    // on a wall, nobody is looking at the avatar, and a solve that keeps running is work
+                    // and risk for nothing. DeviceCamActive() is a 300 ms window after the last write to
+                    // a device camera component -- no polling, and it clears itself when the takeover
+                    // ends. Asked for as "надо выключать VRIK полностью как при cutscenes".
+                    if (suspend || DeviceCamActive()) {
                         return result;
                     }
                 }

@@ -89,6 +89,14 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalApprox = 0;
 // quaternion, which needs a frozen tracker; kept because "impossible" is not a measurement.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalExactTies = 0;
 
+// The same three numbers for the SECOND view, kept apart from MAIN's so the two can be compared: if
+// vrcamMatch tracks match one for one the eyes are being drawn from the same frames, and if it does not,
+// the gap IS the second eye's lag -- which was previously invisible because the eye borrowed MAIN's label.
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamFinalMatch   = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrcamFinalNoMatch = 0;
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamFinalAge     = 0;
+
+
 // EXACT FIRST; NEAREST ONLY AS A FALLBACK THAT ANNOUNCES ITSELF.
 //
 // Measured over a session: the bit-identical match fires on every single frame -- `exact` tracked

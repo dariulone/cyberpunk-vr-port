@@ -1,6 +1,16 @@
 // 1 (default) = label each captured frame with the head orientation the camera injection
 // actually used for it, instead of the pose cache as of Present. See the use site.
 extern "C" __declspec(dllexport) int CyberpunkVR_BindPoseToImage = 1;
+// 1 = the SECOND EYE is submitted with the label its own image was drawn with, taken from its own
+// read-back queue. 0 restores the shared label, which is what it had before, so the two can be compared
+// live without a rebuild.
+extern "C" __declspec(dllexport) int CyberpunkVR_VrcamOwnLabel = 1;
+// How many captures actually used it. If this tracks the present rate the second eye is being labelled
+// from its own frames; if it stays at zero the queue is not being filled and the eye is on MAIN's label.
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugVrcamLabelUsed = 0;
+// Which eye VRCAM is. Declared here because this file needs it and does not otherwise pull in the camera
+// header; defined with the rest of the camera state.
+extern "C" extern int CyberpunkVR_MainIsRightEye;
 // Render-ahead depth, in PRESENT INTERVALS (not in pushes -- see the ring in the header).
 //
 // 0, and it is not a preference -- it is the only value CONSISTENT with the exact path.
@@ -627,6 +637,33 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
             } else if (GetRenderPoseSubmit() != 0 && hasRenderHeadPose) {
                 monoCenterPose = renderHeadPose;
             }
+
+            // AND THE SECOND EYE'S OWN CENTRE, from its own queue, built by the same arithmetic as the
+            // centre above -- undo the recenter base, then compose. Empty queue (the view not active, a
+            // menu, a load) leaves this invalid and the eye keeps taking MAIN's centre, which is exactly
+            // the previous behaviour, so this can only add information.
+            XrPosef vrcamCenterPose = monoCenterPose;
+            bool haveVrcamCenter = false;
+            if (CyberpunkVR_BindPoseToImage && CyberpunkVR_PoseReadBack &&
+                CyberpunkVR_VrcamOwnLabel) {
+                OpenXRHeadPose vrPending{};
+                if (OpenXRManager::Get().PopVrcamRenderedFramePose(&vrPending) && vrPending.valid) {
+                    XrPosef vbase{};
+                    OpenXRManager::Get().GetRecenterBase(&vbase);
+                    const XrQuaternionf relOriV{ vrPending.oriX, vrPending.oriY,
+                                                 vrPending.oriZ, vrPending.oriW };
+                    const XrVector3f relPosV{ vrPending.posX, vrPending.posY, vrPending.posZ };
+                    const XrVector3f rotatedV = RotateVector(vbase.orientation, relPosV);
+                    vrcamCenterPose.orientation = MultiplyQuat(vbase.orientation, relOriV);
+                    vrcamCenterPose.position = XrVector3f{
+                        vbase.position.x + rotatedV.x,
+                        vbase.position.y + rotatedV.y,
+                        vbase.position.z + rotatedV.z };
+                    haveVrcamCenter = true;
+                    ++CyberpunkVR_DebugVrcamLabelUsed;
+                }
+            }
+            const uint32_t vrcamEyeIndex = CyberpunkVR_MainIsRightEye ? 0u : 1u;
             // The eye offset is STATIC GEOMETRY IN HEAD SPACE, so it has to be rotated by the
             // orientation the frame was RENDERED with -- not by the head orientation as of now.
             //
@@ -650,9 +687,14 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                     srcPose.position.y - headCenter.y,
                     srcPose.position.z - headCenter.z};
                 const XrVector3f eyeOffsetHead = RotateVector(curHeadOriInv, eyeOffsetLocal);
+                // Per-eye centre: the second eye uses its own when it has one. The eye offset is
+                // rotated by the centre it is being added to, or the two would be mixed timelines again.
+                const bool useVrcamCentre =
+                    haveVrcamCenter && (static_cast<uint32_t>(eye) == vrcamEyeIndex);
+                const XrPosef& centre = useVrcamCentre ? vrcamCenterPose : monoCenterPose;
                 const XrVector3f eyeOffset =
-                    RotateVector(monoCenterPose.orientation, eyeOffsetHead);
-                monoCapturedPoses[eye] = monoCenterPose;
+                    RotateVector(centre.orientation, eyeOffsetHead);
+                monoCapturedPoses[eye] = centre;
                 monoCapturedPoses[eye].position.x += eyeOffset.x;
                 monoCapturedPoses[eye].position.y += eyeOffset.y;
                 monoCapturedPoses[eye].position.z += eyeOffset.z;

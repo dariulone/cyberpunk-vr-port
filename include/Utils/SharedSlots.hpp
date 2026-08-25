@@ -195,6 +195,15 @@ constexpr int kTriggerOverride    = 161;   // 0 pass / 1 block / 2 force, CET ->
 // click, the trigger channel and the reload's owned wrist -- six live slots. Renumbered rather than
 // copied, which is what the graveyard at the top of this file is for.
 constexpr int kWheelArmedMask     = 163;
+// 1 while a DEVICE SCREEN (computer, terminal) is up. redscript -> plugin, written by
+// SetVRDeviceScreen from CyberpunkVRPort_DeviceCam at the same two points the game pushes and
+// pops UIGameContext.DeviceZoom.
+//
+// NOT kMenuOpen/[81]: that flag makes LocateCamera stop applying the HMD orientation, which is
+// right for the world map and is exactly the frozen view this is meant to avoid. This one says
+// only "a UI that navigates with the right stick is up", and its single consumer is the XInput
+// merge, which stops eating the stick's Y.
+constexpr int kDeviceScreenOpen   = 164;
 constexpr int kWheelArmedRightBit = 1;
 constexpr int kWheelArmedLeftBit  = 2;
 } // namespace vrshared

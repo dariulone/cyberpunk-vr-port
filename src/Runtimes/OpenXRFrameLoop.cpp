@@ -228,6 +228,13 @@ extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugStableCopies;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugStableSkips;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugVrcamEyePaired   = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugVrcamEyeUnpaired = 0;
+// How often the second eye was handed its OWN most recent image because no slot carried this frame's
+// serial. The alternative, and what used to happen, is MAIN's image in that eye for a cycle: a viewpoint
+// one IPD away, in one eye, which is a geometric jump the other eye cannot produce.
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugVrcamEyeReused   = 0;
+// How many serials old an own-eye image may be before it is not worth showing. 0 restores the old
+// fall-through to MAIN's picture. Three is the pool depth, so this cannot reach past what the pool holds.
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamEyeReuseMax = 3;
 
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugSubmitAgeCount = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugSubmitAgeSumUs = 0;
@@ -467,6 +474,14 @@ extern "C" __declspec(dllexport) int CyberpunkVR_MainIsRightEye = 1;
 // anchoring one image at both of them pushes the copies apart in the direction the eyes cannot
 // follow. 1 = collapse (the R.E.A.L.-VR-for-Witcher-3 shape), 0 = submit the runtime's pair.
 extern "C" __declspec(dllexport) int CyberpunkVR_MonoCyclopeanPose = 1;
+// HOW FAR THE RIGHT STICK MUST GO IN THE D-PAD CHORD. To the stop, like every other gesture in
+// this port: the snap turn, the sprint detent, the crouch and the dash all fire at 0.90, and for
+// the reason stated there -- a thumb resting on the stick, or a wrist drifting while walking, must
+// not step a list. It was 0.5, which is half a push and reachable by accident.
+extern "C" __declspec(dllexport) float CyberpunkVR_DpadChordStick = 0.90f;
+// Defined in src/Runtimes/OpenXRPresent.cpp: 1 = the second eye is submitted with the label its own
+// image was drawn with. Read here because the collapse below would overwrite exactly that.
+extern "C" __declspec(dllexport) extern int CyberpunkVR_VrcamOwnLabel;
 // How far away flat content should sit when both eyes are shown the same image -- the intro, the
 // menus, and any frame the second view could not fill. 0 leaves it at infinity, which is what
 // submitting one image to two eye poses amounts to and what makes it double. Metres.
@@ -675,16 +690,21 @@ void OpenXRManager::ReportXrFrameRates() {
     //
     // An unpaired cycle swaps that eye's image for MAIN's AND adds convergence to its frustum, so this
     // count is the count of one-eye geometric jumps. Everything else can look perfect while it happens.
-    if (CyberpunkVR_XrDeepDiag) {
-        static unsigned long long pp = 0, pu = 0;
+    // REPORTED WITH THE DIAGNOSTICS OFF, because a fallback is a fault and a fault that only shows
+    // when someone thought to arm a flag is a fault that goes unfixed. Quiet when healthy: the line is
+    // printed only when the window actually contained one.
+    {
+        static unsigned long long pp = 0, pu = 0, pr = 0;
         const unsigned long long cp = CyberpunkVR_DebugVrcamEyePaired.load(std::memory_order_relaxed);
         const unsigned long long cu = CyberpunkVR_DebugVrcamEyeUnpaired.load(std::memory_order_relaxed);
-        const unsigned long long dp = cp - pp, du = cu - pu;
-        pp = cp; pu = cu;
-        if (dp + du) {
-            Log("[xreye] second eye: own image %llu, fell back to MAIN %llu (%.1f%%) -- a fallback "
-                "changes the image source AND the frustum together\n",
-                dp, du, 100.0 * (double)du / (double)(dp + du));
+        const unsigned long long cr = CyberpunkVR_DebugVrcamEyeReused.load(std::memory_order_relaxed);
+        const unsigned long long dp = cp - pp, du = cu - pu, dr = cr - pr;
+        pp = cp; pu = cu; pr = cr;
+        if (du || dr) {
+            Log("[xreye] second eye: no slot for this frame %llu times, of which %llu took its own "
+                "most recent image and %llu fell back to MAIN (own image %llu, counted only with "
+                "deep diag)\n",
+                du, dr, du >= dr ? du - dr : 0ull, dp);
         }
     }
 
@@ -1660,7 +1680,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // stick picks the D-Pad direction. The right axes are zeroed for
                         // the whole hold so snap-turn/camera cannot fire during selection.
                         if (leftStickClicked) {
-                            constexpr float threshold = 0.5f;
+                            float threshold = CyberpunkVR_DpadChordStick;
+                            if (!(threshold > 0.05f) || threshold > 1.0f) threshold = 0.90f;
                             if (sy > threshold)  { ctrl.buttons |= XB_DPAD_UP;    dpadUsedThisFrame = true; }
                             if (sy < -threshold) { ctrl.buttons |= XB_DPAD_DOWN;  dpadUsedThisFrame = true; }
                             if (sx < -threshold) { ctrl.buttons |= XB_DPAD_LEFT;  dpadUsedThisFrame = true; }
@@ -1851,6 +1872,37 @@ DWORD OpenXRManager::FrameThreadMain() {
                             break;
                         }
                     }
+                    // NO SLOT FOR THIS FRAME: TAKE THIS EYE'S MOST RECENT IMAGE, NEVER MAIN'S.
+                    //
+                    // Falling through with vrcamEye == nullptr hands this eye MAIN's picture and MAIN's
+                    // frustum for the cycle -- an image from a viewpoint one IPD away, in one eye only.
+                    // MAIN cannot show that by construction, because MAIN is what the pairing is keyed
+                    // to, so this is where a one-eye jerk comes from and why the other eye stays clean.
+                    //
+                    // An own-viewpoint image a frame or two old is a much smaller error: keeping both
+                    // eyes on the same geometry is what matters, and absorbing a frame of age is what
+                    // the compositor's reprojection is for. Only slots at or before this frame are
+                    // considered -- a NEWER slot would put content in this eye that MAIN has not shown
+                    // yet, which is the very fault the pool was introduced to end.
+                    if (!vrcamEye && CyberpunkVR_VrcamEyeReuseMax > 0) {
+                        int best = -1;
+                        uint64_t bestSerial = 0;
+                        for (int i = 0; i < kVrcamEyeSlots; ++i) {
+                            if (!m_vrcamEyePool[i] || m_vrcamEyePoolSerial[i] == 0) continue;
+                            if (m_vrcamEyePoolSerial[i] > presentSerial) continue;
+                            if (m_vrcamEyePoolSerial[i] > bestSerial) {
+                                bestSerial = m_vrcamEyePoolSerial[i];
+                                best = i;
+                            }
+                        }
+                        if (best >= 0 &&
+                            (presentSerial - bestSerial) <= CyberpunkVR_VrcamEyeReuseMax) {
+                            vrcamEye = m_vrcamEyePool[best];
+                            vrcamEye->AddRef();
+                            CyberpunkVR_DebugVrcamEyeReused.fetch_add(1, std::memory_order_relaxed);
+                        }
+                    }
+
                     // See the counters' note: an unpaired cycle changes this eye's IMAGE SOURCE and
                     // its FRUSTUM together, so its rate is the rate of one-eye jumps.
                     //
@@ -2047,7 +2099,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     CyberpunkVR_FlatDistanceM);
                             }
                         }
-                        if (CyberpunkVR_MonoCyclopeanPose && eye < 2 && monoHasView[0] && monoHasView[1]) {
+                        // NOT WHILE THE EYES CARRY THEIR OWN LABELS. This forces eye 0's orientation
+                        // and the midpoint position onto BOTH eyes, which is what a shared label already
+                        // was -- a no-op at zero cant, and measured at 0.000 deg here. Against per-eye
+                        // labels it is destructive: it hands MAIN the second eye's pose, and that is the
+                        // artefact moving from the left eye to the right one.
+                        //
+                        // Nothing is lost. The collapse is about the RUNTIME's per-eye orientations on a
+                        // canted headset, and on this path they never reach the submitted pose: the
+                        // capture builds each eye's pose from its centre's ORIENTATION plus a positional
+                        // offset only, so there is no cant here to collapse.
+                        if (CyberpunkVR_MonoCyclopeanPose && !CyberpunkVR_VrcamOwnLabel &&
+                            eye < 2 && monoHasView[0] && monoHasView[1]) {
                             projectionViews[eye].pose.orientation = monoPoses[0].orientation;
                             projectionViews[eye].pose.position = {
                                 (monoPoses[0].position.x + monoPoses[1].position.x) * 0.5f,
