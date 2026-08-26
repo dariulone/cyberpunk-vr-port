@@ -109,33 +109,88 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 - SteamVR (OpenVR) runtime supported alongside OpenXR; pre-launch resolution
   selector; quiet-by-default logging with a DEBUG toggle in the launcher.
 
-## Requirements
+## Installation dependencies
 
-- Cyberpunk 2077 (PC, 2.31).
-- Cyber Engine Tweaks
-- RED4ext
-- ArchiveXL
-- TweakXL
-- redscript
-- Codeware (**1.20 or newer** — older builds fail script compilation)
-- Visual Holsters (Automatic Clothes Swap)
-- Visible Bullets (Projectile Restoration)
-- Equipment-EX
-- Nova Optics
-- Input Loader
-- HUDitor
+All on Nexus except the OpenXR runtime, which comes with your headset software.
 
-Recommended but not required: **HUDitor**, **Visible Bullets**, for HUD placement — the port ships a
-VR-tuned layout for it in `mods\config\huditor\` and no longer moves HUD widgets
-itself.
+**Required**
 
-Install RED4ext, CET and redscript first (the usual Nexus dependencies).
+- Cyberpunk 2077 (PC, **2.31**)
+- [RED4ext](https://www.nexusmods.com/cyberpunk2077/mods/2380)
+- [Cyber Engine Tweaks](https://www.nexusmods.com/cyberpunk2077/mods/107)
+- [redscript](https://www.nexusmods.com/cyberpunk2077/mods/1511)
+- [ArchiveXL](https://www.nexusmods.com/cyberpunk2077/mods/4198)
+- [TweakXL](https://www.nexusmods.com/cyberpunk2077/mods/4197)
+- [Codeware](https://www.nexusmods.com/cyberpunk2077/mods/7780) — 1.20 or newer
+- [Equipment-EX](https://www.nexusmods.com/cyberpunk2077/mods/6945)
+- [Visual Holsters (Automatic Clothes Swap)](https://www.nexusmods.com/cyberpunk2077/mods/21936)
+- [Nova Optics](https://www.nexusmods.com/cyberpunk2077/mods/29190)
+- An OpenXR runtime, started **before** the game
 
-## Installation (drop-in)
+Install RED4ext, CET and redscript first.
 
-Download the release archive and extract its contents into your **Cyberpunk 2077
-game root** (the folder that contains `bin\`, `r6\`, `red4ext\`). The files land
-as:
+**Optional**
+
+- [HUDitor](https://www.nexusmods.com/cyberpunk2077/mods/3315) and
+  [Input Loader](https://www.nexusmods.com/cyberpunk2077/mods/4575) — only for HUD
+  placement. This package carries the port's HUDitor setup (the editor on F11, and
+  a VR layout in `mods\config\huditor\`), and Input Loader is what merges
+  `r6\input\*.xml`, so without it the F11 binding is inert. Note that
+  `persistency.json` **replaces** any HUDitor layout you already have. Without a HUD
+  editor the flat-screen HUD is used unchanged, and the port still composites it
+  into the second eye either way.
+- [Visible Bullets](https://www.nexusmods.com/cyberpunk2077/mods/22251)
+
+## Development dependencies
+
+What a **contributor** needs. None of this is required to play.
+
+To build the plugins:
+
+- CMake 3.24+, MSVC (x64 toolset), the Windows SDK, and `pwsh`.
+- Submodules: MinHook, RED4ext.SDK — `git submodule update --init --recursive`.
+- Pulled automatically by `FetchContent` on configure: OpenXR-SDK 1.0.34,
+  imgui 1.90.9. `im3d` is vendored in `externals/`.
+
+Only to re-author game assets — not needed to build or to change any C++:
+
+- Python 3, for `tools/gen_vrcam_assets.py` (the VRCAM components, one per
+  render resolution).
+- WolvenKit, to import the generated JSON and repack the `.archive`.
+
+The sight shaders ship as pre-built `.dxil` blobs committed to the repo; there is
+no shader compilation step in the build. The other passes (depth resolve, colour
+blit, sharpen) compile their HLSL at runtime through `d3dcompiler`.
+
+## Installation
+
+### Before you install
+
+1. Install the required mods and **start the game once**.
+2. Turn off overlays — OpenXR Toolkit, RivaTuner, the NVIDIA and Steam overlays,
+   Discord.
+3. Graphics settings: everything **Low**; Film Grain, Chromatic Aberration,
+   Motion Blur, Lens Flare, Depth of Field and Frame Generation **off**; display
+   mode **borderless window**.
+4. Coming from an earlier build of this mod? Delete `bin\x64\dxgi.dll`.
+
+### Which file to download
+
+`CyberpunkVRPort-<version>.zip` — that one is the mod.
+
+A release also carries `CyberpunkVRPort-<version>-symbols.zip`. That is debug
+symbols, for reading a crash dump; it contains no mod and installs nothing. The
+two are almost the same size, so go by the name rather than by the size.
+
+### With Vortex or MO2
+
+Install the release zip as-is. It does not check the required mods for you —
+install those first.
+
+### By hand
+
+Extract the contents of the release zip into your **Cyberpunk 2077 game root**
+(the folder that contains `bin\`, `r6\`, `red4ext\`). The files land as:
 
 ```
 red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_Stereo.dll     # the VR plugin: OpenXR, stereo, overlay, VRIK
@@ -168,6 +223,14 @@ From a source tree, install with:
 cmake --build build --config Release --target cyberpunkvrport_stereo
 pwsh scripts\deploy_stereo.ps1 -GameRoot "<game root>"
 ```
+
+## Builds and releases
+
+Packages are produced by GitHub Actions, not by hand. Every push gets an
+installable zip as a run artifact, versioned from `VERSION` at the repo root:
+`0.1.2-dev.<short-sha>` on a feature branch, `0.1.2-rc.N` on `main` (tagged as
+it is built), and a plain `0.1.2` release cut manually by promoting one of those
+rc builds — the same binaries, not a rebuild. See [docs/BUILD-CI.md](docs/BUILD-CI.md).
 
 ## Controls
 

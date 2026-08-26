@@ -9,7 +9,7 @@
 #   pwsh scripts\build_dist.ps1 -Version 0.1.1 -Zip
 
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version = "",
     [string]$BuildDir = "build",
     [switch]$Zip,
     [switch]$Force
@@ -17,6 +17,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
+
+# CI always passes -Version (see scripts/ci_version.sh). A local run falls back to the VERSION
+# file rather than to a literal that goes stale the first time anyone bumps it.
+if (-not $Version) {
+    $Version = (Get-Content (Join-Path $RepoRoot "VERSION") -Raw).Trim()
+}
 $Out      = Join-Path $RepoRoot "dist\CyberpunkVRPort-$Version"
 
 # Folders that exist for development and have no business in a tester's game.
@@ -37,6 +43,7 @@ function Copy-Tree($src, $dst) {
         foreach ($p in $SkipFiles) { if ($f.Name -like $p) { $skip = $true; break } }
         if ($skip) { continue }
         Copy-Item $f.FullName (Join-Path $dst $f.Name) -Force
+        $script:consumed.Add($f.FullName) | Out-Null
         $n++
     }
     foreach ($d in (Get-ChildItem -LiteralPath $src -Directory)) {
@@ -56,10 +63,14 @@ if (Test-Path $Out) {
 New-Item -ItemType Directory -Path $Out -Force | Out-Null
 
 $manifest = @()
+# Every source file read, so the report at the bottom can say what was not.
+$consumed = New-Object System.Collections.Generic.HashSet[string]
+
 function Add-File($src, $rel) {
     $dst = Join-Path $Out $rel
     New-Item -ItemType Directory -Path (Split-Path $dst -Parent) -Force | Out-Null
     Copy-Item -LiteralPath $src -Destination $dst -Force
+    $script:consumed.Add((Resolve-Path -LiteralPath $src).Path) | Out-Null
     $script:manifest += [pscustomobject]@{ Path = $rel; Bytes = (Get-Item -LiteralPath $dst).Length }
 }
 
@@ -108,17 +119,20 @@ foreach ($d in (Get-ChildItem (Join-Path $RepoRoot "mods\redscript") -Directory)
     $n = Copy-Tree $d.FullName (Join-Path $Out "r6\scripts\$($d.Name)")
     $manifest += [pscustomobject]@{ Path = "r6\scripts\$($d.Name)\  ($n files)"; Bytes = 0 }
 }
-$tw = Join-Path $RepoRoot "mods\tweaks\vrcigarette"
-if (Test-Path $tw) {
-    $n = Copy-Tree $tw (Join-Path $Out "r6\tweaks\vrcigarette")
-    $manifest += [pscustomobject]@{ Path = "r6\tweaks\vrcigarette\  ($n files)"; Bytes = 0 }
+# ENUMERATED: a tweak that never loads raises no error, so a named list loses features quietly.
+foreach ($d in (Get-ChildItem (Join-Path $RepoRoot "mods\tweaks") -Directory | Sort-Object Name)) {
+    $n = Copy-Tree $d.FullName (Join-Path $Out "r6\tweaks\$($d.Name)")
+    $manifest += [pscustomobject]@{ Path = "r6\tweaks\$($d.Name)\  ($n files)"; Bytes = 0 }
 }
 
 # ---- packed archives ---------------------------------------------------------------------------
-foreach ($a in @("cyberpunkvrport.archive","VRCigarette.archive.xl","vrport_basketball.archive")) {
-    $p = Join-Path $RepoRoot "mods\archive\$a"
-    if (Test-Path $p) { Add-File $p "archive\pc\mod\$a" }
-    else { Write-Host "[!] $a is not in the repo -- run sync_assets.ps1 first" }
+# ENUMERATED: an archive loads by existing in archive\pc\mod\ and nothing names one, so a
+# hardcoded list drops assets in silence. Not recursive -- source\ and build\ are authoring trees.
+$archives = Get-ChildItem (Join-Path $RepoRoot "mods\archive") -File -Filter "*.archive*" |
+            Sort-Object Name
+if (-not $archives) { Write-Host "[!] no archives in mods\archive -- run sync_assets.ps1 first" }
+foreach ($a in $archives) {
+    Add-File $a.FullName "archive\pc\mod\$($a.Name)"
 }
 
 # ---- HUDitor: the port's setup, on the paths the mod actually uses ----------------------------
@@ -147,9 +161,13 @@ if (Test-Path $hud) {
 # Same folder and the same input_loader dependency as HUDitor.xml above. A SEPARATE key rather than
 # F11, because sharing it would open HUDitor's editor on the same press -- and HUDitor's editor has no
 # idea the scanner exists, so the two would fight over one key for different widgets.
+#
+# ENUMERATED: everything here goes to r6\input\, so the folder carries the rule.
 $inputDir = Join-Path $RepoRoot "mods\config\input"
 if (Test-Path $inputDir) {
-    Add-File (Need (Join-Path $inputDir "CyberpunkVRPort_ScannerHud.xml") "CyberpunkVRPort_ScannerHud.xml") "r6\input\CyberpunkVRPort_ScannerHud.xml"
+    foreach ($x in (Get-ChildItem $inputDir -File -Filter "*.xml" | Sort-Object Name)) {
+        Add-File $x.FullName "r6\input\$($x.Name)"
+    }
 }
 
 # ---- the OpenXR probe is NOT packaged ---------------------------------------------------------
@@ -191,24 +209,53 @@ BEFORE YOU INSTALL -- READ THIS ONE
 
     To ask for the settings later, set first_launch=1 and start the game once.
 
-REQUIREMENTS
-    Cyberpunk 2077 2.31 (this build's engine offsets are matched to it)
-    RED4ext, Cyber Engine Tweaks, redscript, TweakXL, ArchiveXL, Codeware
-    An OpenXR runtime, started BEFORE the game
+REQUIRED
+    Cyberpunk 2077 2.31 -- this build's engine offsets are matched to it.
+    An OpenXR runtime, started BEFORE the game. This comes with your headset software (VDXR,
+        Meta, SteamVR, WMR); it is not a mod and not on Nexus.
 
-    HUDitor, plus RED4ext's input_loader -- ONLY if you want HUD placement. This package carries
-    the port's HUDitor setup (the editor on F11, and a VR layout), and input_loader is the plugin
-    that merges r6\input\*.xml, so without it the F11 binding is inert. Note that
-    persistency.json REPLACES any HUDitor layout you already have -- back yours up first if you
-    care about it. The port needs neither: with no HUD editor the flat-screen HUD is used
-    unchanged, and the port still composites it into the second eye either way.
+    RED4ext              https://www.nexusmods.com/cyberpunk2077/mods/2380
+    Cyber Engine Tweaks  https://www.nexusmods.com/cyberpunk2077/mods/107
+    redscript            https://www.nexusmods.com/cyberpunk2077/mods/1511
+    ArchiveXL            https://www.nexusmods.com/cyberpunk2077/mods/4198
+    TweakXL              https://www.nexusmods.com/cyberpunk2077/mods/4197
+    Codeware 1.20+       https://www.nexusmods.com/cyberpunk2077/mods/7780
+    Equipment-EX         https://www.nexusmods.com/cyberpunk2077/mods/6945
+    Visual Holsters      https://www.nexusmods.com/cyberpunk2077/mods/21936
+    Nova Optics          https://www.nexusmods.com/cyberpunk2077/mods/29190
+
+    Install RED4ext, CET and redscript first.
 
     Nothing else may proxy dxgi. If bin\x64\dxgi.dll exists (R.E.A.L. VR installs one), move it
-    out of the folder -- two VR paths in one process fight over the same engine hooks.
+    out of the folder.
+
+OPTIONAL
+    HUDitor              https://www.nexusmods.com/cyberpunk2077/mods/3315
+    Input Loader         https://www.nexusmods.com/cyberpunk2077/mods/4575
+        Only for HUD placement. This package carries the port's HUDitor setup (the editor on
+        F11, and a VR layout), and Input Loader is what merges r6\input\*.xml, so without it
+        the F11 binding is inert. persistency.json REPLACES any HUDitor layout you already
+        have -- back yours up first if you care about it. Without a HUD editor the flat-screen
+        HUD is used unchanged, and the port still composites it into the second eye either way.
+
+    Visible Bullets      https://www.nexusmods.com/cyberpunk2077/mods/22251
+
+PREPARE THE GAME
+    1. Install the required mods above and START THE GAME ONCE.
+
+    2. Turn off overlays: OpenXR Toolkit, RivaTuner, the NVIDIA and Steam overlays, Discord.
+
+    3. Graphics settings: everything on Low; Film Grain, Chromatic Aberration, Motion Blur,
+       Lens Flare, Depth of Field and Frame Generation OFF; display mode borderless window.
+
+    4. Coming from an earlier build of this mod? Delete bin\x64\dxgi.dll.
 
 INSTALL
     Extract the contents of this folder into your Cyberpunk 2077 game root -- the folder that
     contains bin\, r6\, red4ext\ and archive\. The paths inside already match.
+
+    With Vortex or MO2, install this zip as-is. Install the required mods first; the installer
+    does not check them for you.
 
     Then start your OpenXR runtime, then the game. A small launcher window appears first: pick
     your headset and per-eye render resolution there.
@@ -218,7 +265,7 @@ WHAT LANDS WHERE
     bin\x64\CyberpunkVR_*Grip*.ini        captured hand poses for holding a cigarette and lighter
     bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_*\
     r6\scripts\CyberpunkVRPort_*\
-    r6\tweaks\vrcigarette\
+    r6\tweaks\vrport\, r6\tweaks\vrcigarette\
     archive\pc\mod\                       packed assets + the ArchiveXL manifest
     r6\input\HUDitor.xml               HUDitor's editor moved to F11 (needs input_loader)
     bin\x64\plugins\...\mods\HUDitor\persistency.json   the VR HUD layout -- REPLACES yours
@@ -519,6 +566,29 @@ foreach ($m in $manifest) {
 $all = Get-ChildItem $Out -Recurse -File
 Write-Host ""
 Write-Host ("  {0} files, {1:N0} bytes total" -f $all.Count, ($all | Measure-Object Length -Sum).Sum)
+
+# ---- what under mods\ did NOT get packaged ----------------------------------------------------
+# Diagnostic, never fatal. Everything above ships by EXISTING; what has no rule is a file whose
+# DESTINATION is new (mods\config\ alone fans out to five places). Those used to vanish silently.
+$ignored = @("mods\archive\source", "mods\archive\build")   # WolvenKit authoring trees, not output
+foreach ($m in $SkipMods) { $ignored += "mods\cet\$m"; $ignored += "mods\redscript\$m" }
+
+$unpackaged = @()
+foreach ($f in (Get-ChildItem (Join-Path $RepoRoot "mods") -Recurse -File)) {
+    if ($consumed.Contains($f.FullName)) { continue }
+    $rel  = $f.FullName.Substring($RepoRoot.Length + 1)
+    $skip = $false
+    foreach ($i in $ignored)   { if ($rel.StartsWith($i, [System.StringComparison]::OrdinalIgnoreCase)) { $skip = $true; break } }
+    if (-not $skip) { foreach ($p in $SkipFiles) { if ($f.Name -like $p) { $skip = $true; break } } }
+    if (-not $skip) { $unpackaged += $rel }
+}
+if ($unpackaged) {
+    Write-Host ""
+    Write-Host ("  [i] {0} file(s) under mods\ that nothing packaged:" -f $unpackaged.Count)
+    foreach ($u in ($unpackaged | Sort-Object)) { Write-Host "        $u" }
+    Write-Host "      Fine if that is deliberate. If one of them should ship, it needs a destination"
+    Write-Host "      in this script -- its folder has no rule that would carry it."
+}
 
 if ($Zip) {
     # Not $zip: PowerShell variable names are case-insensitive, so that would be the -Zip switch.
