@@ -1,0 +1,169 @@
+name: build
+
+#   feature branch / PR   0.1.2-dev.<sha>     artifact only
+#   main                  0.1.2-rc.N.<sha>    tagged + published as a GitHub prerelease
+#   release               0.1.2               see release.yml
+#
+# Both triggers are on: `push` misses fork PRs, `pull_request` misses branches with no PR. The
+# version job's `if` drops the overlapping case so no commit builds twice.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A running build always finishes; only a queued run that never started is replaced by a newer
+  # push. On main every commit gets its own group, so every commit builds and gets its rc.
+  group: build-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    # Drop the pull_request run when push already built this commit.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      channel: ${{ steps.v.outputs.channel }}
+      tag: ${{ steps.v.outputs.tag }}
+      artifact: ${{ steps.v.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # rc numbering counts commits since the VERSION bump; a shallow clone cannot.
+          fetch-depth: 0
+
+      - id: v
+        env:
+          # On a pull_request the checkout is the merge commit and GITHUB_REF_NAME is "N/merge".
+          # Version the branch that is being proposed, not the ephemeral merge.
+          VERSION_REF_NAME: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+          VERSION_REF_TYPE: ${{ github.ref_type }}
+          VERSION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/ci_version.sh | tee -a "$GITHUB_OUTPUT"
+
+      - run: echo "### ${{ steps.v.outputs.version }} (${{ steps.v.outputs.channel }})" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: version
+    runs-on: windows-latest
+    # A hung MSBuild otherwise burns the 6-hour default, and Windows minutes bill at 2x.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # The commit the version names, not the PR's merge commit: the sha in the filename and
+          # the one in INSTALL.txt have to agree.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # OpenXR-SDK and imgui come down through FetchContent on every configure otherwise.
+      - uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      # Which MSVC produced a DLL is the first question a crash report raises.
+      - name: Toolchain
+        run: |
+          cmake --version
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+              -latest -products * -property displayName
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+              -latest -products * -property catalog_productDisplayVersion
+
+      # Generator deliberately not pinned: the runner image drops VS versions without warning.
+      - name: Configure stereo plugin
+        run: cmake -S . -B build -A x64
+      - name: Build stereo plugin
+        run: cmake --build build --config Release --parallel
+
+      # No -Zip, and upload the TREE: upload-artifact zips what it is handed, and a zip inside a
+      # zip is not installable.
+      - name: Package
+        run: pwsh scripts/build_dist.ps1 -Version "${{ needs.version.outputs.version }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.version.outputs.artifact }}
+          path: dist/CyberpunkVRPort-${{ needs.version.outputs.version }}/
+          if-no-files-found: error
+          retention-days: 90
+
+      # Never shipped, but a crash dump is unreadable without it. `error`, not `warn`: Release
+      # always emits a PDB, so finding none means this path stopped matching CMake's output.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.version.outputs.artifact }}-symbols
+          path: build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/*.pdb
+          if-no-files-found: error
+          retention-days: 90
+
+  # Every build of main is a release candidate. The prerelease is what makes it reachable: a run
+  # artifact needs a GitHub account and expires after 90 days, a release asset does neither.
+  publish-rc:
+    needs: [version, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # push the tag, create the prerelease
+      actions: read     # download this run's own package artifact
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag ${{ needs.version.outputs.tag }}
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # No `exit 0` here: the prerelease step below still has to run on a re-run.
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists, leaving it alone"
+          else
+            git -c user.name=github-actions[bot] \
+                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+                tag -a "$TAG" -m "Release candidate $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Publish ${{ needs.version.outputs.tag }} as a prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          ARTIFACT: ${{ needs.version.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "prerelease $TAG is already published, leaving it alone"
+            exit 0
+          fi
+          # This run's own artifact; comes back extracted, as the package tree.
+          gh run download "$GITHUB_RUN_ID" --name "$ARTIFACT" --dir pkg
+          (cd pkg && zip -qr "../CyberpunkVRPort-$VERSION.zip" .)
+          assets=("CyberpunkVRPort-$VERSION.zip")
+
+          # Their OWN asset, never inside the player's package. Optional here so a candidate
+          # built before symbols existed still publishes.
+          if gh run download "$GITHUB_RUN_ID" --name "$ARTIFACT-symbols" --dir sym 2>/dev/null; then
+            (cd sym && zip -qr "../CyberpunkVRPort-$VERSION-symbols.zip" .)
+            assets+=("CyberpunkVRPort-$VERSION-symbols.zip")
+          else
+            echo "::warning::no symbols artifact on this run -- publishing the package alone"
+          fi
+
+          gh release create "$TAG" \
+            --prerelease \
+            --title "CyberpunkVRPort $VERSION" \
+            --generate-notes \
+            --notes "Release candidate, built from \`$GITHUB_SHA\`. Not a release: the **release** workflow promotes it once it has been tested, publishing these exact binaries rather than rebuilding them. The \`-symbols\` asset is debug symbols for crash reports — players do not need it." \
+            "${assets[@]}"

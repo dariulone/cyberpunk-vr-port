@@ -44,8 +44,13 @@ Disable OpenXR Toolkit, RivaTuner, NVIDIA overlays and any other overlay.
    in place makes two plugins detour one address, which crashes with a fault at
    FFFFFFFFFFFFFFFF.
 
-4. Download the latest release archive and extract it into your Cyberpunk 2077 game folder,
-   so the files land in:
+4. Download the latest release archive.
+
+   With Vortex or MO2, install the zip as-is. Install the required mods first; the installer
+   does not check them for you.
+
+   Installing by hand instead, extract it into your Cyberpunk 2077 game folder so the files
+   land in:
 
      red4ext\plugins\CyberpunkVR_Stereo\      the ONE plugin: OpenXR, stereo, overlay, the
                                               VR avatar and hands, weapon aim, sight
@@ -98,26 +103,35 @@ binding file and your HUD layout.
 DEPENDENCIES
 ============================================================================
 
-  Cyberpunk 2077 (PC, 2.31)
-  RED4ext
-  Cyber Engine Tweaks
-  redscript
-  ArchiveXL
-  TweakXL
-  Codeware 1.20 or newer   <- older builds fail redscript compilation
-  Visual Holsters (Automatic Clothes Swap)
-  Visible Bullets (Projectile Restoration)
-  Equipment-EX
-  Nova Optics
+REQUIRED
 
-Only if you want HUD placement:
+  Cyberpunk 2077 (PC, 2.31)     this build's engine offsets are matched to it
+  An OpenXR runtime             started BEFORE the game. It ships with your headset
+                                software (VDXR, Meta, SteamVR, WMR). Not a mod, not on Nexus.
 
-  HUDitor
-  Input Loader   <- it is what merges r6\input\*.xml, so without it the F11 binding is inert
+  RED4ext                       https://www.nexusmods.com/cyberpunk2077/mods/2380
+  Cyber Engine Tweaks           https://www.nexusmods.com/cyberpunk2077/mods/107
+  redscript                     https://www.nexusmods.com/cyberpunk2077/mods/1511
+  ArchiveXL                     https://www.nexusmods.com/cyberpunk2077/mods/4198
+  TweakXL                       https://www.nexusmods.com/cyberpunk2077/mods/4197
+  Codeware 1.20 or newer        https://www.nexusmods.com/cyberpunk2077/mods/7780
+  Equipment-EX                  https://www.nexusmods.com/cyberpunk2077/mods/6945
+  Visual Holsters               https://www.nexusmods.com/cyberpunk2077/mods/21936
+  Nova Optics                   https://www.nexusmods.com/cyberpunk2077/mods/29190
 
-Install RED4ext, CET and redscript first - the usual Nexus dependency order.
+  Install RED4ext, CET and redscript first.
 
-Learn how Visual Holsters and Equipment-EX work; the hand-to-holster system reads them.
+OPTIONAL
+
+  HUDitor                       https://www.nexusmods.com/cyberpunk2077/mods/3315
+  Input Loader                  https://www.nexusmods.com/cyberpunk2077/mods/4575
+      Only for HUD placement. This package carries the port's HUDitor setup (the editor on
+      F11, and a VR layout), and Input Loader is what merges r6\input\*.xml, so without it
+      the F11 binding is inert. persistency.json REPLACES any HUDitor layout you already have.
+      Without a HUD editor the flat-screen HUD is used unchanged, and the port still
+      composites it into the second eye either way.
+
+  Visible Bullets               https://www.nexusmods.com/cyberpunk2077/mods/22251
 
 
 ============================================================================
