@@ -1,0 +1,160 @@
+name: release
+
+# The author writes the release in the Releases UI; this only attaches the binary.
+#
+# IT DOES NOT REBUILD -- it takes the zip the matching release candidate already produced, so
+# what ships is what a tester ran. Any change here must preserve that.
+#
+# Drafts do not trigger workflows, so the asset appears a minute or two after publishing.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  attach:
+    # Prereleases are the rc's themselves; they already carry their package.
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find the release candidate for this commit
+        id: rc
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version=${TAG#v}
+          if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release tag must be a bare X.Y.Z, got '$TAG'"
+            exit 1
+          fi
+
+          sha=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}")
+
+          # The rc on the SAME commit. Two can only exist if main was force-pushed; take the
+          # newest and say so.
+          mapfile -t rcs < <(git tag --points-at "$sha" --sort=-creatordate | grep -E -- '-rc\.' || true)
+          if [[ ${#rcs[@]} -eq 0 ]]; then
+            echo "::error::no release candidate was built from $sha -- only commits on main get one, and the package has to come from a build that already happened"
+            exit 1
+          fi
+          if [[ ${#rcs[@]} -gt 1 ]]; then
+            echo "::warning::$sha carries ${#rcs[@]} rc tags (${rcs[*]}); using the newest"
+          fi
+          rc=${rcs[0]}
+
+          echo "releasing $version from $rc ($sha)"
+          {
+            echo "version=$version"
+            echo "rc=$rc"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restamp ${{ steps.rc.outputs.rc }} as ${{ steps.rc.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC: ${{ steps.rc.outputs.rc }}
+          VERSION: ${{ steps.rc.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The rc's prerelease asset, not the run artifact: artifacts expire at 90 days.
+          # Named exactly, NOT '*.zip' -- that would also match the symbols asset.
+          gh release download "$RC" --pattern "CyberpunkVRPort-$RC.zip" --dir staging
+          unzip -q "staging/CyberpunkVRPort-$RC.zip" -d pkg
+
+          if [[ ! -f pkg/INSTALL.txt ]]; then
+            echo "::error::$RC's asset is not a package -- no INSTALL.txt at its root"
+            ls -la pkg
+            exit 1
+          fi
+
+          # The only file that names a version; nothing the game loads is touched.
+          # Not anchored to end-of-line -- INSTALL.txt is written from Windows and ends CRLF.
+          sed -i "1s|CyberpunkVRPort $RC|CyberpunkVRPort $VERSION|" pkg/INSTALL.txt
+          if ! head -1 pkg/INSTALL.txt | grep -qF "CyberpunkVRPort $VERSION"; then
+            echo "::error::INSTALL.txt still reads '$(head -1 pkg/INSTALL.txt)' -- refusing to publish a mislabelled package"
+            exit 1
+          fi
+          head -1 pkg/INSTALL.txt
+
+          (cd pkg && zip -qr "../CyberpunkVRPort-$VERSION.zip" .)
+
+          # From the same rc, unmodified; only the filename takes the release version. Optional,
+          # so a candidate built before symbols existed still releases.
+          if gh release download "$RC" --pattern "CyberpunkVRPort-$RC-symbols.zip" --dir sym 2>/dev/null; then
+            mv "sym/CyberpunkVRPort-$RC-symbols.zip" "CyberpunkVRPort-$VERSION-symbols.zip"
+          else
+            echo "::warning::$RC has no symbols asset -- releasing the package alone"
+          fi
+
+      - name: Attach it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ steps.rc.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Only the two files built above match: staging\, sym\ and pkg\ are directories.
+          # --clobber so a re-run replaces the assets instead of failing.
+          ls -la CyberpunkVRPort-"$VERSION"*.zip
+          gh release upload "$TAG" CyberpunkVRPort-"$VERSION"*.zip --clobber
+
+  # Aim VERSION at the next release, so nobody has to remember. Its own job: by now the release
+  # is complete, and a bump that cannot land should not make it look failed.
+  bump:
+    needs: attach
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A release event checks out the tag, detached. The bump belongs on the branch.
+          ref: main
+          fetch-depth: 0
+
+      - name: Bump VERSION past ${{ github.event.release.tag_name }}
+        env:
+          RELEASED: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          released=${RELEASED#v}
+          current=$(tr -d '[:space:]' < VERSION)
+
+          # Only when VERSION still names what shipped; anything else is a human's choice.
+          if [[ $current != "$released" ]]; then
+            echo "VERSION on main is $current, not the released $released -- already moved, leaving it alone"
+            exit 0
+          fi
+
+          IFS=. read -r major minor patch <<< "$current"
+          next="$major.$minor.$((patch + 1))"
+          echo "$next" > VERSION
+          echo "$current -> $next"
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # A GITHUB_TOKEN push starts no workflow run, but that is the token's doing, not this
+          # file's; [skip ci] keeps it true if a PAT or GitHub App ever replaces it.
+          git commit -q -am "Aim VERSION at $next [skip ci]"
+
+          # main can move between checkout and here; rebase rather than fail a release on a race.
+          for attempt in 1 2 3; do
+            if git push origin main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push rejected, rebasing onto origin/main (attempt $attempt)"
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "::error::could not push the VERSION bump to main. The release itself is fine and its assets are attached -- set VERSION to $next by hand, or the next push to main will raise candidates for $released, which has already shipped."
+          exit 1

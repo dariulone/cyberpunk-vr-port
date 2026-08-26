@@ -88,5 +88,9 @@ mods/cet/**/vrik_recenter.ini
 # Claude Rewind Tool
 .claude-rewind/
 
+# Per-machine AI-assistant guidance and settings; local only, never shipped or shared.
+CLAUDE.md
+.claude/
+
 # Stereo-plugin build output
 /build-stereo/
