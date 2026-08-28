@@ -12,6 +12,7 @@
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -22,6 +23,7 @@
 #include <imgui_impl_win32.h>
 #include "im3d.h"
 #include "Camera/CameraLink.hpp"   // cvr::camera::BarrelFrameRead
+#include "Utils/SharedSlots.hpp"
 #include "Overlay/OverlayInternal.hpp"
 
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
@@ -308,7 +310,8 @@ extern "C" __declspec(dllexport) int      CyberpunkVR_BarrelDotEyeSign = 1;
 extern "C" __declspec(dllexport) float    CyberpunkVR_BarrelDotOffX2 = 0.0f;
 // 0 = one projection for both eyes plus a constant parallax on the second (simple, steady).
 // 1 = a real world point projected per eye (exact, but only as steady as the muzzle transform).
-extern "C" __declspec(dllexport) int      CyberpunkVR_BarrelDotWorld = 1;
+// 2 = the closest raycast surface projected per eye; a miss uses mode 0.
+extern "C" __declspec(dllexport) int      CyberpunkVR_BarrelDotWorld = 2;
 extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_BarrelDotTick = 0;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_BarrelDotSecondEye = 1;
@@ -435,6 +438,40 @@ void DrawBarrelCrosshair() {
     const bool haveWorld = (mpx * mpx + mpy * mpy + mpz * mpz) > 1.0f &&
                            (hcx * hcx + hcy * hcy + hcz * hcz) > 1.0f;
 
+    const bool surfaceMode = CyberpunkVR_BarrelDotWorld == 2;
+    // CET owns the physics query and publishes one world-space hit packet. A sequence that stops
+    // changing means the publisher was interrupted; never leave the last dot glued to a wall.
+    static uint32_t s_lastRaySeq = 0;
+    static uint64_t s_lastRayTick = 0;
+    float hitx = 0.0f, hity = 0.0f, hitz = 0.0f, hitValid = 0.0f;
+    uint32_t raySeq = 0;
+    bool rayPacket = false;
+    for (int attempt = 0; surfaceMode && attempt < 3 && !rayPacket; ++attempt) {
+        const uint32_t s0 = static_cast<uint32_t>(
+            OpenXRManager::Get().GetSharedSlot(vrshared::kBarrelRaySeq));
+        if (s0 == 0u || (s0 & 1u)) continue;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        const float x = OpenXRManager::Get().GetSharedSlot(vrshared::kBarrelRayHitX + 0);
+        const float y = OpenXRManager::Get().GetSharedSlot(vrshared::kBarrelRayHitX + 1);
+        const float z = OpenXRManager::Get().GetSharedSlot(vrshared::kBarrelRayHitX + 2);
+        const float v = OpenXRManager::Get().GetSharedSlot(vrshared::kBarrelRayHitValid);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        const uint32_t s1 = static_cast<uint32_t>(
+            OpenXRManager::Get().GetSharedSlot(vrshared::kBarrelRaySeq));
+        if (s0 == s1 && !(s1 & 1u)) {
+            hitx = x; hity = y; hitz = z; hitValid = v; raySeq = s1; rayPacket = true;
+        }
+    }
+    if (rayPacket && raySeq != s_lastRaySeq) {
+        s_lastRaySeq = raySeq;
+        s_lastRayTick = GetTickCount64();
+    }
+    const uint64_t nowTick = GetTickCount64();
+    const bool rayFresh = rayPacket && s_lastRayTick != 0 && (nowTick - s_lastRayTick) <= 20u;
+    const bool haveRayHit = surfaceMode && rayFresh && hitValid > 0.5f &&
+                            (hcx * hcx + hcy * hcy + hcz * hcz) > 1.0f &&
+                            (hitx * hitx + hity * hity + hitz * hitz) > 1.0f;
+
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
     if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return;
 
@@ -471,6 +508,16 @@ void DrawBarrelCrosshair() {
         if (!okp) s_dbgWhy = 3.0f;
         return okp;
     };
+    auto surfaceDotForEye = [&](float sign, ImVec2* out) -> bool {
+        if (!haveRayHit) return false;
+        const float ex = hcx + rgt[0] * halfIpd * sign;
+        const float ey = hcy + rgt[1] * halfIpd * sign;
+        const float ez = hcz + rgt[2] * halfIpd * sign;
+        float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+        RotateVectorByQuaternion(hitx - ex, hity - ey, hitz - ez,
+                                 -cqx, -cqy, -cqz, cqw, &lx, &ly, &lz);
+        return ProjectHeadSpacePointToScreen(lx, lz, -ly, displaySize, out);
+    };
 
     ImVec2 sc{};
     // game-cam-local (Yfwd/Xright/Zup) -> OpenXR view convention (forward -Z, right +X, up +Y): (x, z, -y)
@@ -487,13 +534,13 @@ void DrawBarrelCrosshair() {
     // dropped the pair onto the direction path, which is wrong for the second eye BY
     // CONSTRUCTION -- a mark at infinity cannot show a finite impact from an eye off the line.
     // That is what made the right eye's dot sit right of the shot on half the frames.
-    const bool mainOk = dotForEye(sMain, &sc);
-    if (!dotForEye(-sMain, &scRight)) scRight = sc;
+    const bool mainOk = surfaceMode ? surfaceDotForEye(sMain, &sc) : dotForEye(sMain, &sc);
+    if (!(surfaceMode ? surfaceDotForEye(-sMain, &scRight) : dotForEye(-sMain, &scRight))) scRight = sc;
     // OFF by default. The world point is the exact answer, but it depends on a muzzle transform
     // that goes to identity between frames (fists, and recoil right after a shot) -- latched, it
     // then lags and the two dots visibly part company. The simple form below has none of that:
     // one projection, plus a constant parallax for the second eye.
-    const bool worldOk = mainOk && (CyberpunkVR_BarrelDotWorld != 0);
+    const bool worldOk = mainOk && (surfaceMode ? haveRayHit : CyberpunkVR_BarrelDotWorld != 0);
     {
         static int s_said = -1;
         const int now = worldOk ? 1 : 0;
@@ -508,7 +555,7 @@ void DrawBarrelCrosshair() {
         }
     }
     // With world data present the direction path is not a fallback, it is a wrong answer.
-    if (CyberpunkVR_BarrelDotWorld && haveWorld && !worldOk) return;
+    if (CyberpunkVR_BarrelDotWorld == 1 && haveWorld && !worldOk) return;
     if (worldOk || ProjectHeadSpacePointToScreen(vx, vz, -vy, displaySize, &sc)) {
         // NO ZOOM COMPENSATION HERE ANY MORE (dabinn, TofuExpress 2cb7b031). ADS magnification is
         // already in the projection this point was built with -- GetOverlayProjTans divides the
@@ -543,7 +590,7 @@ void DrawBarrelCrosshair() {
             }
             CyberpunkVR_BarrelDotNdcX2 = (worldOk
                 ? ((scRight.x / displaySize.x) * 2.0f - 1.0f)   // its own eye, its own ray
-                : (CyberpunkVR_BarrelDotNdcX + dx))
+                : (CyberpunkVR_BarrelDotNdcX + (surfaceMode ? 0.0f : dx)))
                 + CyberpunkVR_BarrelDotOffX2;
         }
         CyberpunkVR_BarrelDotRadiusPx = rad;

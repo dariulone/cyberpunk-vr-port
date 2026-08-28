@@ -83,6 +83,9 @@
 //  [152]      [CAMWRITE] Lua ack (= last [151] applied via SetVRCamAck)  Lua -> dxgi
 //  [153]      [CAMWRITE] entity world yaw (deg)  plugin (SetVRPlayerYaw batch) -> dxgi
 //             (mode-1 heading source: the camera quat can't serve once WE compose it)
+//  [167..169] barrel ray hit world XYZ          plugin (CET push) -> overlay
+//  [170]      barrel ray hit valid              plugin (CET push) -> overlay
+//  [171]      barrel ray packet seqlock         plugin (CET push) -> overlay
 //             ONE-TICK VIEW HOLD protocol (v3, trace-proven mechanism): the entity/
 //             puppet world yaw applies one TICK after the camera turns; sprint locks
 //             puppet yaw to the heading, so the animated body+arms rendered one frame
@@ -206,4 +209,10 @@ constexpr int kWheelArmedMask     = 163;
 constexpr int kDeviceScreenOpen   = 164;
 constexpr int kWheelArmedRightBit = 1;
 constexpr int kWheelArmedLeftBit  = 2;
+// MUZZLE LASER RAYCAST. CET owns the physics query on the script/game thread; the overlay only
+// consumes its world-space hit. [171] brackets XYZ+valid so the render thread cannot combine
+// values from different CET updates. A fresh valid=0 packet deliberately selects direction mode.
+constexpr int kBarrelRayHitX     = 167;   // ..169 world-space hit XYZ
+constexpr int kBarrelRayHitValid = 170;   // 1 = hit, 0 = miss
+constexpr int kBarrelRaySeq      = 171;   // odd while writing, even when coherent
 } // namespace vrshared

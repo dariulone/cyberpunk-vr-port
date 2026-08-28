@@ -409,6 +409,102 @@ local function updateMuzzle(wpn)
     end
 end
 
+-- Trace the weapon's bore against world collision on CET's game-script side. The current
+-- CET/CP2077 build exposes the hit as TraceResult.position; this same contract is already used by
+-- the physical-reload raycast in this tree. Keep physics out of the DXGI Present path.
+local BARREL_RAY_MAX_M = 1000.0
+local BARREL_RAY_PRESET = 'Sight Blocker'
+local barrelRaySystem = nil
+local barrelRayCallWarned = false
+local barrelNpcCallWarned = false
+
+local function publishBarrelRayMiss()
+    if type(SetVRBarrelRayHit) == 'function' then
+        SetVRBarrelRayHit(0.0, 0.0, 0.0, 0)
+    end
+end
+
+local function updateBarrelRay()
+    if type(GetVRSharedSlot) ~= 'function' then return end
+    if type(SetVRBarrelRayHit) ~= 'function' then return end
+    if GetVRSharedSlot(27) < 0.5 or GetVRSharedSlot(203) < 0.5 then
+        publishBarrelRayMiss()
+        return
+    end
+
+    local px, py, pz = GetVRSharedSlot(200), GetVRSharedSlot(201), GetVRSharedSlot(202)
+    local fx, fy, fz = GetVRSharedSlot(24), GetVRSharedSlot(25), GetVRSharedSlot(26)
+    local f2 = fx * fx + fy * fy + fz * fz
+    if px * px + py * py + pz * pz < 1.0 or f2 < 0.25 then
+        publishBarrelRayMiss()
+        return
+    end
+
+    local invF = 1.0 / math.sqrt(f2)
+    fx, fy, fz = fx * invF, fy * invF, fz * invF
+    local from = Vector4.new(px, py, pz, 1.0)
+    local to = Vector4.new(px + fx * BARREL_RAY_MAX_M,
+                           py + fy * BARREL_RAY_MAX_M,
+                           pz + fz * BARREL_RAY_MAX_M, 1.0)
+    if barrelRaySystem == nil then
+        barrelRaySystem = Game.GetSpatialQueriesSystem() or false
+    end
+    if not barrelRaySystem then
+        publishBarrelRayMiss()
+        return
+    end
+
+    -- Sight Blocker with dynamic collision covers world, props, vehicles and glass without
+    -- self-hitting the tested player hands or weapons. NPC body surfaces use Ray B below.
+    local worldHit, worldDistanceSq = nil, nil
+    local success, result = barrelRaySystem:SyncRaycastByQueryPreset(
+        from, to, BARREL_RAY_PRESET, false)
+    if success and result then
+        local p = result.position
+        if p and type(p.x) == 'number' and type(p.y) == 'number' and type(p.z) == 'number' then
+            local dx, dy, dz = p.x - px, p.y - py, p.z - pz
+            worldHit = p
+            worldDistanceSq = dx * dx + dy * dy + dz * dz
+        end
+    end
+
+    -- Ray B uses the exact same from/to and has no cross-frame cache: W=0 is an immediate miss.
+    -- Targeting supplies and deduplicates candidates in redscript; native HitRepresentation gives
+    -- the closest animated body-surface enter point for each candidate.
+    local npcHit, npcDistanceSq = nil, nil
+    local npcOk, npcResult = pcall(function()
+        local player = Game.GetPlayer()
+        if not player or not player.VRFindNpcBarrelRayHit then return nil end
+        return player:VRFindNpcBarrelRayHit(from, to)
+    end)
+    if npcOk then
+        if npcResult and (npcResult.w or 0.0) > 0.5 and
+           type(npcResult.x) == 'number' and type(npcResult.y) == 'number' and
+           type(npcResult.z) == 'number' then
+            local dx, dy, dz = npcResult.x - px, npcResult.y - py, npcResult.z - pz
+            npcHit = npcResult
+            npcDistanceSq = dx * dx + dy * dy + dz * dz
+        end
+    else
+        if not barrelNpcCallWarned then
+            barrelNpcCallWarned = true
+            logAlways('barrel ray: NPC surface query failed; Ray A remains active: %s',
+                tostring(npcResult))
+        end
+    end
+
+    local finalHit, finalDistanceSq = worldHit, worldDistanceSq
+    if npcHit and (not finalDistanceSq or npcDistanceSq < finalDistanceSq) then
+        finalHit, finalDistanceSq = npcHit, npcDistanceSq
+    end
+    if finalHit then
+        SetVRBarrelRayHit(finalHit.x, finalHit.y, finalHit.z, 1)
+        return
+    end
+
+    publishBarrelRayMiss()
+end
+
 registerForEvent('onInit', function()
     logf("weapon-aim init")
 end)
@@ -446,6 +542,16 @@ registerForEvent('onUpdate', function(dt)
         -- immediately. Isolation belongs in the OTHER direction: the muzzle keeps its place and the
         -- newcomer gets its own pcall.
         if wpn then updateMuzzle(wpn) end
+        local okRay, errRay = pcall(function()
+            if wpn then updateBarrelRay() else publishBarrelRayMiss() end
+        end)
+        if not okRay then
+            publishBarrelRayMiss()
+            if not barrelRayCallWarned then
+                barrelRayCallWarned = true
+                logAlways('barrel ray: query failed: %s', tostring(errRay))
+            end
+        end
         if wpn then
             local wid = nil
             pcall(function() wid = tostring(wpn:GetEntityID().hash) end)
