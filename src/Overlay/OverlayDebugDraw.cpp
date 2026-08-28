@@ -10,6 +10,7 @@
 
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LiveControlsUi.hpp"
+#include "Core/LiveControls.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include <algorithm>
 #include <atomic>
@@ -311,7 +312,7 @@ extern "C" __declspec(dllexport) float    CyberpunkVR_BarrelDotOffX2 = 0.0f;
 // 0 = one projection for both eyes plus a constant parallax on the second (simple, steady).
 // 1 = a real world point projected per eye (exact, but only as steady as the muzzle transform).
 // 2 = the closest raycast surface projected per eye; a miss uses mode 0.
-extern "C" __declspec(dllexport) int      CyberpunkVR_BarrelDotWorld = 2;
+extern "C" __declspec(dllexport) int      CyberpunkVR_BarrelDotWorld = 1;
 extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_BarrelDotTick = 0;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_BarrelDotSecondEye = 1;
@@ -373,9 +374,12 @@ void DrawCompactAdsCameraTelemetry() {
 }
 
 void DrawBarrelCrosshair() {
-    
+    int laserDotMode = g_liveControls.xrLaserDotMode;
+    if (laserDotMode < 0 || laserDotMode > 2) laserDotMode = 1;
+    CyberpunkVR_BarrelDotWorld = laserDotMode;
+
     const float enableLaser = OpenXRManager::Get().GetSharedSlot(144);   // weapon flag (was [126]: HMD-Z collision)
-    const bool surfaceMode = CyberpunkVR_BarrelDotWorld == 2;
+    const bool surfaceMode = laserDotMode == 2;
     const bool raycastActive = g_drawBarrelCross && surfaceMode && enableLaser >= 0.9f;
     // CET owns every physics query. Publish the UI/mode gate before returning so disabling a dot
     // stops muzzle and visibility work rather than merely stopping the final draw.
