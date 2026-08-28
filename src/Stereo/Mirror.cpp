@@ -220,7 +220,8 @@ void d12_submit_mirror_copy(ID3D12CommandQueue* queue) {
         // The barrel dot, at the same NDC the overlay drew it at on the backbuffer. The mirror
         // window IS the desk-side view of eye 1, so without this the dot is invisible whenever
         // there is no headset session -- which is most of the time while working on it.
-        if (hud_composited && CyberpunkVR_BarrelDotSecondEye && CyberpunkVR_BarrelDotTick &&
+        if (hud_composited && CyberpunkVR_BarrelDotSecondEye &&
+            CyberpunkVR_BarrelDotSecondVisible && CyberpunkVR_BarrelDotTick &&
             GetTickCount64() - CyberpunkVR_BarrelDotTick < 250) {
             if (g_hud_mirror_blit.RecordDot(g_d12_copy_list, g_d12_mtex,
                                             CyberpunkVR_BarrelDotNdcX2,

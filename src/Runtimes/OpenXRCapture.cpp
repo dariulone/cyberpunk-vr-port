@@ -49,6 +49,7 @@ extern "C" float    CyberpunkVR_BarrelDotNdcY;
 extern "C" float    CyberpunkVR_BarrelDotRadiusPx;
 extern "C" unsigned long long CyberpunkVR_BarrelDotTick;
 extern "C" int      CyberpunkVR_BarrelDotSecondEye;
+extern "C" int      CyberpunkVR_BarrelDotSecondVisible;
 extern "C" unsigned long long CyberpunkVR_DebugBarrelDotDraws;
 extern "C" ID3D12Resource* CyberpunkVR_GetHudBlurTexture();
 extern "C" ID3D12Resource* CyberpunkVR_GetHudExposureBuffer();
@@ -966,6 +967,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                     // dot in BOTH eyes the question stops being "does the right eye's reticle
                     // match the left eye's dot", which no one can judge across a fused pair.
                     if (vrcamEyeCaptured && CyberpunkVR_BarrelDotSecondEye &&
+                        CyberpunkVR_BarrelDotSecondVisible &&
                         CyberpunkVR_BarrelDotTick &&
                         GetTickCount64() - CyberpunkVR_BarrelDotTick < 250) {
                         if (m_colorBlit->RecordDot(m_captureCmdList, eyeSlotTex,

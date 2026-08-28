@@ -409,6 +409,276 @@ local function updateMuzzle(wpn)
     end
 end
 
+-- Trace the weapon's bore against world collision on CET's game-script side. The current
+-- CET/CP2077 build exposes the hit as TraceResult.position; this same contract is already used by
+-- the physical-reload raycast in this tree. Keep physics out of the DXGI Present path.
+local BARREL_RAY_MAX_M = 1000.0
+local BARREL_RAY_PRESET = 'Sight Blocker'
+local BARREL_LOS_ENDPOINT_OFFSET_M = 0.005
+local BARREL_LOS_GLASS_STEP_M = 0.005
+local BARREL_LOS_MAX_GLASS_HITS = 8
+local BARREL_EYE_MAX_AGE_S = 0.020
+local barrelRaySystem = nil
+local barrelRayCallWarned = false
+local barrelNpcCallWarned = false
+local barrelLosCallWarned = false
+local barrelEyeLastSeq = 0
+local barrelEyeAgeS = math.huge
+local barrelLosLogAt = -1.0
+local barrelRayWasActive = false
+
+local function publishBarrelRayMiss(mainVisible, secondVisible)
+    if type(SetVRBarrelRayHit) == 'function' then
+        SetVRBarrelRayHit(0.0, 0.0, 0.0, 0,
+            mainVisible == false and 0 or 1,
+            secondVisible == false and 0 or 1)
+    end
+end
+
+local function stopBarrelRay()
+    if barrelRayWasActive then
+        publishBarrelRayMiss()
+        barrelRayWasActive = false
+    end
+end
+
+-- Read the two eye origins as one render-side snapshot. A missing or stale packet disables only
+-- occlusion (fail-open); it never disables the existing mode-2 hit provider or direction marker.
+local function readBarrelEyes(dt)
+    barrelEyeAgeS = barrelEyeAgeS + math.max(dt or 0.0, 0.0)
+    for _ = 1, 3 do
+        local s0 = math.floor(GetVRSharedSlot(178) or 0.0)
+        if s0 > 0 and s0 % 2 == 0 then
+            local mx, my, mz = GetVRSharedSlot(172), GetVRSharedSlot(173), GetVRSharedSlot(174)
+            local sx, sy, sz = GetVRSharedSlot(175), GetVRSharedSlot(176), GetVRSharedSlot(177)
+            local s1 = math.floor(GetVRSharedSlot(178) or 0.0)
+            if s0 == s1 and s1 % 2 == 0 then
+                if s1 ~= barrelEyeLastSeq then
+                    barrelEyeLastSeq = s1
+                    barrelEyeAgeS = 0.0
+                end
+                local mainLen2 = mx*mx + my*my + mz*mz
+                local secondLen2 = sx*sx + sy*sy + sz*sz
+                local ex, ey, ez = mx - sx, my - sy, mz - sz
+                local separation2 = ex*ex + ey*ey + ez*ez
+                if barrelEyeAgeS <= BARREL_EYE_MAX_AGE_S and mainLen2 > 1.0 and
+                   secondLen2 > 1.0 and separation2 > 0.0001 and separation2 < 0.04 then
+                    return Vector4.new(mx, my, mz, 1.0), Vector4.new(sx, sy, sz, 1.0)
+                end
+                return nil, nil
+            end
+        end
+    end
+    return nil, nil
+end
+
+local function makeBarrelLosEnd(eye, finalHit, fx, fy, fz)
+    if finalHit then
+        local dx, dy, dz = finalHit.x - eye.x, finalHit.y - eye.y, finalHit.z - eye.z
+        local d2 = dx*dx + dy*dy + dz*dz
+        if d2 <= BARREL_LOS_ENDPOINT_OFFSET_M * BARREL_LOS_ENDPOINT_OFFSET_M then
+            return nil
+        end
+        local invD = 1.0 / math.sqrt(d2)
+        return Vector4.new(
+            finalHit.x - dx * invD * BARREL_LOS_ENDPOINT_OFFSET_M,
+            finalHit.y - dy * invD * BARREL_LOS_ENDPOINT_OFFSET_M,
+            finalHit.z - dz * invD * BARREL_LOS_ENDPOINT_OFFSET_M,
+            1.0)
+    end
+    -- A finite physics segment tests visibility only. The rendered fallback remains optical
+    -- infinity; each eye gets its own parallel segment along the same muzzle direction.
+    return Vector4.new(eye.x + fx * BARREL_RAY_MAX_M,
+                       eye.y + fy * BARREL_RAY_MAX_M,
+                       eye.z + fz * BARREL_RAY_MAX_M, 1.0)
+end
+
+local function barrelDotVisibleFromEye(player, eye, finalHit, fx, fy, fz)
+    local rayEnd = makeBarrelLosEnd(eye, finalHit, fx, fy, fz)
+    if not rayEnd then return true, 0.0, 'near' end
+
+    -- Use the same world collision semantics already validated by the muzzle provider. The first
+    -- probe's generic QueryFilter missed vehicles and added no proven coverage. Glass materials are
+    -- transparent to the dot LOS: step through each glass hit on the same segment rather than
+    -- declaring the whole remaining segment clear and missing an opaque blocker behind the pane.
+    local dx, dy, dz = rayEnd.x - eye.x, rayEnd.y - eye.y, rayEnd.z - eye.z
+    local rayLengthSq = dx*dx + dy*dy + dz*dz
+    if rayLengthSq <= 0.000001 then return true, 0.0, 'near' end
+    local invRayLength = 1.0 / math.sqrt(rayLengthSq)
+    local dirX, dirY, dirZ = dx * invRayLength, dy * invRayLength, dz * invRayLength
+    local worldStart = eye
+    local glassHits = 0
+    for _ = 1, BARREL_LOS_MAX_GLASS_HITS + 1 do
+        local worldOk, worldSuccess, worldResult = pcall(function()
+            return barrelRaySystem:SyncRaycastByQueryPreset(
+                worldStart, rayEnd, BARREL_RAY_PRESET, false)
+        end)
+        if not worldOk then
+            if not barrelLosCallWarned then
+                barrelLosCallWarned = true
+                logAlways('barrel world LOS failed; visibility remains fail-open: %s',
+                    tostring(worldSuccess))
+            end
+            return true, -1.0, 'world-error'
+        end
+        if not (worldSuccess and worldResult and worldResult.position) then
+            break
+        end
+
+        local p = worldResult.position
+        local materialName = string.lower(tostring(worldResult.material or ''))
+        if not string.find(materialName, 'glass', 1, true) then
+            local bx, by, bz = p.x - eye.x, p.y - eye.y, p.z - eye.z
+            return false, math.sqrt(bx*bx + by*by + bz*bz), 'world'
+        end
+
+        glassHits = glassHits + 1
+        if glassHits > BARREL_LOS_MAX_GLASS_HITS then
+            break
+        end
+        worldStart = Vector4.new(
+            p.x + dirX * BARREL_LOS_GLASS_STEP_M,
+            p.y + dirY * BARREL_LOS_GLASS_STEP_M,
+            p.z + dirZ * BARREL_LOS_GLASS_STEP_M,
+            1.0)
+        local rx, ry, rz = rayEnd.x - worldStart.x, rayEnd.y - worldStart.y,
+                           rayEnd.z - worldStart.z
+        if rx*dirX + ry*dirY + rz*dirZ <= 0.0 then
+            break
+        end
+    end
+
+    -- Sight Blocker intentionally ignores character bodies. Only after the world segment is clear
+    -- ask the already-validated official HitRepresentation provider whether an NPC blocks it.
+    local npcOk, npcResult = pcall(function()
+        if not player or not player.VRFindNpcBarrelRayHit then return nil end
+        return player:VRFindNpcBarrelRayHit(eye, rayEnd)
+    end)
+    if not npcOk then
+        if not barrelLosCallWarned then
+            barrelLosCallWarned = true
+            logAlways('barrel NPC LOS failed; visibility remains fail-open: %s',
+                tostring(npcResult))
+        end
+        return true, -1.0, 'npc-error'
+    end
+    if npcResult and (npcResult.w or 0.0) > 0.5 then
+        local dx, dy, dz = npcResult.x - eye.x, npcResult.y - eye.y, npcResult.z - eye.z
+        return false, math.sqrt(dx*dx + dy*dy + dz*dz),
+            glassHits > 0 and ('npc-glass' .. tostring(glassHits)) or 'npc'
+    end
+    return true, -1.0, glassHits > 0 and ('clear-glass' .. tostring(glassHits)) or 'clear'
+end
+
+local function updateBarrelRay(dt)
+    if type(GetVRSharedSlot) ~= 'function' then return end
+    if type(SetVRBarrelRayHit) ~= 'function' then return end
+    if GetVRSharedSlot(181) < 0.5 then
+        stopBarrelRay()
+        return
+    end
+    barrelRayWasActive = true
+    if GetVRSharedSlot(27) < 0.5 or GetVRSharedSlot(203) < 0.5 then
+        publishBarrelRayMiss()
+        return
+    end
+
+    local px, py, pz = GetVRSharedSlot(200), GetVRSharedSlot(201), GetVRSharedSlot(202)
+    local fx, fy, fz = GetVRSharedSlot(24), GetVRSharedSlot(25), GetVRSharedSlot(26)
+    local f2 = fx * fx + fy * fy + fz * fz
+    if px * px + py * py + pz * pz < 1.0 or f2 < 0.25 then
+        publishBarrelRayMiss()
+        return
+    end
+
+    local invF = 1.0 / math.sqrt(f2)
+    fx, fy, fz = fx * invF, fy * invF, fz * invF
+    local from = Vector4.new(px, py, pz, 1.0)
+    local to = Vector4.new(px + fx * BARREL_RAY_MAX_M,
+                           py + fy * BARREL_RAY_MAX_M,
+                           pz + fz * BARREL_RAY_MAX_M, 1.0)
+    if barrelRaySystem == nil then
+        barrelRaySystem = Game.GetSpatialQueriesSystem() or false
+    end
+    if not barrelRaySystem then
+        publishBarrelRayMiss()
+        return
+    end
+
+    -- Sight Blocker with dynamic collision covers world, props, vehicles and glass without
+    -- self-hitting the tested player hands or weapons. NPC body surfaces use Ray B below.
+    local worldHit, worldDistanceSq = nil, nil
+    local success, result = barrelRaySystem:SyncRaycastByQueryPreset(
+        from, to, BARREL_RAY_PRESET, false)
+    if success and result then
+        local p = result.position
+        if p and type(p.x) == 'number' and type(p.y) == 'number' and type(p.z) == 'number' then
+            local dx, dy, dz = p.x - px, p.y - py, p.z - pz
+            worldHit = p
+            worldDistanceSq = dx * dx + dy * dy + dz * dz
+        end
+    end
+
+    -- Ray B uses the exact same from/to and has no cross-frame cache: W=0 is an immediate miss.
+    -- Targeting supplies and deduplicates candidates in redscript; native HitRepresentation gives
+    -- the closest animated body-surface enter point for each candidate.
+    local player = Game.GetPlayer()
+    local npcHit, npcDistanceSq = nil, nil
+    local npcOk, npcResult = pcall(function()
+        if not player or not player.VRFindNpcBarrelRayHit then return nil end
+        return player:VRFindNpcBarrelRayHit(from, to)
+    end)
+    if npcOk then
+        if npcResult and (npcResult.w or 0.0) > 0.5 and
+           type(npcResult.x) == 'number' and type(npcResult.y) == 'number' and
+           type(npcResult.z) == 'number' then
+            local dx, dy, dz = npcResult.x - px, npcResult.y - py, npcResult.z - pz
+            npcHit = npcResult
+            npcDistanceSq = dx * dx + dy * dy + dz * dz
+        end
+    else
+        if not barrelNpcCallWarned then
+            barrelNpcCallWarned = true
+            logAlways('barrel ray: NPC surface query failed; Ray A remains active: %s',
+                tostring(npcResult))
+        end
+    end
+
+    local finalHit, finalDistanceSq = worldHit, worldDistanceSq
+    if npcHit and (not finalDistanceSq or npcDistanceSq < finalDistanceSq) then
+        finalHit, finalDistanceSq = npcHit, npcDistanceSq
+    end
+
+    local mainVisible, secondVisible = true, true
+    local mainBlockM, secondBlockM = -1.0, -1.0
+    local mainSource, secondSource = 'no-eyes', 'no-eyes'
+    local mainEye, secondEye = readBarrelEyes(dt)
+    if player and mainEye and secondEye then
+        mainVisible, mainBlockM, mainSource = barrelDotVisibleFromEye(
+            player, mainEye, finalHit, fx, fy, fz)
+        secondVisible, secondBlockM, secondSource = barrelDotVisibleFromEye(
+            player, secondEye, finalHit, fx, fy, fz)
+    end
+    if vrDebug() then
+        local now = (os and os.clock and os.clock()) or 0.0
+        if now - barrelLosLogAt >= 1.0 then
+            barrelLosLogAt = now
+            logAlways('barrel LOS: eyes=%d hit=%d main=%s/%s block=%.3fm second=%s/%s block=%.3fm',
+                (mainEye and secondEye) and 1 or 0,
+                finalHit and 1 or 0,
+                mainVisible and 'clear' or 'blocked', mainSource, mainBlockM,
+                secondVisible and 'clear' or 'blocked', secondSource, secondBlockM)
+        end
+    end
+    if finalHit then
+        SetVRBarrelRayHit(finalHit.x, finalHit.y, finalHit.z, 1,
+            mainVisible and 1 or 0, secondVisible and 1 or 0)
+        return
+    end
+
+    publishBarrelRayMiss(mainVisible, secondVisible)
+end
+
 registerForEvent('onInit', function()
     logf("weapon-aim init")
 end)
@@ -446,6 +716,16 @@ registerForEvent('onUpdate', function(dt)
         -- immediately. Isolation belongs in the OTHER direction: the muzzle keeps its place and the
         -- newcomer gets its own pcall.
         if wpn then updateMuzzle(wpn) end
+        local okRay, errRay = pcall(function()
+            if wpn then updateBarrelRay(dt) else stopBarrelRay() end
+        end)
+        if not okRay then
+            publishBarrelRayMiss()
+            if not barrelRayCallWarned then
+                barrelRayCallWarned = true
+                logAlways('barrel ray: query failed: %s', tostring(errRay))
+            end
+        end
         if wpn then
             local wid = nil
             pcall(function() wid = tostring(wpn:GetEntityID().hash) end)

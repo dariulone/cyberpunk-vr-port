@@ -489,6 +489,7 @@ extern "C" float    CyberpunkVR_BarrelDotNdcX2;
 extern "C" float    CyberpunkVR_BarrelDotNdcY;
 extern "C" float    CyberpunkVR_BarrelDotRadiusPx;
 extern "C" int      CyberpunkVR_BarrelDotSecondEye;
+extern "C" int      CyberpunkVR_BarrelDotSecondVisible;
 extern "C" unsigned long long CyberpunkVR_BarrelDotTick;
 extern D3D12_CPU_DESCRIPTOR_HANDLE g_own_rtv;
 extern DXGI_FORMAT           g_d12_fmt;
