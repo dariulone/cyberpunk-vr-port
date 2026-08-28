@@ -86,6 +86,11 @@
 //  [167..169] barrel ray hit world XYZ          plugin (CET push) -> overlay
 //  [170]      barrel ray hit valid              plugin (CET push) -> overlay
 //  [171]      barrel ray packet seqlock         plugin (CET push) -> overlay
+//  [172..174] barrel MAIN-eye world XYZ         overlay -> CET
+//  [175..177] barrel second-eye world XYZ       overlay -> CET
+//  [178]      barrel eye-origin packet seqlock  overlay -> CET
+//  [179..180] barrel dot visible MAIN/second    plugin (CET push) -> overlay; bracketed by [171]
+//  [181]      mode-2 laser dot active           overlay -> CET
 //             ONE-TICK VIEW HOLD protocol (v3, trace-proven mechanism): the entity/
 //             puppet world yaw applies one TICK after the camera turns; sprint locks
 //             puppet yaw to the heading, so the animated body+arms rendered one frame
@@ -210,9 +215,19 @@ constexpr int kDeviceScreenOpen   = 164;
 constexpr int kWheelArmedRightBit = 1;
 constexpr int kWheelArmedLeftBit  = 2;
 // MUZZLE LASER RAYCAST. CET owns the physics query on the script/game thread; the overlay only
-// consumes its world-space hit. [171] brackets XYZ+valid so the render thread cannot combine
-// values from different CET updates. A fresh valid=0 packet deliberately selects direction mode.
+// consumes its world-space hit and visibility. [171] brackets XYZ+valid+[179..180] so the render
+// thread cannot combine values from different CET updates. A fresh valid=0 packet deliberately
+// selects direction mode while retaining that update's per-eye visibility.
 constexpr int kBarrelRayHitX     = 167;   // ..169 world-space hit XYZ
 constexpr int kBarrelRayHitValid = 170;   // 1 = hit, 0 = miss
 constexpr int kBarrelRaySeq      = 171;   // odd while writing, even when coherent
+// The eye names follow the two actual draw paths rather than assuming MAIN is always the physical
+// left eye. DrawBarrelCrosshair can swap MAIN's eye sign; publishing MAIN/second keeps visibility
+// attached to the texture that consumes it.
+constexpr int kBarrelMainEyeX       = 172;   // ..174 world-space eye XYZ
+constexpr int kBarrelSecondEyeX     = 175;   // ..177 world-space eye XYZ
+constexpr int kBarrelEyeSeq         = 178;   // odd while writing, even when coherent
+constexpr int kBarrelMainVisible    = 179;   // 1 = clear/fail-open, 0 = occluded
+constexpr int kBarrelSecondVisible  = 180;   // 1 = clear/fail-open, 0 = occluded
+constexpr int kBarrelRayActive      = 181;   // checkbox on + mode 2 + weapon equipped
 } // namespace vrshared

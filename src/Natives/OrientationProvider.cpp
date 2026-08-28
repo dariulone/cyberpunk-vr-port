@@ -664,14 +664,18 @@ void SetVRMuzzleQuat(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*,
 }
 
 // Publish CET's muzzle raycast result without performing a game-world query from Present. The
-// sequence brackets four independent float stores so the render thread only consumes one update.
+// sequence brackets the hit and per-eye visibility stores so the render thread consumes one update.
 void SetVRBarrelRayHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
     float x = 0.0f, y = 0.0f, z = 0.0f;
     int32_t valid = 0;
+    int32_t mainVisible = 1;
+    int32_t secondVisible = 1;
     RED4ext::GetParameter(aFrame, &x);
     RED4ext::GetParameter(aFrame, &y);
     RED4ext::GetParameter(aFrame, &z);
     RED4ext::GetParameter(aFrame, &valid);
+    RED4ext::GetParameter(aFrame, &mainVisible);
+    RED4ext::GetParameter(aFrame, &secondVisible);
     aFrame->code++;
     EnsureSharedMemory();
     if (!g_pSharedHands) return;
@@ -687,6 +691,8 @@ void SetVRBarrelRayHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void
     g_pSharedHands[vrshared::kBarrelRayHitX + 1] = y;
     g_pSharedHands[vrshared::kBarrelRayHitX + 2] = z;
     g_pSharedHands[vrshared::kBarrelRayHitValid] = valid != 0 ? 1.0f : 0.0f;
+    g_pSharedHands[vrshared::kBarrelMainVisible] = mainVisible != 0 ? 1.0f : 0.0f;
+    g_pSharedHands[vrshared::kBarrelSecondVisible] = secondVisible != 0 ? 1.0f : 0.0f;
     std::atomic_thread_fence(std::memory_order_release);
     g_pSharedHands[vrshared::kBarrelRaySeq] = static_cast<float>(nextEven);
     s_evenSeq = nextEven;
@@ -1035,4 +1041,3 @@ void ResetVRProvCounts(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void
     g_provOverrides = 0;
     for (int i = 0; i < 4; ++i) { g_provLastQ[i]=0; g_provOrigQ[i]=0; g_provCtrlQ[i]=0; g_provHmdQ[i]=0; }
 }
-

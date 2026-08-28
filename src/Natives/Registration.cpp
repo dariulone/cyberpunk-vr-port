@@ -714,6 +714,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     fBarrelRay->AddParam("Float", "y");
     fBarrelRay->AddParam("Float", "z");
     fBarrelRay->AddParam("Int32", "valid");
+    fBarrelRay->AddParam("Int32", "mainVisible");
+    fBarrelRay->AddParam("Int32", "secondVisible");
     rtti->RegisterFunction(fBarrelRay);
     auto fNpcSurface = RED4ext::CGlobalFunction::Create(
         "QueryVRNpcHitSurface", "QueryVRNpcHitSurface", &QueryVRNpcHitSurface);
