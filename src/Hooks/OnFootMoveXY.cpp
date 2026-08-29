@@ -11,7 +11,7 @@
 #include "Utils/MemorySafe.hpp"
 #include "Core/Telemetry.hpp"
 #include "Core/LiveControls.hpp"
-#include "Camera/CameraState.hpp"   // CyberpunkVR_BodyYawRealignRad
+#include "Camera/CameraState.hpp"   // BodyYawBridgeCurrentRealignRad
 #include "Runtimes/OpenXRManager.hpp"
 
 #include <windows.h>
@@ -52,10 +52,10 @@ extern "C" void OnOnFootMoveXYCallback(void* moveStruct) {
     // injected into that heading, and it has to come back out here or walking drifts from the gaze by
     // the amount the body has turned.
     //
-    // It used to cancel by itself: the old realign rotated the recenter base by the same angle, which
-    // moved base-relative and heading-relative into step. That base rotation is gone (it landed a
-    // frame late and swung the view), so the subtraction is explicit now. Zero when the feature is off.
-    yaw -= CyberpunkVR_BodyYawRealignRad;
+    // While a heading step is still in flight, its temporary camera bridge must also be removed here.
+    // Once the next XR epoch folds that step into the base, base-relative and heading-relative yaw
+    // match again and the bridge retires. Zero when the feature is off or no step is in flight.
+    yaw -= BodyYawBridgeCurrentRealignRad();
     float c = cosf(yaw);
     float s = sinf(yaw);
     p[0] = x * c - y * s;

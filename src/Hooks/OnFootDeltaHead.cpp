@@ -35,7 +35,6 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
         g_telemetry->deltaHeadRcx = reinterpret_cast<uintptr_t>(deltaHead);
     }
     if (!deltaHead) return;
-    if(g_isInVehicle) return;
 
     // Physical body rotation (F10 -> VRIK). OFF (default): no continuous body-yaw
     // tracking from the HMD -- only the discrete snap-turn is applied (classic heading).
@@ -43,6 +42,10 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     // path test on their hot paths, and it is set from here so the two can never disagree.
     const bool bodyRot = g_liveControls.xrPhysicalBodyRotation != 0;
     CyberpunkVR_BodyYawFollow = bodyRot ? 1 : 0;
+    if(g_isInVehicle) {
+        if (!bodyRot) BodyYawFollowStep();
+        return;
+    }
 
     // MEASUREMENT ONLY. Cancelling the weapon's camera kick HERE was built and taken out again on the
     // user's call: hiding it in the view leaves the game still applying it to the character, and the
@@ -106,6 +109,10 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     // bodyRot OFF (default) -> classic snap-turn only: the heading never tracks the
     // head; the camera composes heading * FULL HMD, so a head turn moves ONLY the view.
     if (!bodyRot) {
+        // Switching the feature off may leave one acknowledged/unacknowledged bridge step in
+        // flight. Move it to the fold queue before returning; once that debt retires the XR loop
+        // returns to the original SetFrameAimTime fast path.
+        BodyYawFollowStep();
         deltaHead[idx] += snap;
         return;
     }
@@ -124,16 +131,13 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     // account. What rules that route out is the gameplay half: aim, movement, cover and
     // the collision capsule come from this heading, not from those transforms.
     //
-    // THE RECENTER BASE IS NOT TOUCHED. The version of this that shipped before called
-    // RotateBaseYaw(step) to cancel the view, which is right in the algebra and wrong in
-    // the ORDER: the heading changes here, inside the game tick, while the base only takes
-    // effect on the next XR cycle, so for one frame the view swings by the whole step --
-    // the camera drift this feature was always reported to have. The cancellation now
-    // happens on our side of the same frame, in the camera write and in the head-offset
-    // recipe, both of which compose from (engine yaw - CyberpunkVR_BodyYawRealignRad).
-    // Recentring therefore keeps working exactly as it did with the feature off.
+    // The heading changes here inside the game tick. A temporary camera bridge cancels the
+    // same step in that rendered frame; after the camera acknowledges it, the next safe XR
+    // epoch folds the step into the recenter base and retires the bridge. Rendered poses keep
+    // the base snapshot from their own epoch, so the fold cannot relabel an older frame.
+    // Recenter clears any in-flight bridge debt together with the base.
     //
-    // The loop, the cone and the realign accumulator live in src/Hooks/BodyYawFollow.cpp;
+    // The loop, the cone and the bridge state live in src/Hooks/BodyYawFollow.cpp;
     // this file is only the door into the engine's heading.
     if (g_menuModeValue == 0) {
         const float step = BodyYawFollowStep();         // radians, 0 when inside the cone

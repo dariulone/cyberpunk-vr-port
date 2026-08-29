@@ -15,23 +15,38 @@
 #include <chrono>
 #include <algorithm>
 
-void OpenXRManager::RotateBaseYaw(float radians) {
-    // Rotate the recenter base about vertical (XR +Y) so the HMD's base-relative yaw
-    // shifts by -radians. Called by the dxgi body-realign logic together with an equal
-    // heading injection; the pair leaves the rendered view and the HMD-local hand
-    // poses stationary while the body turns underneath.
-    if (radians == 0.0f) return;
-    std::lock_guard<std::mutex> lock(m_renderPoseMutex);
-    if (!m_basePoseSet) return;
+namespace {
+void RotatePoseYaw(XrPosef& pose, float radians) {
     const float h = radians * 0.5f;
     const XrQuaternionf ry{0.0f, sinf(h), 0.0f, cosf(h)};
-    XrQuaternionf q = MultiplyQuat(m_basePose.orientation, ry);
+    XrQuaternionf q = MultiplyQuat(pose.orientation, ry);
     const float n = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
     if (n > 1e-8f) {
         const float inv = 1.0f / n;
         q.x *= inv; q.y *= inv; q.z *= inv; q.w *= inv;
     }
-    m_basePose.orientation = q;
+    pose.orientation = q;
+}
+}  // namespace
+
+bool OpenXRManager::BeginFrameAimEpochWithBaseFold(XrTime t, float foldYaw) {
+    // AcquireFrameHeadSample uses this mutex at both ends of its locate. The render-pose mutex
+    // additionally makes the base mutation and epoch bump indivisible to direct locate callers.
+    std::lock_guard<std::mutex> sampleLock(m_frameSampleMutex);
+    bool folded = foldYaw == 0.0f;
+    {
+        std::lock_guard<std::mutex> renderLock(m_renderPoseMutex);
+        if (foldYaw != 0.0f && m_basePoseSet) {
+            RotatePoseYaw(m_basePose, foldYaw);
+            ++m_basePoseGeneration;
+            PublishRecenterBase(m_basePose);
+            folded = true;
+        }
+        SetFrameAimTime(t);
+    }
+    m_frameSample = {};
+    m_frameSampleEpoch = ~0ull;
+    return folded;
 }
 
 void OpenXRManager::RequestRecenter() {

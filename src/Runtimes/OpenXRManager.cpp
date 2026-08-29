@@ -43,6 +43,7 @@ extern volatile int g_verboseLog; // gate per-frame hand-tracking spam
 extern "C" int GetDisableRoll();
 extern "C" float GetForcedFov();
 extern "C" float GetGameRenderFovDeg(); // FOV (deg) the game actually renders with (native or forced); 0 if unknown
+extern "C" bool BodyYawBridgeNeedsProtection();
 extern "C" float GetTargetRenderVfovDegC(); // overscanned vertical FOV (deg) the game renders = lens*overscan; 0 if unknown
 extern "C" float GetMenuFov();
 extern "C" float GetMenuFollowDeg(); // head-vs-panel yaw offset (deg) that starts the lazy menu re-center
@@ -570,7 +571,7 @@ OpenXRManager& OpenXRManager::Get() {
     return instance;
 }
 
-// [recenter / auto-calibration / calibration-file methods (RotateBaseYaw ... LoadCalibrationFromFile) moved to openxr_calibration.cpp]
+// [recenter / auto-calibration / calibration-file methods moved to openxr_calibration.cpp]
 
 void OpenXRManager::SetMonoSubmitEnabled(bool enabled) {
     m_monoSubmitEnabled.store(enabled, std::memory_order_relaxed);
@@ -1036,15 +1037,28 @@ void OpenXRManager::PollEvents() {
                 m_stopFrameThread.store(true, std::memory_order_relaxed);
             }
         } else if (event.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
-            // Native OpenXR recenter (user held the home / system button, or used the runtime menu) —
-            // the runtime is about to remap "forward" of its tracking space at changed->changeTime.
-            // Trigger our local recenter so the mod's stored base pose lines up with the runtime's
-            // new tracking space; the next frame's HMD pose then reads (0,0,0,facing-forward) as the
-            // user expects.
             auto* changed = reinterpret_cast<XrEventDataReferenceSpaceChangePending*>(&event);
-            Log("OpenXRManager: Tracking space change pending (native recenter), refSpace=%d -> local recenter.\n",
-                static_cast<int>(changed->referenceSpaceType));
-            RequestRecenter();
+            const bool pbrGuard = BodyYawBridgeNeedsProtection();
+            if (!pbrGuard) {
+                // Original native-reset path. Physical body rotation is off and there is no bridge
+                // debt, so do not route ordinary Oculus recenter through the PBR transaction.
+                Log("OpenXRManager: Tracking space change pending (native recenter), refSpace=%d "
+                    "-> original local recenter path.\n",
+                    static_cast<int>(changed->referenceSpaceType));
+                RequestRecenter();
+            } else if (changed->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                // PBR adds an HMD-yaw consumer. Freeze only that feature until LOCAL has crossed
+                // changeTime and a coherent new-space base can replace the old one.
+                m_runtimeLocalRecenterChangeTime.store(changed->changeTime,
+                                                       std::memory_order_relaxed);
+                m_runtimeLocalRecenterPending.store(true, std::memory_order_release);
+                Log("OpenXRManager: LOCAL space change pending (native recenter), changeTime=%lld; "
+                    "body follow frozen.\n", static_cast<long long>(changed->changeTime));
+            } else {
+                Log("OpenXRManager: Tracking space change pending, refSpace=%d ignored "
+                    "(PBR guard uses LOCAL as authority).\n",
+                    static_cast<int>(changed->referenceSpaceType));
+            }
         }
 
         event = {XR_TYPE_EVENT_DATA_BUFFER};
@@ -1246,10 +1260,14 @@ bool OpenXRManager::LocateHeadPoseAt(XrTime displayTime, OpenXRHeadPose* out) {
     // Same recenter transform the frame loop applies, so this pose is interchangeable with
     // GetHeadPose()'s: relOri = conj(base.ori) * raw, relPos = conj(base.ori) * (raw - base.pos).
     XrPosef base{};
+    uint64_t baseGeneration = 0;
+    uint64_t poseEpoch = 0;
     {
         std::lock_guard<std::mutex> lock(m_renderPoseMutex);
         if (!m_basePoseSet) return false;
         base = m_basePose;
+        baseGeneration = m_basePoseGeneration;
+        poseEpoch = GetFrameAimEpoch();
     }
     const XrQuaternionf baseInv = ConjugateQuat(base.orientation);
     const XrVector3f relWorld{ loc.pose.position.x - base.position.x,
@@ -1295,12 +1313,15 @@ bool OpenXRManager::LocateHeadPoseAt(XrTime displayTime, OpenXRHeadPose* out) {
     if (CyberpunkVR_PredictFilter) {
         static std::mutex s_mtx;
         static bool s_init = false;
+        static uint64_t s_baseGeneration = 0;
         static XrVector3f s_pos{};
         static XrQuaternionf s_ori{0.0f, 0.0f, 0.0f, 1.0f};
         const float strength = GetHmdTrackingSmooth();
         std::lock_guard<std::mutex> lock(s_mtx);
-        if (!s_init || (CyberpunkVR_PredictFilter == 1 && strength <= 0.001f)) {
+        if (!s_init || s_baseGeneration != baseGeneration ||
+            (CyberpunkVR_PredictFilter == 1 && strength <= 0.001f)) {
             s_init = true;
+            s_baseGeneration = baseGeneration;
             s_pos = relPos;
             s_ori = relOri;
         } else if (CyberpunkVR_PredictFilter == 3) {
@@ -1399,18 +1420,25 @@ bool OpenXRManager::LocateHeadPoseAt(XrTime displayTime, OpenXRHeadPose* out) {
         out->valid = true;
         out->posX = s_pos.x;  out->posY = s_pos.y;  out->posZ = s_pos.z;
         out->oriX = s_ori.x;  out->oriY = s_ori.y;  out->oriZ = s_ori.z;  out->oriW = s_ori.w;
+        out->recenterBase = base;
+        out->recenterBaseValid = true;
+        out->frameAimEpoch = poseEpoch;
         return true;
     }
 
     out->valid = true;
     out->posX = relPos.x;  out->posY = relPos.y;  out->posZ = relPos.z;
     out->oriX = relOri.x;  out->oriY = relOri.y;  out->oriZ = relOri.z;  out->oriW = relOri.w;
+    out->recenterBase = base;
+    out->recenterBaseValid = true;
+    out->frameAimEpoch = poseEpoch;
     return true;
 }
 
 bool OpenXRManager::GetHeadPose(OpenXRHeadPose* out) const {
     if (!out) return false;
 
+    std::lock_guard<std::mutex> cachedLock(m_cachedHeadPoseMutex);
     const bool useSyncedPose = GetSyncSequential() != 0 && m_syncedPoseValid.load(std::memory_order_relaxed);
     out->valid = useSyncedPose ? true : m_poseValid.load(std::memory_order_relaxed);
     out->posX = useSyncedPose ? m_syncedPosX.load(std::memory_order_relaxed) : m_posX.load(std::memory_order_relaxed);
@@ -1420,6 +1448,9 @@ bool OpenXRManager::GetHeadPose(OpenXRHeadPose* out) const {
     out->oriY = useSyncedPose ? m_syncedOriY.load(std::memory_order_relaxed) : m_oriY.load(std::memory_order_relaxed);
     out->oriZ = useSyncedPose ? m_syncedOriZ.load(std::memory_order_relaxed) : m_oriZ.load(std::memory_order_relaxed);
     out->oriW = useSyncedPose ? m_syncedOriW.load(std::memory_order_relaxed) : m_oriW.load(std::memory_order_relaxed);
+    out->recenterBase = m_cachedHeadBase;
+    out->recenterBaseValid = m_cachedHeadBaseGeneration != 0;
+    out->frameAimEpoch = m_cachedHeadFrameAimEpoch;
 
     // MOTION PREDICTION REMOVED (xr_motion_predict_ms).
     //
@@ -1485,12 +1516,13 @@ void OpenXRManager::StoreRenderEyePose(int eye, const OpenXRHeadPose& pose, uint
     const XrVector3f relPos{pose.posX, pose.posY, pose.posZ};
     XrPosef raw;
     std::lock_guard<std::mutex> lock(m_renderPoseMutex);
-    if (m_basePoseSet) {
-        raw.orientation = MultiplyQuat(m_basePose.orientation, relOri);
-        const XrVector3f rotated = RotateVector(m_basePose.orientation, relPos);
-        raw.position = {m_basePose.position.x + rotated.x,
-                        m_basePose.position.y + rotated.y,
-                        m_basePose.position.z + rotated.z};
+    const XrPosef base = pose.recenterBaseValid ? pose.recenterBase : m_basePose;
+    if (pose.recenterBaseValid || m_basePoseSet) {
+        raw.orientation = MultiplyQuat(base.orientation, relOri);
+        const XrVector3f rotated = RotateVector(base.orientation, relPos);
+        raw.position = {base.position.x + rotated.x,
+                        base.position.y + rotated.y,
+                        base.position.z + rotated.z};
     } else {
         raw.orientation = relOri;
         raw.position = relPos;

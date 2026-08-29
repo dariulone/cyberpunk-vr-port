@@ -452,18 +452,6 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // carried +50.69 (the same value the solve converted with, so the frames agreed) while the
     // published view carried +50.69 too, when the drawn view was at -42.00.
     //
-    // Taking it out once, here, fixes every consumer at the source instead of one at a time.
-    if (CyberpunkVR_BodyYawRealignRad != 0.0f) {
-        const float ra = -CyberpunkVR_BodyYawRealignRad;
-        const float cr = cosf(ra), sr = sinf(ra);
-        const float fx = bodyGameForwardX * cr - bodyGameForwardY * sr;
-        const float fy = bodyGameForwardX * sr + bodyGameForwardY * cr;
-        bodyGameForwardX = fx;
-        bodyGameForwardY = fy;
-    }
-
-
-
     // POSE PAIR LOCKING: fetch the render eye FIRST, then take a pair-locked head
     // pose — eye0 samples live + freezes, eye1 replays eye0's pose. Both eyes of
     // the stereo pair therefore drive the camera (and below, VRIK) from ONE head
@@ -494,6 +482,19 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     const bool hasXR = CyberpunkVR_OneSamplePerFrame
         ? OpenXRManager::Get().AcquireFrameHeadSample(&xrPose)
         : OpenXRManager::Get().GetHeadPose(&xrPose);
+    // Take the bridge value belonging to the same base/aim epoch as this head pose. A late camera
+    // consumer can still finish an older epoch after the XR thread has folded the new one.
+    const float bodyYawBridge = hasXR
+        ? BodyYawBridgeRealignForEpoch(xrPose.frameAimEpoch)
+        : BodyYawBridgeCurrentRealignRad();
+    if (bodyYawBridge != 0.0f) {
+        const float ra = -bodyYawBridge;
+        const float cr = cosf(ra), sr = sinf(ra);
+        const float fx = bodyGameForwardX * cr - bodyGameForwardY * sr;
+        const float fy = bodyGameForwardX * sr + bodyGameForwardY * cr;
+        bodyGameForwardX = fx;
+        bodyGameForwardY = fy;
+    }
     const bool composeAtWrite = (CyberpunkVR_CamWriteInPatch && CyberpunkVR_CamComposeAtWrite);
     if (hasXR) {
         // Hand the EXACT sample this frame's camera is built from to the submit path, so

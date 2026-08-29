@@ -392,16 +392,18 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                         // The body follower turns the character through the engine's own heading (see
                         // src/Hooks/BodyYawFollow.cpp), and that heading is what this composition is
                         // built from -- so without this line every degree the body gains would swing
-                        // the view with it. Subtracting the accumulated realign leaves the view
-                        // exactly where it would have been had the body never turned, in the SAME
-                        // frame the heading changed.
+                        // the view with it. Subtracting the temporary bridge leaves the view exactly
+                        // where it would have been had the body never turned, in the SAME frame the
+                        // heading changed.
                         //
-                        // This is where the cancellation belongs. Doing it by rotating the recenter
-                        // base is algebraically identical but lands a frame late -- the heading moves
-                        // in the game tick, the base only on the next XR cycle -- and that one frame
-                        // of uncancelled step is the camera drift the old on-foot realign had.
-                        // Leaving the base alone also means recentring is untouched by the feature.
-                        yaw -= CyberpunkVR_BodyYawRealignRad;
+                        // This bridge is necessary until the camera acknowledges the step. The next
+                        // safe XR epoch then folds the acknowledged yaw into the recenter base and
+                        // retires the same amount from the bridge.
+                        const float bodyYawBridge = BodyYawBridgeRealignForEpoch(p.frameAimEpoch);
+                        yaw -= bodyYawBridge;
+                        // This camera is now composed from the heading that includes the follower's
+                        // requested turn. The next XR epoch may safely fold that acknowledged yaw.
+                        BodyYawBridgeAcknowledgeRenderedCamera(p.frameAimEpoch, bodyYawBridge);
                         // PUBLISHED AT THE INSTANT IT IS USED, so the play-space anchor can be rotated by
                         // the very same number instead of by the body's own forward. Those were two clocks
                         // -- this one is assembled per rendered frame, the body's advances on the entity
@@ -732,7 +734,7 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
             static bool  s_mountLearned = false;
             const float kFp = 1.0f / 131072.0f;
             const float H = CyberpunkVR_BodyYawFinalRad;
-            const float A = CyberpunkVR_BodyYawRealignRad;
+            const float A = BodyYawBridgeCurrentRealignRad();
             const float rx = static_cast<float>(p[0]) * kFp - CyberpunkVR_PlayerEntityPos[0];
             const float ry = static_cast<float>(p[1]) * kFp - CyberpunkVR_PlayerEntityPos[1];
             if (A == 0.0f) {

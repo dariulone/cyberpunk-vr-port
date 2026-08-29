@@ -23,6 +23,10 @@
 #include <dxgi1_4.h>
 #include "Utils/LogThrottle.hpp"
 
+extern "C" void BodyYawBridgeBeginXrEpoch(XrTime locateTime);
+extern "C" void BodyYawBridgeResetForRecenter();
+extern "C" bool BodyYawBridgeNeedsProtection();
+
 // Run the XR cycle on every display frame and let xrWaitFrame pace it, re-submitting the
 // last snapshot with ITS OWN pose when the game has not produced a new one. 0 restores the
 // old behaviour (block until a fresh game frame, skipping XR frames entirely).
@@ -1161,7 +1165,13 @@ DWORD OpenXRManager::FrameThreadMain() {
         }
         // Publish it so the camera write aims at the very same instant instead of deriving its
         // own -- see SetFrameAimTime().
-        SetFrameAimTime(locateTime);
+        // Physical body rotation owns the bridge/base-fold transaction. With the feature off and
+        // no in-flight debt, preserve the original frame-aim path exactly.
+        if (IsRuntimeLocalRecenterPending() || BodyYawBridgeNeedsProtection()) {
+            BodyYawBridgeBeginXrEpoch(locateTime);
+        } else {
+            SetFrameAimTime(locateTime);
+        }
 
 
         // The controllers use the same target as the head. See the note at the top of this file.
@@ -1251,10 +1261,23 @@ DWORD OpenXRManager::FrameThreadMain() {
 
         if (headPoseLocated) {
             XrPosef basePose{};
+            uint64_t baseGeneration = 0;
             bool baseReset = false;
+            const bool runtimeLocalRecenterPending =
+                m_runtimeLocalRecenterPending.load(std::memory_order_acquire);
+            const XrTime runtimeLocalChangeTime =
+                m_runtimeLocalRecenterChangeTime.load(std::memory_order_relaxed);
+            const bool runtimeLocalRecenterDue = runtimeLocalRecenterPending &&
+                locateTime >= runtimeLocalChangeTime;
+            // Do not consume a mod recenter request into the old LOCAL space while a native
+            // transition is pending. If both coincide, the coherent native-space capture satisfies
+            // both requests and consumes the mod request at the same boundary.
+            const bool modRecenterRequested =
+                (!runtimeLocalRecenterPending || runtimeLocalRecenterDue) &&
+                m_recenterRequested.exchange(false, std::memory_order_relaxed);
             {
                 std::lock_guard<std::mutex> renderLock(m_renderPoseMutex);
-                if (!m_basePoseSet || m_recenterRequested.exchange(false, std::memory_order_relaxed)) {
+                if (!m_basePoseSet || modRecenterRequested || runtimeLocalRecenterDue) {
                     // YAW-ONLY BASE (native-VR recenter semantics). The old code captured the
                     // FULL HMD orientation -- whatever pitch/roll the user's head held at that
                     // moment got baked into the base, and conj(base)*pose then TILTED THE WORLD
@@ -1277,14 +1300,32 @@ DWORD OpenXRManager::FrameThreadMain() {
                     m_basePose.position = location.pose.position;
                     m_basePose.orientation = XrQuaternionf{0.0f, sinf(yaw*0.5f), 0.0f, cosf(yaw*0.5f)};
                     m_basePoseSet = true;
+                    ++m_basePoseGeneration;
                     baseReset = true;
                     Log("OpenXRManager: Base pose captured (yaw-only, %.1f deg).\n", yaw * 57.29578f);
                 }
                 basePose = m_basePose;
+                baseGeneration = m_basePoseGeneration;
             }
             // Mirror it for the submit path, which has to undo this transform to put a rendered
             // pose back into local space. See GetRecenterBase().
             PublishRecenterBase(basePose);
+            const bool resetPbrState = runtimeLocalRecenterPending ||
+                BodyYawBridgeNeedsProtection();
+            if (baseReset && resetPbrState) {
+                BodyYawBridgeResetForRecenter();
+                {
+                    std::lock_guard<std::mutex> sampleLock(m_frameSampleMutex);
+                    m_frameSample = {};
+                    m_frameSampleEpoch = ~0ull;
+                }
+                if (runtimeLocalRecenterDue) {
+                    // Resume only after the new base and all old bridge/sample state are gone.
+                    m_runtimeLocalRecenterPending.store(false, std::memory_order_release);
+                    Log("OpenXRManager: LOCAL recenter committed at locateTime=%lld; "
+                        "body follow resumed.\n", static_cast<long long>(locateTime));
+                }
+            }
 
             XrQuaternionf baseInv = ConjugateQuat(basePose.orientation);
             XrVector3f relPosWorld{};
@@ -1296,7 +1337,10 @@ DWORD OpenXRManager::FrameThreadMain() {
             XrPosef filteredHeadPose{};
             filteredHeadPose.position = relPos;
             filteredHeadPose.orientation = relOri;
-            if (baseReset) {
+            static uint64_t s_filterBaseGeneration = 0;
+            const bool baseGenerationChanged = s_filterBaseGeneration != baseGeneration;
+            s_filterBaseGeneration = baseGeneration;
+            if (baseReset || baseGenerationChanged) {
                 m_headFilterState.initialized = false;
                 m_handAimYawFilter[0].initialized = false;
                 m_handAimYawFilter[1].initialized = false;
@@ -1353,7 +1397,10 @@ DWORD OpenXRManager::FrameThreadMain() {
                     s_q = NlerpQuat(s_q, filteredHeadPose.orientation, t);
                 }
                 s_lastUs = nowUs;
-                if (baseReset) { s_p = filteredHeadPose.position; s_q = filteredHeadPose.orientation; }
+                if (baseReset || baseGenerationChanged) {
+                    s_p = filteredHeadPose.position;
+                    s_q = filteredHeadPose.orientation;
+                }
                 filteredHeadPose.position = s_p;
                 filteredHeadPose.orientation = s_q;
                 m_headFilterState.initialized = false;
@@ -1378,14 +1425,20 @@ DWORD OpenXRManager::FrameThreadMain() {
                                  static_cast<uint32_t>(m_views.size()), location.pose);
             }
 
-            m_posX.store(filteredHeadPose.position.x, std::memory_order_relaxed);
-            m_posY.store(filteredHeadPose.position.y, std::memory_order_relaxed);
-            m_posZ.store(filteredHeadPose.position.z, std::memory_order_relaxed);
-            m_oriX.store(filteredHeadPose.orientation.x, std::memory_order_relaxed);
-            m_oriY.store(filteredHeadPose.orientation.y, std::memory_order_relaxed);
-            m_oriZ.store(filteredHeadPose.orientation.z, std::memory_order_relaxed);
-            m_oriW.store(filteredHeadPose.orientation.w, std::memory_order_relaxed);
-            m_poseValid.store(true, std::memory_order_relaxed);
+            {
+                std::lock_guard<std::mutex> cachedLock(m_cachedHeadPoseMutex);
+                m_posX.store(filteredHeadPose.position.x, std::memory_order_relaxed);
+                m_posY.store(filteredHeadPose.position.y, std::memory_order_relaxed);
+                m_posZ.store(filteredHeadPose.position.z, std::memory_order_relaxed);
+                m_oriX.store(filteredHeadPose.orientation.x, std::memory_order_relaxed);
+                m_oriY.store(filteredHeadPose.orientation.y, std::memory_order_relaxed);
+                m_oriZ.store(filteredHeadPose.orientation.z, std::memory_order_relaxed);
+                m_oriW.store(filteredHeadPose.orientation.w, std::memory_order_relaxed);
+                m_cachedHeadBase = basePose;
+                m_cachedHeadBaseGeneration = baseGeneration;
+                m_cachedHeadFrameAimEpoch = GetFrameAimEpoch();
+                m_poseValid.store(true, std::memory_order_release);
+            }
 
             // [HANDS] Sync actions and locate hands
             static int s_handLogCounter = 0;

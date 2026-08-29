@@ -622,10 +622,14 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                 // struct AwaitFrame filled.
                 //
                 // And the space: GetHeadPose() is recenter-relative, the layer is m_localSpace.
-                // Undo the base here rather than shipping a pose from the wrong frame of
-                // reference (identity base hides it; a recenter does not).
+                // Restore the exact base snapshot saved with this rendered pose; using the live
+                // base after an epoch fold would relabel an older image with a newer reference.
                 XrPosef base{};
-                OpenXRManager::Get().GetRecenterBase(&base);
+                if (pending.recenterBaseValid) {
+                    base = pending.recenterBase;
+                } else {
+                    OpenXRManager::Get().GetRecenterBase(&base);
+                }
                 const XrQuaternionf relOri{ pending.oriX, pending.oriY, pending.oriZ, pending.oriW };
                 const XrVector3f relPos{ pending.posX, pending.posY, pending.posZ };
                 const XrVector3f rotated = RotateVector(base.orientation, relPos);
@@ -649,7 +653,11 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
                 OpenXRHeadPose vrPending{};
                 if (OpenXRManager::Get().PopVrcamRenderedFramePose(&vrPending) && vrPending.valid) {
                     XrPosef vbase{};
-                    OpenXRManager::Get().GetRecenterBase(&vbase);
+                    if (vrPending.recenterBaseValid) {
+                        vbase = vrPending.recenterBase;
+                    } else {
+                        OpenXRManager::Get().GetRecenterBase(&vbase);
+                    }
                     const XrQuaternionf relOriV{ vrPending.oriX, vrPending.oriY,
                                                  vrPending.oriZ, vrPending.oriW };
                     const XrVector3f relPosV{ vrPending.posX, vrPending.posY, vrPending.posZ };

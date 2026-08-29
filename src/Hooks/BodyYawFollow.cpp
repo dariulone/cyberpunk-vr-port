@@ -35,30 +35,23 @@
 //      them -- and whether the engine recomputes it after our write -- is a race with its own pass
 //      order, not an invariant. It remains the right route for a PURELY VISUAL body turn.
 //
-// WHERE THE CANCELLATION LIVES, AND WHY NOT IN THE RECENTER BASE. The heading also feeds the camera,
-// so injecting into it would swing the view. The old on-foot code cancelled that with
-// RotateBaseYaw(step): the frame loop reports the head relative to that base both ways --
+// WHERE THE CANCELLATION LIVES. The heading also feeds the camera, so injecting into it would swing
+// the view. The frame loop reports the head relative to the recenter base both ways --
 //     relPos = RotateVector(conj(base.ori), headPos - base.pos)
 //     relOri = conj(base.ori) * headOri
 // -- so the head's orientation and its room position each lose what the heading gained, and the view,
-// the play space and the head-local hand poses all stay put. Correct in the algebra, wrong in the
-// ORDER: the heading changes inside the game tick while the base only takes effect on the next XR
-// cycle, so for one frame the view swings by the whole step. That is the camera drift this feature
-// was always reported to have.
+// the play space and the head-local hand poses all stay put. But applying that base rotation directly
+// from the game tick is one XR epoch late: the heading has already changed while the sampled pose still
+// belongs to the old base. The temporary camera bridge cancels that in the same rendered frame:
 //
-// So the base is left alone -- recentring keeps working exactly as before -- and the cancellation is
-// done on our side, in the same frame, where the view is composed:
+//     body   yaw = E          (engine's own, ours included: E = E0 + bridge)
+//     view   yaw = E - bridge (PatchCamera and LocateCamera)
+//     solve  yaw = E          (world->model in the pose path)
 //
-//     body   yaw = E            (engine's own, ours included: E = E0 + realign)
-//     view   yaw = E - realign  (PatchCamera, LocateCamera's head-offset recipe)
-//     solve  yaw = E            (world->model in the pose path)
-//
-// The view is then exactly what it would have been had the body never turned, the play space is
-// anchored to the heading that existed at recenter, and the hands need no compensation of their own:
-// their poses are head-local against an untouched base, and the solve converting with the body's TRUE
-// yaw puts the model-space target back at the controller. That last point is also self-correcting --
-// the solve reads the yaw the engine actually ended up at (from the census), so a heading the engine
-// clamps or eases still leaves the hands on the controllers.
+// Once a rendered camera acknowledges the bridge, the next safe XR epoch folds the same yaw into the
+// recenter base and retires it from the bridge. Every rendered/submit pose carries the exact base
+// snapshot that produced it, so a fold cannot relabel an older image with the new reference frame.
+// Recenter resets both the base and any in-flight bridge debt.
 
 #include "Core/VrCoreShared.hpp"
 #include "Hooks/Hook.hpp"
@@ -71,6 +64,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cmath>
+#include <mutex>
 
 extern void Log(const char* fmt, ...);
 
@@ -159,9 +153,8 @@ bool VRIK_ReadNativeTransformSnapshot(VrikTransformSnapshot* out) {
     return false;
 }
 
-// THE ACCUMULATED REALIGN, radians, game space about +Z: how much of the engine's current heading is
-// ours rather than the player's own turning. LOAD-BEARING -- the view is composed from
-// (engine yaw - this), and if it is wrong the view drifts by the error.
+// The exported mirror of the temporary camera bridge. It no longer accumulates for the session:
+// acknowledged yaw is folded into m_basePose at the next XR epoch and retired from this value.
 extern "C" __declspec(dllexport) float CyberpunkVR_BodyYawRealignRad = 0.0f;
 
 // Readable live: the same realign in degrees, the head-against-body residual, and the two counters.
@@ -183,16 +176,123 @@ extern "C" __declspec(dllexport) int   CyberpunkVR_PlayerEntityValid = 0;
 
 namespace {
 
+struct BodyYawBridgeState {
+    float pendingGameYaw = 0.0f;
+    float readyBaseFoldYaw = 0.0f;
+    float activeCameraBridgeYaw = 0.0f;
+    float previousEpochBridgeYaw = 0.0f;
+    uint64_t currentEpoch = 0;
+    uint64_t previousEpoch = ~0ull;
+};
+
+std::mutex s_bodyYawBridgeMutex;
+BodyYawBridgeState s_bodyYawBridge{};
+std::atomic<bool> s_bodyYawBridgeHasDebt{false};
+
+float WrapYaw(float yaw) {
+    while (yaw > 3.14159265f) yaw -= 6.28318531f;
+    while (yaw < -3.14159265f) yaw += 6.28318531f;
+    return yaw;
+}
+
+void PublishBodyYawBridgeDebugLocked() {
+    CyberpunkVR_BodyYawRealignRad = s_bodyYawBridge.activeCameraBridgeYaw;
+    CyberpunkVR_DebugBodyFollowOffsetDeg =
+        s_bodyYawBridge.activeCameraBridgeYaw * 57.2957795f;
+    s_bodyYawBridgeHasDebt.store(
+        s_bodyYawBridge.pendingGameYaw != 0.0f ||
+        s_bodyYawBridge.readyBaseFoldYaw != 0.0f ||
+        s_bodyYawBridge.activeCameraBridgeYaw != 0.0f ||
+        s_bodyYawBridge.previousEpochBridgeYaw != 0.0f,
+        std::memory_order_release);
+}
+
 // The HMD's yaw relative to the recenter base, radians, about the XR vertical (+Y).
-bool HeadYawRelBase(float* outYaw) {
+bool HeadYawRelBase(float* outYaw, uint64_t* outEpoch) {
     OpenXRHeadPose hp{};
     if (!OpenXRManager::Get().GetHeadPose(&hp) || !hp.valid) return false;
     const float y = hp.oriY, z = hp.oriZ, x = hp.oriX, w = hp.oriW;
     *outYaw = std::atan2(2.0f * (w * y + x * z), 1.0f - 2.0f * (y * y + z * z));
+    if (outEpoch) *outEpoch = hp.frameAimEpoch;
     return true;
 }
 
 }  // namespace
+
+extern "C" float BodyYawBridgeCurrentRealignRad() {
+    if (!s_bodyYawBridgeHasDebt.load(std::memory_order_acquire)) return 0.0f;
+    std::lock_guard<std::mutex> lock(s_bodyYawBridgeMutex);
+    return s_bodyYawBridge.activeCameraBridgeYaw;
+}
+
+extern "C" float BodyYawBridgeRealignForEpoch(uint64_t epoch) {
+    if (!s_bodyYawBridgeHasDebt.load(std::memory_order_acquire)) return 0.0f;
+    std::lock_guard<std::mutex> lock(s_bodyYawBridgeMutex);
+    if (epoch != 0 && epoch == s_bodyYawBridge.previousEpoch) {
+        return s_bodyYawBridge.previousEpochBridgeYaw;
+    }
+    return s_bodyYawBridge.activeCameraBridgeYaw;
+}
+
+extern "C" void BodyYawBridgeAcknowledgeRenderedCamera(uint64_t epoch, float bridgeUsed) {
+    if (!s_bodyYawBridgeHasDebt.load(std::memory_order_acquire)) return;
+    std::lock_guard<std::mutex> lock(s_bodyYawBridgeMutex);
+    if (epoch != 0 && epoch != s_bodyYawBridge.currentEpoch) return;
+    if (s_bodyYawBridge.pendingGameYaw == 0.0f) return;
+    const float bridgeWithoutPending =
+        WrapYaw(s_bodyYawBridge.activeCameraBridgeYaw - s_bodyYawBridge.pendingGameYaw);
+    float acknowledged = WrapYaw(bridgeUsed - bridgeWithoutPending);
+    const float pending = s_bodyYawBridge.pendingGameYaw;
+    if (pending > 0.0f) {
+        if (acknowledged < 0.0f) acknowledged = 0.0f;
+        if (acknowledged > pending) acknowledged = pending;
+    } else {
+        if (acknowledged > 0.0f) acknowledged = 0.0f;
+        if (acknowledged < pending) acknowledged = pending;
+    }
+    if (acknowledged == 0.0f) return;
+    s_bodyYawBridge.readyBaseFoldYaw += acknowledged;
+    s_bodyYawBridge.pendingGameYaw -= acknowledged;
+    PublishBodyYawBridgeDebugLocked();
+}
+
+extern "C" bool BodyYawBridgeNeedsProtection() {
+    return CyberpunkVR_BodyYawFollow != 0 ||
+        s_bodyYawBridgeHasDebt.load(std::memory_order_acquire);
+}
+
+extern "C" void BodyYawBridgeBeginXrEpoch(XrTime locateTime) {
+    auto& xr = OpenXRManager::Get();
+    std::lock_guard<std::mutex> lock(s_bodyYawBridgeMutex);
+    s_bodyYawBridge.previousEpoch = xr.GetFrameAimEpoch();
+    s_bodyYawBridge.previousEpochBridgeYaw = s_bodyYawBridge.activeCameraBridgeYaw;
+
+    // Keep advancing coherent pose epochs during a native LOCAL transition, but do not mutate
+    // the old-space base. The pending transaction will replace that base and discard all bridge
+    // state after the first valid new-space locate.
+    const float fold = xr.IsRuntimeLocalRecenterPending()
+        ? 0.0f
+        : s_bodyYawBridge.readyBaseFoldYaw;
+    const bool folded = xr.BeginFrameAimEpochWithBaseFold(locateTime, fold);
+    if (fold != 0.0f && folded) {
+        s_bodyYawBridge.activeCameraBridgeYaw =
+            WrapYaw(s_bodyYawBridge.activeCameraBridgeYaw - fold);
+        s_bodyYawBridge.readyBaseFoldYaw = 0.0f;
+    }
+
+    s_bodyYawBridge.currentEpoch = xr.GetFrameAimEpoch();
+    PublishBodyYawBridgeDebugLocked();
+}
+
+extern "C" void BodyYawBridgeResetForRecenter() {
+    std::lock_guard<std::mutex> lock(s_bodyYawBridgeMutex);
+    const uint64_t epoch = OpenXRManager::Get().GetFrameAimEpoch();
+    s_bodyYawBridge = {};
+    s_bodyYawBridge.currentEpoch = epoch;
+    s_bodyYawBridge.previousEpoch = ~0ull;
+    CyberpunkVR_DebugBodyFollowErrDeg = 0.0f;
+    PublishBodyYawBridgeDebugLocked();
+}
 
 // THE STEP TO INJECT INTO THE ENGINE'S HEADING THIS FRAME, radians. Called once per frame from the
 // on-foot heading hook, which is the game's own turn channel.
@@ -211,16 +311,23 @@ bool HeadYawRelBase(float* outYaw) {
 extern "C" float BodyYawFollowStep() {
     ++CyberpunkVR_DebugBodyFollowCalls;
     if (!CyberpunkVR_BodyYawFollow) {
-        // Give the realign back when the feature is switched off, or the view would keep the
-        // subtraction for as long as the session lasts.
-        CyberpunkVR_BodyYawRealignRad = 0.0f;
-        CyberpunkVR_DebugBodyFollowOffsetDeg = 0.0f;
+        // Preserve any in-flight compensation until the next epoch can fold it into the base.
+        std::lock_guard<std::mutex> lock(s_bodyYawBridgeMutex);
+        s_bodyYawBridge.readyBaseFoldYaw += s_bodyYawBridge.pendingGameYaw;
+        s_bodyYawBridge.pendingGameYaw = 0.0f;
+        PublishBodyYawBridgeDebugLocked();
         return 0.0f;
     }
+    // A native LOCAL recenter is a coordinate-system transaction, not physical head motion.
+    // Until the frame loop has captured m_basePose from a valid pose at/after changeTime, the
+    // cached relative head pose may combine the new LOCAL space with the old base. Never inject
+    // that discontinuity into the game's heading.
+    if (OpenXRManager::Get().IsRuntimeLocalRecenterPending()) return 0.0f;
     float hmdYaw = 0.0f;
-    if (!HeadYawRelBase(&hmdYaw)) return 0.0f;
+    uint64_t poseEpoch = 0;
+    if (!HeadYawRelBase(&hmdYaw, &poseEpoch)) return 0.0f;
 
-    float resid = hmdYaw - CyberpunkVR_BodyYawRealignRad;
+    float resid = hmdYaw - BodyYawBridgeRealignForEpoch(poseEpoch);
     while (resid >  3.14159265f) resid -= 6.28318531f;
     while (resid < -3.14159265f) resid += 6.28318531f;
     CyberpunkVR_DebugBodyFollowErrDeg = resid * 57.2957795f;
@@ -242,10 +349,14 @@ extern "C" float BodyYawFollowStep() {
     // refuses part of a large delta the view would drift by the refused part -- that would show up as
     // the view creeping during fast turns, and nothing else looks like it.
 
-    CyberpunkVR_BodyYawRealignRad += step;
-    while (CyberpunkVR_BodyYawRealignRad >  3.14159265f) CyberpunkVR_BodyYawRealignRad -= 6.28318531f;
-    while (CyberpunkVR_BodyYawRealignRad < -3.14159265f) CyberpunkVR_BodyYawRealignRad += 6.28318531f;
-    CyberpunkVR_DebugBodyFollowOffsetDeg = CyberpunkVR_BodyYawRealignRad * 57.2957795f;
+    {
+        std::lock_guard<std::mutex> lock(s_bodyYawBridgeMutex);
+        s_bodyYawBridge.pendingGameYaw += step;
+        s_bodyYawBridge.activeCameraBridgeYaw =
+            WrapYaw(s_bodyYawBridge.activeCameraBridgeYaw + step);
+        s_bodyYawBridge.currentEpoch = OpenXRManager::Get().GetFrameAimEpoch();
+        PublishBodyYawBridgeDebugLocked();
+    }
     ++CyberpunkVR_DebugBodyFollowApplied;
     return step;
 }

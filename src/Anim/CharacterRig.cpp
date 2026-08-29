@@ -1443,7 +1443,8 @@ bool VRIK_ComputeCamModel(float* outPos, float* outRot, float* outEntityQuat,
                         VRIK_QuatNorm(currentEntQ);
                         float invCurrentEnt[4]; VRIK_QuatConj(currentEntQ, invCurrentEnt);
 
-                        float viewYaw = 2.0f * std::atan2(wz, ww) - CyberpunkVR_BodyYawRealignRad;
+                        const float bridge = BodyYawBridgeRealignForEpoch(head.frameAimEpoch);
+                        float viewYaw = 2.0f * std::atan2(wz, ww) - bridge;
                         const float yawQ[4] = { 0.0f, 0.0f,
                                                 std::sin(viewYaw * 0.5f),
                                                 std::cos(viewYaw * 0.5f) };
