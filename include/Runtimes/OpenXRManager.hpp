@@ -27,6 +27,11 @@ struct OpenXRHeadPose {
     float oriZ;
     float oriW;
     bool valid;
+    // The exact recenter base used to derive this relative pose. Render/read-back queues carry
+    // this snapshot with the pose so Present never reconstructs an old frame with a newer base.
+    XrPosef recenterBase{};
+    uint64_t frameAimEpoch = 0;
+    bool recenterBaseValid = false;
 };
 
 // Aggregated VR-controller snapshot, queried each frame from the XInput hook
@@ -117,6 +122,9 @@ public:
     // must not read the cached atomics above.
     bool LocateHeadPoseAt(XrTime displayTime, OpenXRHeadPose* out);
     void RequestRecenter();
+    bool IsRuntimeLocalRecenterPending() const {
+        return m_runtimeLocalRecenterPending.load(std::memory_order_acquire);
+    }
     void OnPresent(IDXGISwapChain* swapChain);
     // Run one XR frame inline on the Present thread instead of a dedicated
     // frame thread.
@@ -236,6 +244,11 @@ public:
     // moment the user recenters facing anywhere else.
     void GetRecenterBase(XrPosef* out) const {
         if (!out) return;
+        std::lock_guard<std::mutex> lock(m_renderPoseMutex);
+        if (m_basePoseSet) {
+            *out = m_basePose;
+            return;
+        }
         out->orientation.x = m_baseOriX.load(std::memory_order_relaxed);
         out->orientation.y = m_baseOriY.load(std::memory_order_relaxed);
         out->orientation.z = m_baseOriZ.load(std::memory_order_relaxed);
@@ -442,6 +455,7 @@ public:
         m_frameAimStampUs.store(XrDiagNowUs(), std::memory_order_release);
         m_frameAimEpoch.fetch_add(1, std::memory_order_acq_rel);
     }
+    bool BeginFrameAimEpochWithBaseFold(XrTime t, float foldYaw);
     XrTime   GetFrameAimTime() const { return m_frameAimTime.load(std::memory_order_acquire); }
 
     // THE AIM TIME, CARRIED FORWARD TO NOW -- and it exists because the plain aim time is the wrong
@@ -499,29 +513,37 @@ public:
     // callers return the stored one.
     bool AcquireFrameHeadSample(OpenXRHeadPose* out) {
         if (!out) return false;
-        const uint64_t epoch = m_frameAimEpoch.load(std::memory_order_acquire);
-        {
-            std::lock_guard<std::mutex> lock(m_frameSampleMutex);
-            if (m_frameSampleEpoch == epoch && m_frameSample.valid) {
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            uint64_t epoch = 0;
+            {
+                std::lock_guard<std::mutex> lock(m_frameSampleMutex);
+                epoch = m_frameAimEpoch.load(std::memory_order_acquire);
+                if (m_frameSampleEpoch == epoch && m_frameSample.valid) {
+                    *out = m_frameSample;
+                    return true;
+                }
+            }
+            OpenXRHeadPose p{};
+            bool ok = false;
+            const XrTime aim = m_frameAimTime.load(std::memory_order_acquire);
+            if (aim > 0) ok = LocateHeadPoseAt(aim, &p) && p.valid;
+            if (!ok) ok = GetHeadPose(&p) && p.valid;   // pre-session / locate failure
+            if (!ok) return false;
+            p.frameAimEpoch = epoch;
+            {
+                std::lock_guard<std::mutex> lock(m_frameSampleMutex);
+                if (m_frameAimEpoch.load(std::memory_order_acquire) != epoch) {
+                    continue;
+                }
+                if (m_frameSampleEpoch != epoch || !m_frameSample.valid) {
+                    m_frameSample = p;
+                    m_frameSampleEpoch = epoch;
+                }
                 *out = m_frameSample;
-                return true;
             }
+            return out->valid;
         }
-        OpenXRHeadPose p{};
-        bool ok = false;
-        const XrTime aim = m_frameAimTime.load(std::memory_order_acquire);
-        if (aim > 0) ok = LocateHeadPoseAt(aim, &p) && p.valid;
-        if (!ok) ok = GetHeadPose(&p) && p.valid;   // pre-session / locate failure
-        if (!ok) return false;
-        {
-            std::lock_guard<std::mutex> lock(m_frameSampleMutex);
-            if (m_frameSampleEpoch != epoch || !m_frameSample.valid) {
-                m_frameSample = p;
-                m_frameSampleEpoch = epoch;
-            }
-            *out = m_frameSample;
-        }
-        return out->valid;
+        return false;
     }
 
     // ---- THE POSE THAT IS ACTUALLY IN THE FRAME, READ BACK FROM THE ENGINE -------------------
@@ -771,13 +793,6 @@ public:
     // locomotion (character walks the way the chosen controller points). Returns
     // 0 if the controller pose isn't valid this frame.
     float GetHandYawRelToBody(int side) const;
-
-    // Body-realign support: rotate the recenter base about the vertical axis by
-    // `radians`, IN STEP with an equal heading injection (dxgi OnOnFootDeltaHead).
-    // relOri/relPos are conj(base)*head, so base*Ry(a) shifts the HMD's relative yaw
-    // by -a while the reconstructed raw pose (base*rel) is unchanged: the rendered
-    // view and the HMD-local hand poses stay put while the body turns underneath.
-    void RotateBaseYaw(float radians);
 
     // Physical-body yaw estimate (radians, rel recenter base, same convention as
     // GetHmdYawRelToBody) from the CONTROLLER POSITIONS: the left->right hand line
@@ -1234,6 +1249,10 @@ private:
     std::atomic<float> m_linVelY = 0.0f;
     std::atomic<float> m_linVelZ = 0.0f;
     std::atomic<bool> m_recenterRequested = false;
+    // A native runtime recenter changes LOCAL coordinates at changeTime. Body follow must not
+    // consume a head pose from the new LOCAL space while m_basePose still belongs to the old one.
+    std::atomic<XrTime> m_runtimeLocalRecenterChangeTime{0};
+    std::atomic<bool> m_runtimeLocalRecenterPending{false};
     std::atomic<bool> m_syncedPoseValid = false;
     std::atomic<float> m_syncedPosX = 0.0f;
     std::atomic<float> m_syncedPosY = 0.0f;
@@ -1246,7 +1265,11 @@ private:
     XrFovf m_syncedEyeFovs[2]{};
     bool m_syncedEyeViewsValid = false;
     // Per-eye head pose captured at render time by the camera hook (render-pose submit).
-    std::mutex m_renderPoseMutex;
+    mutable std::mutex m_renderPoseMutex;
+    mutable std::mutex m_cachedHeadPoseMutex;
+    XrPosef m_cachedHeadBase{};
+    uint64_t m_cachedHeadBaseGeneration = 0;
+    uint64_t m_cachedHeadFrameAimEpoch = 0;
     // The pose the camera injection actually used for the frame being built (see
     // SetPendingRenderHeadPose). Present attaches this to the snapshot it captures.
     std::mutex m_pendingRenderPoseMutex;
@@ -1264,6 +1287,7 @@ private:
     
     bool m_basePoseSet = false;
     XrPosef m_basePose{};
+    uint64_t m_basePoseGeneration = 0;
 
     // MENU PANEL ANCHOR (LAZY-FOLLOW). The menu/map panel is anchored in front of the
     // player when a menu opens and then holds still while the head turns WITHIN a

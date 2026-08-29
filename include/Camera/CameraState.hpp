@@ -138,6 +138,10 @@ extern "C" __declspec(dllexport) extern int      CyberpunkVR_VrikArmAnchorFromBo
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_VrikElbowPolicy;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_BodyYawFollow;
 extern "C" __declspec(dllexport) extern float    CyberpunkVR_BodyYawRealignRad;
+extern "C" float BodyYawBridgeCurrentRealignRad();
+extern "C" float BodyYawBridgeRealignForEpoch(uint64_t epoch);
+extern "C" void BodyYawBridgeAcknowledgeRenderedCamera(uint64_t epoch, float bridgeUsed);
+extern "C" bool BodyYawBridgeNeedsProtection();
 extern "C" __declspec(dllexport) extern float    CyberpunkVR_BodyYawFollowDeadDeg;
 extern "C" __declspec(dllexport) extern float    CyberpunkVR_DebugBodyFollowOffsetDeg;
 extern "C" __declspec(dllexport) extern float    CyberpunkVR_DebugBodyFollowErrDeg;
