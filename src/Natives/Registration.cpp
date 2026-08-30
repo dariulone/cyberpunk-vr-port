@@ -707,6 +707,24 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     fProvReset->flags = flags; rtti->RegisterFunction(fProvReset);
     auto fProvQM = RED4ext::CGlobalFunction::Create("SetVRProvQuatMode", "SetVRProvQuatMode", &SetVRProvQuatMode);
     fProvQM->flags = flags; fProvQM->AddParam("Int32", "mode"); fProvQM->AddParam("Int32", "axis"); rtti->RegisterFunction(fProvQM);
+    auto fBarrelRay = RED4ext::CGlobalFunction::Create(
+        "SetVRBarrelRayHit", "SetVRBarrelRayHit", &SetVRBarrelRayHit);
+    fBarrelRay->flags = flags;
+    fBarrelRay->AddParam("Float", "x");
+    fBarrelRay->AddParam("Float", "y");
+    fBarrelRay->AddParam("Float", "z");
+    fBarrelRay->AddParam("Int32", "valid");
+    fBarrelRay->AddParam("Int32", "mainVisible");
+    fBarrelRay->AddParam("Int32", "secondVisible");
+    rtti->RegisterFunction(fBarrelRay);
+    auto fNpcSurface = RED4ext::CGlobalFunction::Create(
+        "QueryVRNpcHitSurface", "QueryVRNpcHitSurface", &QueryVRNpcHitSurface);
+    fNpcSurface->flags = flags;
+    fNpcSurface->AddParam("handle:GameObject", "entity");
+    fNpcSurface->AddParam("Vector4", "from");
+    fNpcSurface->AddParam("Vector4", "to");
+    fNpcSurface->SetReturnType("Vector4");
+    rtti->RegisterFunction(fNpcSurface);
     auto fMuzP = RED4ext::CGlobalFunction::Create("SetVRMuzzlePos", "SetVRMuzzlePos", &SetVRMuzzlePos);
     fMuzP->flags = flags;
     fMuzP->AddParam("Float", "x"); fMuzP->AddParam("Float", "y"); fMuzP->AddParam("Float", "z");
@@ -924,4 +942,3 @@ void CyberpunkVR_RegisterHandsNatives() {
     rtti->AddRegisterCallback(RegisterTypes);
     rtti->AddPostRegisterCallback(PostRegisterTypes);
 }
-

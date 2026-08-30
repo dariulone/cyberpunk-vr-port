@@ -109,11 +109,9 @@ public:
                             ID3D12Resource* dstColor,
                             const HudParams& params);
 
-    // A filled disc at a point in NDC (-1..1, +Y up), straight-alpha blended over dstColor,
-    // which must be in RENDER_TARGET. Used for the barrel dot in the second eye: eye 0 gets it
-    // from the ImGui overlay drawn into the backbuffer, and the overlay cannot reach eye 1,
-    // which is the VRCAM view. Only the quad's own bounding box is rasterised, so the pass costs
-    // a few hundred pixels rather than a fullscreen draw.
+    // A procedural radial-mesh laser spot at a point in NDC (-1..1, +Y up), straight-alpha
+    // blended over dstColor, which must be in RENDER_TARGET. Retained for the desktop second-eye
+    // mirror; both HMD eyes use the matching ImGui mesh from the overlay path.
     bool RecordDot(ID3D12GraphicsCommandList* cmdList,
                    ID3D12Resource* dstColor,
                    float ndcX, float ndcY,

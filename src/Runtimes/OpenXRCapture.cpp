@@ -40,16 +40,6 @@ extern "C" int CyberpunkVR_VisionFit;           // 1 = pixel-exact rather than s
 extern "C" float CyberpunkVR_VisionOffX;
 extern "C" float CyberpunkVR_VisionOffY;
 extern "C" unsigned long long CyberpunkVR_DebugVisionOverlays;
-// The barrel dot, published by the ImGui overlay (imgui_overlay.cpp) in NDC after its own zoom
-// compensation. Taking the finished number rather than re-projecting keeps the two eyes' dots
-// identical by construction.
-extern "C" float    CyberpunkVR_BarrelDotNdcX;
-extern "C" float    CyberpunkVR_BarrelDotNdcX2;   // the second eye's own value
-extern "C" float    CyberpunkVR_BarrelDotNdcY;
-extern "C" float    CyberpunkVR_BarrelDotRadiusPx;
-extern "C" unsigned long long CyberpunkVR_BarrelDotTick;
-extern "C" int      CyberpunkVR_BarrelDotSecondEye;
-extern "C" unsigned long long CyberpunkVR_DebugBarrelDotDraws;
 extern "C" ID3D12Resource* CyberpunkVR_GetHudBlurTexture();
 extern "C" ID3D12Resource* CyberpunkVR_GetHudExposureBuffer();
 extern "C" ID3D12Resource* CyberpunkVR_GetFrameConstantBuffer();
@@ -959,27 +949,10 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                         }
                     }
 
-                    // The barrel dot. Eye 0 gets it from the ImGui overlay on the backbuffer;
-                    // this is the same point, at the same NDC, stamped into eye 1. It is a
-                    // feature (the dot was simply missing on this side) and it is also the
-                    // instrument that settles where the sight's reticle really points: with a
-                    // dot in BOTH eyes the question stops being "does the right eye's reticle
-                    // match the left eye's dot", which no one can judge across a fused pair.
-                    if (vrcamEyeCaptured && CyberpunkVR_BarrelDotSecondEye &&
-                        CyberpunkVR_BarrelDotTick &&
-                        GetTickCount64() - CyberpunkVR_BarrelDotTick < 250) {
-                        if (m_colorBlit->RecordDot(m_captureCmdList, eyeSlotTex,
-                                                   CyberpunkVR_BarrelDotNdcX2,
-                                                   CyberpunkVR_BarrelDotNdcY,
-                                                   CyberpunkVR_BarrelDotRadiusPx,
-                                                   1.0f, 0.045f, 0.045f, 1.0f))
-                            ++CyberpunkVR_DebugBarrelDotDraws;
-                    }
-
                     // AND THE OVERLAY ITSELF -- the F10 menu and the mouse cursor, which live in
                     // MAIN's backbuffer because that is where ImGui draws, and were therefore absent
-                    // from this eye entirely. Recorded LAST, so the UI sits on top of the HUD, the
-                    // scanner outline and the dot, exactly as it does on the flat screen.
+                    // from this eye entirely. Its dedicated second-eye world list also carries the
+                    // barrel dot, below the UI but above the HUD and scanner outline.
                     //
                     // The distance knob is the same idea as CyberpunkVR_HudDistanceM and defaults to
                     // the same 0: only this eye can move, so the whole disparity goes here, and the

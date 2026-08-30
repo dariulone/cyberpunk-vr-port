@@ -695,11 +695,57 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                                       "the weapon arm. Either way the shot leaves the real muzzle, for guns and\n"
                                       "projectiles alike, and free-look while aiming is preserved.");
                 }
-                ImGui::Checkbox("Weapon Aim laser dot (where the bullet hits)", &g_drawBarrelCross);
+                ImGui::Checkbox("Laser dot", &g_drawBarrelCross);
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Red dot projected from the actual weapon muzzle direction through the\n"
-                                      "game camera -- marks exactly where the bullet will fly.");
+                    ImGui::SetTooltip("Show a red aiming dot projected from the weapon muzzle.\n"
+                                      "Select how its depth is determined with the mode selector.");
                 }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(190.0f);
+                static const char* kLaserDotModes[] = {
+                    "Steady projection",
+                    "Real world point",
+                    "Surface raycast"
+                };
+                int laserDotMode = state.xrLaserDotMode;
+                if (laserDotMode < 0 || laserDotMode > 2) laserDotMode = 1;
+                if (ImGui::Combo("##laserDotMode", &laserDotMode, kLaserDotModes,
+                                 IM_ARRAYSIZE(kLaserDotModes))) {
+                    state.xrLaserDotMode = laserDotMode;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Steady projection\n"
+                        "Simple and steady stereo projection.\n\n"
+                        "Real world point\n"
+                        "Places the dot at a real point in 3D space ahead of the weapon.\n\n"
+                        "Surface raycast\n"
+                        "Places the dot on the surface hit by the weapon's pointing ray.");
+                }
+                ImGui::SetNextItemWidth(220.0f);
+                int laserDotRadiusMm = static_cast<int>(std::lround(state.xrLaserDotRadiusMm));
+                if (ImGui::SliderInt("Spot radius", &laserDotRadiusMm, 1, 50, "%d mm")) {
+                    state.xrLaserDotRadiusMm = static_cast<float>(laserDotRadiusMm);
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Set the laser dot radius in world-space millimetres.\n"
+                                      "The final pixel size adapts to the current resolution and view.");
+                }
+                ImGui::SameLine();
+                const bool distanceScaleAvailable = laserDotMode == 2;
+                if (!distanceScaleAvailable) ImGui::BeginDisabled();
+                bool scaleWithDistance = state.xrLaserDotScaleWithDistance != 0;
+                if (ImGui::Checkbox("Scale with distance", &scaleWithDistance)) {
+                    state.xrLaserDotScaleWithDistance = scaleWithDistance ? 1 : 0;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Surface raycast only. Make the dot's apparent size follow\n"
+                                      "its actual distance instead of the fixed reference distance.");
+                }
+                if (!distanceScaleAvailable) ImGui::EndDisabled();
             }
             ImGui::Separator();
 

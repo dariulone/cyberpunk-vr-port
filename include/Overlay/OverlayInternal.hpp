@@ -33,6 +33,9 @@ extern bool g_drawHandLocator;
 extern bool g_drawHandProxy3D;
 extern float g_aimRayLenM;
 extern float g_handLocatorScale;
+// A per-frame draw list that contains only geometry projected for the second eye. It is inserted
+// into the second ImGui render pass and never submitted to MAIN.
+extern ImDrawList* g_secondEyeWorldDrawList;
 void DrawBarrelCrosshair();
 void DrawCompactAdsCameraTelemetry();
 extern bool g_showCompactAdsTelemetry;

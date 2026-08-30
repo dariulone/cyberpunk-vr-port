@@ -5,6 +5,7 @@
 // register rather than guessing what passes through it.
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/GameEngine.hpp>
+#include <atomic>
 #include <sstream>
 #include <locale>
 #include <clocale>
@@ -48,15 +49,19 @@
 #include <RED4ext/Scripting/Natives/entAnimationControllerComponent.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/GarmentSkinnedMeshComponent.hpp>
 #include <RED4ext/Scripting/Natives/Generated/ent/MeshComponent.hpp>
+#include <RED4ext/Scripting/Natives/Generated/game/HitRepresentationComponent.hpp>
+#include <RED4ext/Scripting/Natives/Generated/game/HitShapeUserData.hpp>
+#include <RED4ext/Scripting/Natives/Generated/game/QueryResult.hpp>
 #include <windows.h>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
-#include <atomic>
 #include <cstdint>
 #include <fstream>
 #include <utility>
 #include <iomanip>
+#include <limits>
 #include <string>
 #include "Anim/VrikHook.hpp"
 #include "Anim/WeaponAim.hpp"
@@ -66,8 +71,6 @@
 #include "Natives/NativeFunctions.hpp"
 #include "Natives/NativeHelpers.hpp"
 #include "Natives/NativeState.hpp"
-
-
 
 // ============================================================================
 // ORIENTATION-PROVIDER GetOrientation VMT INSTRUMENT (the user's "stand at the register" plan).
@@ -659,6 +662,150 @@ void SetVRMuzzleQuat(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*,
         g_pSharedHands[27] = 1.0f;  // valid
     }
 }
+
+// Publish CET's muzzle raycast result without performing a game-world query from Present. The
+// sequence brackets the hit and per-eye visibility stores so the render thread consumes one update.
+void SetVRBarrelRayHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    int32_t valid = 0;
+    int32_t mainVisible = 1;
+    int32_t secondVisible = 1;
+    RED4ext::GetParameter(aFrame, &x);
+    RED4ext::GetParameter(aFrame, &y);
+    RED4ext::GetParameter(aFrame, &z);
+    RED4ext::GetParameter(aFrame, &valid);
+    RED4ext::GetParameter(aFrame, &mainVisible);
+    RED4ext::GetParameter(aFrame, &secondVisible);
+    aFrame->code++;
+    EnsureSharedMemory();
+    if (!g_pSharedHands) return;
+
+    // Float retains exact integer values in this range. Bounding the counter keeps long sessions
+    // away from the 24-bit precision limit used by the shared-memory transport.
+    static uint32_t s_evenSeq = 0;
+    uint32_t nextEven = s_evenSeq + 2u;
+    if (nextEven >= 1000000u) nextEven = 2u;
+    g_pSharedHands[vrshared::kBarrelRaySeq] = static_cast<float>(nextEven - 1u);
+    std::atomic_thread_fence(std::memory_order_release);
+    g_pSharedHands[vrshared::kBarrelRayHitX + 0] = x;
+    g_pSharedHands[vrshared::kBarrelRayHitX + 1] = y;
+    g_pSharedHands[vrshared::kBarrelRayHitX + 2] = z;
+    g_pSharedHands[vrshared::kBarrelRayHitValid] = valid != 0 ? 1.0f : 0.0f;
+    g_pSharedHands[vrshared::kBarrelMainVisible] = mainVisible != 0 ? 1.0f : 0.0f;
+    g_pSharedHands[vrshared::kBarrelSecondVisible] = secondVisible != 0 ? 1.0f : 0.0f;
+    std::atomic_thread_fence(std::memory_order_release);
+    g_pSharedHands[vrshared::kBarrelRaySeq] = static_cast<float>(nextEven);
+    s_evenSeq = nextEven;
+}
+
+struct HitRepQueryState {
+    alignas(16) RED4ext::game::QueryResult result{};
+    int32_t status = 0;
+    bool initialized = false;
+};
+
+static bool HitRepMatchesBytes(const uint8_t* aAddress, const uint8_t* aExpected, size_t aCount) {
+    __try {
+        if (!aAddress || !aExpected) return false;
+        for (size_t i = 0; i < aCount; ++i) {
+            if (aAddress[i] != aExpected[i]) return false;
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+static void QueryHitRepSurfaceNative(RED4ext::game::HitRepresentationComponent* aComponent,
+                                     const RED4ext::Vector4* aFrom,
+                                     const RED4ext::Vector4* aTo,
+                                     HitRepQueryState* aState) {
+    if (!aComponent || !aFrom || !aTo || !aState) return;
+    __try {
+        const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(L"Cyberpunk2077.exe"));
+        if (!base) { aState->status = -1; return; }
+        static constexpr uint8_t kQueryBytes[] = {0x48, 0x8B, 0xC4, 0x53};
+        static constexpr uint8_t kResultCtorBytes[] = {0x83, 0x61, 0x08, 0x00};
+        if (!HitRepMatchesBytes(reinterpret_cast<const uint8_t*>(base + 0x8BB428),
+                kQueryBytes, sizeof(kQueryBytes)) ||
+            !HitRepMatchesBytes(reinterpret_cast<const uint8_t*>(base + 0x8BA038),
+                kResultCtorBytes, sizeof(kResultCtorBytes))) {
+            aState->status = -3;
+            return;
+        }
+        const auto initResult = reinterpret_cast<void (*)(RED4ext::game::QueryResult*)>(base + 0x8BA038);
+        const auto query = reinterpret_cast<bool (*)(RED4ext::game::HitRepresentationComponent*,
+            const float*, const float*, RED4ext::game::QueryResult*, void*)>(
+                base + 0x8BB428);
+        initResult(&aState->result);
+        aState->initialized = true;
+        aState->status = query(aComponent, &aFrom->X, &aTo->X, &aState->result, nullptr) ? 1 : 2;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        aState->status = -2;
+    }
+}
+
+static void DestroyHitRepQuery(HitRepQueryState* aState) {
+    if (!aState || !aState->initialized) return;
+    __try {
+        const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(L"Cyberpunk2077.exe"));
+        if (!base) return;
+        const auto destroyResult = reinterpret_cast<void (*)(RED4ext::game::QueryResult*)>(base + 0x8B9F40);
+        destroyResult(&aState->result);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+// Return the closest official animated HitRepresentation surface on one candidate NPC. W<=0 is a
+// miss; W=1 is a current-frame hit. Candidate selection remains script-side, while this function
+// only intersects the exact same muzzle ray with the entity's live shapes.
+void QueryVRNpcHitSurface(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame,
+                          RED4ext::Vector4* aOut, int64_t) {
+    RED4ext::Handle<RED4ext::IScriptable> entityHandle;
+    RED4ext::Vector4 from{}, to{};
+    RED4ext::GetParameter(aFrame, &entityHandle);
+    RED4ext::GetParameter(aFrame, &from);
+    RED4ext::GetParameter(aFrame, &to);
+    aFrame->code++;
+    if (!aOut) return;
+    aOut->X = 0.0f;
+    aOut->Y = 0.0f;
+    aOut->Z = 0.0f;
+    aOut->W = 0.0f;
+
+    auto* entity = reinterpret_cast<RED4ext::ent::Entity*>(entityHandle.instance);
+    if (!entity) return;
+
+    float bestDistanceSq = std::numeric_limits<float>::infinity();
+    for (auto& componentHandle : entity->components) {
+        auto* component = componentHandle.instance;
+        if (!component) continue;
+        auto* type = component->GetType();
+        if (!type || type->name != "gameHitRepresentationComponent") continue;
+
+        auto* hitRep = reinterpret_cast<RED4ext::game::HitRepresentationComponent*>(component);
+        HitRepQueryState queryState{};
+        QueryHitRepSurfaceNative(hitRep, &from, &to, &queryState);
+        if (queryState.status == 1) {
+            for (const auto& hit : queryState.result.hitShapes) {
+                const float distanceSq = hit.result.enterDistanceFromOriginSq;
+                const auto& position = hit.result.hitPositionEnter;
+                if (!std::isfinite(distanceSq) || distanceSq < 0.0f ||
+                    !std::isfinite(position.X) || !std::isfinite(position.Y) ||
+                    !std::isfinite(position.Z) || distanceSq >= bestDistanceSq) {
+                    continue;
+                }
+                bestDistanceSq = distanceSq;
+                aOut->X = position.X;
+                aOut->Y = position.Y;
+                aOut->Z = position.Z;
+                aOut->W = 1.0f;
+            }
+        }
+        DestroyHitRepQuery(&queryState);
+    }
+}
+
 // Publish the current ADS/scope zoom factor to shared[28] so the dxgi overlay can scale the
 // barrel laser-dot's screen offset by it (the scope magnifies the image but the bullet still
 // leaves the barrel). CET pushes PlayerStateMachine.ZoomLevel each frame; 1.0 = no zoom.
@@ -894,5 +1041,3 @@ void ResetVRProvCounts(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void
     g_provOverrides = 0;
     for (int i = 0; i < 4; ++i) { g_provLastQ[i]=0; g_provOrigQ[i]=0; g_provCtrlQ[i]=0; g_provHmdQ[i]=0; }
 }
-
-
