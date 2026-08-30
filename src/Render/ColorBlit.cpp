@@ -243,41 +243,100 @@ float4 PSMain(VSOut input) : SV_Target {
 )";
 
 
-// A single filled disc. Its own vertex shader, because the quad is positioned FROM the root
-// constants: that keeps the rasterised area down to the dot itself instead of the whole eye.
+// A radial laser spot generated entirely from SV_VertexID. This uses the same ring locations
+// and quantised vertex colours as the HMD ImGui mesh in OverlayDebugDraw, so the desktop
+// second-eye mirror retains the same source appearance.
 constexpr char kDotSource[] = R"(
 cbuffer DotParams : register(b0) {
     float2 centerNdc;    // -1..1, +Y up
-    float2 radiusNdc;    // half-extent per axis, already aspect-corrected by the caller
+    float2 radiusNdc;    // 2.5x-core halo extent, already aspect-corrected by the caller
     float4 color;        // straight alpha
 };
 
 struct VSOut {
     float4 position : SV_Position;
-    float2 local    : TEXCOORD0;   // -1..1 across the quad
+    float4 color    : COLOR0;
 };
 
-VSOut VSMain(uint vid : SV_VertexID) {
-    static const float2 corners[4] = {
-        float2(-1.0, -1.0), float2(-1.0, 1.0), float2(1.0, -1.0), float2(1.0, 1.0)
-    };
+static const uint kSegments = 64;
+static const uint kRingCount = 9;
+static const float kOuterCoreRatio = 2.5;
+static const float kRingCoreDistances[9] = {
+    0.25, 0.50, 0.75, 1.00, 1.30, 1.65, 2.00, 2.25, 2.50
+};
+
+float4 SpotColor(float coreDistance) {
+    const float intensity = exp(-0.69314718 * coreDistance * coreDistance);
+    const float outerFade = 1.0 - smoothstep(2.25, 2.5, coreDistance);
+    const float hotCore = exp(-4.0 * coreDistance * coreDistance);
+    const float3 hotColor = float3(1.0, 0.82, 0.68);
+    const float3 rgb = lerp(color.rgb, hotColor, hotCore);
+    // ImGui stores these samples as ImU32. Match that 8-bit quantisation before interpolation.
+    return round(saturate(float4(rgb, color.a * intensity * outerFade)) * 255.0) / 255.0;
+}
+
+float2 RingPoint(float coreDistance, uint segment) {
+    const float angle = 6.28318530718 * float(segment % kSegments) / float(kSegments);
+    const float radius = coreDistance / kOuterCoreRatio;
+    return float2(cos(angle), sin(angle)) * radius;
+}
+
+VSOut MakeVertex(float coreDistance, uint segment) {
     VSOut o;
-    o.local = corners[vid];
-    o.position = float4(centerNdc + corners[vid] * radiusNdc, 0.0, 1.0);
+    const float2 local = coreDistance > 0.0 ? RingPoint(coreDistance, segment) : float2(0.0, 0.0);
+    o.position = float4(centerNdc + local * radiusNdc, 0.0, 1.0);
+    o.color = SpotColor(coreDistance);
     return o;
 }
 
+VSOut VSMain(uint vid : SV_VertexID) {
+    const uint triangleIndex = vid / 3;
+    const uint corner = vid % 3;
+
+    // Center fan: center, first-ring current, first-ring next.
+    if (triangleIndex < kSegments) {
+        if (corner == 0) return MakeVertex(0.0, 0);
+        if (corner == 1) return MakeVertex(kRingCoreDistances[0], triangleIndex);
+        return MakeVertex(kRingCoreDistances[0], triangleIndex + 1);
+    }
+
+    // Every later band has two triangles per angular segment.
+    const uint bandTriangle = triangleIndex - kSegments;
+    const uint band = bandTriangle / (kSegments * 2);
+    const uint withinBand = bandTriangle % (kSegments * 2);
+    const uint segment = withinBand / 2;
+    const bool secondTriangle = (withinBand % 2) != 0;
+    const float innerDistance = kRingCoreDistances[band];
+    const float outerDistance = kRingCoreDistances[band + 1];
+
+    if (!secondTriangle) {
+        if (corner == 0) return MakeVertex(innerDistance, segment);
+        if (corner == 1) return MakeVertex(outerDistance, segment);
+        return MakeVertex(outerDistance, segment + 1);
+    }
+    if (corner == 0) return MakeVertex(innerDistance, segment);
+    if (corner == 1) return MakeVertex(outerDistance, segment + 1);
+    return MakeVertex(innerDistance, segment + 1);
+}
+
 float4 PSMain(VSOut i) : SV_Target {
-    const float d = length(i.local);
-    // One-pixel feather from the quad's own derivatives. Safe here in a way it was not in the
-    // sight shader: this pass runs on the finished image, after upscaling, so there is no
-    // sub-pixel jitter to make the derivative wobble frame to frame.
-    const float aa = max(fwidth(d), 1e-4);
-    const float cov = 1.0 - smoothstep(1.0 - aa, 1.0, d);
-    if (cov <= 0.0) discard;
-    return float4(color.rgb, color.a * cov);
+    return i.color;
 }
 )";
+
+constexpr UINT kDotMeshSegments = 64;
+constexpr UINT kDotMeshRings = 9;
+constexpr UINT kDotMeshVertexCount =
+    kDotMeshSegments * (1 + 2 * (kDotMeshRings - 1)) * 3;
+
+DXGI_FORMAT ToNonSrgbViewFormat(DXGI_FORMAT format) {
+    switch (format) {
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM;
+        case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8X8_UNORM;
+        default: return format;
+    }
+}
 
 bool CompileShader(const char* src, const char* entry, const char* target, ComPtr<ID3DBlob>& out) {
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
@@ -582,6 +641,11 @@ bool ColorBlit::EnsureInitialized(ID3D12Device* device,
             dpso.pRootSignature = m_rootSigDot.Get();
             dpso.VS = { dvs->GetBufferPointer(), dvs->GetBufferSize() };
             dpso.PS = { dps->GetBufferPointer(), dps->GetBufferSize() };
+            // MAIN's ImGui dot is blended numerically into the game's UNORM backbuffer. The eye
+            // texture is typeless but its scene/HUD composite normally uses an sRGB RTV; reusing
+            // that view here would encode the faint halo after blending and make it much brighter
+            // than MAIN. Use the matching non-sRGB view only for this final dot pass.
+            dpso.RTVFormats[0] = ToNonSrgbViewFormat(colorFormat);
             auto& drt = dpso.BlendState.RenderTarget[0];
             drt.BlendEnable = TRUE;
             drt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
@@ -592,7 +656,7 @@ bool ColorBlit::EnsureInitialized(ID3D12Device* device,
             drt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
             drt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
             if (FAILED(device->CreateGraphicsPipelineState(&dpso, IID_PPV_ARGS(&m_psoDot)))) {
-                Log("ColorBlit: dot PSO create failed -- second eye stays dotless\n");
+                Log("ColorBlit: dot PSO create failed -- desktop second-eye mirror stays dotless\n");
                 m_psoDot.Reset();
             }
         } else {
@@ -622,7 +686,7 @@ bool ColorBlit::RecordDot(ID3D12GraphicsCommandList* cmdList,
     D3D12_CPU_DESCRIPTOR_HANDLE rtvCpu = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
     rtvCpu.ptr += static_cast<SIZE_T>(slot) * m_rtvStride;
     D3D12_RENDER_TARGET_VIEW_DESC rtv{};
-    rtv.Format = m_colorFormat;
+    rtv.Format = ToNonSrgbViewFormat(m_colorFormat);
     rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
     m_device->CreateRenderTargetView(dstColor, &rtv, rtvCpu);
 
@@ -644,8 +708,8 @@ bool ColorBlit::RecordDot(ID3D12GraphicsCommandList* cmdList,
     cmdList->SetGraphicsRootSignature(m_rootSigDot.Get());
     cmdList->SetPipelineState(m_psoDot.Get());
     cmdList->SetGraphicsRoot32BitConstants(0, 8, k, 0);
-    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    cmdList->DrawInstanced(4, 1, 0, 0);
+    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    cmdList->DrawInstanced(kDotMeshVertexCount, 1, 0, 0);
     return true;
 }
 

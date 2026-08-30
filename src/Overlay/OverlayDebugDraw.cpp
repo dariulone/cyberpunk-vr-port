@@ -279,10 +279,10 @@ void DrawHandLocatorOverlay() {
     }
 }
 
-// The barrel dot, in NDC, for the eye the overlay cannot reach. Written by DrawBarrelCrosshair
-// below; read by the VRCAM eye composite (openxr_capture.cpp) and by the desktop mirror
-// (sync_stereo.cpp). The tick is what makes a stale value harmless: the consumers ignore it once
-// it stops being refreshed, so holstering the weapon removes the dot instead of freezing it.
+// The finalized barrel-dot NDC values written by DrawBarrelCrosshair below. The second-eye value
+// feeds the dedicated HMD world list, while the shared values are also consumed by the desktop
+// mirror (sync_stereo.cpp). The tick is what makes a stale value harmless: consumers ignore it
+// once it stops being refreshed, so holstering the weapon removes the dot instead of freezing it.
 extern "C" __declspec(dllexport) float    CyberpunkVR_BarrelDotNdcX = 0.0f;
 // The SECOND eye needs its own value. The dot marks where the bullet goes, and the bullet
 // line passes through the FIRST eye (the game aligns the weapon to its camera, which is
@@ -373,6 +373,73 @@ void DrawCompactAdsCameraTelemetry() {
     ImGui::End();
 }
 
+void DrawRadialLaserSpot(ImDrawList* drawList, const ImVec2& center, float coreRadiusPx) {
+    if (!drawList || !(coreRadiusPx > 0.0f)) return;
+
+    constexpr float kOuterCoreRatio = 2.5f;
+    constexpr float kLn2 = 0.69314718f;
+    constexpr float kRingCoreDistances[] = {
+        0.25f, 0.50f, 0.75f, 1.00f, 1.30f, 1.65f, 2.00f, 2.25f, 2.50f
+    };
+    constexpr int kRingCount = static_cast<int>(IM_ARRAYSIZE(kRingCoreDistances));
+    const float outerRadiusPx = coreRadiusPx * kOuterCoreRatio;
+    const float segmentEstimate = 3.1415926535f /
+        acosf(std::clamp(1.0f - 0.30f / std::max(outerRadiusPx, 0.31f), -1.0f, 1.0f));
+    const int segments = std::clamp(static_cast<int>(ceilf(segmentEstimate)), 12, 128);
+    const int vertexCount = 1 + kRingCount * segments;
+    const int indexCount = segments * 3 + (kRingCount - 1) * segments * 6;
+    const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+
+    auto colorAt = [&](float coreDistance) -> ImU32 {
+        const float intensity = expf(-kLn2 * coreDistance * coreDistance);
+        const float fadeT = std::clamp((coreDistance - 2.25f) / 0.25f, 0.0f, 1.0f);
+        const float smoothFade = fadeT * fadeT * (3.0f - 2.0f * fadeT);
+        const float alpha = intensity * (1.0f - smoothFade);
+        const float hotCore = expf(-4.0f * coreDistance * coreDistance);
+        const float green = 0.045f + (0.82f - 0.045f) * hotCore;
+        const float blue = 0.045f + (0.68f - 0.045f) * hotCore;
+        return ImGui::ColorConvertFloat4ToU32(ImVec4(1.0f, green, blue, alpha));
+    };
+
+    drawList->PrimReserve(indexCount, vertexCount);
+    const ImDrawIdx base = static_cast<ImDrawIdx>(drawList->_VtxCurrentIdx);
+    drawList->PrimWriteVtx(center, uv, colorAt(0.0f));
+    for (int ring = 0; ring < kRingCount; ++ring) {
+        const float coreDistance = kRingCoreDistances[ring];
+        const float ringRadiusPx = coreRadiusPx * coreDistance;
+        const ImU32 color = colorAt(coreDistance);
+        for (int segment = 0; segment < segments; ++segment) {
+            const float angle = (2.0f * 3.1415926535f * static_cast<float>(segment)) /
+                                static_cast<float>(segments);
+            drawList->PrimWriteVtx(
+                ImVec2(center.x + cosf(angle) * ringRadiusPx,
+                       center.y + sinf(angle) * ringRadiusPx),
+                uv, color);
+        }
+    }
+
+    const ImDrawIdx firstRing = static_cast<ImDrawIdx>(base + 1);
+    for (int segment = 0; segment < segments; ++segment) {
+        const ImDrawIdx next = static_cast<ImDrawIdx>((segment + 1) % segments);
+        drawList->PrimWriteIdx(base);
+        drawList->PrimWriteIdx(static_cast<ImDrawIdx>(firstRing + segment));
+        drawList->PrimWriteIdx(static_cast<ImDrawIdx>(firstRing + next));
+    }
+    for (int ring = 1; ring < kRingCount; ++ring) {
+        const ImDrawIdx inner = static_cast<ImDrawIdx>(base + 1 + (ring - 1) * segments);
+        const ImDrawIdx outer = static_cast<ImDrawIdx>(base + 1 + ring * segments);
+        for (int segment = 0; segment < segments; ++segment) {
+            const ImDrawIdx next = static_cast<ImDrawIdx>((segment + 1) % segments);
+            drawList->PrimWriteIdx(static_cast<ImDrawIdx>(inner + segment));
+            drawList->PrimWriteIdx(static_cast<ImDrawIdx>(outer + segment));
+            drawList->PrimWriteIdx(static_cast<ImDrawIdx>(outer + next));
+            drawList->PrimWriteIdx(static_cast<ImDrawIdx>(inner + segment));
+            drawList->PrimWriteIdx(static_cast<ImDrawIdx>(outer + next));
+            drawList->PrimWriteIdx(static_cast<ImDrawIdx>(inner + next));
+        }
+    }
+}
+
 void DrawBarrelCrosshair() {
     int laserDotMode = g_liveControls.xrLaserDotMode;
     if (laserDotMode < 0 || laserDotMode > 2) laserDotMode = 1;
@@ -388,9 +455,8 @@ void DrawBarrelCrosshair() {
     float rad = 3.0f;
     
     if (!g_drawBarrelCross || enableLaser < 0.9f){
-        // The second eye is stamped by the capture path rather than ImGui. Clear its publication
-        // immediately when the common UI/weapon gate closes instead of waiting for the 250 ms
-        // consumer safety timeout.
+        // Clear the legacy mirror publication immediately when the common UI/weapon gate closes;
+        // the HMD's dedicated second-eye ImGui list is reset independently every frame.
         CyberpunkVR_BarrelDotTick = 0;
         CyberpunkVR_BarrelDotSecondVisible = 0;
         /*rad = 0.0f;
@@ -493,6 +559,50 @@ void DrawBarrelCrosshair() {
 
     const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
     if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return;
+
+    // Convert the user-facing beam radius to pixels through the same live projection that places
+    // the dot. Modes 0/1 use a stable 2 m reference depth. In mode 2 the physical spot widens with
+    // beam travel, while perspective still makes its apparent size decrease toward the beam's
+    // angular divergence. The far-size floor is therefore angular rather than a fixed pixel count.
+    // The very large angular ceiling is only a numerical safety guard for near-zero view depth.
+    constexpr float kLaserDotReferenceDepthM = 2.0f;
+    constexpr float kLaserDotHalfDivergenceRad = 0.00075f;
+    constexpr float kLaserDotMissAngularRadiusRad = 0.0005f;
+    constexpr float kLaserDotSafetyMaxAngularRadius = 1.0f;
+    const float radiusMm = std::clamp(static_cast<float>(g_liveControls.xrLaserDotRadiusMm), 1.0f, 50.0f);
+    const float baseRadiusM = radiusMm * 0.001f;
+    const bool scaleWithDistance = surfaceMode && g_liveControls.xrLaserDotScaleWithDistance != 0;
+    float angularRadius = baseRadiusM / kLaserDotReferenceDepthM;
+    if (scaleWithDistance) {
+        if (!haveRayHit) {
+            // A miss is only an optical-infinity direction cue, not a physical beam footprint.
+            // Keep it visibly smaller than the asymptotic surface spot.
+            angularRadius = tanf(kLaserDotMissAngularRadiusRad);
+        } else {
+            float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+            RotateVectorByQuaternion(hitx - hcx, hity - hcy, hitz - hcz,
+                                     -cqx, -cqy, -cqz, cqw, &lx, &ly, &lz);
+            if (ly > 0.01f) {
+                float beamTravelM = ly;
+                if (haveWorld) {
+                    const float bdx = hitx - mpx;
+                    const float bdy = hity - mpy;
+                    const float bdz = hitz - mpz;
+                    beamTravelM = sqrtf(bdx * bdx + bdy * bdy + bdz * bdz);
+                }
+                const float beamSpreadM = beamTravelM * tanf(kLaserDotHalfDivergenceRad);
+                const float surfaceRadiusM = sqrtf(baseRadiusM * baseRadiusM + beamSpreadM * beamSpreadM);
+                angularRadius = surfaceRadiusM / ly;
+            } else {
+                angularRadius = kLaserDotSafetyMaxAngularRadius;
+            }
+        }
+    }
+    float tanHalfX = 0.0f, tanHalfY = 0.0f;
+    if (GetOverlayProjTans(displaySize, &tanHalfX, &tanHalfY) && tanHalfX > 0.0001f) {
+        angularRadius = std::clamp(angularRadius, 0.0f, kLaserDotSafetyMaxAngularRadius);
+        rad = angularRadius * (displaySize.x * 0.5f) / tanHalfX;
+    }
 
     // The camera's right axis, from the same quaternion the view is built with. Column 0 of the
     // rotation -- the engine's camera frame is X right, Y forward, Z up (verified live by
@@ -641,7 +751,16 @@ void DrawBarrelCrosshair() {
                 : (CyberpunkVR_BarrelDotNdcX + (surfaceMode ? 0.0f : dx)))
                 + CyberpunkVR_BarrelDotOffX2;
         }
-        CyberpunkVR_BarrelDotRadiusPx = rad;
+        // The published second-eye NDC is the authoritative finalized result for every mode:
+        // mode 0's steady direction plus constant parallax, mode 1's world point, or mode 2's
+        // per-eye surface projection. Convert it back to ImGui pixels for the dedicated HMD list
+        // so this mesh cannot bypass the mode-specific result or the second-eye tuning offset.
+        const ImVec2 secondEyeSc{
+            (CyberpunkVR_BarrelDotNdcX2 + 1.0f) * displaySize.x * 0.5f,
+            (1.0f - CyberpunkVR_BarrelDotNdcY) * displaySize.y * 0.5f};
+        // `rad` is the user-facing half-intensity core. The legacy desktop-mirror RecordDot path
+        // receives the full halo extent; both ImGui eye paths draw directly from the core radius.
+        CyberpunkVR_BarrelDotRadiusPx = rad * 2.5f;
         CyberpunkVR_BarrelDotTick = GetTickCount64();
         const bool mainDotVisible = !surfaceMode || !rayFresh || mainVisible > 0.5f;
         CyberpunkVR_BarrelDotSecondVisible =
@@ -650,8 +769,12 @@ void DrawBarrelCrosshair() {
         // Background list: world-projected, see DrawHandLocatorOverlay.
         ImDrawList* dl = ImGui::GetBackgroundDrawList();
         if (dl && mainDotVisible) {
-            dl->AddCircleFilled(sc, rad, IM_COL32(255, 60, 60, 255));
+            DrawRadialLaserSpot(dl, sc, rad);
             //dl->AddCircle(sc, 11.0f, IM_COL32(255, 255, 255, 235), 0, 2.0f);
+        }
+        if (g_secondEyeWorldDrawList && CyberpunkVR_BarrelDotSecondEye &&
+            CyberpunkVR_BarrelDotSecondVisible) {
+            DrawRadialLaserSpot(g_secondEyeWorldDrawList, secondEyeSc, rad);
         }
     }
 }

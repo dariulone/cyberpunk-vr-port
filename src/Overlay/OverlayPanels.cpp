@@ -723,6 +723,29 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                         "Surface raycast\n"
                         "Places the dot on the surface hit by the weapon's pointing ray.");
                 }
+                ImGui::SetNextItemWidth(220.0f);
+                int laserDotRadiusMm = static_cast<int>(std::lround(state.xrLaserDotRadiusMm));
+                if (ImGui::SliderInt("Spot radius", &laserDotRadiusMm, 1, 50, "%d mm")) {
+                    state.xrLaserDotRadiusMm = static_cast<float>(laserDotRadiusMm);
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Set the laser dot radius in world-space millimetres.\n"
+                                      "The final pixel size adapts to the current resolution and view.");
+                }
+                ImGui::SameLine();
+                const bool distanceScaleAvailable = laserDotMode == 2;
+                if (!distanceScaleAvailable) ImGui::BeginDisabled();
+                bool scaleWithDistance = state.xrLaserDotScaleWithDistance != 0;
+                if (ImGui::Checkbox("Scale with distance", &scaleWithDistance)) {
+                    state.xrLaserDotScaleWithDistance = scaleWithDistance ? 1 : 0;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Surface raycast only. Make the dot's apparent size follow\n"
+                                      "its actual distance instead of the fixed reference distance.");
+                }
+                if (!distanceScaleAvailable) ImGui::EndDisabled();
             }
             ImGui::Separator();
 

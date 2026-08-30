@@ -183,6 +183,8 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_snap_turn_angle_deg=30\n");
     fprintf(file, "xr_movement_source=0\n");
     fprintf(file, "xr_laser_dot_mode=1\n");
+    fprintf(file, "xr_laser_dot_radius_mm=6\n");
+    fprintf(file, "xr_laser_dot_scale_with_distance=0\n");
     // Default ON for the gameplay-input pipeline: both flags are required for the
     // VR controller to reach CP2077 as an XInput pad (otherwise the game detects no
     // controller and shows keyboard glyphs). Set either to 0 in vrport.ini if a

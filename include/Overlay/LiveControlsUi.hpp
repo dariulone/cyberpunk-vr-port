@@ -48,6 +48,9 @@ struct LiveControlsUiState {
     int xrMovementSource;
     // Laser dot projection mode. 0 = steady projection, 1 = real world point, 2 = surface raycast.
     int xrLaserDotMode;
+    // World-space radius in millimetres. Distance scaling applies only to surface raycast mode.
+    float xrLaserDotRadiusMm;
+    int xrLaserDotScaleWithDistance;
     // Kill-switches for the new controller pipeline; default 0 (off) so a stuck
     // OpenXR binding or XInput entry-point patch can't keep CP2077 from booting.
     int xrXInputInstall;

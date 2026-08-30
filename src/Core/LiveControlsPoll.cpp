@@ -221,6 +221,8 @@ void PollLiveControls() {
     float xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg > 0.0f ? g_liveControls.xrSnapTurnAngleDeg : 30.0f;
     int xrMovementSource = g_liveControls.xrMovementSource;
     int xrLaserDotMode = g_liveControls.xrLaserDotMode;
+    float xrLaserDotRadiusMm = g_liveControls.xrLaserDotRadiusMm > 0.0f ? g_liveControls.xrLaserDotRadiusMm : 6.0f;
+    int xrLaserDotScaleWithDistance = g_liveControls.xrLaserDotScaleWithDistance;
     int xrXInputInstall = g_liveControls.xrXInputInstall;
     int xrInputActions = g_liveControls.xrInputActions;
     int xrMonoXQueueWait = g_liveControls.xrMonoXQueueWait;
@@ -484,6 +486,16 @@ void PollLiveControls() {
             xrLaserDotMode = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_laser_dot_radius_mm=%f", &value) == 1 ||
+            sscanf_s(line, "xr_laser_dot_radius_mm = %f", &value) == 1) {
+            xrLaserDotRadiusMm = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_laser_dot_scale_with_distance=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_laser_dot_scale_with_distance = %d", &intValue) == 1) {
+            xrLaserDotScaleWithDistance = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_cutscene_suspend_tier=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_cutscene_suspend_tier = %d", &intValue) == 1) {
             xrCutsceneSuspendTier = intValue;
@@ -642,6 +654,9 @@ void PollLiveControls() {
     if (xrMovementSource < 0 || xrMovementSource > 3) xrMovementSource = xrMovementControl != 0 ? 1 : 0;
     g_liveControls.xrMovementSource = xrMovementSource;
     g_liveControls.xrLaserDotMode = (xrLaserDotMode < 0) ? 0 : (xrLaserDotMode > 2 ? 2 : xrLaserDotMode);
+    g_liveControls.xrLaserDotRadiusMm =
+        xrLaserDotRadiusMm < 1.0f ? 1.0f : (xrLaserDotRadiusMm > 50.0f ? 50.0f : xrLaserDotRadiusMm);
+    g_liveControls.xrLaserDotScaleWithDistance = xrLaserDotScaleWithDistance != 0 ? 1 : 0;
     g_liveControls.xrMovementControl = xrMovementSource != 0 ? 1 : 0;
     g_liveControls.xrPhysicalBodyRotation = xrPhysicalBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrCutsceneSuspendTier =
@@ -779,6 +794,8 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg;
     state.xrMovementSource = g_liveControls.xrMovementSource;
     state.xrLaserDotMode = g_liveControls.xrLaserDotMode;
+    state.xrLaserDotRadiusMm = g_liveControls.xrLaserDotRadiusMm;
+    state.xrLaserDotScaleWithDistance = g_liveControls.xrLaserDotScaleWithDistance;
     state.xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
     state.xrCutsceneSuspendTier = g_liveControls.xrCutsceneSuspendTier;
     state.xrXInputInstall = g_liveControls.xrXInputInstall;
@@ -864,6 +881,9 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn_angle_deg=%.2f\n", state.xrSnapTurnAngleDeg > 0.0f ? state.xrSnapTurnAngleDeg : 30.0f);
     fprintf(file, "xr_movement_source=%d\n", state.xrMovementSource < 0 ? 0 : (state.xrMovementSource > 3 ? 3 : state.xrMovementSource));
     fprintf(file, "xr_laser_dot_mode=%d\n", state.xrLaserDotMode < 0 ? 0 : (state.xrLaserDotMode > 2 ? 2 : state.xrLaserDotMode));
+    fprintf(file, "xr_laser_dot_radius_mm=%.0f\n",
+            state.xrLaserDotRadiusMm < 1.0f ? 1.0f : (state.xrLaserDotRadiusMm > 50.0f ? 50.0f : state.xrLaserDotRadiusMm));
+    fprintf(file, "xr_laser_dot_scale_with_distance=%d\n", state.xrLaserDotScaleWithDistance != 0 ? 1 : 0);
     fprintf(file, "xr_physical_body_rotation=%d\n", state.xrPhysicalBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_cutscene_suspend_tier=%d\n",
             state.xrCutsceneSuspendTier < -1 ? -1 : (state.xrCutsceneSuspendTier > 4 ? 4 : state.xrCutsceneSuspendTier));
@@ -938,6 +958,10 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     }
     g_liveControls.xrLaserDotMode =
         (state->xrLaserDotMode < 0) ? 0 : (state->xrLaserDotMode > 2 ? 2 : state->xrLaserDotMode);
+    g_liveControls.xrLaserDotRadiusMm =
+        state->xrLaserDotRadiusMm < 1.0f ? 1.0f
+                                        : (state->xrLaserDotRadiusMm > 50.0f ? 50.0f : state->xrLaserDotRadiusMm);
+    g_liveControls.xrLaserDotScaleWithDistance = state->xrLaserDotScaleWithDistance != 0 ? 1 : 0;
     g_liveControls.xrPhysicalBodyRotation = state->xrPhysicalBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrCutsceneSuspendTier =
         (state->xrCutsceneSuspendTier < -1) ? -1
