@@ -6,6 +6,14 @@
 
 native func QueryVRNpcHitSurface(entity: ref<GameObject>, from: Vector4, to: Vector4) -> Vector4;
 
+// Exact identity of the winner selected by the most recent VRFindNpcBarrelRayHit call.
+// CET reads it immediately after the synchronous query so the final NPC target can be
+// distinguished from a different NPC that genuinely blocks the eye-to-dot LOS.
+@addField(PlayerPuppet) let m_vrNpcBarrelRayEntity: EntityID;
+
+@addMethod(PlayerPuppet)
+public func VRGetNpcBarrelRayEntity() -> EntityID { return this.m_vrNpcBarrelRayEntity; }
+
 // Find the closest NPC body surface on the current muzzle ray. Targeting only supplies nearby
 // candidates; the native query intersects each unique entity's live animated HitRepresentation.
 @addMethod(PlayerPuppet)
@@ -21,6 +29,7 @@ public func VRFindNpcBarrelRayHit(rayStart: Vector4, rayEnd: Vector4) -> Vector4
 
   let seen: array<EntityID>;
   let best = new Vector4(0.0, 0.0, 0.0, 0.0);
+  let bestEntity: EntityID;
   let bestDistanceSq = 999999999.0;
   let i = 0;
   while i < ArraySize(parts) {
@@ -46,6 +55,7 @@ public func VRFindNpcBarrelRayHit(rayStart: Vector4, rayEnd: Vector4) -> Vector4
             if distanceSq < bestDistanceSq {
               bestDistanceSq = distanceSq;
               best = hit;
+              bestEntity = entityId;
             };
           };
         };
@@ -53,6 +63,7 @@ public func VRFindNpcBarrelRayHit(rayStart: Vector4, rayEnd: Vector4) -> Vector4
     };
     i += 1;
   };
+  this.m_vrNpcBarrelRayEntity = bestEntity;
   if best.W < 0.5 {
     if ArraySize(parts) == 0 {
       best.W = -1.0; // TargetingSystem returned no NPC target parts.

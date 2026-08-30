@@ -493,7 +493,25 @@ local function makeBarrelLosEnd(eye, finalHit, fx, fy, fz)
                        eye.z + fz * BARREL_RAY_MAX_M, 1.0)
 end
 
-local function barrelDotVisibleFromEye(player, eye, finalHit, fx, fy, fz)
+-- Keep the exact EntityID selected by the synchronous redscript nearest-hit query. Identity is an
+-- optional side channel only: a getter/marshalling failure must never discard an otherwise valid
+-- NPC surface hit, because XYZ/W keep their existing contract and Ray B must remain usable.
+local function queryNpcBarrelRay(player, rayStart, rayEnd)
+    if not player or not player.VRFindNpcBarrelRayHit then return nil, nil end
+    local hit = player:VRFindNpcBarrelRayHit(rayStart, rayEnd)
+    if not hit or (hit.w or 0.0) <= 0.5 then return hit, nil end
+    if not player.VRGetNpcBarrelRayEntity then return hit, nil end
+
+    local idOk, entityKey = pcall(function()
+        local entityId = player:VRGetNpcBarrelRayEntity()
+        if not entityId then return nil end
+        return tostring(entityId.hash)
+    end)
+    if not idOk then return hit, nil end
+    return hit, entityKey
+end
+
+local function barrelDotVisibleFromEye(player, eye, finalHit, finalNpcKey, fx, fy, fz)
     local rayEnd = makeBarrelLosEnd(eye, finalHit, fx, fy, fz)
     if not rayEnd then return true, 0.0, 'near' end
 
@@ -550,9 +568,8 @@ local function barrelDotVisibleFromEye(player, eye, finalHit, fx, fy, fz)
 
     -- Sight Blocker intentionally ignores character bodies. Only after the world segment is clear
     -- ask the already-validated official HitRepresentation provider whether an NPC blocks it.
-    local npcOk, npcResult = pcall(function()
-        if not player or not player.VRFindNpcBarrelRayHit then return nil end
-        return player:VRFindNpcBarrelRayHit(eye, rayEnd)
+    local npcOk, npcResult, npcEntityKey = pcall(function()
+        return queryNpcBarrelRay(player, eye, rayEnd)
     end)
     if not npcOk then
         if not barrelLosCallWarned then
@@ -563,8 +580,16 @@ local function barrelDotVisibleFromEye(player, eye, finalHit, fx, fy, fz)
         return true, -1.0, 'npc-error'
     end
     if npcResult and (npcResult.w or 0.0) > 0.5 then
-        local dx, dy, dz = npcResult.x - eye.x, npcResult.y - eye.y, npcResult.z - eye.z
-        return false, math.sqrt(dx*dx + dy*dy + dz*dz),
+        local bx, by, bz = npcResult.x - eye.x, npcResult.y - eye.y, npcResult.z - eye.z
+        local blockM = math.sqrt(bx*bx + by*by + bz*bz)
+        -- Once the muzzle ray has selected this NPC as the actual receiving surface, its own
+        -- overlapping HitRepresentation shapes must not make the aiming dot disappear. A
+        -- different NPC still blocks normally, as do the world/vehicle/prop checks above.
+        if finalNpcKey and npcEntityKey and npcEntityKey == finalNpcKey then
+            return true, blockM,
+                glassHits > 0 and ('npc-self-glass' .. tostring(glassHits)) or 'npc-self'
+        end
+        return false, blockM,
             glassHits > 0 and ('npc-glass' .. tostring(glassHits)) or 'npc'
     end
     return true, -1.0, glassHits > 0 and ('clear-glass' .. tostring(glassHits)) or 'clear'
@@ -624,9 +649,8 @@ local function updateBarrelRay(dt)
     -- the closest animated body-surface enter point for each candidate.
     local player = Game.GetPlayer()
     local npcHit, npcDistanceSq = nil, nil
-    local npcOk, npcResult = pcall(function()
-        if not player or not player.VRFindNpcBarrelRayHit then return nil end
-        return player:VRFindNpcBarrelRayHit(from, to)
+    local npcOk, npcResult, npcEntityKey = pcall(function()
+        return queryNpcBarrelRay(player, from, to)
     end)
     if npcOk then
         if npcResult and (npcResult.w or 0.0) > 0.5 and
@@ -644,9 +668,9 @@ local function updateBarrelRay(dt)
         end
     end
 
-    local finalHit, finalDistanceSq = worldHit, worldDistanceSq
+    local finalHit, finalDistanceSq, finalNpcKey = worldHit, worldDistanceSq, nil
     if npcHit and (not finalDistanceSq or npcDistanceSq < finalDistanceSq) then
-        finalHit, finalDistanceSq = npcHit, npcDistanceSq
+        finalHit, finalDistanceSq, finalNpcKey = npcHit, npcDistanceSq, npcEntityKey
     end
 
     local mainVisible, secondVisible = true, true
@@ -655,9 +679,9 @@ local function updateBarrelRay(dt)
     local mainEye, secondEye = readBarrelEyes(dt)
     if player and mainEye and secondEye then
         mainVisible, mainBlockM, mainSource = barrelDotVisibleFromEye(
-            player, mainEye, finalHit, fx, fy, fz)
+            player, mainEye, finalHit, finalNpcKey, fx, fy, fz)
         secondVisible, secondBlockM, secondSource = barrelDotVisibleFromEye(
-            player, secondEye, finalHit, fx, fy, fz)
+            player, secondEye, finalHit, finalNpcKey, fx, fy, fz)
     end
     if vrDebug() then
         local now = (os and os.clock and os.clock()) or 0.0
