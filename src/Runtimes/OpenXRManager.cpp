@@ -1,4 +1,5 @@
 #include "Anim/WheelGrab.hpp"   // the wheel-grab blends, for the hand smoothing below
+#include "Core/LiveControls.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
 #include "Hooks/Ngx.hpp"
@@ -1472,6 +1473,77 @@ bool OpenXRManager::GetCurrentEyeFov(int eye, XrFovf* out) {
     if (!useSyncedViews && static_cast<size_t>(eye) >= m_views.size()) return false;
     *out = useSyncedViews ? m_syncedEyeFovs[eye] : m_views[eye].fov;
     return true;
+}
+
+float OpenXRManager::GetViewBoxManualSlideRad() {
+    const float deg = g_liveControls.xrViewBoxPitchDeg;
+    if (!(deg > -30.0f && deg < 30.0f)) return 0.0f;
+    if (std::fabs(deg) < 0.01f) return 0.0f;
+    return deg * (3.1415926535f / 180.0f);
+}
+
+float OpenXRManager::GetViewBoxManualYawRad() {
+    const float deg = g_liveControls.xrViewBoxYawDeg;
+    if (!(deg > -30.0f && deg < 30.0f)) return 0.0f;
+    if (std::fabs(deg) < 0.01f) return 0.0f;
+    return deg * (3.1415926535f / 180.0f);
+}
+
+float OpenXRManager::GetViewBoxPitchRad() {
+    float pitch = 0.0f;
+    if (g_liveControls.xrLensBoxCenter != 0) {
+        XrFovf left{}, right{};
+        if (GetCurrentEyeFov(0, &left) && GetCurrentEyeFov(1, &right)) {
+            pitch = GetLensVerticalCenterRad(left, right);
+        }
+    }
+    pitch += -GetViewBoxManualSlideRad();
+    if (!(pitch > -0.7f && pitch < 0.7f)) return 0.0f;
+    return pitch;
+}
+
+float OpenXRManager::GetViewBoxYawRad() {
+    float yaw = 0.0f;
+    if (g_liveControls.xrLensBoxCenter != 0) {
+        XrFovf left{}, right{};
+        if (GetCurrentEyeFov(0, &left) && GetCurrentEyeFov(1, &right)) {
+            yaw = GetLensHorizontalCenterRad(left, right);
+        }
+    }
+    yaw += -GetViewBoxManualYawRad();
+    if (!(yaw > -0.7f && yaw < 0.7f)) return 0.0f;
+    return yaw;
+}
+
+void OpenXRManager::ApplyViewBoxPitch(OpenXRHeadPose* pose) {
+    if (!pose || !pose->valid) return;
+    const float pitch = GetViewBoxPitchRad();
+    const float yaw = GetViewBoxYawRad();
+    if (std::fabs(pitch) < 1.0e-5f && std::fabs(yaw) < 1.0e-5f) return;
+
+    XrQuaternionf q = { pose->oriX, pose->oriY, pose->oriZ, pose->oriW };
+    if (std::fabs(yaw) >= 1.0e-5f) {
+        const float half = yaw * 0.5f;
+        const XrQuaternionf qYaw{ 0.0f, std::sinf(half), 0.0f, std::cosf(half) };
+        q = MultiplyQuat(q, qYaw);
+    }
+    if (std::fabs(pitch) >= 1.0e-5f) {
+        const float half = pitch * 0.5f;
+        const XrQuaternionf qPitch{ std::sinf(half), 0.0f, 0.0f, std::cosf(half) };
+        q = MultiplyQuat(q, qPitch);
+    }
+    pose->oriX = q.x;
+    pose->oriY = q.y;
+    pose->oriZ = q.z;
+    pose->oriW = q.w;
+    static bool s_logged = false;
+    if (!s_logged) {
+        s_logged = true;
+        Log("OpenXRManager[VIEWBOX]: pitch=%.3f yaw=%.3f deg on camera+submit "
+            "(no FOV change; Center box + Box-down/right)\n",
+            pitch * (180.0f / 3.1415926535f),
+            yaw * (180.0f / 3.1415926535f));
+    }
 }
 
 void OpenXRManager::StoreRenderEyePose(int eye, const OpenXRHeadPose& pose, uint32_t seq) {

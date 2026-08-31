@@ -296,6 +296,7 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                     if (got) ++CyberpunkVR_DebugPoseFromCache;
                 }
                 if (got) {
+                    OpenXRManager::Get().ApplyViewBoxPitch(&p);
                     // THE HEADING OF THIS FRAME, NOT OF THE PREVIOUS ONE.
                     //
                     // g_headingSy/Cy are published by LocateCamera, and LocateCamera runs INSIDE the

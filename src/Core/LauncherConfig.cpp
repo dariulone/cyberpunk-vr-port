@@ -108,6 +108,12 @@ void InitRuntimePaths() {
     g_liveControls.xrXInputInstall = 1;
     g_liveControls.xrInputActions = 1;
 
+    // Off until the user opts in: Quest 3 canted optics are the reason this exists,
+    // and a default-on correction on a symmetric headset is a surprise, not a feature.
+    g_liveControls.xrLensBoxCenter = 0;
+    g_liveControls.xrViewBoxPitchDeg = 0.0f;
+    g_liveControls.xrViewBoxYawDeg = 0.0f;
+
     // Capture the recenter-request baseline NOW (before CET could write), so the
     // first OnGameAttached this session is seen as a change and triggers a recenter,
     // while a stale counter left over from a previous session does not.
@@ -192,6 +198,9 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_mono_xqueue_wait=0\n");
     fprintf(file, "xr_snap_turn_pulse_ms=30\n");
     fprintf(file, "xr_mono_depth_capture=1\n");
+    fprintf(file, "xr_lens_box_center=0\n");
+    fprintf(file, "xr_view_box_pitch_deg=0.0\n");
+    fprintf(file, "xr_view_box_yaw_deg=0.0\n");
     fclose(file);
 }
 

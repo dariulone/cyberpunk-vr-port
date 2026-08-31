@@ -61,6 +61,20 @@ inline float GetCorrectedGameHorizontalFovDeg(const RuntimeFovCorrection& corr) 
     return ((h0 + h1) * 0.5f) * (180.0f / 3.1415926535f);
 }
 
+// Optical centre of the lens FOV relative to the view-pose forward axis, radians.
+// Quest 3 ~+44/-55 -> about -5.5 deg (centre sits BELOW head-forward). A symmetric
+// render/submit about head-forward therefore clips the top of the image "box" and
+// leaves a visible bottom edge -- exactly the canted-panel symptom.
+inline float GetLensVerticalCenterRad(const XrFovf& left, const XrFovf& right) {
+    return 0.25f * (left.angleUp + left.angleDown + right.angleUp + right.angleDown);
+}
+
+// Horizontal counterpart of GetLensVerticalCenterRad. On Quest 3 the two eyes cant
+// outward in opposite directions, so the average is often near zero -- useful mainly
+// as a per-headset curiosity; manual yaw fine-tune is the practical control.
+inline float GetLensHorizontalCenterRad(const XrFovf& left, const XrFovf& right) {
+    return 0.25f * (left.angleLeft + left.angleRight + right.angleLeft + right.angleRight);
+}
 // From PR #24 (DeniDoman), ported unchanged in substance from 0.1.1. The measurements in these
 // comments are the author's, on a Quest 3 over both VDXR and SteamVR -- hardware not available here,
 // so they are kept verbatim rather than paraphrased.

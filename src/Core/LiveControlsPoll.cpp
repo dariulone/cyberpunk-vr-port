@@ -240,6 +240,9 @@ void PollLiveControls() {
     float xrWheelHornRadius = g_liveControls.xrWheelHornRadius > 0.0f ? g_liveControls.xrWheelHornRadius : 0.12f;
     int xrVehicleGunTrigger = g_liveControls.xrVehicleGunTrigger;
     float xrVehicleThrottleTrim = g_liveControls.xrVehicleThrottleTrim > 0.0f ? g_liveControls.xrVehicleThrottleTrim : 0.5f;
+    int xrLensBoxCenter = 0;
+    float xrViewBoxPitchDeg = 0.0f;
+    float xrViewBoxYawDeg = 0.0f;
 
     FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO);
     if (!file) return;
@@ -578,6 +581,21 @@ void PollLiveControls() {
             xrVehicleThrottleTrim = value;
             continue;
         }
+        if (sscanf_s(line, "xr_lens_box_center=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_lens_box_center = %d", &intValue) == 1) {
+            xrLensBoxCenter = intValue != 0 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_view_box_pitch_deg=%f", &value) == 1 ||
+            sscanf_s(line, "xr_view_box_pitch_deg = %f", &value) == 1) {
+            xrViewBoxPitchDeg = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_view_box_yaw_deg=%f", &value) == 1 ||
+            sscanf_s(line, "xr_view_box_yaw_deg = %f", &value) == 1) {
+            xrViewBoxYawDeg = value;
+            continue;
+        }
 
     }
     fclose(file);
@@ -676,6 +694,11 @@ void PollLiveControls() {
     g_liveControls.xrVehicleGunTrigger = xrVehicleGunTrigger != 0 ? 1 : 0;
     g_liveControls.xrVehicleThrottleTrim = (xrVehicleThrottleTrim < 0.05f) ? 0.05f
                                          : (xrVehicleThrottleTrim > 3.0f ? 3.0f : xrVehicleThrottleTrim);
+    g_liveControls.xrLensBoxCenter = xrLensBoxCenter != 0 ? 1 : 0;
+    g_liveControls.xrViewBoxPitchDeg =
+        (xrViewBoxPitchDeg < -30.0f) ? -30.0f : (xrViewBoxPitchDeg > 30.0f ? 30.0f : xrViewBoxPitchDeg);
+    g_liveControls.xrViewBoxYawDeg =
+        (xrViewBoxYawDeg < -30.0f) ? -30.0f : (xrViewBoxYawDeg > 30.0f ? 30.0f : xrViewBoxYawDeg);
     SetHmdTrackingSmooth(xrHmdSmooth);
     CyberpunkVR_HandLerpSpeed = (xrHandLerp < 0.0f) ? 0.0f : ((xrHandLerp > 30.0f) ? 30.0f : xrHandLerp);
     // Clamped rather than trusted: at 0 the hold can never be offered and at a third of a metre it is
@@ -790,6 +813,9 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrWheelHornRadius = g_liveControls.xrWheelHornRadius;
     state.xrVehicleGunTrigger = g_liveControls.xrVehicleGunTrigger;
     state.xrVehicleThrottleTrim = g_liveControls.xrVehicleThrottleTrim;
+    state.xrLensBoxCenter = g_liveControls.xrLensBoxCenter;
+    state.xrViewBoxPitchDeg = g_liveControls.xrViewBoxPitchDeg;
+    state.xrViewBoxYawDeg = g_liveControls.xrViewBoxYawDeg;
     return state;
 }
 
@@ -875,6 +901,11 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_wheel_horn_radius=%.3f\n", state.xrWheelHornRadius > 0.0f ? state.xrWheelHornRadius : 0.12f);
     fprintf(file, "xr_vehicle_gun_trigger=%d\n", state.xrVehicleGunTrigger != 0 ? 1 : 0);
     fprintf(file, "xr_vehicle_throttle_trim=%.2f\n", state.xrVehicleThrottleTrim > 0.0f ? state.xrVehicleThrottleTrim : 0.5f);
+    fprintf(file, "xr_lens_box_center=%d\n", state.xrLensBoxCenter != 0 ? 1 : 0);
+    fprintf(file, "xr_view_box_pitch_deg=%.3f\n",
+        (state.xrViewBoxPitchDeg < -30.0f) ? -30.0f : (state.xrViewBoxPitchDeg > 30.0f ? 30.0f : state.xrViewBoxPitchDeg));
+    fprintf(file, "xr_view_box_yaw_deg=%.3f\n",
+        (state.xrViewBoxYawDeg < -30.0f) ? -30.0f : (state.xrViewBoxYawDeg > 30.0f ? 30.0f : state.xrViewBoxYawDeg));
     fclose(file);
 
     WIN32_FILE_ATTRIBUTE_DATA fileData;
@@ -965,6 +996,13 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         const float tt = state->xrVehicleThrottleTrim;
         g_liveControls.xrVehicleThrottleTrim = (tt < 0.05f) ? 0.05f : (tt > 3.0f ? 3.0f : tt);
     }
+    g_liveControls.xrLensBoxCenter = state->xrLensBoxCenter != 0 ? 1 : 0;
+    g_liveControls.xrViewBoxPitchDeg =
+        (state->xrViewBoxPitchDeg < -30.0f) ? -30.0f
+        : (state->xrViewBoxPitchDeg > 30.0f ? 30.0f : state->xrViewBoxPitchDeg);
+    g_liveControls.xrViewBoxYawDeg =
+        (state->xrViewBoxYawDeg < -30.0f) ? -30.0f
+        : (state->xrViewBoxYawDeg > 30.0f ? 30.0f : state->xrViewBoxYawDeg);
     WriteVrikSettingsFile(); // publish mouse-Y flag for the CET VRIK mod
 
     if (prevMono != g_liveControls.xrMonoSubmit) {
