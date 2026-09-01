@@ -79,6 +79,8 @@ std::mutex            g_d12_mtx;
 UINT                  g_d12_w = 0, g_d12_h = 0;
 DXGI_FORMAT           g_d12_fmt = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMirrorSrcState = 0;
+extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_NoStateLies;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugForeignStateRefusals;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorBarrierHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorPendingHits = 0;
 std::atomic<uint64_t> g_mirror_vrcam_serial{0};
@@ -126,6 +128,7 @@ void d12_submit_mirror_copy(ID3D12CommandQueue* queue) {
         if (FAILED(g_game_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
                 g_d12_copy_alloc[0], nullptr, IID_PPV_ARGS(&g_d12_copy_list))))
             return;
+        g_d12_copy_list->SetName(L"CVR_mirror_copy_list");
         g_d12_copy_list->Close();
     }
     const uint32_t idx = g_d12_copy_frame & 3u;
@@ -155,12 +158,22 @@ void d12_submit_mirror_copy(ID3D12CommandQueue* queue) {
     // Our own committed target always rests in RENDER_TARGET (engine renders into it; the
     // copy transitions RT->COPY_SOURCE->RT). For the fallback transient, use the actually-
     // tracked state (not a fixed guess).
+    // THE FIXED GUESS IS GONE. CyberpunkVR_MirrorCopyState = 64 was documented in its own
+    // definition as a "fixed GUESS fallback only", and a guessed StateBefore on an engine
+    // resource is a lie to the driver's state machine -- which is the code the recurring 0x88
+    // crash faults in. Our own targets have states we set ourselves and those stay; for the
+    // engine's transient there is either a tracked state or no copy this frame.
     D3D12_RESOURCE_STATES copy_src_state = use_own
         ? D3D12_RESOURCE_STATE_RENDER_TARGET
         : use_stable ? D3D12_RESOURCE_STATE_COMMON   // stable rests in COMMON
-        : (D3D12_RESOURCE_STATES)CyberpunkVR_MirrorCopyState;
-    if (!use_own && !use_stable && CyberpunkVR_MirrorTrackState) {
+        : D3D12_RESOURCE_STATE_COMMON;
+    if (!use_own && !use_stable) {
         const uint32_t tracked = CyberpunkVR_DebugMirrorSrcState;
+        if (tracked == 0 && CyberpunkVR_NoStateLies) {
+            InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(
+                &CyberpunkVR_DebugForeignStateRefusals));
+            return;      // a skipped mirror frame costs a frame; a wrong barrier costs the device
+        }
         if (tracked != 0) copy_src_state = (D3D12_RESOURCE_STATES)tracked;
     }
     // ---- HUD on the mirror -----------------------------------------------------------------

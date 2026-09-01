@@ -208,13 +208,40 @@ bool HeadYawRelBase(float* outYaw) {
 // relative to the body. MAPPING = +1, observed rather than derived: the axis map (XR y -> game z)
 // predicts it, one build contradicted it, and that build had the recenter base spinning the whole
 // world -- a direction cannot be judged against a rotating world.
+// GIVE THE REALIGN BACK. Every consumer subtracts this accumulator unconditionally -- the camera
+// write (PatchCamera.cpp), the body forward LocateCamera publishes, and the movement axes
+// (OnFootMoveXY.cpp) -- so a value left standing after the follower stops issuing steps is a
+// permanent yaw error in all three, and nothing self-corrects it: the loop that would unwind it is
+// the same loop that is no longer running.
+//
+// THE BRANCH BELOW COULD NOT DO THIS, which is why this function exists. BodyYawFollowStep is
+// called from exactly one place, OnFootDeltaHead.cpp, and that site returns BEFORE the call in both
+// states that need the release -- `if (g_isInVehicle) return;` at the top and the `if (!bodyRot)`
+// early-out -- while also being what SETS CyberpunkVR_BodyYawFollow. So by the time control reaches
+// the step the flag is always 1 and the guard inside it is dead code.
+//
+// Two states need it, and the difference matters:
+//
+//   THE FEATURE SWITCHED OFF -- the view stops cancelling, which is a one-time step of whatever had
+//   accumulated. That is the intended behaviour (the body keeps the rotation it was given and the
+//   view stops pretending it did not happen); the alternative is carrying the offset for the session.
+//
+//   MOUNTED -- and here the freeze was the real defect. The follower does not run in a vehicle, so
+//   the accumulator holds the value it had on foot while PatchCamera keeps subtracting it from a yaw
+//   that now comes from the CAR. Enter a car looking aside and the whole drive is spent looking that
+//   far off the road (the cone is 25 deg, so the residue is head yaw minus 25), with no way back:
+//   the only thing that unwinds the accumulator is the on-foot loop. Released here, the vehicle view
+//   is composed from the car's own heading and nothing else, and stepping out re-converges normally.
+extern "C" void BodyYawFollowRelease() {
+    if (CyberpunkVR_BodyYawRealignRad == 0.0f) return;
+    CyberpunkVR_BodyYawRealignRad = 0.0f;
+    CyberpunkVR_DebugBodyFollowOffsetDeg = 0.0f;
+}
+
 extern "C" float BodyYawFollowStep() {
     ++CyberpunkVR_DebugBodyFollowCalls;
     if (!CyberpunkVR_BodyYawFollow) {
-        // Give the realign back when the feature is switched off, or the view would keep the
-        // subtraction for as long as the session lasts.
-        CyberpunkVR_BodyYawRealignRad = 0.0f;
-        CyberpunkVR_DebugBodyFollowOffsetDeg = 0.0f;
+        BodyYawFollowRelease();
         return 0.0f;
     }
     float hmdYaw = 0.0f;

@@ -776,12 +776,70 @@ extern "C" __declspec(dllexport) void CyberpunkVRPort_PluginBootstrap() {
     // Set CPVR_NO_FACTORY_HOOKS=1 in the launch environment to leave the factory alone. Stereo and the
     // mirror window depend on this wrapper, so that run is a diagnostic and not a playable build -- but
     // it answers the question in one launch instead of by argument. Default behaviour is unchanged.
+    // ...AND IT ARMS ITSELF WHEN A CAPTURE LAYER IS IN THE PROCESS.
+    //
+    // Two wrappers over one DXGI factory is not a preference, it is a crash. Launched under Nsight the
+    // game died the moment a capture was taken, entirely inside the capture layer:
+    //
+    //     0xC0000005, read at 0x280
+    //     FAULT  ngfx-capture-interception.dll +0x4184FE
+    //     stack  ngfx-capture-interception -> nvwgf2umx -> D3D12Core, not one frame of the exe
+    //
+    // A null dereference at a small offset is that layer meeting an object whose creation it never
+    // intercepted -- which is what happens when we hand the game OUR factory wrapper before it has
+    // wrapped the real one. So the switch added as a RenderDoc experiment becomes the default whenever
+    // such a layer is resident: leave the factory alone and let the capture work.
+    //
+    // Stereo and the mirror window depend on that wrapper, so a capture run is a diagnostic run, and
+    // the log says so. That is the trade asked for: the render has to go, the stereo need not.
+    //
+    // The variable still overrides both ways: 1 forces the hooks off with no layer present, 0 forces
+    // them on with one.
+    static const wchar_t* const kCaptureLayers[] = {
+        L"ngfx-capture-interception.dll",   // Nsight Graphics, the frame interceptor
+        L"ngfx-capture-injection.dll",      // ...and its injector, which loads first
+    };
+    // RENDERDOC IS DELIBERATELY NOT IN THAT LIST.
+    //
+    // The note in docs/memory for the RenderDoc setup records CPVR_NO_FACTORY_HOOKS=1 as required
+    // there, established by A/B -- API None with the wrapper, D3D12 without. But the user reports
+    // RenderDoc runs working with the variable unset, and no launcher here sets it, so on their machine
+    // the wrapper is evidently not blinding it. Nsight is the case with a crash dump behind it, so it
+    // is the case that arms itself; RenderDoc keeps the variable, which is one word to type on the runs
+    // where it turns out to be needed. Auto-disabling stereo for a configuration that already worked
+    // would be a regression bought with a guess.
+    const wchar_t* capture = nullptr;
+    for (const wchar_t* m : kCaptureLayers) {
+        if (GetModuleHandleW(m)) { capture = m; break; }
+    }
+
     char noFactory[8] = {};
-    if (GetEnvironmentVariableA("CPVR_NO_FACTORY_HOOKS", noFactory, sizeof(noFactory)) > 0 &&
-            noFactory[0] == '1') {
-        Log("PluginBootstrap: CPVR_NO_FACTORY_HOOKS=1 -- factory exports left unhooked. Stereo and the "
-            "mirror will not work; this is the RenderDoc visibility test.\n");
+    const bool haveVar =
+        GetEnvironmentVariableA("CPVR_NO_FACTORY_HOOKS", noFactory, sizeof(noFactory)) > 0;
+    // THE DETECTION ONLY WARNS; IT DOES NOT DISARM ANYTHING.
+    //
+    // Skipping the factory hooks does let a capture through, and it was briefly made automatic --
+    // wrongly. That wrapper is what stereo, the mirror and the forced FOV are built on, so a run
+    // without it is not the run worth capturing: the frame would not be one the port shaped, which
+    // answers nothing about the port.
+    //
+    // So the variable stays the only thing that disarms them. The line below exists to name the layer
+    // in the log, because the crash is INSIDE that layer -- ngfx-capture-interception +0x4184FE,
+    // reading 0x280, not one frame of the exe -- and knowing which layer was resident is the first
+    // thing anyone reading such a dump needs.
+    const bool skip = haveVar && noFactory[0] == '1';
+    if (skip) {
+        Log("PluginBootstrap: factory exports left unhooked (%s) -- stereo and the mirror will not "
+            "work, the render and the capture will. capture layer: %ls\n",
+            haveVar ? "CPVR_NO_FACTORY_HOOKS=1" : "capture layer detected",
+            capture ? capture : L"none");
         return;
+    }
+    if (capture) {
+        Log("PluginBootstrap: capture layer %ls is resident and the factory hooks are ON -- "
+            "stereo, the mirror and the forced FOV work; a capture from Nsight has been seen to "
+            "crash inside that layer.\n",
+            capture);
     }
     // Both the real DXGI and Streamline's interposer: with frame generation the game talks to
     // the interposer's exports, not dxgi's, and the swapchain it gets back is a Streamline

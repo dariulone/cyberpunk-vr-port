@@ -251,3 +251,253 @@ void VrikReloadFingerPose(uint8_t* boneBuf) {
 
 }  // namespace anim
 }  // namespace cvr
+
+// ================================================================================================
+// THE RESTING RIGHT HAND -- the mirror of the block above, for the one case that did not exist until
+// the weapon could be carried in the left hand: a right hand that is empty while a weapon is out.
+//
+// Everything here is the left implementation with the right finger list and one different gate. The
+// reasoning above applies unchanged -- why the moment is chosen rather than detected, why the file is
+// keyed by bone name, why it is a base layer written before the reload preview -- and is not repeated.
+// ================================================================================================
+static const char* kRestGripIniR = "CyberpunkVR_RestGrip_Right.ini";
+
+extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerCaptureReqR = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerSaveReqR    = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerApplyR      = 1;
+extern "C" __declspec(dllexport) int CyberpunkVR_RestFingerForceR      = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerHaveR  = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerSavedR = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerRefusedR = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerCapsR  = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestBonesR       = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestGateR        = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugRestFingerLoadTriedR = 0;
+
+// Raised by the weapon module while the weapon is carried in the left hand.
+extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryLeft;
+
+namespace {
+float g_restRotR[32][4] = {};
+int   g_restCountR = 0;
+int   g_restHaveR  = 0;
+}  // namespace
+
+namespace cvr {
+namespace anim {
+
+void VrikRestFingerPoseRight(uint8_t* boneBuf) {
+    const int  cnt = g_VRSmokeFingerCount;
+    const int* idx = g_VRSmokeFingerIdx;
+    if (cnt <= 0 || !idx) return;
+
+    // CAPTURE, on request and with empty hands: a weapon in the right hand is the pose being replaced,
+    // and the cigarette owns these very fingers when it is lit.
+    if (CyberpunkVR_RestFingerCaptureReqR) {
+        int why = 0;
+        if (g_hasWeaponEquipped)        why |= 1;
+        if (g_VRSmokeFingerActive)      why |= 4;
+        if (why) {
+            CyberpunkVR_DebugRestFingerRefusedR = why;
+            CyberpunkVR_RestFingerCaptureReqR = 0;
+            return;
+        }
+        for (int k = 0; k < 32; ++k) {
+            const int bi = (k < cnt) ? idx[k] : -1;
+            if (bi < 0 || bi >= VRIK_MAX_BONES) {
+                g_restRotR[k][0] = 0.0f; g_restRotR[k][1] = 0.0f;
+                g_restRotR[k][2] = 0.0f; g_restRotR[k][3] = 1.0f;
+                continue;
+            }
+            const float* q = reinterpret_cast<const float*>(boneBuf + bi * 48 + VRIK_ROT_OFF);
+            g_restRotR[k][0] = q[0]; g_restRotR[k][1] = q[1];
+            g_restRotR[k][2] = q[2]; g_restRotR[k][3] = q[3];
+        }
+        g_restCountR = cnt;
+        g_restHaveR = 1;
+        CyberpunkVR_DebugRestFingerHaveR = 1;
+        ++CyberpunkVR_DebugRestFingerCapsR;
+        CyberpunkVR_DebugRestFingerRefusedR = 0;
+        CyberpunkVR_RestFingerCaptureReqR = 0;
+        CyberpunkVR_RestFingerSaveReqR = 1;
+        return;
+    }
+
+    //   1 carried in the left hand   2 pose recorded   4 apply on   8 finger list resolved
+    CyberpunkVR_DebugRestGateR = ((CyberpunkVR_CarryLeft != 0) ? 1 : 0)
+                               | (g_restHaveR ? 2 : 0)
+                               | (CyberpunkVR_RestFingerApplyR ? 4 : 0)
+                               | ((cnt > 0) ? 8 : 0);
+    // THE ONE CASE: the weapon is in the LEFT hand, so this one is empty while the game still poses it
+    // around a grip. With the weapon in this hand, or with both hands empty, the game is already right.
+    if (CyberpunkVR_CarryLeft == 0 && !CyberpunkVR_RestFingerForceR) return;
+    if (!g_restHaveR || !CyberpunkVR_RestFingerApplyR) return;
+
+    const int n = (g_restCountR > 0 && g_restCountR < cnt) ? g_restCountR : cnt;
+    int wrote = 0;
+    for (int k = 0; k < n && k < 32; ++k) {
+        const int bi = idx[k];
+        if (bi < 0 || bi >= VRIK_MAX_BONES) continue;
+        const float* r = g_restRotR[k];
+        if (r[0] == 0.0f && r[1] == 0.0f && r[2] == 0.0f && r[3] == 0.0f) continue;
+        float* q = reinterpret_cast<float*>(boneBuf + bi * 48 + VRIK_ROT_OFF);
+        q[0] = r[0]; q[1] = r[1]; q[2] = r[2]; q[3] = r[3];
+        ++wrote;
+    }
+    CyberpunkVR_DebugRestBonesR = wrote;
+}
+
+// Disk half, off the animation thread -- same reason as the left one: a file open inside the pose
+// apply would put an unbounded wait in the middle of it.
+void RestFingerRightTick() {
+    if (CyberpunkVR_RestFingerSaveReqR) {
+        CyberpunkVR_RestFingerSaveReqR = 0;
+        FILE* f = nullptr;
+        if (fopen_s(&f, VRDiagPath(kRestGripIniR).c_str(), "w") == 0 && f) {
+            std::fprintf(f, "# CyberpunkVR rest grip pose v1, RIGHT hand (VRRestFingerCaptureRight)\n"
+                            "# One frame of the game's own empty-handed animation. Replayed while the\n"
+                            "# weapon is carried in the LEFT hand, where this one would otherwise be\n"
+                            "# posed around a grip it is no longer holding.\n"
+                            "# F <bone> qx qy qz qw           finger: parent-local rotation only\n");
+            for (int k = 0; k < g_restCountR && k < 32; ++k) {
+                const char* nm = g_VRSmokeFingerName[k];
+                if (!nm || !nm[0]) continue;
+                std::fprintf(f, "F %s %.9g %.9g %.9g %.9g\n", nm,
+                             g_restRotR[k][0], g_restRotR[k][1],
+                             g_restRotR[k][2], g_restRotR[k][3]);
+            }
+            std::fclose(f);
+            CyberpunkVR_DebugRestFingerSavedR = 1;
+        } else {
+            CyberpunkVR_DebugRestFingerSavedR = -1;
+        }
+        return;
+    }
+
+    if (g_restHaveR || CyberpunkVR_DebugRestFingerLoadTriedR) return;
+    if (g_VRSmokeFingerCount <= 0) return;
+    CyberpunkVR_DebugRestFingerLoadTriedR = 1;
+    FILE* f = nullptr;
+    if (fopen_s(&f, VRDiagPath(kRestGripIniR).c_str(), "r") == 0 && f) {
+        char line[256];
+        int  hit = 0;
+        while (std::fgets(line, sizeof(line), f)) {
+            if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
+            char nm[64] = {0};
+            float a = 0.0f, b = 0.0f, c = 0.0f, d = 0.0f;
+            if (std::sscanf(line, "F %63s %g %g %g %g", nm, &a, &b, &c, &d) != 5) continue;
+            for (int k = 0; k < g_VRSmokeFingerCount && k < 32; ++k) {
+                if (std::strcmp(nm, g_VRSmokeFingerName[k]) != 0) continue;
+                g_restRotR[k][0] = a; g_restRotR[k][1] = b;
+                g_restRotR[k][2] = c; g_restRotR[k][3] = d;
+                ++hit;
+                break;
+            }
+        }
+        std::fclose(f);
+        if (hit > 0) {
+            g_restCountR = g_VRSmokeFingerCount;
+            g_restHaveR = 1;
+            CyberpunkVR_DebugRestFingerHaveR = 1;
+        }
+    }
+}
+
+}  // namespace anim
+}  // namespace cvr
+
+// ================================================================================================
+// THE RIGHT HAND'S GRIP -- REMEMBERED AS IT IS WORN, OFFERED BACK WHILE THE LEFT HAND CARRIES.
+//
+// NOTHING IS RECORDED BY HAND HERE, and that is the point: there are fifty weapons and the pose is
+// already on the hand every time one of them is held. So every pass the weapon is genuinely in this
+// hand, the game's own grip fingers are copied into one slot, and the carry has an exact pose to offer
+// back without the player ever recording anything.
+//
+// A ROLLING SNAPSHOT ALSO ANSWERS EVERY QUESTION A ONE-OFF CAPTURE WOULD HAVE HAD TO. There is no draw
+// animation to skip -- its frames are overwritten by the settled grip a moment later. There is no
+// per-weapon file to key -- the weapon last held IS the one being carried. There is no staleness -- the
+// last write lands on the frame before the carry begins. And there is nothing to persist: drawing the
+// weapon teaches it again.
+//
+// What it does need is honest gates: the weapon actually in this hand (not carried in the other), no
+// cigarette, and no reload working these fingers -- in each of those cases the pose in the buffer is
+// not a grip.
+//
+// Replayed on top of the resting pose and faded in by CyberpunkVR_CarryGripBlend, which the reach
+// spring in TwoHandGrip.cpp raises as the hand comes back inside the carry radius. Fingers only, never
+// the wrist -- the rule every preview in this port follows.
+// ================================================================================================
+extern "C" __declspec(dllexport) int CyberpunkVR_CarryGripApply      = 1;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugCarryGripHave  = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugCarryGripSnaps = 0;
+extern "C" __declspec(dllexport) int CyberpunkVR_DebugCarryGripBones = 0;
+
+// Published by the carry: the reach spring's weight, and whether the weapon is in the left hand.
+extern "C" __declspec(dllexport) extern float CyberpunkVR_CarryGripBlend;
+extern "C" __declspec(dllexport) extern int   CyberpunkVR_CarryLeft;
+
+namespace {
+float g_gripRotR[32][4] = {};
+int   g_gripCountR = 0;
+int   g_gripHaveR  = 0;
+}  // namespace
+
+namespace cvr {
+namespace anim {
+
+void VrikCarryGripPoseRight(uint8_t* boneBuf) {
+    const int  cnt = g_VRSmokeFingerCount;
+    const int* idx = g_VRSmokeFingerIdx;
+    if (cnt <= 0 || !idx) return;
+
+    // LEARN IT, while the hand is really holding the weapon. This pass runs before the reload and
+    // cigarette layers, so what is in the buffer here is the game's own pose and not one of ours.
+    if (g_hasWeaponEquipped && CyberpunkVR_CarryLeft == 0
+        && !g_VRSmokeFingerActive && !g_VRReloadFingerActive[1]) {
+        for (int k = 0; k < cnt && k < 32; ++k) {
+            const int bi = idx[k];
+            if (bi < 0 || bi >= VRIK_MAX_BONES) continue;
+            const float* q = reinterpret_cast<const float*>(boneBuf + bi * 48 + VRIK_ROT_OFF);
+            g_gripRotR[k][0] = q[0]; g_gripRotR[k][1] = q[1];
+            g_gripRotR[k][2] = q[2]; g_gripRotR[k][3] = q[3];
+        }
+        g_gripCountR = cnt;
+        g_gripHaveR = 1;
+        CyberpunkVR_DebugCarryGripHave = 1;
+        ++CyberpunkVR_DebugCarryGripSnaps;
+        return;                     // and there is nothing to offer a hand that already has the gun
+    }
+
+    if (!g_gripHaveR || !CyberpunkVR_CarryGripApply) return;
+    float b = CyberpunkVR_CarryGripBlend;
+    if (b <= 0.001f) return;
+    if (b > 1.0f) b = 1.0f;
+
+    // The mixing is TwoHandFingers' own nlerp: a preview grows out of whatever the layer below left
+    // (here the resting hand), it does not replace it.
+    const int n = (g_gripCountR > 0 && g_gripCountR < cnt) ? g_gripCountR : cnt;
+    int wrote = 0;
+    for (int k = 0; k < n && k < 32; ++k) {
+        const int bi = idx[k];
+        if (bi < 0 || bi >= VRIK_MAX_BONES) continue;
+        const float* tq = g_gripRotR[k];
+        if (tq[0] == 0.0f && tq[1] == 0.0f && tq[2] == 0.0f && tq[3] == 0.0f) continue;
+        float* q = reinterpret_cast<float*>(boneBuf + bi * 48 + VRIK_ROT_OFF);
+        if (b >= 0.999f) {
+            q[0]=tq[0]; q[1]=tq[1]; q[2]=tq[2]; q[3]=tq[3];
+            ++wrote;
+            continue;
+        }
+        const float dot = q[0]*tq[0] + q[1]*tq[1] + q[2]*tq[2] + q[3]*tq[3];
+        const float s = (dot < 0.0f) ? -b : b;
+        float nq[4] = { q[0]*(1.0f-b) + tq[0]*s, q[1]*(1.0f-b) + tq[1]*s,
+                        q[2]*(1.0f-b) + tq[2]*s, q[3]*(1.0f-b) + tq[3]*s };
+        const float nl = std::sqrt(nq[0]*nq[0] + nq[1]*nq[1] + nq[2]*nq[2] + nq[3]*nq[3]);
+        if (nl > 1e-6f) { q[0]=nq[0]/nl; q[1]=nq[1]/nl; q[2]=nq[2]/nl; q[3]=nq[3]/nl; ++wrote; }
+    }
+    CyberpunkVR_DebugCarryGripBones = wrote;
+}
+
+}  // namespace anim
+}  // namespace cvr

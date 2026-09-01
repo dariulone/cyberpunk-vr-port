@@ -90,3 +90,16 @@ mods/cet/**/vrik_recenter.ini
 
 # Stereo-plugin build output
 /build-stereo/
+
+# Working trees and dumps that were never meant to be tracked -- they showed as untracked for
+# weeks and everyone assumed they were ignored, which is the same as ignored right up until
+# someone runs `git add .` and commits 58 MB.
+.claude/
+.review_diff.patch
+StringsFromCP.txt
+externals/OpenXR-SDK/
+vr2/
+
+# Review artefacts: the full diff and the commit text prepared for a release.
+# Generated, large (the 0.1.6 patch alone is 1.3 MB) and never part of the tree.
+/review/

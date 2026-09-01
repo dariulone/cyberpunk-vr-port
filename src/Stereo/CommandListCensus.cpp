@@ -329,8 +329,19 @@ static void light_content_report() {
 // Read here rather than inferred: the buffer is copied into a readback in the engine's own list
 // at the barrier that already identifies it, so no state is guessed and nothing is added to any
 // queue of ours.
-// OFF -- exposure differs by 10-35%: real, but recorded, not being re-measured.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_ExpoProbe = 1;
+// 0 off, 1 a line every 8 s, 2 a line every 200 ms.
+//
+// Default is 0, and the note above already said OFF while the value said 1 -- it copies 28
+// bytes out of an engine resource, with two barriers, on EVERY bind of that buffer, and that is
+// not something to leave armed for a difference that was measured and written down long ago.
+//
+// Mode 2 exists for a TRANSIENT. Reported 2026-08-29: when the braindance glasses go on, MAIN
+// gets a flash of exposure -- the eye adapting to the cut -- and the second view gets nothing.
+// That is the shape this whole file predicts: adaptation is metered by HistogramUpdate, which
+// the second view is refused, so its exposure is a standing number that cannot flash. At 8 s a
+// line the flash falls between two samples and the log shows only the standing difference; at
+// 200 ms the ramp itself is in the log, field by field, for both views.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_ExpoProbe = 0;
 extern "C" __declspec(dllexport) float   CyberpunkVR_DebugExpoValMain  = 0.f;
 extern "C" __declspec(dllexport) float   CyberpunkVR_DebugExpoValVrcam = 0.f;
 static ID3D12Resource* g_expo_rb[2] = {nullptr, nullptr};
@@ -389,9 +400,79 @@ static bool expo_rb_ensure(int v) {
 // where MAIN's state is known, VRCAM's is written where VRCAM's is. Frame order is VRCAM-first,
 // so the value applied is MAIN's from the previous frame -- exposure adapts over many frames, so
 // one frame of lag is nothing.
+// DEFAULT FLIPPED TO 0 ON 2026-08-29, ON THE PICTURE. Everything argued above is still right --
+// two eyes metering differently is binocular rivalry and wants correcting -- but THIS copy is too
+// blunt to be the correction. It takes all 28 bytes, and that carries field [0], where the two sides
+// were measured to differ by 2880x (0.945322 against 0.000328187). Handing the second view a
+// multiplier three thousand times its own whitens it, which is what the user reported and what
+// switching this export off in the debugger addressed.
+//
+// The replacement already exists and is not lost: the field-masked mirror written on top of this one
+// carries only the field that differs by the size of the actual symptom ([6], MAIN 1.0 against
+// 0.860). It went out with the render rollback and belongs back here -- until it does, the honest
+// default is off, because a correction that overshoots by three orders of magnitude is worse than
+// the difference it corrects.
+// SHIPS ON. It is not a diagnostic and not a workaround: it is the mechanism that gives both eyes
+// one exposure. Measured 2026-08-30, without it the second view's pre-exposure multiplier sits at
+// 0.945388 where MAIN's is 0.000328187 on the same scene -- 2880.6x -- and since every lighting
+// shader multiplies its entire output by that float, every render target of that view from
+// Lighting onward comes out white. Off = that comes back.
+//
+// It only started working once the buffer stopped being identified by t_vrcam_node_active; see
+// the note at the classification in Capture.cpp.
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_ExpoMirror = 1;
+
+// WHICH OF THE SEVEN FLOATS, and the measurement that chose them.
+//
+// Reported 2026-08-29: when the braindance glasses go on, MAIN gets a flash -- the eye adapting
+// to the cut -- and the second view gets nothing. Sampled at 200 ms through the readback probe
+// in this file, both views side by side, the whole event reads:
+//
+//     at rest        MAIN f0 1.915  f3 0.5223   |  VRCAM f0 1.915  f3 0.5223
+//     the cut        MAIN f0 0.5716 f3 1.750    |  VRCAM f0 1.856  f3 0.5389
+//     +4 s           MAIN f0 1.885  f3 0.5304   |  VRCAM f0 1.915  f3 0.5223
+//
+// So MAIN's multiplier drops 3.35x and climbs back over about four seconds, while the second
+// view moves three per cent and is done inside one. It does not adapt, which is what this file
+// already predicted: adaptation is metered by HistogramUpdate, and that node is refused for
+// this view. f0 is exactly 1/f3, and f1 and f4 move with f3 -- one quantity in four slots.
+//
+// AT REST THE TWO VIEWS AGREE TO FOUR FIGURES, which is the whole reason a masked copy is safe
+// where the 28-byte copy was not: on these four fields the write is a no-op except during a
+// transient, so it can only add the flash and cannot shift the standing brightness. The blunt
+// version carried every field, including one where the views were once measured 2880x apart,
+// and whitening the eye by three thousand times is what took it out of the defaults.
+//
+// One bit per float. 27 = f0|f1|f3|f4, the adaptation set. 127 is the old whole-buffer copy.
+// DEFAULT 25 = f0|f3|f4, MEASURED 2026-08-30 out of the Nsight capture. The seven floats of
+// each view's FrameExposureData, read at the lighting pass that consumes them:
+//
+//     VRCAM  f0 0.945388     f1 0.110189  f2 0.0003472  f3 1.05777  f4 1.05793
+//     MAIN   f0 0.000328187  f1 0.25      f2 1.0        f3 3047.04  f4 3047.04
+//
+// f0 is the pre-exposure the lighting shader multiplies its entire output by, f3 is its
+// reciprocal (f0*f3 == 1 in both views) and f4 tracks f3. Those three are the quantity, and
+// they only mean anything as a set. f1 and f5/f6 are settings that legitimately differ per
+// view, and f2 is the pending correction the view computed for itself -- copying MAIN's 1.0
+// over it would tell the second view there is nothing left to correct.
+//
+// DEFAULT 127 -- THE WHOLE BUFFER -- BECAUSE THE TWO EYES MUST SHOW ONE EXPOSURE.
+//
+// With 25 (f0|f3|f4) the second view converged to MAIN's f1 and f2 by itself inside a frame, so
+// its chain was never broken; it was only ever starting from the wrong multiplier. That made a
+// narrow mask look attractive -- leave the view its own adaptation. It is the wrong instinct:
+// independent adaptation in the second view is a defect by construction, because the eyes would
+// then disagree with each other. Asked as "а зачем ему адаптироваться самому?", and the answer
+// is that it must not.
+//
+// 25 = f0|f3|f4 (the multiplier, its reciprocal and its previous value), 9 = the bare f0|f3 pair.
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ExpoFieldMask = 127;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugExpoMirrors = 0;
 static ID3D12Resource* g_expo_stage = nullptr;
+// False until MAIN's exposure has actually been parked in it. Without this the very first
+// frames copy an uninitialised buffer into the second view, and -- worse -- any frame in
+// which MAIN's own transition was missed would hand the second view stale or foreign bytes.
+static bool g_expo_stage_ready = false;
 
 static bool expo_stage_ensure() {
     if (g_expo_stage) return true;
@@ -430,12 +511,14 @@ static bool expo_stage_ensure() {
         b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_SOURCE;
         e->barrier_call(list, 1, &b);
         e->cbr_original(list, g_expo_stage, 0, src, 0, 28);
+        g_expo_stage_ready = true;
         b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
         b.Transition.StateAfter  = kSrv;
         e->barrier_call(list, 1, &b);
         return;
     }
-    // VRCAM: overwrite its exposure with MAIN's.
+    // VRCAM: overwrite its exposure with MAIN's -- but only if MAIN's is genuinely in there.
+    if (!g_expo_stage_ready) return;
     D3D12_RESOURCE_BARRIER s{};
     s.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     s.Transition.pResource = g_expo_stage;
@@ -446,7 +529,21 @@ static bool expo_stage_ensure() {
     b.Transition.StateBefore = kSrv;
     b.Transition.StateAfter  = D3D12_RESOURCE_STATE_COPY_DEST;
     e->barrier_call(list, 1, &b);
-    e->cbr_original(list, src, 0, g_expo_stage, 0, 28);
+    // Coalesced runs rather than seven calls: the mask is almost always a couple of
+    // neighbouring fields, and a CopyBufferRegion per float on this path is pure overhead.
+    const uint32_t fmask = CyberpunkVR_ExpoFieldMask & 0x7Fu;
+    if (fmask == 0x7Fu) {
+        e->cbr_original(list, src, 0, g_expo_stage, 0, 28);
+    } else {
+        uint32_t k = 0;
+        while (k < 7) {
+            if (!(fmask & (1u << k))) { ++k; continue; }
+            uint32_t run = k;
+            while (run < 7 && (fmask & (1u << run))) ++run;
+            e->cbr_original(list, src, k * 4ull, g_expo_stage, k * 4ull, (run - k) * 4ull);
+            k = run;
+        }
+    }
     b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
     b.Transition.StateAfter  = kSrv;
     e->barrier_call(list, 1, &b);
@@ -482,16 +579,18 @@ static bool expo_stage_ensure() {
 
  void expo_probe_report() {
     static uint64_t s_last = 0;
-    if (!g_expo_rb_map[0] || !g_expo_rb_map[1]) return;
+    if (!CyberpunkVR_ExpoProbe || !g_expo_rb_map[0] || !g_expo_rb_map[1]) return;
     const uint64_t now = GetTickCount64();
-    if (s_last && now - s_last < 8000) return;
+    const uint64_t period = (CyberpunkVR_ExpoProbe >= 2) ? 200u : 8000u;
+    if (s_last && now - s_last < period) return;
     s_last = now;
     float m[7], v[7];
     memcpy(m, g_expo_rb_map[0], 28);
     memcpy(v, g_expo_rb_map[1], 28);
     CyberpunkVR_DebugExpoValMain  = m[6];
     CyberpunkVR_DebugExpoValVrcam = v[6];
-    log("[expo] MAIN %.6g %.6g %.6g %.6g %.6g %.6g %.6g | VRCAM %.6g %.6g %.6g %.6g %.6g %.6g %.6g",
+    log("[expo] t=%llu MAIN %.6g %.6g %.6g %.6g %.6g %.6g %.6g | VRCAM %.6g %.6g %.6g %.6g %.6g %.6g %.6g",
+        (unsigned long long)now,
         m[0], m[1], m[2], m[3], m[4], m[5], m[6],
         v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
 }
@@ -504,7 +603,9 @@ static bool expo_stage_ensure() {
 // render-res/32 that the lighting pass indexes. Non-zero tiles for MAIN and zeros for VRCAM
 // would settle this; equal grids move the search to the lighting shader's other inputs.
 // OFF -- the per-tile grids read equal once the readback was finally synchronised.
-extern "C" __declspec(dllexport) int32_t  CyberpunkVR_TileProbe = 1;
+// DEFAULT 0. The comment above already said OFF while the value said 1, which is how it kept
+// running: a GetDesc and a readback copy on barriers, for a question closed long ago.
+extern "C" __declspec(dllexport) int32_t  CyberpunkVR_TileProbe = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTileNonzeroMain  = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugTileNonzeroVrcam = 0;
 
@@ -794,7 +895,19 @@ static CullCnt* cull_slot(ID3D12Resource* res, uint32_t bytes) {
 // CommandSignature_81 / Resource_1359 indirect DRAW (that signature is used 126 further times in
 // GBuffer_Discard and the shadow cascades, so it is a draw, not a dispatch -- i.e. light volumes)
 // and VRCAM issues none, while every other signature/argument pair matches one for one.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_IndirectCensus = 1;   // OFF: [indirect] ExecuteIndirect census
+// ARMABLE ON ITS OWN, and default 0. It used to be reachable only through the launcher DEBUG
+// tick, which arms forty-two probes at once and costs most of the frame rate -- so the one
+// census that names the node behind the recurring 0x88 crash could not be read without making
+// the game unplayable.
+//
+// Why it is the one that matters: the crash faults in the driver computing a resource state of
+// 0x200 = INDIRECT_ARGUMENT on a binding whose resource record is null, the debug layer reports
+// 1422 (a placed resource used by ExecuteIndirect before it was initialised) on RenderCascade0
+// and RenderCascade1, and the note in hk_ExecuteIndirect above already recorded the mechanism:
+// the SECOND VIEW replays a frame-graph node whose argument resource has not been rebuilt, and
+// MAIN never does. What is missing is the node's name. This census holds exactly that -- node
+// RVA against per-view hit counts -- so arming it during a session that crashes names it.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_IndirectCensus = 0;   // [indirect] ExecuteIndirect census
 struct IndirectBin { uint32_t node_rva; void* sig; uint64_t hits[2]; };
 static std::array<IndirectBin, 64> g_ind{};
 static uint32_t g_ind_n = 0;
@@ -1428,7 +1541,9 @@ static bool cascade_draw_withheld() {
         InterlockedIncrement64(slot);
         cascade_draw_seen_report();
     }
-    if (!CyberpunkVR_CascadeSaveMain || t_vrcam_node_active) return false;
+    // MAIN by hash, not "not VRCAM": the desktop window draws cascades too, and saving ITS cascade
+    // as MAIN's is how the reference silently becomes the wrong one.
+    if (!CyberpunkVR_CascadeSaveMain || !view_is_main_now()) return false;
     if (CyberpunkVR_CascSideCensus)
         InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugCascadeDrawsSaved));
     return true;
@@ -1632,6 +1747,7 @@ extern "C" void RegisterGameFacingListVtable(ID3D12Device* device) {
     const HRESULT hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr,
                                                  IID_PPV_ARGS(&list));
     if (SUCCEEDED(hr) && list) {
+        list->SetName(L"CVR_census_probe_list");
         void** vt = *reinterpret_cast<void***>(list);
         char modbuf[MAX_PATH] = {};
         const char* mod = module_base_name(vt ? vt[0] : nullptr, modbuf, sizeof(modbuf));
@@ -1681,7 +1797,7 @@ void STDMETHODCALLTYPE hk_ClearDepthStencilView(ID3D12GraphicsCommandList* self,
     if (!e || !e->cleardsv_original) return;
     maybe_marker(self);
     cascade_save_report();
-    if (CyberpunkVR_CascadeSaveMain && g_exe_base && !t_vrcam_node_active &&
+    if (CyberpunkVR_CascadeSaveMain && g_exe_base && view_is_main_now() &&
             t_current_node_work == reinterpret_cast<uintptr_t>(g_exe_base) + CASCADE_CLEAR_NODE_RVA) {
         if (CyberpunkVR_CascSideCensus)
             InterlockedIncrement64(

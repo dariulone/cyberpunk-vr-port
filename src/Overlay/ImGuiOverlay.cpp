@@ -349,6 +349,7 @@ bool EnsureSwapchainResources(IDXGISwapChain* swapChain) {
         ReleaseRenderTargets();
         return false;
     }
+    g_cmdList->SetName(L"CVR_imgui_command_list");
     g_cmdList->Close();
     return true;
 }

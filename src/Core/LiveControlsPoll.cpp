@@ -84,7 +84,158 @@ static void PollVrikRecenterRequest() {
 // owns their ini persistence: parse -> Set* on file change, Get* -> write on Save.
 extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(float);
 // How near the support point the off hand has to be before the two-handed hold is offered, in metres.
+// The grading-mirror mask: which of the eight measured differences in the LUT build's 688-byte constant
+// block are taken from MAIN for the second view. One bit per candidate, deliberately -- see
+// src/Stereo/Grading.cpp for the offsets and what each one measured. Live, because the bisect belongs to
+// whoever is looking at the picture.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_GradeMirrorMask;
+// The extra environment-handle slots: nine 8-byte fields in the graph context laid out as three
+// elements of stride 0x3A0 -- the shape of a blended area-params list, and hdrLut/ldrLut ride in one
+// of them. One bit per slot, 0 by default: refcounted handles, so a wrong one can kill the process.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_EnvExtraMask;
+// Which render-mask categories the second view is granted, one bit per row of kRenderMasks in
+// src/Stereo/NodeDispatch.cpp. A category the view lacks makes the engine REFUSE whole nodes to it:
+// bit 10 ClearLighting is what CRenderNode_HistogramUpdate asks for, and without it the second
+// view's auto-exposure never runs at all.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_RenderMaskGrant;
+// Which of the second view's viewData holes are filled from MAIN, one bit per entry in
+// kViewDataHoles (src/Stereo/ViewReuse.cpp). Live so the untried entries can be bisected without a
+// build, which is what had kept three of them untried.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ViewDataFixMask;
+// The viewData ranges mirrored from MAIN into the second view. Bit 12 is the colour-grade
+// section at +0x640: without it the second eye renders every environment with the identity
+// grade, which is why a braindance has no green cast there and no bloom.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_EnvMirrorMask;
+// The second eye's camera in a braindance: bit 1 raises the engine's rebuild flag at comp+0xA00,
+// bit 2 writes a fresh pose in first. 0 restores the behaviour every build up to now had, where the
+// flag was never raised and the view was rebuilt only when the engine happened to mark it itself.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdCamDirty;
+// Bit 1 = the second eye, bit 2 = MAIN: push the component's transform every frame and call its
+// own vtable+0x240 notify, which is what makes the engine consume it. 1 ships.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdPushTransform;
+// 1 = MAIN's viewpoint in a braindance comes from the same per-frame scene pose the second eye is
+// placed with, so all four quantities that position the pair move at one cadence. 1 ships.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdMainPosFromScene;
+// 1 = the second eye is placed relative to MAIN's own located position for this frame; 0 = relative
+// to the scene pose the script publishes. 1 ships -- it takes the script out of the pair's geometry.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdPushBase;
+// 1 = while the braindance push owns the second eye, PatchCamera stops composing its own rotation
+// and stops adding the head delta and the eye separation for that eye. One composition, one writer.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdOneComposition;
+// 1 = in the braindance EDITOR the second eye takes MAIN's own base, so the pair stops sitting at
+// two different heights. Playback is untouched by this -- there the scene pose is the base.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdEditorAlign;
+// 1 = the head is composed onto the scene rotation the ENGINE has for this frame, taken from the
+// located buffer at entry; 0 = onto the pose the CET script publishes, which is not per frame.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdBaseFromLocate;
+// 1 = in a braindance MAIN's orientation is taken from whatever PatchCamera last composed, which is
+// only as often as a camera is patched -- 3.4 times a second there. 0 = LocateCamera composes its
+// own every frame. It had no live key until now, so every test of it so far ran at the default.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdQuatFromWriteSite;
+// Where the second eye takes its position from: 0 its own attachment, 1 MAIN's base in a
+// braindance, 2 MAIN's base always. See the note beside the export in VrCore.cpp.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_VrcamPosFromMain;
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DevCamInLocate;
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_LensHeadWrite;
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_InputDefaultInUi;
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_PopupMagBlockMs;
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_DevCamAnyName;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_DevCamTolM;
+// 1 = in a braindance MAIN's half-IPD goes into the located buffer instead of its camera
+// component, which renders nothing there. 0 restores the component write.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdIpdInLocate;
+// 1 = the braindance head base is the located buffer's own quaternion (fresh), 0 = the pose the
+// CET script publishes for the scene camera (a tick old).
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_BdQuatFromBuffer;
+// The light cull's capability grant, and the read-only probe of its three gates.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CapGrant;
+// Copies MAIN's fov/zoom/near/far onto the second view's camera, many times per frame.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ForceVrcamCam;
+// Which of MAIN's camera fields the second view takes: 1 fov, 2 zoom, 4 near, 8 far.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_VrcamCamFields;
+// 0 off, 1 the engine's whole pass (it also ERASES faded entries from a list MAIN shares),
+// 2 the same apply walked here with nothing removed. 2 is the one to use.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_RunViewParams;
+// The exposure readback: 0 off, 1 a line every 8 s, 2 a line every 200 ms for catching a flash.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_ExpoProbe;
+// 1 = count ExecuteIndirect per frame-graph node and per view, and print [indirect] every 10 s.
+// It names the node the second view replays with an argument buffer that is not built.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_IndirectCensus;
+// 1 = never declare a StateBefore for a foreign resource unless it was observed. Costs the eye
+// capture on every frame where no barrier for that resource was seen -- i.e. stereo. Default 0.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_NoStateLies;
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_StableCopy;
+// THE REUSE MODES, AS LIVE KEYS. Each one makes an engine function RETURN EARLY for the second
+// view -- distant render/prepare, local shadow maps, GI, reflection probes -- so the second view
+// reuses MAIN's result instead of building its own. That is wanted, and it is also the only
+// mechanism in the port that suppresses engine WORK for one view and not the other.
+//
+// Which matters because of what the 0x88 crash turned out to be: the driver faults computing a
+// resource state of INDIRECT_ARGUMENT on a binding whose resource record is null -- an object
+// that has an allocation and a GPU address and was never built. Measured 2026-08-29 with the
+// [indarg] watch: the second view issues 67452 such transitions to MAIN's 80986, on the SAME
+// nodes (no node is VRCAM-only), and the last six before the crash were all the second view's.
+// A skipped builder followed by a transition of what it did not build is exactly that shape.
+//
+// None of these had a live key, which is why none had ever been bisected against the crash.
+// They are keys now so the four can be walked in ONE session instead of four rebuilds.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_DistantReuseMode;
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_LocalShadowReuseMode;
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_GiReuseMode;
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ProbeReuseMode;
+// 1 = the second view takes MAIN's exposure adaptation. Which fields is the mask below, DECIMAL:
+// one bit per float, 27 = the adaptation set, 127 = the whole buffer (which whitens the eye).
+extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_ExpoMirror;
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_ExpoFieldMask;
+// Which readers of viewData+0x168 get MAIN's composition state, for the duration of that call:
+// 1 CompositionPostProcess, 2 the RT declarations, 4 DrawHUD, 8 the fifth reader. Never
+// DrawComposition, which is the one that crashes on it. Start at 3.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendScoped;
+// The UNSCOPED composition lend, restored from the 0.1.6 render: it puts the borrowed state in the
+// block on every dispatch of our view, which is what lets the second view run its composition at
+// all. The scoped variant beside it deliberately withholds DrawComposition; this one does not.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendSet;
+// The other half of that lend: the second eye's copy is taken from the FINISHED frame, at the
+// epilogue of the composition node that writes it, instead of from the mid-chain target. Only
+// meaningful while the lend is armed, because without it that node does not run for this view.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_FinalGrab;
+// Which member of the 8-bit family a TYPELESS eye snapshot is typed as. 1 = _UNORM_SRGB, so the
+// sampler decodes and ColorBlit's sRGB target re-encodes -- a round trip. 0 = _UNORM, sampled raw.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_StableSrgbView;
+// Byte-compares the light array and the particle-lighting uploads between the views.
+extern "C" __declspec(dllexport) extern int32_t CyberpunkVR_LightContent;
+// 0 = no LOD override at all, both eyes on the engine's own value. LodFov.cpp records what the
+// debugger found at that site: the gate keys on a stack-local field that is not the fov.
+extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_FixLodEnable;
+// The port's OWN HUD composite into the second eye. Made live because the engine's own HUD now
+// reaches that view through DrawComposition + CompositionPostProcess (xr_comp_lend_set), so this
+// path is a candidate for retirement and wants an A/B without a rebuild.
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudToSecondEye;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudInBraindance;
+// 1 = inject the composition group into the second view's RTT graph through the engine's own pass
+// adders. Needed because that view is built by SCENE_INCR, which contains neither the build-bit-82
+// block nor the final builder that MAIN reaches composition through -- so forcing the bit cannot work.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_VrcamCompositionGroup;
 extern "C" __declspec(dllexport) extern float CyberpunkVR_TwoHandRadius;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_CarryGripRadius;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RifleRiseMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RifleBackMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_ShotgunRiseMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_ShotgunBackMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilDownPistol;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilDownRifle;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilDownShotgun;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandRecoilBackCm;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandRecoilBackMaxCm;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_TwoHandBackMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_SniperRiseMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_SniperBackMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_PistolBackMul;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilClimbFrac;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilClimbMaxDeg;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_RecoilClimbMs;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandRecoilReturnMs;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandRecoilReturnPow;
 // WHERE THE SCANNER'S HUD SITS -- four movable pieces of it, as (x, y, scale) each. Written by the
 // in-game editor through VRScannerSlotSet, read back by the CyberpunkVRPort_ScannerHud redscript.
 //
@@ -122,17 +273,38 @@ extern "C" __declspec(dllexport) extern float CyberpunkVR_TwoHandRadius;
 // repository: on a fresh install zeroes mean the vanilla layout and every tester hunting the same
 // numbers again. An existing ini still wins -- the poll below reads the file over these -- so nobody's
 // own layout is touched. Same trade the port already makes with HUDitor's persistency.json.
+// NEUTRAL, AND THAT IS THE CONFIGURATION THAT WAS ACTUALLY PLAYED.
+//
+// These used to carry tuned offsets -- frame -10.4, details -178.2/-57.4 at 0.4, hacks -75.4/1.8 at
+// 0.8, memory 17.6/517.8 at 0.7, scripts 260.8/-8.0 at 0.6. They were dead in practice: an existing
+// vrport.ini is parsed at startup and overwrites this array, and the live ini had all seven at
+// 0,0,1 -- so the game has been running neutral, while a fresh install (a tester, who gets no ini)
+// would have got the offsets nobody had looked at in a long time. Taken from the live config so the
+// two agree, which is the whole point of a default.
+//
+// The tuned numbers are kept in this comment rather than in the array: if the panels ever need moving
+// again, the in-game editor is the way -- hold RIGHT SHIFT while scanning -- and it writes the ini.
 extern "C" __declspec(dllexport) float CyberpunkVR_ScannerSlots[21] = {
-    -10.4f,    0.0f, 1.000f,   // the scanner frame
-   -178.2f,  -57.4f, 0.400f,   // the details panel
-    -75.4f,    1.8f, 0.800f,   // the quickhack panel
-      0.4f,    1.0f, 1.000f,   // the hint line
-     17.6f,  517.8f, 0.700f,   // top_panel: the cyberdeck memory, whole
-    260.8f,   -8.0f, 0.600f,   // left_panel: the script list and its heading
-      0.0f,    0.0f, 1.000f,   // right_panel: the description block, left where it was
+      0.0f,    0.0f, 1.000f,   // the scanner frame
+      0.0f,    0.0f, 1.000f,   // the details panel
+      0.0f,    0.0f, 1.000f,   // the quickhack panel
+      0.0f,    0.0f, 1.000f,   // the hint line
+      0.0f,    0.0f, 1.000f,   // top_panel: the cyberdeck memory, whole
+      0.0f,    0.0f, 1.000f,   // left_panel: the script list and its heading
+      0.0f,    0.0f, 1.000f,   // right_panel: the description block
 };
 // The hand filter is UEVR-form now and lives in FlushHandsToShared; its speed is this.
 extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSpeed;
+// THE FILTER'S SPEED FOLLOWS WHAT IS IN THE HAND. The filter trades tracking noise against lag,
+// and which of the two hurts depends on what the hand is doing: a blade is swung and any lag reads
+// as the weapon trailing the arm; a sniper is held still and aimed, where the noise is what shows
+// and the lag costs nothing. 0 in any of these means "use the base" (xr_hand_lerp_speed), which is
+// also what empty hands and an unnamed weapon get.
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpPistol;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpRifle;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpShotgun;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSniper;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpMelee;
 // 1 = hand offsets measured from the filtered head (the one they are re-anchored on).
 extern "C" __declspec(dllexport) extern int CyberpunkVR_HandRelToFilteredHead;
 // 1 = the published hand pose is located once per frame, for that frame's instant.
@@ -157,9 +329,11 @@ void PollLiveControls() {
 
     g_lastLiveControlWrite = fileData.ftLastWriteTime;
 
-    float xrHeadOffsetX = 0.0f;
-    float xrHeadOffsetY = 0.0f;
-    float xrHeadOffsetZ = 0.0f;
+    // The eye offset this port is tested with, measured in the headset rather than assumed: a fresh
+    // install used to start at zero and every tester had to find these three by hand.
+    float xrHeadOffsetX = -0.006f;
+    float xrHeadOffsetY = -0.013f;
+    float xrHeadOffsetZ = -0.018f;
     int xrRecenter = 0;
     int xrMonoSubmit = 1;
     // Seeded from the live value, not from a constant: an ini without the key must leave the
@@ -170,7 +344,7 @@ void PollLiveControls() {
     int xrWindowHeight = 0;
     float xrForceFov = 0.0f;
     int xrMenuRect = 0;
-    float xrMenuFov = 65.0f;
+    float xrMenuFov = 65.4f;
     float xrMenuFollowDeg = 60.0f;
     float xrPitchSign = 1.0f;
     float xrPitchScale = 1.35f;
@@ -198,7 +372,76 @@ void PollLiveControls() {
     int xrSnapTurn = g_liveControls.xrSnapTurn;
     float xrHmdSmooth = GetHmdTrackingSmooth();
     float xrHandLerp = CyberpunkVR_HandLerpSpeed;
+    float xrLerpPistol  = CyberpunkVR_HandLerpPistol;
+    float xrLerpRifle   = CyberpunkVR_HandLerpRifle;
+    float xrLerpShotgun = CyberpunkVR_HandLerpShotgun;
+    float xrLerpSniper  = CyberpunkVR_HandLerpSniper;
+    float xrLerpMelee   = CyberpunkVR_HandLerpMelee;
+    uint32_t xrGradeMirrorMask = CyberpunkVR_GradeMirrorMask;
+    uint32_t xrEnvExtraMask = CyberpunkVR_EnvExtraMask;
+    uint32_t xrRenderMaskGrant = CyberpunkVR_RenderMaskGrant;
+    uint32_t xrViewDataFixMask = CyberpunkVR_ViewDataFixMask;
+    uint32_t xrEnvMirrorMask = CyberpunkVR_EnvMirrorMask;
+    int32_t  xrBdCamDirty = CyberpunkVR_BdCamDirty;
+    int32_t  xrBdPushTransform = CyberpunkVR_BdPushTransform;
+    int32_t  xrBdMainPosScene = CyberpunkVR_BdMainPosFromScene;
+    int32_t  xrBdPushBase = CyberpunkVR_BdPushBase;
+    int32_t  xrBdOneComp = CyberpunkVR_BdOneComposition;
+    int32_t  xrBdEditorAlign = CyberpunkVR_BdEditorAlign;
+    int32_t  xrBdBaseFromLocate = CyberpunkVR_BdBaseFromLocate;
+    uint32_t xrCompLendSet = CyberpunkVR_CompLendSet;
+    int32_t  xrFinalGrab = CyberpunkVR_FinalGrab;
+    int32_t  xrStableSrgbView = CyberpunkVR_StableSrgbView;
+    int32_t  xrBdQuatWriteSite = CyberpunkVR_BdQuatFromWriteSite;
+    int32_t  xrVrcamPosFromMain = CyberpunkVR_VrcamPosFromMain;
+    int32_t  xrDevCamInLocate = CyberpunkVR_DevCamInLocate;
+    int32_t  xrLensHeadWrite = CyberpunkVR_LensHeadWrite;
+    int32_t  xrInputDefaultInUi = CyberpunkVR_InputDefaultInUi;
+    int32_t  xrPopupMagBlockMs = CyberpunkVR_PopupMagBlockMs;
+    int32_t  xrDevCamAnyName = CyberpunkVR_DevCamAnyName;
+    float    xrDevCamTolM = CyberpunkVR_DevCamTolM;
+    int32_t  xrBdIpdInLocate = CyberpunkVR_BdIpdInLocate;
+    int32_t  xrBdQuatFromBuffer = CyberpunkVR_BdQuatFromBuffer;
+    uint32_t xrCapGrant = CyberpunkVR_CapGrant;
+    uint32_t xrForceVrcamCam = CyberpunkVR_ForceVrcamCam;
+    uint32_t xrVrcamCamFields = CyberpunkVR_VrcamCamFields;
+    uint32_t xrRunViewParams = CyberpunkVR_RunViewParams;
+    int32_t  xrExpoProbe = CyberpunkVR_ExpoProbe;
+    int32_t  xrIndirectCensus = CyberpunkVR_IndirectCensus;
+    int32_t  xrNoStateLies = CyberpunkVR_NoStateLies;
+    int32_t  xrStableCopy = CyberpunkVR_StableCopy;
+    uint32_t xrDistantReuse = CyberpunkVR_DistantReuseMode;
+    uint32_t xrLocalShadowReuse = CyberpunkVR_LocalShadowReuseMode;
+    uint32_t xrGiReuse = CyberpunkVR_GiReuseMode;
+    uint32_t xrProbeReuse = CyberpunkVR_ProbeReuseMode;
+    int32_t  xrExpoMirror = CyberpunkVR_ExpoMirror;
+    uint32_t xrExpoFieldMask = CyberpunkVR_ExpoFieldMask;
+    uint32_t xrCompLendScoped = CyberpunkVR_CompLendScoped;
+    int xrLightContent = CyberpunkVR_LightContent;
+    int32_t  xrFixLod = CyberpunkVR_FixLodEnable;
+    int      xrHudTo2 = CyberpunkVR_HudToSecondEye;
+    int      xrHudBd  = CyberpunkVR_HudInBraindance;
+    uint32_t xrCompGroup = CyberpunkVR_VrcamCompositionGroup;
     float xrTwoHandRadius = CyberpunkVR_TwoHandRadius;
+    float xrCarryRadius = CyberpunkVR_CarryGripRadius;
+    float xrRifleRise = CyberpunkVR_RifleRiseMul;
+    float xrRifleBack = CyberpunkVR_RifleBackMul;
+    float xrShotgunRise = CyberpunkVR_ShotgunRiseMul;
+    float xrShotgunBack = CyberpunkVR_ShotgunBackMul;
+    float xrDownPistol = CyberpunkVR_RecoilDownPistol;
+    float xrDownRifle = CyberpunkVR_RecoilDownRifle;
+    float xrDownShotgun = CyberpunkVR_RecoilDownShotgun;
+    float xrBackCm = CyberpunkVR_HandRecoilBackCm;
+    float xrBackMaxCm = CyberpunkVR_HandRecoilBackMaxCm;
+    float xrTwoHandBack = CyberpunkVR_TwoHandBackMul;
+    float xrSniperRise = CyberpunkVR_SniperRiseMul;
+    float xrSniperBack = CyberpunkVR_SniperBackMul;
+    float xrPistolBack = CyberpunkVR_PistolBackMul;
+    float xrClimbFrac = CyberpunkVR_RecoilClimbFrac;
+    float xrClimbMax = CyberpunkVR_RecoilClimbMaxDeg;
+    float xrClimbMs = CyberpunkVR_RecoilClimbMs;
+    float xrReturnMs = CyberpunkVR_HandRecoilReturnMs;
+    float xrReturnPow = CyberpunkVR_HandRecoilReturnPow;
     float xrScannerSlots[21];
     for (int i = 0; i < 21; ++i) xrScannerSlots[i] = CyberpunkVR_ScannerSlots[i];
     int   xrHandRelFiltered = CyberpunkVR_HandRelToFilteredHead;
@@ -388,6 +631,31 @@ void PollLiveControls() {
             xrHandRelFiltered = intValue != 0 ? 1 : 0;
             continue;
         }
+        if (sscanf_s(line, "xr_hand_lerp_pistol=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hand_lerp_pistol = %f", &value) == 1) {
+            xrLerpPistol = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_lerp_rifle=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hand_lerp_rifle = %f", &value) == 1) {
+            xrLerpRifle = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_lerp_shotgun=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hand_lerp_shotgun = %f", &value) == 1) {
+            xrLerpShotgun = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_lerp_sniper=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hand_lerp_sniper = %f", &value) == 1) {
+            xrLerpSniper = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_lerp_melee=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hand_lerp_melee = %f", &value) == 1) {
+            xrLerpMelee = value;
+            continue;
+        }
         if (sscanf_s(line, "xr_hand_lerp_speed=%f", &value) == 1 ||
             sscanf_s(line, "xr_hand_lerp_speed = %f", &value) == 1) {
             xrHandLerp = value;
@@ -412,9 +680,329 @@ void PollLiveControls() {
                 continue;
             }
         }
+        if (sscanf_s(line, "xr_vrcam_composition=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_vrcam_composition = %d", &intValue) == 1) {
+            xrCompGroup = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_to_second_eye=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hud_to_second_eye = %d", &intValue) == 1) {
+            xrHudTo2 = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_in_braindance=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hud_in_braindance = %d", &intValue) == 1) {
+            xrHudBd = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_fix_lod=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_fix_lod = %d", &intValue) == 1) {
+            xrFixLod = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_comp_lend_scoped=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_comp_lend_scoped = %d", &intValue) == 1) {
+            xrCompLendScoped = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue & 0xF));
+            continue;
+        }
+        if (sscanf_s(line, "xr_expo_mirror=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_expo_mirror = %d", &intValue) == 1) {
+            xrExpoMirror = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_expo_field_mask=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_expo_field_mask = %d", &intValue) == 1) {
+            xrExpoFieldMask = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue & 0x7F));
+            continue;
+        }
+        if (sscanf_s(line, "xr_distant_reuse=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_distant_reuse = %d", &intValue) == 1) {
+            xrDistantReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_local_shadow_reuse=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_local_shadow_reuse = %d", &intValue) == 1) {
+            xrLocalShadowReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_gi_reuse=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_gi_reuse = %d", &intValue) == 1) {
+            xrGiReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_probe_reuse=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_probe_reuse = %d", &intValue) == 1) {
+            xrProbeReuse = (intValue < 0) ? 0u : static_cast<uint32_t>(intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_stable_copy=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_stable_copy = %d", &intValue) == 1) {
+            xrStableCopy = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_no_state_lies=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_no_state_lies = %d", &intValue) == 1) {
+            xrNoStateLies = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_indirect_census=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_indirect_census = %d", &intValue) == 1) {
+            xrIndirectCensus = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_expo_probe=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_expo_probe = %d", &intValue) == 1) {
+            xrExpoProbe = (intValue < 0) ? 0 : ((intValue > 2) ? 2 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_run_view_params=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_run_view_params = %d", &intValue) == 1) {
+            xrRunViewParams = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue > 2 ? 2 : intValue));
+            continue;
+        }
+        if (sscanf_s(line, "xr_vrcam_cam_fields=%x", &intValue) == 1 ||
+            sscanf_s(line, "xr_vrcam_cam_fields = %x", &intValue) == 1) {
+            xrVrcamCamFields = static_cast<uint32_t>(intValue < 0 ? 0 : (intValue & 0xF));
+            continue;
+        }
+        if (sscanf_s(line, "xr_force_vrcam_cam=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_force_vrcam_cam = %d", &intValue) == 1) {
+            xrForceVrcamCam = intValue ? 1u : 0u;
+            continue;
+        }
+        if (sscanf_s(line, "xr_cap_grant=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_cap_grant = %d", &intValue) == 1) {
+            xrCapGrant = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_light_content=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_light_content = %d", &intValue) == 1) {
+            xrLightContent = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_quat_from_buffer=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_quat_from_buffer = %d", &intValue) == 1) {
+            xrBdQuatFromBuffer = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_ipd_in_locate=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_ipd_in_locate = %d", &intValue) == 1) {
+            xrBdIpdInLocate = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_dev_cam_tol_m=%f", &value) == 1 ||
+            sscanf_s(line, "xr_dev_cam_tol_m = %f", &value) == 1) {
+            xrDevCamTolM = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_dev_cam_any_name=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_dev_cam_any_name = %d", &intValue) == 1) {
+            xrDevCamAnyName = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_input_default_in_ui=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_input_default_in_ui = %d", &intValue) == 1) {
+            xrInputDefaultInUi = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_popup_mag_block_ms=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_popup_mag_block_ms = %d", &intValue) == 1) {
+            xrPopupMagBlockMs = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_lens_head_write=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_lens_head_write = %d", &intValue) == 1) {
+            xrLensHeadWrite = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_dev_cam_in_locate=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_dev_cam_in_locate = %d", &intValue) == 1) {
+            xrDevCamInLocate = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_vrcam_pos_from_main=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_vrcam_pos_from_main = %d", &intValue) == 1) {
+            xrVrcamPosFromMain = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_quat_from_write_site=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_quat_from_write_site = %d", &intValue) == 1) {
+            xrBdQuatWriteSite = intValue != 0 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_stable_srgb_view=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_stable_srgb_view = %d", &intValue) == 1) {
+            xrStableSrgbView = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_final_grab=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_final_grab = %d", &intValue) == 1) {
+            xrFinalGrab = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_comp_lend_set=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_comp_lend_set = %d", &intValue) == 1) {
+            xrCompLendSet = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_base_from_locate=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_base_from_locate = %d", &intValue) == 1) {
+            xrBdBaseFromLocate = intValue != 0 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_editor_align=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_editor_align = %d", &intValue) == 1) {
+            xrBdEditorAlign = intValue != 0 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_one_composition=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_one_composition = %d", &intValue) == 1) {
+            xrBdOneComp = intValue != 0 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_push_base=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_push_base = %d", &intValue) == 1) {
+            xrBdPushBase = intValue != 0 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_main_pos_from_scene=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_main_pos_from_scene = %d", &intValue) == 1) {
+            xrBdMainPosScene = intValue != 0 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_push_transform=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_push_transform = %d", &intValue) == 1) {
+            if (intValue >= 0 && intValue <= 3) xrBdPushTransform = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bd_cam_dirty=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_bd_cam_dirty = %d", &intValue) == 1) {
+            if (intValue >= 0 && intValue <= 3) xrBdCamDirty = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_env_mirror_mask=%x", &intValue) == 1 ||
+            sscanf_s(line, "xr_env_mirror_mask = %x", &intValue) == 1) {
+            xrEnvMirrorMask = static_cast<uint32_t>(intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_viewdata_fix_mask=%x", &intValue) == 1 ||
+            sscanf_s(line, "xr_viewdata_fix_mask = %x", &intValue) == 1) {
+            xrViewDataFixMask = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_render_mask_grant=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_render_mask_grant = %d", &intValue) == 1) {
+            xrRenderMaskGrant = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_env_extra_mask=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_env_extra_mask = %d", &intValue) == 1) {
+            xrEnvExtraMask = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_grade_mirror_mask=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_grade_mirror_mask = %d", &intValue) == 1) {
+            xrGradeMirrorMask = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
         if (sscanf_s(line, "xr_two_hand_radius=%f", &value) == 1 ||
             sscanf_s(line, "xr_two_hand_radius = %f", &value) == 1) {
             xrTwoHandRadius = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_carry_radius=%f", &value) == 1 ||
+            sscanf_s(line, "xr_carry_radius = %f", &value) == 1) {
+            xrCarryRadius = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_rifle_rise=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_rifle_rise = %f", &value) == 1) {
+            xrRifleRise = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_rifle_back=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_rifle_back = %f", &value) == 1) {
+            xrRifleBack = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_shotgun_rise=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_shotgun_rise = %f", &value) == 1) {
+            xrShotgunRise = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_shotgun_back=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_shotgun_back = %f", &value) == 1) {
+            xrShotgunBack = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_down_pistol=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_down_pistol = %f", &value) == 1) {
+            xrDownPistol = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_down_rifle=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_down_rifle = %f", &value) == 1) {
+            xrDownRifle = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_down_shotgun=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_down_shotgun = %f", &value) == 1) {
+            xrDownShotgun = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_back_cm=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_back_cm = %f", &value) == 1) {
+            xrBackCm = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_back_max_cm=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_back_max_cm = %f", &value) == 1) {
+            xrBackMaxCm = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_twohand_back=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_twohand_back = %f", &value) == 1) {
+            xrTwoHandBack = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_sniper_rise=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_sniper_rise = %f", &value) == 1) {
+            xrSniperRise = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_sniper_back=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_sniper_back = %f", &value) == 1) {
+            xrSniperBack = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_pistol_back=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_pistol_back = %f", &value) == 1) {
+            xrPistolBack = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_climb=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_climb = %f", &value) == 1) {
+            xrClimbFrac = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_climb_max_deg=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_climb_max_deg = %f", &value) == 1) {
+            xrClimbMax = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_climb_ms=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_climb_ms = %f", &value) == 1) {
+            xrClimbMs = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_return_ms=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_return_ms = %f", &value) == 1) {
+            xrReturnMs = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_recoil_return_pow=%f", &value) == 1 ||
+            sscanf_s(line, "xr_recoil_return_pow = %f", &value) == 1) {
+            xrReturnPow = value;
             continue;
         }
         if (sscanf_s(line, "xr_render_pose_submit=%d", &intValue) == 1 ||
@@ -677,11 +1265,94 @@ void PollLiveControls() {
     g_liveControls.xrVehicleThrottleTrim = (xrVehicleThrottleTrim < 0.05f) ? 0.05f
                                          : (xrVehicleThrottleTrim > 3.0f ? 3.0f : xrVehicleThrottleTrim);
     SetHmdTrackingSmooth(xrHmdSmooth);
-    CyberpunkVR_HandLerpSpeed = (xrHandLerp < 0.0f) ? 0.0f : ((xrHandLerp > 30.0f) ? 30.0f : xrHandLerp);
+    // 100, not 30: melee wants 40 and the old ceiling silently cut the number that was asked for.
+    CyberpunkVR_HandLerpSpeed = (xrHandLerp < 0.0f) ? 0.0f : ((xrHandLerp > 100.0f) ? 100.0f : xrHandLerp);
+    // Same clamp as the base above; 0 stays 0, which is how a class asks for the base.
+    auto clampLerp = [](float v) { return (v < 0.0f) ? 0.0f : ((v > 100.0f) ? 100.0f : v); };
+    CyberpunkVR_HandLerpPistol  = clampLerp(xrLerpPistol);
+    CyberpunkVR_HandLerpRifle   = clampLerp(xrLerpRifle);
+    CyberpunkVR_HandLerpShotgun = clampLerp(xrLerpShotgun);
+    CyberpunkVR_HandLerpSniper  = clampLerp(xrLerpSniper);
+    CyberpunkVR_HandLerpMelee   = clampLerp(xrLerpMelee);
     // Clamped rather than trusted: at 0 the hold can never be offered and at a third of a metre it is
     // offered for a hand nowhere near the weapon, and both read as "the feature is broken".
+    // Seventeen candidate bits: 0-7 the original unidentified words, 8-14 the grading values that
+    // carry the look, 15-16 the two small integers that are the LUT-selection candidates.
+    // Anything above them is dropped rather than reinterpreted.
+    CyberpunkVR_GradeMirrorMask = xrGradeMirrorMask & 0x1FFFFu;
+    // Nine slots exist; anything above them is dropped rather than reinterpreted.
+    CyberpunkVR_EnvExtraMask = xrEnvExtraMask & 0x1FFFFFu;   // 21 measured object slots
+    // 27 categories exist; anything above them is dropped rather than reinterpreted.
+    CyberpunkVR_RenderMaskGrant = xrRenderMaskGrant & 0x07FFFFFFu;
+    CyberpunkVR_ViewDataFixMask = xrViewDataFixMask;
+    CyberpunkVR_EnvMirrorMask = xrEnvMirrorMask;
+    CyberpunkVR_BdCamDirty = xrBdCamDirty;
+    CyberpunkVR_BdPushTransform = xrBdPushTransform;
+    CyberpunkVR_BdMainPosFromScene = xrBdMainPosScene;
+    CyberpunkVR_BdPushBase = xrBdPushBase;
+    CyberpunkVR_BdOneComposition = xrBdOneComp;
+    CyberpunkVR_BdEditorAlign = xrBdEditorAlign;
+    CyberpunkVR_BdBaseFromLocate = xrBdBaseFromLocate;
+    CyberpunkVR_CompLendSet = xrCompLendSet;
+    CyberpunkVR_FinalGrab = xrFinalGrab;
+    CyberpunkVR_StableSrgbView = xrStableSrgbView;
+    CyberpunkVR_BdQuatFromWriteSite = xrBdQuatWriteSite;
+    // Only the three modes exist; anything else is dropped rather than reinterpreted, which is the
+    // clamp this project added after a mode key parsed as a boolean and silently became 1.
+    CyberpunkVR_DevCamInLocate = (xrDevCamInLocate != 0) ? 1 : 0;
+    CyberpunkVR_LensHeadWrite = (xrLensHeadWrite != 0) ? 1 : 0;
+    CyberpunkVR_InputDefaultInUi = (xrInputDefaultInUi != 0) ? 1 : 0;
+    CyberpunkVR_PopupMagBlockMs =
+        (xrPopupMagBlockMs >= 0 && xrPopupMagBlockMs <= 10000) ? xrPopupMagBlockMs : 1000;
+    CyberpunkVR_DevCamAnyName = (xrDevCamAnyName != 0) ? 1 : 0;
+    CyberpunkVR_DevCamTolM = (xrDevCamTolM > 0.05f && xrDevCamTolM < 100.0f) ? xrDevCamTolM : 1.5f;
+    CyberpunkVR_VrcamPosFromMain =
+        (xrVrcamPosFromMain >= 0 && xrVrcamPosFromMain <= 3) ? xrVrcamPosFromMain : 0;
+    CyberpunkVR_BdIpdInLocate = xrBdIpdInLocate != 0 ? 1 : 0;
+    CyberpunkVR_BdQuatFromBuffer = xrBdQuatFromBuffer != 0 ? 1 : 0;
+    CyberpunkVR_CapGrant = xrCapGrant;
+    CyberpunkVR_ForceVrcamCam = xrForceVrcamCam;
+    CyberpunkVR_VrcamCamFields = xrVrcamCamFields;
+    CyberpunkVR_RunViewParams = xrRunViewParams;
+    CyberpunkVR_ExpoProbe = xrExpoProbe;
+    CyberpunkVR_IndirectCensus = xrIndirectCensus;
+    CyberpunkVR_NoStateLies = xrNoStateLies;
+    CyberpunkVR_StableCopy = xrStableCopy;
+    CyberpunkVR_DistantReuseMode = xrDistantReuse;
+    CyberpunkVR_LocalShadowReuseMode = xrLocalShadowReuse;
+    CyberpunkVR_GiReuseMode = xrGiReuse;
+    CyberpunkVR_ProbeReuseMode = xrProbeReuse;
+    CyberpunkVR_ExpoMirror = xrExpoMirror;
+    CyberpunkVR_ExpoFieldMask = xrExpoFieldMask;
+
+    CyberpunkVR_CompLendScoped = xrCompLendScoped;
+    CyberpunkVR_LightContent = xrLightContent;
+    CyberpunkVR_FixLodEnable = xrFixLod;
+    CyberpunkVR_HudToSecondEye = xrHudTo2;
+    CyberpunkVR_HudInBraindance = xrHudBd;
+    CyberpunkVR_VrcamCompositionGroup = xrCompGroup;
     CyberpunkVR_TwoHandRadius = (xrTwoHandRadius < 0.02f) ? 0.02f
                               : ((xrTwoHandRadius > 0.30f) ? 0.30f : xrTwoHandRadius);
+    CyberpunkVR_CarryGripRadius = (xrCarryRadius < 0.03f) ? 0.03f
+                                : ((xrCarryRadius > 0.30f) ? 0.30f : xrCarryRadius);
+    CyberpunkVR_RifleRiseMul    = (xrRifleRise   < 0.0f) ? 0.0f : ((xrRifleRise   > 2.0f) ? 2.0f : xrRifleRise);
+    CyberpunkVR_RifleBackMul    = (xrRifleBack   < 0.0f) ? 0.0f : ((xrRifleBack   > 6.0f) ? 6.0f : xrRifleBack);
+    CyberpunkVR_ShotgunRiseMul  = (xrShotgunRise < 0.0f) ? 0.0f : ((xrShotgunRise > 2.0f) ? 2.0f : xrShotgunRise);
+    CyberpunkVR_ShotgunBackMul  = (xrShotgunBack < 0.0f) ? 0.0f : ((xrShotgunBack > 6.0f) ? 6.0f : xrShotgunBack);
+    CyberpunkVR_RecoilDownPistol  = (xrDownPistol  < 0.0f) ? 0.0f : ((xrDownPistol  > 1.0f) ? 1.0f : xrDownPistol);
+    CyberpunkVR_RecoilDownRifle   = (xrDownRifle   < 0.0f) ? 0.0f : ((xrDownRifle   > 1.0f) ? 1.0f : xrDownRifle);
+    CyberpunkVR_RecoilDownShotgun = (xrDownShotgun < 0.0f) ? 0.0f : ((xrDownShotgun > 1.0f) ? 1.0f : xrDownShotgun);
+    CyberpunkVR_HandRecoilBackCm    = (xrBackCm    < 0.0f) ? 0.0f : ((xrBackCm    > 20.0f) ? 20.0f : xrBackCm);
+    CyberpunkVR_HandRecoilBackMaxCm = (xrBackMaxCm < 0.0f) ? 0.0f : ((xrBackMaxCm > 30.0f) ? 30.0f : xrBackMaxCm);
+    CyberpunkVR_TwoHandBackMul = (xrTwoHandBack < 0.0f) ? 0.0f : ((xrTwoHandBack > 1.0f) ? 1.0f : xrTwoHandBack);
+    CyberpunkVR_SniperRiseMul  = (xrSniperRise < 0.0f) ? 0.0f : ((xrSniperRise > 4.0f) ? 4.0f : xrSniperRise);
+    CyberpunkVR_SniperBackMul  = (xrSniperBack < 0.0f) ? 0.0f : ((xrSniperBack > 8.0f) ? 8.0f : xrSniperBack);
+    CyberpunkVR_PistolBackMul  = (xrPistolBack < 0.0f) ? 0.0f : ((xrPistolBack > 4.0f) ? 4.0f : xrPistolBack);
+    CyberpunkVR_RecoilClimbFrac   = (xrClimbFrac < 0.0f) ? 0.0f : ((xrClimbFrac > 2.0f) ? 2.0f : xrClimbFrac);
+    CyberpunkVR_RecoilClimbMaxDeg = (xrClimbMax  < 0.0f) ? 0.0f : ((xrClimbMax  > 45.0f) ? 45.0f : xrClimbMax);
+    CyberpunkVR_RecoilClimbMs     = (xrClimbMs   < 50.0f) ? 50.0f : ((xrClimbMs > 5000.0f) ? 5000.0f : xrClimbMs);
+    CyberpunkVR_HandRecoilReturnMs  = (xrReturnMs  < 40.0f) ? 40.0f : ((xrReturnMs > 800.0f) ? 800.0f : xrReturnMs);
+    CyberpunkVR_HandRecoilReturnPow = (xrReturnPow < 0.0f) ? 0.0f : ((xrReturnPow > 1.5f) ? 1.5f : xrReturnPow);
     // Clamped to one screen either way, and to a scale that leaves something on screen. A piece dragged
     // ten thousand pixels off or scaled to nothing looks exactly like a broken mod, and an ini edited by
     // hand is the likeliest way to get there. The scale range matches what the editor's wheel allows,
@@ -832,9 +1503,159 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // The hand filter's speed, in UEVR's units (follow per second, multiplied by dt at the point of
     // use). Replaces xr_hand_smooth, which was a fraction per FRAME and therefore frame-rate dependent.
     fprintf(file, "xr_hand_lerp_speed=%.3f\n", CyberpunkVR_HandLerpSpeed);
+    // Per weapon class, 0 = use the base above. 1 handgun, 2 rifle, 3 shotgun, 4 sniper, 5 melee.
+    fprintf(file, "xr_hand_lerp_pistol=%.3f\n", CyberpunkVR_HandLerpPistol);
+    fprintf(file, "xr_hand_lerp_rifle=%.3f\n", CyberpunkVR_HandLerpRifle);
+    fprintf(file, "xr_hand_lerp_shotgun=%.3f\n", CyberpunkVR_HandLerpShotgun);
+    fprintf(file, "xr_hand_lerp_sniper=%.3f\n", CyberpunkVR_HandLerpSniper);
+    fprintf(file, "xr_hand_lerp_melee=%.3f\n", CyberpunkVR_HandLerpMelee);
     // How near the support point the off hand has to come before the two-handed hold is offered, in
+    // Which measured differences in the grading-LUT constant block the second view takes from MAIN.
+    // One bit each, and they are tried ONE AT A TIME: all eight at once crashes the game, because some
+    // of these fields are descriptor indices and lending one points this view at something it does not
+    // own. 3 = the shipped pair (+0x230/+0x238). 16 = +0x258, the shader-permutation byte (0x12 vs
+    // 0x16) and the best remaining candidate. 4 = +0x220. 8 = +0x248. 32/64/128 = the unidentified
+    // ones, last and separately.
+    fprintf(file, "xr_grade_mirror_mask=%u\n", CyberpunkVR_GradeMirrorMask);
+    // Which extra environment handles the second view takes from MAIN. Bits 0-2 are element 0
+    // (0x1F0/0x220/0x380) and froze the mirror when tried; bits 3-5 are element 1 and bits 6-8
+    // element 2, never tried. One bit at a time -- refcounted handles.
+    fprintf(file, "xr_env_extra_mask=%u\n", CyberpunkVR_EnvExtraMask);
+    // Render-mask categories granted to the second view, one bit per row of kRenderMasks. The
+    // [rmask] log line prints the map and marks which view has what; [cap] lists the nodes the
+    // engine still refuses. 1 = DistantLights, 2 = AutoGrass, 1024 = ClearLighting (what
+    // HistogramUpdate, i.e. the auto-exposure, asks for), 2048 = GameplayPostProcess.
+    fprintf(file, "xr_render_mask_grant=%u\n", CyberpunkVR_RenderMaskGrant);
+    // Which viewData holes the second view gets filled from MAIN, HEX, one bit per entry of
+    // kViewDataHoles: 1 rain block, 2 composition-out resource set (DANGEROUS), 4/8/10 composition
+    // out, 20 rain block, 40 cloud wind (deliberately off -- handled via the cloud CB), 80 rain
+    // wetness, 100/200/400 composition-debug, 800 night pair, 1000 far distance, 2000 scene bounds.
+    fprintf(file, "xr_viewdata_fix_mask=%X\n", CyberpunkVR_ViewDataFixMask);
+    // Which viewData ranges the second view takes from MAIN. Bit 12 (0x1000) is the colour
+    // grade at +0x640 -- the whole environment look rides on it.
+    fprintf(file, "xr_env_mirror_mask=%X\n", CyberpunkVR_EnvMirrorMask);
+    fprintf(file, "xr_bd_cam_dirty=%d\n", CyberpunkVR_BdCamDirty);
+    fprintf(file, "xr_bd_push_transform=%d\n", CyberpunkVR_BdPushTransform);
+    fprintf(file, "xr_bd_main_pos_from_scene=%d\n",
+            CyberpunkVR_BdMainPosFromScene);
+    fprintf(file, "xr_bd_push_base=%d\n", CyberpunkVR_BdPushBase);
+    fprintf(file, "xr_bd_one_composition=%d\n",
+            CyberpunkVR_BdOneComposition);
+    fprintf(file, "xr_bd_editor_align=%d\n", CyberpunkVR_BdEditorAlign);
+    fprintf(file, "xr_bd_base_from_locate=%d\n",
+            CyberpunkVR_BdBaseFromLocate);
+    fprintf(file, "xr_comp_lend_set=%u\n", CyberpunkVR_CompLendSet);
+    fprintf(file, "xr_final_grab=%d\n", CyberpunkVR_FinalGrab);
+    fprintf(file, "xr_stable_srgb_view=%d\n", CyberpunkVR_StableSrgbView);
+    fprintf(file, "xr_bd_quat_from_write_site=%d\n",
+            CyberpunkVR_BdQuatFromWriteSite);
+    // 0 = the second eye keeps its own attachment, 1 = it takes MAIN's base in a braindance,
+    // 2 = always. 1 is the one that closes the 1.48 m gap measured in a braindance edit.
+    fprintf(file, "xr_dev_cam_tol_m=%.2f\n", CyberpunkVR_DevCamTolM);
+    fprintf(file, "xr_dev_cam_any_name=%d\n", CyberpunkVR_DevCamAnyName);
+    fprintf(file, "xr_dev_cam_in_locate=%d\n", CyberpunkVR_DevCamInLocate);
+    fprintf(file, "xr_lens_head_write=%d\n", CyberpunkVR_LensHeadWrite);
+    fprintf(file, "xr_input_default_in_ui=%d\n", CyberpunkVR_InputDefaultInUi);
+    fprintf(file, "xr_popup_mag_block_ms=%d\n", CyberpunkVR_PopupMagBlockMs);
+    fprintf(file, "xr_vrcam_pos_from_main=%d\n", CyberpunkVR_VrcamPosFromMain);
+    // 1 = MAIN's half of the eye separation goes into the located buffer in a braindance,
+    // which is the descriptor the engine renders it through. 0 = back to the component.
+    fprintf(file, "xr_bd_ipd_in_locate=%d\n", CyberpunkVR_BdIpdInLocate);
+    // 1 = the braindance head base comes from the located buffer (fresh), 0 = from the pose the
+    // script publishes for the scene camera (a tick old, and it judders on head turns).
+    fprintf(file, "xr_bd_quat_from_buffer=%d\n", CyberpunkVR_BdQuatFromBuffer);
+    // 0 = off. 1 = grant the refused capability at ClusteredLightsCull / RenderLightBuffers
+    // to the second view; 2 = at every node. See Detour_ViewFeatureCheck.
+    fprintf(file, "xr_cap_grant=%u\n", CyberpunkVR_CapGrant);
+    // 1 = second view's fov/zoom/near/far follow MAIN's (shipped default). 0 leaves the
+    // second view its own -- expect its field of view to look wrong, which is the point:
+    // it says whether that copy is what breaks the light cluster grid.
+    fprintf(file, "xr_force_vrcam_cam=%u\n", CyberpunkVR_ForceVrcamCam);
+    // HEX. Which of MAIN's camera fields the second view takes: 1 fov, 2 zoom, 4 near, 8 far.
+    // F = the old behaviour; 3 = fov and zoom only, leaving the depth slicing this view's own.
+    fprintf(file, "xr_vrcam_cam_fields=%X\n", CyberpunkVR_VrcamCamFields);
+    // The environment-override stack, applied to this view: 0 off, 1 the engine's whole pass
+    // (which also erases faded entries from a list MAIN shares), 2 the same apply with nothing
+    // removed. It is what puts the scanner's green tint into the second eye.
+    fprintf(file, "xr_run_view_params=%u\n", CyberpunkVR_RunViewParams);
+    // Reads both views' 28-byte FrameExposureData back into the log. 0 off, 1 every 8 s,
+    // 2 every 200 ms -- 2 is for catching a transient such as the braindance glasses flash.
+    // Not free: it copies out of an engine resource on every bind of that buffer.
+    fprintf(file, "xr_expo_probe=%d\n", CyberpunkVR_ExpoProbe);
+    // 1 = [indirect] every 10 s: ExecuteIndirect per frame-graph node, per view. Names the node
+    // the second view replays with an argument buffer that has not been rebuilt.
+    fprintf(file, "xr_indirect_census=%d\n", CyberpunkVR_IndirectCensus);
+    // 1 = refuse a barrier on a foreign resource whose state was not observed. It refuses the eye
+    // capture too, and stereo goes with it -- see the note at CyberpunkVR_NoStateLies. Default 0.
+    fprintf(file, "xr_no_state_lies=%d\n", CyberpunkVR_NoStateLies);
+    fprintf(file, "xr_stable_copy=%d\n", CyberpunkVR_StableCopy);
+    // 1 = the second view reuses MAIN's result and the engine's builder is skipped for it;
+    // 0 = the second view builds its own. See the note beside the externs: a skipped builder is
+    // the leading candidate for the INDIRECT_ARGUMENT binding the driver dies on.
+    fprintf(file, "xr_distant_reuse=%u\n", CyberpunkVR_DistantReuseMode);
+    fprintf(file, "xr_local_shadow_reuse=%u\n", CyberpunkVR_LocalShadowReuseMode);
+    fprintf(file, "xr_gi_reuse=%u\n", CyberpunkVR_GiReuseMode);
+    fprintf(file, "xr_probe_reuse=%u\n", CyberpunkVR_ProbeReuseMode);
+    // 1 = the second view takes MAIN's exposure adaptation, so the braindance flash reaches it.
+    fprintf(file, "xr_expo_mirror=%d\n", CyberpunkVR_ExpoMirror);
+    // DECIMAL, one bit per float of the 28-byte FrameExposureData. 27 = f0|f1|f3|f4, the four
+    // slots the adaptation moves and the only ones the two views agree on at rest. 127 copies
+    // the whole buffer, which is what whitened the second eye.
+    fprintf(file, "xr_expo_field_mask=%u\n", CyberpunkVR_ExpoFieldMask);
+    // Which readers of viewData+0x168 get MAIN's composition state, for that call only:
+    // 1 CompositionPostProcess, 2 the RT declarations, 4 DrawHUD, 8 the fifth reader. Try 3.
+    // DrawComposition is deliberately not offered a bit: it is the node that crashes on it.
+    fprintf(file, "xr_comp_lend_scoped=%u\n", CyberpunkVR_CompLendScoped);
+    // 1 = byte-compare the light array ([lightbuf]) and the particle uploads ([partbuf])
+    // between the views. Diagnostic; costs a 64 KB copy per upload while it is on.
+    fprintf(file, "xr_light_content=%d\n", CyberpunkVR_LightContent);
+    fprintf(file, "xr_fix_lod=%d\n", CyberpunkVR_FixLodEnable);
+    // The port's own HUD composite into the second eye, and whether it applies in a braindance.
+    fprintf(file, "xr_hud_to_second_eye=%d\n", CyberpunkVR_HudToSecondEye);
+    fprintf(file, "xr_hud_in_braindance=%d\n", CyberpunkVR_HudInBraindance);
+    // 1 = inject the composition group into the second view's graph via the engine's pass adders.
+    fprintf(file, "xr_vrcam_composition=%u\n", CyberpunkVR_VrcamCompositionGroup);
     // metres. Clamped to [0.02, 0.30] on read.
     fprintf(file, "xr_two_hand_radius=%.3f\n", CyberpunkVR_TwoHandRadius);
+    // How near the carried weapon the right hand has to come before its fingers close on the grip and
+    // the grip button takes the weapon back. One number for both. Clamped to [0.03, 0.30] on read.
+    fprintf(file, "xr_carry_radius=%.3f\n", CyberpunkVR_CarryGripRadius);
+    // HOW THE RECOIL IMPULSE IS SPLIT PER CLASS: muzzle rise and shoulder travel, as multipliers on the
+    // per-weapon numbers. A rifle barely lifts and shoves back; a shotgun does both. Pistols are the
+    // reference and have no multiplier. Rise clamped to [0, 2], travel to [0, 6].
+    fprintf(file, "xr_recoil_rifle_rise=%.3f\n", CyberpunkVR_RifleRiseMul);
+    fprintf(file, "xr_recoil_rifle_back=%.3f\n", CyberpunkVR_RifleBackMul);
+    fprintf(file, "xr_recoil_shotgun_rise=%.3f\n", CyberpunkVR_ShotgunRiseMul);
+    fprintf(file, "xr_recoil_shotgun_back=%.3f\n", CyberpunkVR_ShotgunBackMul);
+    // Snipers and precision rifles: the one shouldered class that flips MORE than the pistol reference
+    // and throws the hand furthest. Rise clamped to [0, 4], travel to [0, 8].
+    fprintf(file, "xr_recoil_sniper_rise=%.3f\n", CyberpunkVR_SniperRiseMul);
+    fprintf(file, "xr_recoil_sniper_back=%.3f\n", CyberpunkVR_SniperBackMul);
+    // A pistol's throw: the smallest of the four, because its energy goes into the flip. Its RISE has no
+    // multiplier -- the reference angle is the pistol's. Clamped to [0, 4].
+    fprintf(file, "xr_recoil_pistol_back=%.3f\n", CyberpunkVR_PistolBackMul);
+    // MUZZLE CLIMB ACROSS A BURST: what fraction of one shot's peak angle accumulates, the ceiling for
+    // that accumulation in degrees, and the time constant it walks back down with.
+    fprintf(file, "xr_recoil_climb=%.3f\n", CyberpunkVR_RecoilClimbFrac);
+    fprintf(file, "xr_recoil_climb_max_deg=%.3f\n", CyberpunkVR_RecoilClimbMaxDeg);
+    fprintf(file, "xr_recoil_climb_ms=%.1f\n", CyberpunkVR_RecoilClimbMs);
+    // HOW FAST THE HAND COMES BACK: the reference settle in milliseconds, and how much the weapon's own
+    // kick stretches it (0 = every weapon settles alike). The settle belongs to the wrist; the cartridge
+    // decides the ANGLE, not the duration.
+    fprintf(file, "xr_recoil_return_ms=%.1f\n", CyberpunkVR_HandRecoilReturnMs);
+    fprintf(file, "xr_recoil_return_pow=%.3f\n", CyberpunkVR_HandRecoilReturnPow);
+    // WHICH WAY the hand is thrown, per class: 0 = straight back along the barrel, 1 = straight down
+    // (the grip dipping in the palm as the muzzle flips). Clamped to [0, 1] on read.
+    fprintf(file, "xr_recoil_down_pistol=%.3f\n", CyberpunkVR_RecoilDownPistol);
+    fprintf(file, "xr_recoil_down_rifle=%.3f\n", CyberpunkVR_RecoilDownRifle);
+    fprintf(file, "xr_recoil_down_shotgun=%.3f\n", CyberpunkVR_RecoilDownShotgun);
+    // HOW FAR the hand is thrown backwards on one shot, and the ceiling for it once the per-weapon
+    // ratio and the class multiplier have had their say. Centimetres.
+    fprintf(file, "xr_recoil_back_cm=%.3f\n", CyberpunkVR_HandRecoilBackCm);
+    fprintf(file, "xr_recoil_back_max_cm=%.3f\n", CyberpunkVR_HandRecoilBackMaxCm);
+    // WHAT A SECOND HAND LEAVES OF THAT THROW, 0..1 -- separate from what it leaves of the muzzle flip,
+    // which is a stiffer reduction (leverage against a moment arm, not mass against an impulse).
+    fprintf(file, "xr_recoil_twohand_back=%.3f\n", CyberpunkVR_TwoHandBackMul);
     // The scanner's four movable pieces, x,y,scale each, in 1920x1080 design pixels. Normally written by
     // the in-game editor rather than by hand -- hold RIGHT SHIFT while scanning.
     {

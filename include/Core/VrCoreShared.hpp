@@ -88,6 +88,15 @@ extern bool g_isInVehicle;
 // Atomic because those are three different threads.
 extern std::atomic<bool> g_isDriving;
 
+// A UI POPUP THAT OWNS THE B BUTTON -- the phone, the radio port, the vehicle list. Published by the
+// CET side (VRUiPopup), because none of the three is a menu: they are overlays, so the game's menu-mode
+// value stays 0 and every gameplay rule still applies to the pad. The plugin needs to know for two
+// opposite reasons: B must reach the game (it is Exit_Button there) and B must NOT reach the physical
+// reload (a magazine drop while closing a popup is the accident this exists to prevent).
+extern std::atomic<int> g_uiPopupOpen;
+// When that flag last went down, so the magazine drop can stay blocked for a moment afterwards.
+extern std::atomic<unsigned long long> g_uiPopupClosedMs;
+
 // Which float in the engine's deltaHead[] receives the snap-turn yaw. A setting, because the slot
 // is not the same in every build.
 extern "C" int GetSnapTurnYawIndex();

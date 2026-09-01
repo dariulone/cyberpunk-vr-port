@@ -36,6 +36,13 @@ inline constexpr uintptr_t kWaPhysicalRayForwardCallsite = 0x84E354;
 // latch that keeps one round to one hand kick across both shot paths.
 extern volatile uint32_t g_provMuzzleSeq;
 extern volatile long     g_provRecoilSeqSeen;
+
+// The aim line's hit point and surface normal, published once a frame by the weapon module from the
+// game's SpatialQueriesSystem. Read by the overlay's barrel dot; see SetVRAimHit.
+extern volatile float    g_provAimHit[3];
+extern volatile float    g_provAimNormal[3];
+extern volatile uint32_t g_provAimHitSeq;
+extern volatile uint64_t g_provAimHitStampMs;
 inline constexpr uintptr_t kWaShotClassifyOffset   = 0x291FDE0;
 inline constexpr uintptr_t kWaClassifyRetProc      = 0x292279E; // return into ShotVectorProcessor
 inline constexpr uintptr_t kWaClassifyRetAltProc   = 0x2923292;

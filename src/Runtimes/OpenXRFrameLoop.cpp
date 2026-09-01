@@ -40,7 +40,7 @@ extern "C" __declspec(dllexport) int CyberpunkVR_XrPaceByRuntime = 1;
 //
 // The old knob was xr_hand_smooth, a fraction per FRAME, so its time constant moved with the frame
 // rate; 0.45 was 10% per frame, about 190 ms. It is gone, along with the filter it drove.
-extern "C" __declspec(dllexport) float CyberpunkVR_HandLerpSpeed = 15.0f;
+extern "C" __declspec(dllexport) float CyberpunkVR_HandLerpSpeed = 25.0f;
 
 // 1 = the arm solve is clocked by the engine's ANIMATION BATCH, found by the gap between pose-apply
 // passes. 0 = the old clock, one Present. Measured reason for the change: at 84-86 fps freshSolve
@@ -1988,9 +1988,30 @@ DWORD OpenXRManager::FrameThreadMain() {
                             pre[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
                             pre[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
                             pre[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                            // THE STATE THIS RUNTIME EXPECTS ITS IMAGES BACK IN.
+                            //
+                            // Every transition below used to rest the swapchain image in COMMON. The
+                            // D3D12 debug layer, forced on for this executable, then reported 2689
+                            // instances of error 527 in a minute of play: our OpenXR_submit_command_list
+                            // declaring a Before state of COMMON on an image the previous barrier had
+                            // left in RENDER_TARGET, and -- symmetrically, on a list that is not ours --
+                            // the reverse. Two components disagreeing about where these images rest.
+                            //
+                            // The other component is the runtime, and its own source settles it:
+                            // a colour image is created with ALLOW_RENDER_TARGET and therefore in
+                            // D3D12_RESOURCE_STATE_RENDER_TARGET, a depth image in DEPTH_WRITE, and
+                            // that same value is stored as the chain's releaseState12. After the app
+                            // calls xrReleaseSwapchainImage the runtime assigns it back verbatim --
+                            // imageStates12[lastReleased] = releaseState12 -- and transitions from it.
+                            // It does not query; it trusts the application to have returned the image
+                            // in that state. We were returning COMMON.
+                            //
+                            // So the mismatch is ours to fix, not the runtime's: colour images rest in
+                            // RENDER_TARGET, depth images in DEPTH_WRITE, and every barrier here is
+                            // written from that resting state and back to it.
                             pre[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             pre[1].Transition.pResource = texture;
-                            pre[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            pre[1].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
                             pre[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
                             pre[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                             m_cmdList->ResourceBarrier(2, pre);
@@ -2002,7 +2023,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             post[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             post[0].Transition.pResource = texture;
                             post[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-                            post[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                            post[0].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
                             post[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                             post[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             post[1].Transition.pResource = monoSource;
@@ -2020,7 +2041,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 D3D12_RESOURCE_BARRIER toCopyDest{};
                                 toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                                 toCopyDest.Transition.pResource = texture;
-                                toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                                toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
                                 toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
                                 toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                                 m_cmdList->ResourceBarrier(1, &toCopyDest);
@@ -2031,7 +2052,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                                 toCommon.Transition.pResource = texture;
                                 toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                                toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                                toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
                                 toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                                 m_cmdList->ResourceBarrier(1, &toCommon);
                                 ++CyberpunkVR_DebugStereoEyeSubmits;
@@ -2042,7 +2063,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             D3D12_RESOURCE_BARRIER toCopyDest{};
                             toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             toCopyDest.Transition.pResource = texture;
-                            toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
                             toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
                             toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                             m_cmdList->ResourceBarrier(1, &toCopyDest);
@@ -2053,7 +2074,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             toCommon.Transition.pResource = texture;
                             toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                            toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                            toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
                             toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                             m_cmdList->ResourceBarrier(1, &toCommon);
                         }
@@ -2265,7 +2286,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             D3D12_RESOURCE_BARRIER toCopyDest{};
                             toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             toCopyDest.Transition.pResource = depthTexture;
-                            toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+                            toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
                             toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
                             toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                             m_cmdList->ResourceBarrier(1, &toCopyDest);
@@ -2290,7 +2311,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             toCommon.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             toCommon.Transition.pResource = depthTexture;
                             toCommon.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-                            toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+                            toCommon.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
                             toCommon.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                             m_cmdList->ResourceBarrier(1, &toCommon);
 

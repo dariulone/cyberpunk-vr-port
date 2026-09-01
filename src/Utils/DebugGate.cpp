@@ -115,6 +115,16 @@ struct DebugFlag {
     bool           wide;      // true = int32_t/uint32_t, false = int
 };
 
+// NOT IN THIS TABLE, ON PURPOSE: CyberpunkVR_IndirectCensus and CyberpunkVR_ExpoProbe.
+//
+// Both now carry their own live keys (xr_indirect_census, xr_expo_probe), and this gate runs AFTER
+// the first PollLiveControls -- so leaving them here made the gate write 0 over a key the user had
+// just set, and the next ini write-back then persisted that 0 into the file. A whole session was
+// played with the ExecuteIndirect census believed armed and in fact silenced, which is the exact
+// shape of failure this project keeps paying for: an instrument that reports nothing because it
+// never ran, read as an instrument that found nothing.
+//
+// The rule: a flag with its own live key does not belong in the launcher gate.
 const DebugFlag kFlags[] = {
     { "XrRateLog",          &CyberpunkVR_XrRateLog,          1, false },
     { "XrDeepDiag",         &CyberpunkVR_XrDeepDiag,         1, false },
@@ -130,11 +140,9 @@ const DebugFlag kFlags[] = {
     { "NodeCensus",         &CyberpunkVR_NodeCensus,         1, true  },
     { "DrawCensus",         &CyberpunkVR_DrawCensus,         1, true  },
     { "DispatchCensus",     &CyberpunkVR_DispatchCensus,     1, true  },
-    { "IndirectCensus",     &CyberpunkVR_IndirectCensus,     1, true  },
     { "LightCensus",        &CyberpunkVR_LightCensus,        1, true  },
     { "CullCountProbe",     &CyberpunkVR_CullCountProbe,     1, true  },
     { "TileProbe",          &CyberpunkVR_TileProbe,          1, true  },
-    { "ExpoProbe",          &CyberpunkVR_ExpoProbe,          1, true  },
     { "PsoProbe",           &CyberpunkVR_PsoProbe,           1, true  },
     { "RtMapProbe",         &CyberpunkVR_RtMapProbe,         1, true  },
     { "CbvProbe",           &CyberpunkVR_CbvProbe,           1, true  },

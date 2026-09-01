@@ -47,6 +47,29 @@ ENT_FILES = [
     "ep1/characters/entities/player/player_ma_fpp_ep1.ent.json",
     "ep1/characters/entities/player/player_wa_fpp_ep1.ent.json",
 ]
+# THE BRAINDANCE REPLACER IS A FIFTH PLAYER. A braindance swaps the player for this entity, so without
+# the same components the second eye stays attached to the parked original -- measured in the process at
+# 2.8 km from the recording, which is the "left eye looks at nothing" report.
+#
+# Its components carry their own prefix so the selector can tell the two sets apart on whichever entity
+# it is looking at, while virtualCameraName stays vrcam_feed_<W>x<H>: the native side derives its view
+# key from that name, and it must not care which of the two is live.
+#
+# AND JOHNNY IS A SIXTH. The Silverhand missions swap the player for johnny_silverhand_replacer.ent the
+# same way a braindance swaps in its own replacer, and the effect is the same: measured live while in
+# Johnny's body, that entity carried 0 vrcam components out of 121 (V carries 61 of 217), the selector
+# said "player changed (1ULL -> 9003388ULL): 0 component(s) released", and there was no second eye.
+#
+# It shares the braindance prefix ON PURPOSE. The prefix means "the replacer's twin set", not
+# "braindance": the plugin hardcodes exactly this string in CyberpunkVR_VrcamBdCamNameHash (see
+# src/Stereo/SyncStereo.cpp) and the camera writer accepts either that or the plain vrcam_ name as the
+# second view, so a third prefix would need a plugin build and a selector change to buy nothing. The two
+# replacers are never live at the same time, and their names cannot collide with V's own set.
+REPLACER_FILES = [
+    "base/characters/entities/player/replacer/braindance_replacer.ent.json",
+    "base/characters/entities/player/replacer/johnny_silverhand_replacer.ent.json",
+]
+REPLACER_PREFIX = "vrcam_braindance_"
 DTEX_DIR = "base/media/tv/entities"
 DTEX_DEPOT = "base\\media\\tv\\entities"
 
@@ -108,8 +131,12 @@ def hard_transform_binding():
     }
 
 
-def make_component(w, h, cruid, parent_transform):
-    """One entRenderToTextureCameraComponent. parent_transform is the handle def or a ref."""
+def make_component(w, h, cruid, parent_transform, prefix="vrcam_"):
+    """One entRenderToTextureCameraComponent. parent_transform is the handle def or a ref.
+
+    `prefix` names the component only. virtualCameraName keeps the vrcam_feed_<W>x<H> form on purpose:
+    the render path identifies the view by the hash of THAT name, so a second set under another prefix
+    stays invisible to everything downstream."""
     return {
         "$type": "entRenderToTextureCameraComponent",
         "albedoDynamicTextureRes": null_resource(),
@@ -154,7 +181,7 @@ def make_component(w, h, cruid, parent_transform):
             },
         },
         "motionBlurScale": 1,
-        "name": cname("vrcam_%dx%d" % (w, h)),
+        "name": cname(prefix + "%dx%d" % (w, h)),
         "nearPlaneOverride": NEAR_PLANE,
         "normalsDynamicTextureRes": null_resource(),
         "overrideBackgroundColor": 0,
@@ -269,7 +296,7 @@ def vrcam_parent_handle(chunks, all_handle_ids):
     return str(max(all_handle_ids) + 1), True
 
 
-def verify_ent(path, wanted):
+def verify_ent(path, wanted, prefix="vrcam_"):
     """Re-read what was just written and check the invariants that make the file loadable."""
     data, _ = load_json(path)
     root = data["Data"]["RootChunk"]
@@ -314,13 +341,13 @@ def verify_ent(path, wanted):
     names = [component_name(c) for c in comps if c.get("$type") == "entRenderToTextureCameraComponent"]
     if len(names) != len(set(names)):
         problems.append("duplicate vrcam component names")
-    missing = [w for w in wanted if "vrcam_%dx%d" % w not in set(names)]
+    missing = [w for w in wanted if (prefix + "%dx%d" % w) not in set(names)]
     if missing:
         problems.append("%d wanted resolution(s) still absent" % len(missing))
     return problems, len(names)
 
 
-def process_ent(path, wanted, dry_run):
+def process_ent(path, wanted, dry_run, prefix="vrcam_"):
     data, style = load_json(path)
     root = data["Data"]["RootChunk"]
     comps = root["components"]
@@ -344,7 +371,7 @@ def process_ent(path, wanted, dry_run):
     added = []
     define_here = mint
     for (w, h) in wanted:
-        name = "vrcam_%dx%d" % (w, h)
+        name = prefix + "%dx%d" % (w, h)
         if name in have:
             continue
         cid = cruid_for(w, h)
@@ -354,8 +381,8 @@ def process_ent(path, wanted, dry_run):
             define_here = False
         else:
             chunk_pt = {"HandleRefId": parent_id}
-        chunks.append(make_component(w, h, cid, chunk_pt))
-        comps.append(make_component(w, h, cid, {"HandleRefId": parent_id}))
+        chunks.append(make_component(w, h, cid, chunk_pt, prefix))
+        comps.append(make_component(w, h, cid, {"HandleRefId": parent_id}, prefix))
         cruid[str(len(chunks) - 1)] = str(cid)
         added.append(name)
 
@@ -391,7 +418,7 @@ def scan_existing_cruids(ent_paths):
                 continue
             used.add(cid)
             name = component_name(c)
-            if isinstance(name, str) and name.startswith("vrcam_"):
+            if isinstance(name, str) and name.startswith("vrcam_"):   # both prefixes start with it
                 named.setdefault(name, cid)
     return named, used
 
@@ -504,6 +531,29 @@ def main():
                 print("      VERIFY FAILED: %s" % "; ".join(problems))
             else:
                 print("      verified: %d vrcam component(s), handles and CRUIDs consistent" % count)
+
+    # THE BRAINDANCE REPLACER, same pass with its own prefix. Its components share the resolutions and
+    # the CRUID table with the player's -- ids only have to be unique within one entity -- and differ
+    # only in name, so the selector can tell which set belongs to the entity it is holding.
+    for rel in REPLACER_FILES:
+        path = os.path.join(RAW, rel.replace("/", os.sep))
+        if not os.path.isfile(path):
+            print("SKIP  %s (not in the project)" % rel)
+            continue
+        added, parent_id, minted, backed_up = process_ent(path, wanted, args.dry_run, REPLACER_PREFIX)
+        total_added += len(added)
+        print("%-46s +%d component(s), parentTransform handle %s%s%s"
+              % (os.path.basename(path), len(added), parent_id,
+                 " (new)" if minted else " (reused)", "  [.orig saved]" if backed_up else ""))
+        if added:
+            print("      %s" % ", ".join(added[:3]) + (" ..." if len(added) > 3 else ""))
+        if not args.dry_run:
+            problems, count = verify_ent(path, wanted, REPLACER_PREFIX)
+            if problems:
+                failures.append((os.path.basename(path), problems))
+                print("      VERIFY FAILED: %s" % "; ".join(problems))
+            else:
+                print("      verified: %d component(s), handles and CRUIDs consistent" % count)
 
     # Dynamic textures. Only for what has neither a .dtex.json source nor an already-imported
     # .dtex -- the first seven were imported long ago and their JSON was not kept.

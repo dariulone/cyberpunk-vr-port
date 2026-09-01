@@ -29,6 +29,7 @@ uint64_t g_normalFovHookHits = 0;
 
 }  // namespace
 
+
 // g_lodFovOverride is WRITTEN HERE AND READ BY NOBODY. It is computed as the applied FOV
 // plus 30 degrees and printed in the diagnostic line below, and that is its entire life:
 // no LOD site consumes it. Kept because the log line is load-bearing for diagnosis, and

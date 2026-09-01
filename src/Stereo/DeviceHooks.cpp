@@ -35,6 +35,7 @@
 #include "Render/ColorBlit.hpp"   // HUD debug overlay on the mirror image
 #include <windows.h>
 #include <d3d12.h>
+#include "Hooks/SwapChainInternal.hpp"   // g_dredDevice -- the device, taken from the swapchain   // ID3D12InfoQueue, for the drain below
 #include <d3d11.h>
 #include <d3d11on12.h>
 #include <dxgi1_4.h>
@@ -223,6 +224,24 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorReadyFence = 0;
 
 std::mutex g_game_object_mtx;
 ID3D12Device* g_game_device = nullptr;
+
+// The D3D12 debug-layer message drain that lived here is DELETED, its question answered on
+// 2026-08-29. Forced on from outside for this executable alone, the layer reports two errors
+// continuously -- 538, a DiscardResource on a resource the runtime tracks as COMMON where
+// UNORDERED_ACCESS is required, and 1314, a ClearUnorderedAccessViewUint whose descriptor is
+// not from the bound heap. Both were measured over a minute of gameplay with the port's render
+// hooks installed and again with them out entirely (bin/x64/vrport_nostereo.txt):
+//
+//     538    5.0/s with hooks   4.0/s without
+//     1314  18.8/s with hooks  20.0/s without
+//
+// Identical. They are the engine's own, they do not crash a vanilla install, and the port
+// neither causes nor multiplies them. Nothing here is a lead.
+//
+// Worth recording for whoever forces the layer on next: the layer costs a large part of the
+// frame rate, and while it was on the 0x88 driver fault did not occur once in 1457 seconds
+// against a median of about two minutes without it -- suggestive, and the reason the control
+// run for that fault has to be done with the layer OFF.
 ID3D12CommandQueue* g_game_queue = nullptr;
 // Accessors for the game-view ImGui overlay (overlay_imgui.cpp).
 extern "C" ID3D12Device*       CyberpunkVR_GetGameDevice() { return g_game_device; }

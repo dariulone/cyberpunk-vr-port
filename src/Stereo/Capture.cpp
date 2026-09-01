@@ -60,11 +60,10 @@ namespace detail {
 // flip at any time: the present thread is started lazily from the vrcam blit submit, so with
 // this at 0 it simply never starts, and switching to 1 later starts it on the next vrcam frame.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MirrorOutput      = 0;  // D3D11On12 mirror (OBS-style, non-blocking)
-// State the vrcam DynamicTexture (CopyToTexture output) rests in when our copy runs.
-// Per rt_dump.h prior knowledge: the RTT DynamicTexture rests in PIXEL_SHADER_RESOURCE
-// (0x80=128), NOT RENDER_TARGET (4) -- copying from the wrong state => black. Runtime
-// tunable so it can be A/B'd live via x64dbg (0=COMMON, 4=RT, 64=NON_PS, 128=PS_RES).
-extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MirrorCopyState  = 64;  // NON_PIXEL_SHADER_RESOURCE: fixed GUESS fallback only
+// The fixed resting-state GUESS that used to live here is DELETED. It was documented as a
+// "fixed GUESS fallback only" and it is exactly the shape of lie the driver's state machine
+// faults on -- see the note beside t_mirror_src_state_seen. There is a tracked state or
+// there is no copy.
 // The vrcam RenderFinal2D output's resting D3D12 state VARIES frame-to-frame. A fixed
 // guess (CyberpunkVR_MirrorCopyState) makes the copy's transition barrier StateBefore
 // wrong on mismatched frames -> hazard -> the copy reads stale/aliased heap memory
@@ -591,7 +590,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugPubOk = 0;
 //
 // Nothing here touches engine state: the copy is a barrier pair around a CopyResource appended to
 // the engine's own list, the same shape as mirror_stable_inline_copy, which has been stable.
-extern "C" __declspec(dllexport) int      CyberpunkVR_HudToSecondEye   = 1;
+extern "C" __declspec(dllexport) int      CyberpunkVR_HudToSecondEye   = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudSnaps    = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugHudSnapSkips = 0;
 
@@ -934,11 +933,21 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
             // by the full reverse: DLSS writes raw linear to post-color at an early gen;
             // tonemap writes the correct dark result; RTT-Final2D reads the early gen).
             // The node epilogue snapshots this into committed g_stable_tex.
-            if (t_current_node_work ==
+            // ONE WRITER PER SLOT, and it stands down only once the finished-frame source has
+            // actually delivered. Both writers alive at once made the snapshot's source desc alternate
+            // every frame -- an 8-bit finished frame against this mid-chain R11G11B10 target -- and
+            // every alternation abandoned a full-size texture: 745 recreations, then a D3D12MA
+            // out-of-memory. Keying the standdown on the landed-copy latch rather than on the key
+            // alone keeps the worst case at "behaves exactly as before".
+            if ((!CyberpunkVR_FinalGrab ||
+                    !g_have_tonemap_source.load(std::memory_order_acquire)) &&
+                    t_current_node_work ==
                     reinterpret_cast<uintptr_t>(g_exe_base) + TONEMAP_WORK_RVA) {
                 t_tm_rt0 = rt0;
+                t_tm_from_final = false;   // this slot was armed by the tonemap, not the finished frame
                 t_tm_rt0_list = self;
                 t_tm_rt0_state = (uint32_t)D3D12_RESOURCE_STATE_RENDER_TARGET;
+                t_tm_rt0_state_seen = false;   // a seed, not an observation
                 t_tm_consumed = false;   // arm the epilogue snapshot
             }
             // ([2rt] per-bind diagnostic logging removed)
@@ -1003,6 +1012,7 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
             // in hk_ResourceBarrier so the inline copy uses the exact current state.
             t_mirror_copy_list = self;
             t_mirror_src_state = (uint32_t)D3D12_RESOURCE_STATE_RENDER_TARGET;
+            t_mirror_src_state_seen = false;   // a seed, not an observation
             // This command list runs the vrcam CopyToTexture blit -> trigger the
             // 11on12 copy only when the game SUBMITS it (correct frame contents).
             g_mirror_pending_list.store(self, std::memory_order_release);
@@ -1045,6 +1055,46 @@ static bool mirror_stage_desc_matches(const D3D12_RESOURCE_DESC& a,
 // queue order the copy executes after the final write and BEFORE any ALIASING barrier
 // re-purposes the transient's heap memory (the proven bright/dark root). No SEH here:
 // same risk class as the existing raw-vtable append path (uses C++ locks => C2712).
+// A TYPELESS SNAPSHOT CANNOT BE VIEWED, AND THAT IS THE DEVICE REMOVAL.
+//
+// The snapshot below inherits the SOURCE's desc, and the finished frame the second view's composition
+// writes is R8G8B8A8_TYPELESS. ColorBlit then does `srv.Format = srcColor->GetDesc().Format` and calls
+// CreateShaderResourceView with a typeless format, which D3D12 does not allow. Measured, with
+// xr_final_grab armed: the log reads `[stable] committed vrcam snapshot 3072x3072 fmt=27` -- 27 is
+// R8G8B8A8_TYPELESS, where the old mid-chain source read fmt=26 (R11G11B10_FLOAT) and viewed cleanly --
+// and the session ends `presentHr=0x887A0005 reason=0x887A0001` with `PageFaultVA=0`: DEVICE_REMOVED
+// for INVALID_CALL, a badly formed call rather than a bad address. The note beside nd.Flags further
+// down already records this project losing a device to "a typeless RTV elsewhere"; this is the same
+// class of mistake one resource along.
+//
+// So the snapshot is typed. CopyResource stays legal because a typed member and its TYPELESS parent
+// are in one copy family, and every view over the snapshot -- ColorBlit's SRV, the desktop mirror's
+// shared surface -- becomes legal at once.
+//
+// WHICH member of the 8-bit family only the picture can settle, so it is a live key rather than a
+// rebuild:
+//   1 (ships)  _UNORM_SRGB. The finished frame carries sRGB-ENCODED bytes, so the sampler decodes to
+//              linear and ColorBlit's own _UNORM_SRGB render target encodes back -- a round trip. That
+//              also cancels the second encode, which is what shows as overexposure.
+//   0          _UNORM. The bytes are sampled raw; correct if that frame turns out to hold linear.
+// A float source is already typed and is handed back untouched, so nothing changes without the grab.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_StableSrgbView = 1;
+
+static DXGI_FORMAT stable_typed_format(DXGI_FORMAT f) {
+    switch (f) {
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+            return CyberpunkVR_StableSrgbView ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                                              : DXGI_FORMAT_R8G8B8A8_UNORM;
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+            return CyberpunkVR_StableSrgbView ? DXGI_FORMAT_B8G8R8A8_UNORM_SRGB
+                                              : DXGI_FORMAT_B8G8R8A8_UNORM;
+        case DXGI_FORMAT_R10G10B10A2_TYPELESS:  return DXGI_FORMAT_R10G10B10A2_UNORM;
+        case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R32G32B32A32_TYPELESS: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+        default: return f;
+    }
+}
+
  void mirror_stable_inline_copy(ID3D12GraphicsCommandList* list,
         ID3D12Resource* src, uint32_t src_state) {
     if (!g_game_device || !list || !src) return;
@@ -1069,6 +1119,7 @@ static bool mirror_stage_desc_matches(const D3D12_RESOURCE_DESC& a,
             hp.CreationNodeMask = 1;
             hp.VisibleNodeMask = 1;
             D3D12_RESOURCE_DESC nd = d;
+            nd.Format = stable_typed_format(d.Format);   // see the note above this function
             // Plain copy target -- no ALLOW_SIMULTANEOUS_ACCESS.
             //
             // I added that flag chasing the first device hang, before the real cause turned
@@ -1088,8 +1139,9 @@ static bool mirror_stage_desc_matches(const D3D12_RESOURCE_DESC& a,
             tex->SetName(L"CyberpunkVR_VrcamStable");
             g_stable_tex = tex;
             g_stable_desc = d;
-            log("[stable] committed vrcam snapshot=%p %llux%u fmt=%u", tex,
-                (unsigned long long)d.Width, d.Height, (unsigned)d.Format);
+            log("[stable] committed vrcam snapshot=%p %llux%u fmt=%u (source fmt=%u)", tex,
+                (unsigned long long)d.Width, d.Height, (unsigned)nd.Format,
+                (unsigned)d.Format);
         }
         stable = g_stable_tex;
     }
@@ -1257,6 +1309,87 @@ void d12_append_mirror_copy(const CommandListVtableHook* e,
 }
 
 // ---- and the state tracking every copy above depends on ---------------------------------------
+// The [indarg] watch that used to sit here is DELETED. It recorded every barrier moving a
+// resource into or out of INDIRECT_ARGUMENT, for the 0x88 driver fault, and it answered its
+// question on 2026-08-29: the second view issues 67452 such transitions to MAIN's 80986, on the
+// same nodes, with no node exclusive to either -- so the hypothesis it was built to test was
+// wrong, and it had nothing left to say.
+//
+// What it did instead was cost a session. Left armed through the ini's write-back, it printed on
+// every change of node or view from inside ResourceBarrier -- 36452 lines in 203 seconds, and in
+// a menu, where the pattern never settles, continuously. The frame rate collapsed and the run
+// ended in DXGI_ERROR_DEVICE_REMOVED: the CPU stopped feeding the GPU and submission ran past the
+// driver's timeout. That is the exact mechanism this project already had written down about
+// always-on probes, paid for a second time.
+// ==== RESTORED FROM THE 0.1.6 RENDER (7dd29c36) ============================================
+//
+// The other half of the composition lend: with xr_comp_lend_set armed the second view runs
+// DrawComposition, CompositionPostProcess and DrawHUD (measured in that session's [wide] census:
+// CompositionPostProcess M=8110 V=742), and this is what takes the frame those produce.
+
+// ---- THE SECOND EYE'S FINISHED FRAME -----------------------------------------------------------
+//
+// The port used to submit a texture remembered at ApplyTXAA -- mid-chain, R11G11B10_FLOAT, with a THIRD
+// of the frame at exactly zero where the finished image has none (measured over the whole 3072x3072
+// picture). The finished image is a full-size R8G8B8A8_TYPELESS written by a COMPUTE dispatch through a
+// UAV inside the second view's CompositionPostProcess, so no render-target substitution can reach it and
+// no UAV->SRV publish barrier exists for it (nothing downstream reads it in that view).
+//
+// What DOES exist is the engine's own ACQUIRE barrier on that texture, which the census read as
+// `DrawHUD 3072/f27 RENDER_TARGET -> UNORDERED_ACCESS` in the second view's window. So the barrier hook
+// learns the pointer AND the state there -- no guessing, no patch to the command stream -- and the
+// epilogue of CompositionPostProcess does the copy, which is the first moment the contents are final and
+// still before anything aliases the transient's heap.
+extern "C" __declspec(dllexport) int32_t  CyberpunkVR_FinalGrab = 1;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalGrabs = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugFinalArms = 0;
+
+// CompositionPostProcess: the one node the finished frame is acquired, written and released inside.
+static constexpr uint32_t COMPOSITION_NODE_RVA = 0x1F8928;
+
+// The second view's finished-frame target, learned from the engine's own acquire barrier in that node
+// and copied when the same node releases it.
+//
+// THREAD-LOCAL, and that is not a micro-optimisation. These were globals, and the engine records nodes
+// on several threads at once (redDispatcher2 and redDispatcher12 both appear in one frame's capture), so
+// a global handed the epilogue a command list belonging to ANOTHER thread -- or a list from the previous
+// frame, by then closed and recycled. Appending a copy to either is a badly formed call, and the device
+// went out with DXGI_ERROR_INVALID_CALL. All three are written and read on the one thread that records
+// this view's node, so thread_local is both correct and stricter.
+// Defined in SyncStereo.cpp beside the other per-thread render state. t_final_writes counts the
+// draws/dispatches/ExecuteIndirects recorded on that list since the acquire: the copy waits for at least
+// one, because a barrier batch arriving before any write would copy an undefined surface.
+extern thread_local ID3D12Resource*            t_final_res;
+extern thread_local uint32_t                   t_final_state;
+extern thread_local ID3D12GraphicsCommandList* t_final_list;
+extern thread_local uint32_t                   t_final_writes;
+
+// ---- the finished frame reaches the eye at the NODE EPILOGUE, exactly as the old capture does ----
+//
+// The mirror path that has fed this eye for months works like this: learn the output resource inside
+// the node that writes it, and record the copy in THAT NODE'S EPILOGUE -- the work-fn has returned, so
+// every write is in the list; the list is still open; the resource is not aliased yet. It never misses
+// a frame.
+//
+// Copying from inside the barrier hook instead landed on one frame in five, whichever scope was tried
+// (the node work-fn, the live view flag, a set of command lists): none of them is reliably true at the
+// instant the engine retires this particular resource. So the barrier hook only ARMS the slot, and this
+// is called from the second view's node epilogue in NodeDispatch.cpp.
+void final_frame_copy_now() {
+    if (!t_final_res || !t_final_state || !t_final_list) return;
+    if (CyberpunkVR_StableCopy && stereo_eye_capture_wanted()) {
+        mirror_stable_inline_copy(t_final_list, t_final_res, t_final_state);
+        // The latch that retires the older sources. One-way on purpose: once the finished frame has
+        // delivered once, the tonemap-RT0 capture stops arming and the mirror copy stands down, so the
+        // two can never again alternate formats into the same snapshot texture.
+        g_have_tonemap_source.store(true, std::memory_order_release);
+        InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugFinalGrabs));
+    }
+    t_final_res = nullptr;
+    t_final_state = 0;
+    t_final_list = nullptr;
+}
+
 void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
         UINT count, const D3D12_RESOURCE_BARRIER* barriers) {
     const CommandListVtableHook* e = command_list_hook_entry(self);
@@ -1269,6 +1402,65 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
     // path would copy with a stale state -- a barrier lie, which the debug layer rejects and
     // the driver may answer with device removal.
     if (!stereo_eye_capture_wanted() || !barriers || !e) return;
+    // Placed after that gate rather than at the top of the function as in 0.1.6, because the copy
+    // this arms is itself conditional on stereo_eye_capture_wanted(): arming in frames where no eye
+    // capture is wanted would leave a transient pointer in the slot with nothing to consume it.
+    // ---- THE SECOND VIEW'S FINISHED FRAME: armed here, copied at the node epilogue ---------------
+    //
+    // The target, read out of renderdoc-capture/frame_3140_aftercompositionfix.rdc in true recording
+    // order on the command list the second view records into (RenderDoc's chunk order is per list, so
+    // within one list it IS execution order):
+    //
+    //     84026  aliasing -> 253858, then NON_PIXEL_SRV -> RENDER_TARGET   the graph takes the transient
+    //     84028  DiscardResource
+    //     84040  RENDER_TARGET -> UNORDERED_ACCESS                        <-- ARMED HERE
+    //     84067  ExecuteIndirect                                          the two writes
+    //     84072  ExecuteIndirect
+    //     84562  UNORDERED_ACCESS -> NON_PIXEL_SRV                        released, heap aliased away
+    //
+    // THE ACQUIRE, NOT THE RELEASE, and the reason is scope. The acquire sits between the Discard and
+    // the writes, so it is provably inside the node that produces this picture; the release arrives in
+    // a batch of seven at the tail of the list, long after that node returned. Content is fine either
+    // way, because the copy is not recorded here -- it is recorded at the node's epilogue, past both
+    // writes.
+    //
+    // The state the copy names is UNORDERED_ACCESS: it is what the engine itself put the resource in
+    // with this very barrier, and it is still that when the node returns. Nothing is guessed.
+    //
+    // Identification is by exhaustion. Of every full-size candidate in that frame only this one is
+    // R8G8B8A8_TYPELESS with both RENDER_TARGET and UNORDERED_ACCESS allowed: the HUD layer is the same
+    // 3072x3072 but SRGB and render-target-only, and the half-resolution TYPELESS pair is UAV-only and
+    // so cannot make this transition at all.
+    if (CyberpunkVR_FinalGrab && barriers && t_vrcam_node_active) {
+        for (UINT i = 0; i < count; ++i) {
+            const D3D12_RESOURCE_BARRIER& fb = barriers[i];
+            if (fb.Type != D3D12_RESOURCE_BARRIER_TYPE_TRANSITION || !fb.Transition.pResource) continue;
+            if (fb.Transition.StateBefore != D3D12_RESOURCE_STATE_RENDER_TARGET ||
+                    fb.Transition.StateAfter != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) continue;
+            D3D12_RESOURCE_DESC fd{};
+            if (!mirror_get_resource_desc(fb.Transition.pResource, &fd) ||
+                    fd.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+                    fd.Format != DXGI_FORMAT_R8G8B8A8_TYPELESS ||
+                    fd.Width < 2048 || fd.Height < 2048) continue;
+            if (!(fd.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) ||
+                    !(fd.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)) continue;
+            t_final_res = fb.Transition.pResource;
+            t_final_state = (uint32_t)D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            t_final_list = self;
+            InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugFinalArms));
+            // At most once per frame, so the clock read costs nothing. Two numbers, and between them
+            // they answer the only question left: armed says the target was found, copied says the
+            // epilogue delivered it.
+            static uint64_t s_last = 0;
+            const uint64_t now = GetTickCount64();
+            if (!s_last || now - s_last >= 5000) {
+                s_last = now;
+                Log("[eyefin] armed=%llu copied=%llu\n",
+                    (unsigned long long)CyberpunkVR_DebugFinalArms,
+                    (unsigned long long)CyberpunkVR_DebugFinalGrabs);
+            }
+        }
+    }
     // ---- the HUD snapshot, taken once the glow mips exist ------------------------------------
     //
     // This used to fire at the OMSetRenderTargets that unbinds the HUD's mip-0 target, which is
@@ -1494,7 +1686,32 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
         if (rd.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER || rd.Width != 28) {
             continue;
         }
-        if (t_vrcam_node_active) {
+        // WHOSE BUFFER THIS IS, DECIDED BY THE VIRTUAL-CAMERA NAME HASH. ctx+0x28 reads 0 for
+        // MAIN and g_vrcam_ctx_key for the port's VRCAM; every other RTT view has its own hash,
+        // and so does the flat 960x540 desktop window -- which runs an exposure chain of its own
+        // (third run in the capture, event 16942, against 61401 for VRCAM and 91137 for MAIN).
+        //
+        // The old test was `t_vrcam_node_active`, and its else-branch called EVERYTHING that is
+        // not VRCAM "MAIN" -- the desktop window and every probe face included. So the mirror's
+        // source was whichever of those transitioned its buffer last. That is why the copy could
+        // be seen landing in the capture (our COPY_DEST barrier on Resource_124931) and still
+        // leave the wrong numbers behind it.
+        //
+        // What those numbers are, measured at the lighting pass that reads them:
+        //
+        //     VRCAM  Resource_124931  f0 0.945388     f2 0.0003472  f3 1.05777
+        //     MAIN   Resource_3894    f0 0.000328187  f2 1.0        f3 3047.04
+        //
+        // f0 is the pre-exposure every lighting shader multiplies its output by. The second
+        // view's is 2880.6x MAIN's ON THE SAME SCENE, which is the white: it enters at Lighting
+        // and every pass downstream inherits it. Its f2 is 1/2880.2 -- the view computed the
+        // correction and never applied it, where MAIN's f2 is 1.
+        if (!t_active_view_known) continue;      // unresolved view: never guess
+        const uint64_t vrcam_key = g_vrcam_ctx_key.load(std::memory_order_acquire);
+        const bool is_vrcam = (vrcam_key != 0 && t_active_view_key == vrcam_key);
+        const bool is_main  = (t_active_view_key == 0);
+        if (!is_vrcam && !is_main) continue;     // a probe face, or the desktop window
+        if (is_vrcam) {
             ID3D12Resource* prev = g_expo_vrcam.exchange(
                 b.Transition.pResource, std::memory_order_acq_rel);
             if (prev != b.Transition.pResource) {
@@ -1528,6 +1745,7 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
             if (b.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION &&
                 b.Transition.pResource == t_mirror_copy_rtv) {
                 t_mirror_src_state = (uint32_t)b.Transition.StateAfter;
+                t_mirror_src_state_seen = true;    // observed, for this resource
             }
         }
     }
@@ -1539,6 +1757,7 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
             if (b.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION &&
                 b.Transition.pResource == t_tm_rt0) {
                 t_tm_rt0_state = (uint32_t)b.Transition.StateAfter;
+                t_tm_rt0_state_seen = true;       // observed, for this resource
             }
         }
     }

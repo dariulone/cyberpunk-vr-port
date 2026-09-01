@@ -1956,8 +1956,8 @@ static bool dither_lock_build(const void* src, void* out) {
     const uint32_t rva = (t_current_node_work > base)
         ? static_cast<uint32_t>(t_current_node_work - base) : 0;
     if (rva == PREPARE_SCENE_NODE_WORK_RVA) {
-        if (!t_vrcam_node_active) sway_block_capture(src);
-        else sway_block_apply(out);
+        if (view_is_main_now()) sway_block_capture(src);
+        else if (view_is_vrcam_now()) sway_block_apply(out);
     }
     sway_dither_force(out);
     return true;
@@ -1976,9 +1976,9 @@ static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* sr
     }
     if (CyberpunkVR_WideCensus) { wide_note(src, size, t_view_side); wide_report(); temporal_report(); }
     if (fog_block_here(size, src)) {
-        if (t_vrcam_node_active) {
+        if (view_is_vrcam_now()) {
             fog_jitter_capture(src);
-        } else {
+        } else if (view_is_main_now()) {
             uint8_t fogged[384];
             if (fog_jitter_apply(src, fogged)) return g_orig_buf_upload(idx, size, fogged);
         }
@@ -2035,8 +2035,8 @@ static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* sr
             const uint32_t rva = (t_current_node_work > base)
                 ? static_cast<uint32_t>(t_current_node_work - base) : 0;
             if (rva == PREPARE_SCENE_NODE_WORK_RVA) {
-                if (!t_vrcam_node_active) sway_block_capture(src);
-                else sway_block_apply(forced);
+                if (view_is_main_now()) sway_block_capture(src);
+                else if (view_is_vrcam_now()) sway_block_apply(forced);
             }
             sway_dither_force(forced);
             InterlockedIncrement64(
@@ -2143,9 +2143,9 @@ static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* sr
                     sway_shipped_report();
                 }
             } else if (CyberpunkVR_SwayTimeFix == 4) {
-                if (!t_vrcam_node_active) {
+                if (view_is_main_now()) {
                     sway_block_capture(src);
-                } else if (sway_block_apply(patched)) {
+                } else if (view_is_vrcam_now() && sway_block_apply(patched)) {
                     if (CyberpunkVR_SwayDiff) {
                         sway_shipped_note(patched, t_vrcam_node_active);
                         sway_shipped_report();
@@ -2155,7 +2155,7 @@ static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* sr
             } else if (CyberpunkVR_SwayTimeFix == 1 || CyberpunkVR_SwayTimeFix == 3) {
                 const bool force = (CyberpunkVR_SwayTimeFix == 3);
                 bool shipped = false;
-                if (!t_vrcam_node_active) {
+                if (view_is_main_now()) {
                     sway_time_capture(src);
                     // MAIN is patched only in mode 3, and then only in the dither pair: the point is
                     // that both eyes get the SAME slice without depending on who uploads first.
@@ -2163,7 +2163,7 @@ static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* sr
                         sway_dither_force(patched);
                         shipped = true;
                     }
-                } else if (sway_time_apply(src, patched)) {
+                } else if (view_is_vrcam_now() && sway_time_apply(src, patched)) {
                     if (force) sway_dither_force(patched);
                     shipped = true;
                 }
@@ -2179,6 +2179,12 @@ static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* sr
     }
     return g_orig_buf_upload(idx, size, src);
 }
+
+// Declared here because the upload detour below counts into them; they are DEFINED beside the
+// mirror further down, next to the offsets they explain.
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeMainUploads;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeVrcamUploads;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugGradeOtherView;
 CVR_DETOUR("[sway] buffer uploader sub_1401F088C", BUF_UPLOAD_RVA, Detour_BufUpload, g_orig_buf_upload)
 
 static __int64 __fastcall Detour_CbUpload(unsigned int size, void* src) {
@@ -2194,9 +2200,9 @@ static __int64 __fastcall Detour_CbUpload(unsigned int size, void* src) {
     }
     if (CyberpunkVR_WideCensus) { wide_note(src, size, t_view_side); wide_report(); temporal_report(); }
     if (fog_block_here(size, src)) {
-        if (t_vrcam_node_active) {
+        if (view_is_vrcam_now()) {
             fog_jitter_capture(src);
-        } else {
+        } else if (view_is_main_now()) {
             uint8_t fogged[384];
             if (fog_jitter_apply(src, fogged)) return g_orig_cb_upload(size, fogged);
         }
@@ -2266,7 +2272,35 @@ static __int64 __fastcall Detour_CbUpload(unsigned int size, void* src) {
         }
     }
     if (!grade_up_is_target(size, src)) return g_orig_cb_upload(size, src);
-    const int v = t_vrcam_node_active ? 1 : 0;
+    // WHOSE UPLOAD THIS IS, BY THE VIRTUAL-CAMERA NAME HASH. The test used to be
+    // `t_vrcam_node_active ? 1 : 0`, whose else-branch called EVERYTHING that is not the second
+    // view "MAIN" -- including the flat 960x540 desktop window, which uploads a grading block of
+    // its own. So g_gcu[0] was not MAIN's block but whichever of those uploaded last.
+    //
+    // Measured 2026-08-30 with the debugger, standing in the braindance with the green cast plainly
+    // on MAIN's screen, reading g_gcu[0] across a single run/pause cycle and nothing else changing:
+    //
+    //     sample 1   +010 1.0       +024 1.0   +028 1.0   +04C 0.0     +074 1.0
+    //     sample 2   +010 1.04167   +024 1.3   +028 1.3   +04C 0.435   +074 1.3
+    //
+    // The second is the braindance grading, the first is the identity. One buffer, one scene, two
+    // different sources -- which is why the mirror sometimes had nothing to copy and the eye never
+    // settled. It is the same defect that was found in the exposure buffer earlier the same day.
+    //
+    // A view we cannot name, and any third view, is passed through untouched: vanilla grading for
+    // that upload, which is a degradation and not a refusal.
+    if (!t_active_view_known) return g_orig_cb_upload(size, src);
+    const uint64_t vrcam_key = g_vrcam_ctx_key.load(std::memory_order_acquire);
+    const bool grade_is_vrcam = (vrcam_key != 0 && t_active_view_key == vrcam_key);
+    const bool grade_is_main  = (t_active_view_key == 0);
+    if (!grade_is_vrcam && !grade_is_main) {
+        InterlockedIncrement64(
+            reinterpret_cast<volatile LONG64*>(&CyberpunkVR_DebugGradeOtherView));
+        return g_orig_cb_upload(size, src);
+    }
+    const int v = grade_is_vrcam ? 1 : 0;
+    InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(
+        v ? &CyberpunkVR_DebugGradeVrcamUploads : &CyberpunkVR_DebugGradeMainUploads));
     if (v == 0) {                                   // MAIN: this is the reference block
         const bool ok = grade_up_capture(src, 0);
         const __int64 r = g_orig_cb_upload(size, src);
@@ -2630,13 +2664,70 @@ void grade_up_report() {
 //                   `cmovz` picks the other shader permutation
 //     +1B8 / +1E0 / +270  stable, unidentified
 // One bit per candidate so they can be bisected live; default is the descriptor-index pair.
+// BITS 8..14 ARE THE GRADING ITSELF, and they are the ones that carry the look. Measured
+// 2026-08-30 by reading both captured blocks out of g_gcu in the debugger while the braindance
+// played, and diffing them dword by dword:
+//
+//     off    MAIN      VRCAM      what it is in the .envparam
+//     +010   1.04167   1.0        gammaValue Luminance 0.96, inverted
+//     +014   1.04167   1.0
+//     +018   1.04167   1.0
+//     +024   1.3       1.0        gain Green
+//     +028   1.3       1.0        gain Blue
+//     +04C   0.435     0.0        contrastPivot
+//     +074   1.3       1.0        saturation
+//
+// Those are literally the numbers in base\weather\24h_basic\24h_braindance_fpp.envparam, whose
+// ColorGradingAreaSettings is the braindance's green cast (warmsquare LUT, gain 1.3 on green and
+// blue, saturation 1.3). MAIN's block carries them; the second view's block is the identity.
+//
+// EVERY differing dword below 0x080 is one of those seven, and the first pointer-shaped
+// difference only starts at +080 -- so this head region is grading and nothing else, and copying
+// it cannot carry a per-view pointer across.
+//
+// This is why bits 0-7 never delivered the tint no matter which of them were set: they are all
+// descriptor indices and unidentified words, and not one of them is a grading value.
 static const uint32_t kGradeMirrorOff[] = {
     0x230, 0x238, 0x220, 0x248, 0x258, 0x1B8, 0x1E0, 0x270,
+    0x010, 0x014, 0x018, 0x024, 0x028, 0x04C, 0x074,
+    // BITS 15 and 16: THE TWO SMALL INTEGERS, and they are the only remaining candidates for
+    // "which grading LUT". Measured 2026-08-30 from both captured blocks in the debugger:
+    //
+    //     +168   MAIN 2948   VRCAM 1638
+    //     +18C   MAIN  564   VRCAM  559
+    //
+    // Everything else that still differs below +0x2B0 is a 0x1102_xxxxxxxx half-pointer, and
+    // MAIN's pointer in the second view's slot is a dereference waiting to happen -- so those are
+    // deliberately NOT candidates, whatever bits 2/4/6/7 above may once have suggested. Of those
+    // eight, +0x230, +0x248 and +0x1B8 are measured EQUAL between the views now, so their bits
+    // cannot do anything at all; that is why setting 3 and then 7 changed nothing.
+    //
+    // That the block reaches the second eye's picture is not assumed: forcing +074 to 5.0 turned
+    // that eye acid-bright, which is what licenses looking for the LUT here rather than elsewhere.
+    0x168, 0x18C,
 };
 static const uint32_t kGradeMirrorCount =
     static_cast<uint32_t>(sizeof(kGradeMirrorOff) / sizeof(kGradeMirrorOff[0]));
+// DEFAULT IS BACK TO THE DESCRIPTOR-INDEX PAIR, and bits 8-14 are retired rather than merely off.
+//
+// Those seven bits substituted MAIN's grading values into the finished 688-byte constant block. It
+// worked, and it was the wrong end of the chain: the values are read out of viewData +0x650..+0x69F
+// by the block's own producer, so mirroring them THERE (ViewReuse.cpp, env-mirror bit 12) delivers
+// the same tint one step earlier and keeps everything else derived from those fields consistent.
+//
+// Measured, not assumed, 2026-08-30: with the viewData mirror on and this mask dropped from 0x7F03
+// to 3, the braindance's green cast stayed on the second eye. Two mechanisms doing one job is how
+// this project has repeatedly lost a day, so the survivor is the one nearer the cause.
+//
+// The bits are left in the table, not deleted: they are measured-correct offsets and cost nothing
+// while clear, and they are the only route left if the viewData mirror ever has to be turned off.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GradeMirrorMask = (1u << 0) | (1u << 1);
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeMirrors = 0;
+// So "it did not help" and "it never saw that view" can never be confused again.
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeMainUploads  = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeVrcamUploads = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugGradeOtherView    = 0;
+
 
 __int64 grade_up_mirror_call(unsigned int size, void* src) {   // SEH only
     uint32_t saved[16];

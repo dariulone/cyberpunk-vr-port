@@ -115,11 +115,17 @@ if (Test-Path $tw) {
 }
 
 # ---- packed archives ---------------------------------------------------------------------------
-foreach ($a in @("cyberpunkvrport.archive","VRCigarette.archive.xl","vrport_basketball.archive")) {
-    $p = Join-Path $RepoRoot "mods\archive\$a"
-    if (Test-Path $p) { Add-File $p "archive\pc\mod\$a" }
-    else { Write-Host "[!] $a is not in the repo -- run sync_assets.ps1 first" }
-}
+# ENUMERATED, never listed -- the same rule the grip poses above already follow, and for the same
+# reason. The hardcoded three shipped a package with no vrport_mag.archive in it, while that archive
+# sat both in mods\archive\ and in the installed game: a file present everywhere except in the
+# tester's copy, and nothing said so. Only exact *.archive and *.archive.xl names match, so the
+# .bak_*, .holdcomp, .nocollision and .nophys variants beside them stay out by shape rather than by
+# anyone remembering to exclude them.
+$archiveDir = Join-Path $RepoRoot "mods\archive"
+$packed = @(Get-ChildItem -LiteralPath $archiveDir -File |
+           Where-Object { $_.Name -like "*.archive" -or $_.Name -like "*.archive.xl" })
+if ($packed.Count -eq 0) { Write-Host "[!] no archives in mods\archive -- run sync_assets.ps1 first" }
+foreach ($f in $packed) { Add-File $f.FullName "archive\pc\mod\$($f.Name)" }
 
 # ---- HUDitor: the port's setup, on the paths the mod actually uses ----------------------------
 # HUD placement is not the port's job -- its own HUD mod was removed on 2026-08-20 because it

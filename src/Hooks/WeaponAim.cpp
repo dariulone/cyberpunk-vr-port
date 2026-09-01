@@ -1299,6 +1299,12 @@ inline thread_local float s_waPhysicalRayConeCenter[3] = {};
 inline thread_local bool s_waPhysicalRayHaveCentre = false;
 
 extern "C" void RecoilOnShot();
+// 1 = centre the cone on the CAMERA forward, which is what this hook did originally and what keeps
+// the game's accuracy roll on a single shot. 0 = centre it on the shot's FIRST RAY, the way the
+// projectile path already centres on the first pellet, so a single shot lands on the barrel and a
+// pattern keeps its shape.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_ConeCentreFromCamera = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugConeFirstRay = 0;
 
 // The camera as the LOCATE site published it. Declared here the way the overlay declares it, which
 // is the same value the barrel dot is drawn from -- so the dot and the bullet share one frame.
@@ -1595,14 +1601,42 @@ extern "C" inline char Hooked_WaPhysicalRayForward(void* rcx, void* rdx, float* 
         CyberpunkVR_DebugPhysicalRayRawForward[2] = raw[2];
         CyberpunkVR_DebugPhysicalRayRawForward[3] = out[3];
 
-        // ONE ROTATION, CAMERA AXIS -> BARREL AXIS, APPLIED TO THE PELLET AS IT CAME.
-        // A pellet that sat 1.2 deg left of the camera axis ends up 1.2 deg left of the barrel:
-        // the pattern is the game's own, only its axis moved. A single-ray weapon has raw == the
-        // camera forward, so it comes out exactly on the barrel -- the pistol case is not a
-        // special case of this, it is the same arithmetic with a zero offset.
+        // THE CENTRE OF THE CONE IS THE SHOT'S FIRST RAY, not the camera.
+        //
+        // Rotating by (camera -> barrel) preserves each ray's offset from the CAMERA axis, and for a
+        // single shot that offset is the game's accuracy roll -- the flat-screen stand-in for an
+        // unsteady hand. In VR the hand IS the aim, so that roll is just the bullet disagreeing with
+        // the sight. Centring on the first ray of the shot instead makes both cases one rule with no
+        // weapon to classify: a single ray is its own centre and lands exactly on the barrel, while a
+        // pattern keeps every pellet's offset relative to its first pellet.
+        //
+        // The shot is keyed by the muzzle sequence, which is exactly what the projectile path keys
+        // its own cone delta by -- see g_provDeltaSeq in OrientationProvider.cpp. Same key, so the
+        // two paths cut a shot's rays into groups the same way.
+        static uint32_t s_waConeSeq = 0xFFFFFFFFu;
+        static float    s_waConeFirstRaw[3] = {0.0f, 0.0f, 0.0f};
+        float coneCentre[3] = {centre[0], centre[1], centre[2]};
+        bool haveCone = haveCentre;
+        if (CyberpunkVR_ConeCentreFromCamera == 0) {
+            const uint32_t shot = g_provMuzzleSeq;
+            if (s_waConeSeq != shot) {
+                s_waConeSeq = shot;
+                s_waConeFirstRaw[0] = raw[0];
+                s_waConeFirstRaw[1] = raw[1];
+                s_waConeFirstRaw[2] = raw[2];
+                WaCount(CyberpunkVR_DebugConeFirstRay);
+            }
+            coneCentre[0] = s_waConeFirstRaw[0];
+            coneCentre[1] = s_waConeFirstRaw[1];
+            coneCentre[2] = s_waConeFirstRaw[2];
+            haveCone = (coneCentre[0]*coneCentre[0] + coneCentre[1]*coneCentre[1]
+                        + coneCentre[2]*coneCentre[2]) > 1e-6f;
+        }
+
+        // ONE ROTATION, CONE AXIS -> BARREL AXIS, APPLIED TO THE PELLET AS IT CAME.
         float spreadDelta[4];
-        if (haveCentre) {
-            if (!WaRotationBetween(centre, forward, spreadDelta)) return result;
+        if (haveCone) {
+            if (!WaRotationBetween(coneCentre, forward, spreadDelta)) return result;
             WaCount(CyberpunkVR_DebugPhysicalRayConeRays);
         } else if (!WaRotationBetween(raw, forward, spreadDelta)) {
             // No camera this frame: put the ray on the barrel and lose the offset. Correct for one

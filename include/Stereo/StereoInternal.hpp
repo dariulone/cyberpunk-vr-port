@@ -322,6 +322,12 @@ extern VisibleAppendFn g_orig_visible_append;
 extern std::atomic<uint32_t> g_fine_reuse_phase;
 extern std::mutex g_fine_visibility_mutex;
 extern std::unordered_map<uintptr_t, std::vector<uintptr_t>> g_fine_visible_ids;
+// Raised inside the RTT preparer's call for OUR view, by camera-name hash. The narrowest scope
+// in which this view's parameters are still being decided.
+extern thread_local bool t_rtt_prepare_ours;
+void view_params_report();
+void complend_report();
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_RunViewParams;
 extern thread_local bool t_capture_fine_ids;
 extern thread_local bool t_capture_vrcam_visibility;
 extern thread_local std::vector<ReplayVisibilityBatch> t_vrcam_visibility_batches;
@@ -363,6 +369,7 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainBuildModeF90;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamAaMode;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugVrcamBuildModeF90;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ForceVrcamCam;
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamCamFields;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_StreamlineHistoryFix;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamComputeResolve;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamDlssScale;
@@ -446,6 +453,10 @@ void grade_cb_report();
 void grade_up_report();
 
 bool cloud_cb_raw_copy(void* dst, const void* src, size_t n);
+// The composition state, lent around ONE node call. Returns the viewData written, or 0.
+uintptr_t comp_lend_install(void* work_context, uint64_t saved[2]);
+void comp_lend_restore(uintptr_t vd, const uint64_t saved[2]);
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_CompLendScoped;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DistantReuseMode;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_GiReuseMode;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_LocalShadowReuseMode;
@@ -480,7 +491,6 @@ extern "C" __declspec(dllexport) int32_t  CyberpunkVR_StableCopy;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_VrcamOwnTarget;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VisionDump;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMirrorSrcState;
-extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MirrorCopyState;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_MirrorOutput;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMirrorBarrierHits;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVisionOverlays;
@@ -742,7 +752,19 @@ extern thread_local ID3D12Resource* t_tm_rt0;
 extern thread_local bool t_mirror_copy_node_active;
 extern thread_local bool t_tm_consumed;
 extern thread_local uint32_t t_mirror_src_state;
+// True only once hk_ResourceBarrier has seen a transition of that exact resource on this
+// thread. A foreign resource is never given a barrier on a seeded or guessed state.
+extern thread_local bool t_mirror_src_state_seen;
+extern thread_local bool t_tm_rt0_state_seen;
 extern thread_local uint32_t t_tm_rt0_state;
+// The finished-frame path's per-thread slot -- see the note beside CyberpunkVR_FinalGrab in
+// Capture.cpp for why these are thread_local and not globals.
+extern thread_local bool t_tm_from_final;
+extern thread_local ID3D12Resource*            t_final_res;
+extern thread_local uint32_t                   t_final_state;
+extern thread_local ID3D12GraphicsCommandList* t_final_list;
+extern thread_local uint32_t                   t_final_writes;
+void final_frame_copy_now();
 extern uint32_t g_gcb_len[2][GRADE_CB_SLOTS];
 extern uint8_t  g_gcb[2][GRADE_CB_SLOTS][GRADE_CB_MAX];
 void tm_set_push(ID3D12Resource* res, uint32_t state, uint32_t fmt, uint32_t rva);
@@ -843,6 +865,7 @@ extern void* g_main_block_v5;
 
 char __fastcall Detour_CloudsNode(void* a1, void* a2);
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_StableFromTonemap;
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_FinalGrab;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugMainNodeUnique;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSecondaryNodeUnique;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugMainObjBinds;
@@ -861,6 +884,27 @@ extern thread_local bool     t_active_view_known;
 extern thread_local int t_prof_disp_depth;
 extern thread_local int64_t t_prof_child_ticks;
 extern thread_local uint64_t t_active_view_key;
+
+// WHICH VIEW IS RECORDING, ANSWERED THE ONLY WAY THAT HOLDS. The hash at ctx+0x28 reads 0 for
+// MAIN and g_vrcam_ctx_key for the port's VRCAM; a reflection-probe face and the flat 960x540
+// desktop window each have their own. `t_vrcam_node_active` answers only "is this VRCAM", so its
+// else-branch lumps MAIN together with the desktop window and every probe face -- and any code
+// that captures a MAIN REFERENCE on that branch is capturing whichever of them came last.
+//
+// That is not theoretical. Measured 2026-08-30 in the debugger, standing in a braindance with the
+// green cast plainly on MAIN's screen, the port's captured "MAIN" grading block read the identity
+// on one sample and the braindance grading on the next, one run/pause apart with nothing else
+// changing. The exposure buffer had the same defect and the same day.
+//
+// Use these wherever a per-view reference is TAKEN or APPLIED. A view that is neither -- or one
+// that could not be resolved -- must be left alone rather than counted as MAIN.
+inline bool view_is_main_now() {
+    return t_active_view_known && t_active_view_key == 0;
+}
+inline bool view_is_vrcam_now() {
+    const uint64_t k = g_vrcam_ctx_key.load(std::memory_order_acquire);
+    return t_active_view_known && k != 0 && t_active_view_key == k;
+}
 uint8_t __fastcall Detour_NodeDispatch( uintptr_t* node, uint8_t* work_context, void* args);
 uint8_t __fastcall Detour_ViewFeatureCheck(uintptr_t work_context, uintptr_t required);
 

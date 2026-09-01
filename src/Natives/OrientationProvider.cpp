@@ -147,6 +147,19 @@ volatile float    g_provMuzzleQ[4] = {0,0,0,1}; // weapon muzzle WORLD orientati
 volatile int      g_waXhPosFromMuzzle = 1;
 volatile float    g_provMuzzlePos[3] = {0,0,0};
 volatile uint32_t g_provMuzzlePosSeq = 0;
+// WHERE THE BULLET WOULD LAND, published by the weapon module once a frame.
+//
+// The overlay's barrel dot used to mark a point a fixed 20 m down the barrel, so it only told the
+// truth at 20 m. This is the same line traced against the world by the game's own
+// SpatialQueriesSystem -- position and surface normal, about 5 us a ray -- so the mark sits where the
+// surface is. Deliberately NOT routed through a shared slot: CET is the producer and this DLL is the
+// only consumer, so a plain global is the whole mechanism. And deliberately not taken from the
+// hitscan path either: gameEffectObjectProvider_PhysicalRay is a leaf this port patches, and a ray
+// claimed there also fires the hand recoil.
+volatile float    g_provAimHit[3] = {0,0,0};
+volatile float    g_provAimNormal[3] = {0,0,0};
+volatile uint32_t g_provAimHitSeq = 0;
+volatile uint64_t g_provAimHitStampMs = 0;
 volatile uint32_t g_provMuzzleSeq = 0;          // freshness
 volatile float    g_provDeltaQ[4] = {0,0,0,1};  // mode6 cone-rotation delta (recomputed per muzzle seq)
 volatile uint32_t g_provDeltaSeq = 0xFFFFFFFF;  // seq the delta was computed for
@@ -683,6 +696,61 @@ void SetVRMuzzlePos(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, 
     }
 }
 
+// THE CARRY FLAG. Raised on the frame the weapon moves into the left slot; it starts the wrist's
+// blend out of the welded hold (CarryLeftBlend) and keeps the weld from re-engaging.
+extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryLeft;
+
+void SetVRCarryLeft(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t on = 0;
+    RED4ext::GetParameter(aFrame, &on);
+    aFrame->code++;
+    CyberpunkVR_CarryLeft = (on != 0) ? 1 : 0;
+}
+
+// THE TWO-HAND WELD'S OFF SWITCH, for the carry. See the note in TwoHandGrip.cpp.
+extern "C" __declspec(dllexport) extern int CyberpunkVR_TwoHandSuppress;
+
+void SetVRTwoHandSuppress(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t on = 0;
+    RED4ext::GetParameter(aFrame, &on);
+    aFrame->code++;
+    CyberpunkVR_TwoHandSuppress = (on != 0) ? 1 : 0;
+}
+
+// THE CARRY OFFSET, so the weapon module can set the left slot BEFORE it moves the weapon there.
+// Computed from the captured two-hand hold; see VRTwoHandCarryOffset in TwoHandGrip.cpp.
+extern "C" float VRTwoHandCarryOffset(int idx);
+
+void GetVRCarryOffset(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void* aOut, int64_t) {
+    int32_t idx = 0;
+    RED4ext::GetParameter(aFrame, &idx);
+    aFrame->code++;
+    const float v = VRTwoHandCarryOffset(idx);
+    if (aOut) *static_cast<float*>(aOut) = v;
+}
+
+// THE HIT POINT OF THE AIM LINE, straight from the weapon module's own raycast.
+//
+// Guarded exactly the way SetVRMuzzlePos is: the muzzle transform returns local coordinates on some
+// frames, and a local value is not a world hit. Anything inside 1 m of the origin is dropped rather
+// than allowed to overwrite a good sample, and the timestamp lets the consumer refuse a stale one
+// instead of drawing a mark where the wall was a second ago.
+void SetVRAimHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    float x = 0.0f, y = 0.0f, z = 0.0f, nx = 0.0f, ny = 0.0f, nz = 0.0f;
+    RED4ext::GetParameter(aFrame, &x);
+    RED4ext::GetParameter(aFrame, &y);
+    RED4ext::GetParameter(aFrame, &z);
+    RED4ext::GetParameter(aFrame, &nx);
+    RED4ext::GetParameter(aFrame, &ny);
+    RED4ext::GetParameter(aFrame, &nz);
+    aFrame->code++;
+    if (x*x + y*y + z*z < 1.0f) return;
+    g_provAimHit[0] = x; g_provAimHit[1] = y; g_provAimHit[2] = z;
+    g_provAimNormal[0] = nx; g_provAimNormal[1] = ny; g_provAimNormal[2] = nz;
+    ++g_provAimHitSeq;
+    g_provAimHitStampMs = GetTickCount64();
+}
+
 // THE WEAPON'S OWN RECOIL, HANDED TO THE HAND SPRING. Called on every draw by the weapon module, with
 // the value it reads off the equipped weapon BEFORE it zeroes the camera kick.
 //
@@ -733,6 +801,18 @@ void SetVRWeaponName(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*,
 void SetVRWeaponKick(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
     float k = 0.0f; RED4ext::GetParameter(aFrame, &k); aFrame->code++;
     CyberpunkVR_WeaponKickDeg = (k > 0.0f && k < 100.0f) ? k : 0.0f;
+}
+
+// WHICH KIND OF WEAPON IT IS, straight off the record's own itemType: 0 unknown, 1 handgun/revolver,
+// 2 rifle-ish, 3 shotgun, 4 sniper/precision rifle, 5 melee. The recoil splits the same impulse differently for each -- see the class
+// multipliers in src/Anim/Recoil.cpp.
+extern "C" __declspec(dllexport) extern int CyberpunkVR_WeaponClass;
+
+void SetVRWeaponClass(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {
+    int32_t c = 0;
+    RED4ext::GetParameter(aFrame, &c);
+    aFrame->code++;
+    CyberpunkVR_WeaponClass = (c >= 0 && c <= 5) ? c : 0;
 }
 
 // IS THE GAME SPRINTING -- published from its own SprintEvents wraps, because the blackboard does not

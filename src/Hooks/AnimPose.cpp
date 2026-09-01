@@ -41,6 +41,10 @@ extern "C" __declspec(dllexport) extern int CyberpunkVR_TwoHandActive;
 // Hand recoil (src/Anim/Recoil.cpp): advanced here, sampled per arm below.
 extern "C" void RecoilTick();
 extern "C" void RecoilSample(int side, int weaponHand, float* outBackM, float* outRiseRad);
+extern "C" void RecoilTravelMix(float* outBack, float* outDown);
+extern "C" void CarryLeftBlend(float* handRot);
+extern "C" void CarryReturnRight(float* target, float* hm, const float* wristR);
+extern "C" void CarryRecordLeft(const float* pos, const float* rot);
 #include <MinHook.h>
 
 // The [vrik*] log channel: Log lives in Core, the flag in OpenXRPresent.cpp. Declared here rather
@@ -242,6 +246,12 @@ if (g_VRRecordFK) {
                 // because the layers below nlerp onto whatever is here: a reload preview must fade in FROM
                 // the resting fingers, which is the difference between a base layer and an override.
                 cvr::anim::VrikRestFingerPose(boneBuf);
+                // ...and the right hand, which is empty exactly while the left one carries the weapon.
+                cvr::anim::VrikRestFingerPoseRight(boneBuf);
+                // ...and as that empty hand reaches back for the carried weapon, the grip it is about to
+                // take, faded in on top of the resting fingers. On top, because reaching for the gun is
+                // the more specific job -- the same order as the two-hand hold below.
+                cvr::anim::VrikCarryGripPoseRight(boneBuf);
 
                 // THE TWO-HAND GRIP'S FINGERS, on top of the resting hand and under the reload layer. The
                 // order is the priority: a hand resting does the least specific job, a hand on the weapon's
@@ -1382,11 +1392,25 @@ if (g_VRRecordFK) {
                                             hm[0]=kr[0]; hm[1]=kr[1]; hm[2]=kr[2]; hm[3]=kr[3];
                                         }
                                         if (backM != 0.0f) {
-                                            const float fwdL[3] = { 0.0f, 1.0f, 0.0f };
-                                            float fwd[3]; VRIK_QuatRotateVec(hm, fwdL, fwd);
-                                            target[0] -= fwd[0] * backM;
-                                            target[1] -= fwd[1] * backM;
-                                            target[2] -= fwd[2] * backM;
+                                            // BACK, IN THE BODY'S FRAME, AND HORIZONTAL. Along the
+                                            // hand's own axis this was back along whatever the wrist
+                                            // was tilted to, and what the eye then saw was the drop.
+                                            // A shot pushes the shooter toward his own shoulder, so
+                                            // the direction comes from the view and its vertical part
+                                            // is dropped outright: however the gun is canted or
+                                            // aimed, the hand slides straight back.
+                                            float bF = 1.0f, dF = 0.0f;
+                                            RecoilTravelMix(&bF, &dF);
+                                            const float vfL[3] = { 0.0f, 1.0f, 0.0f };
+                                            float vf[3]; VRIK_QuatRotateVec(rvM, vfL, vf);
+                                            const float vl = std::sqrt(vf[0]*vf[0] + vf[1]*vf[1]);
+                                            if (vl > 1e-5f) {
+                                                const float bx = -vf[0] / vl * bF * backM;
+                                                const float by = -vf[1] / vl * bF * backM;
+                                                target[0] += bx;
+                                                target[1] += by;
+                                            }
+                                            target[2] -= dF * backM;   // the dip, off by default
                                         }
                                     }
                                     {
@@ -1396,6 +1420,12 @@ if (g_VRRecordFK) {
                                         const float lCtrl[3] = { vpM[0] + lrp[0] + g_VROffLX,
                                                                  vpM[1] + lrp[1] + g_VROffLY,
                                                                  vpM[2] + lrp[2] + g_VROffLZ };
+                                        // THE WEAPON COMING BACK INTO THIS HAND, still where the
+                                        // left hand had it: the wrist starts at that pose and springs
+                                        // into its own, so the gun travels instead of teleporting.
+                                        // Before the hold below, so the support point follows the
+                                        // weapon while it settles rather than the hand it ends up in.
+                                        CarryReturnRight(target, hm, wristR);
                                         cvr::anim::TwoHandRight(target, hm, wristR, lCtrl);
                                     }
                                     VRIK_QuatMul(hm, wristR, handRot); VRIK_QuatNorm(handRot);
@@ -1827,6 +1857,13 @@ if (g_VRRecordFK) {
                                     // the support point the right hand computed a moment ago, in the same
                                     // frame. Only a held grip moves a wrist -- a preview never does.
                                     cvr::anim::TwoHandLeft(target, handRot);
+                                    // ...and when the weapon has just been handed to this hand, the
+                                    // welded twist is faded out rather than dropped: the gun is
+                                    // parented to this wrist, so a dropped weld teleports it.
+                                    CarryLeftBlend(handRot);
+                                    // ...and this wrist, as finally drawn, is what the weapon hangs on
+                                    // while it is carried -- the one thing the return needs from it.
+                                    CarryRecordLeft(target, handRot);
 
                                     // RECOIL, ADDED TO THE TARGET -- the only place it can survive.
                                     //
@@ -1849,11 +1886,25 @@ if (g_VRRecordFK) {
                                         // tears the hand off the grip for the length of the recoil.
                                         if (!CyberpunkVR_TwoHandActive) RecoilSample(0, 0, &backM, &riseRad);
                                         if (backM != 0.0f || riseRad != 0.0f) {
-                                            const float fwdL[3] = { 0.0f, 1.0f, 0.0f };
-                                            float fwd[3]; VRIK_QuatRotateVec(hm, fwdL, fwd);
-                                            target[0] -= fwd[0] * backM;
-                                            target[1] -= fwd[1] * backM;
-                                            target[2] -= fwd[2] * backM;
+                                            // BACK, IN THE BODY'S FRAME, AND HORIZONTAL. Along the
+                                            // hand's own axis this was back along whatever the wrist
+                                            // was tilted to, and what the eye then saw was the drop.
+                                            // A shot pushes the shooter toward his own shoulder, so
+                                            // the direction comes from the view and its vertical part
+                                            // is dropped outright: however the gun is canted or
+                                            // aimed, the hand slides straight back.
+                                            float bF = 1.0f, dF = 0.0f;
+                                            RecoilTravelMix(&bF, &dF);
+                                            const float vfL[3] = { 0.0f, 1.0f, 0.0f };
+                                            float vf[3]; VRIK_QuatRotateVec(rvM, vfL, vf);
+                                            const float vl = std::sqrt(vf[0]*vf[0] + vf[1]*vf[1]);
+                                            if (vl > 1e-5f) {
+                                                const float bx = -vf[0] / vl * bF * backM;
+                                                const float by = -vf[1] / vl * bF * backM;
+                                                target[0] += bx;
+                                                target[1] += by;
+                                            }
+                                            target[2] -= dF * backM;   // the dip, off by default
                                             const float rightL[3] = { 1.0f, 0.0f, 0.0f };
                                             float ax[3]; VRIK_QuatRotateVec(hm, rightL, ax);
                                             const float h2 = riseRad * 0.5f;

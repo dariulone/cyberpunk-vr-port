@@ -21,6 +21,9 @@ namespace anim {
 void TwoHandCapture(uint8_t* boneBuf);
 void TwoHandRight(const float* targetR, float* hm, const float* wristR, const float* leftCtrlModel);
 bool TwoHandLeft(float* target, float* handRot);
+// Selects the hold for the weapon currently in hand -- needed by the carry offset getter, which runs
+// outside the pose pass.
+void SelectHoldForCarry();
 void TwoHandFingers(uint8_t* boneBuf);
 // Disk half, called from the frame loop: never from the pose path.
 void TwoHandTick();

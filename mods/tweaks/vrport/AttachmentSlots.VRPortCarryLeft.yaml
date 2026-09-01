@@ -1,0 +1,29 @@
+# THE SLOT THE WEAPON HANGS IN WHILE THE LEFT HAND CARRIES IT.
+#
+# Handing a rifle to the left hand is a real attachment move -- AttachmentSlots.WeaponRight -> this
+# slot -- so the weapon is parented to the left hand and the right one is genuinely free. Measured
+# live: a left-hand slot DOES accept a firearm (the earlier "add=true but the slot reads empty" was the
+# slot map answering one frame late, not a refusal), and the item has to be added on
+# ERenderingPlane.RPl_Weapon = 2 or it is attached to the scene plane and reads as transparent in
+# first person.
+#
+# WHY A RECORD OF OUR OWN RATHER THAN AttachmentSlots.WeaponLeft ITSELF: VRCigarette rides that slot
+# for the cigarette and the lighter, and the offset below is written AT RUNTIME. Retuning the stock
+# record would move those with it.
+#
+# THE OFFSET IS ZERO HERE ON PURPOSE, and that is the whole design rather than a placeholder. The
+# weapon has to stay where the player was holding it -- "держать пушку на том же месте где держал ее
+# на правом" -- and that distance is different for every weapon: a rifle's handguard sits 30-40 cm
+# ahead of its grip, a pistol's support hand 7 cm. A number written here would therefore be right for
+# exactly one gun.
+#
+# So the weapon module measures it instead: it records the weapon's world position on the frame the
+# hand-over starts, reads where the attachment actually put it, rotates the difference into the slot's
+# frame and writes it back into this record with TweakDB:SetFlat, repeating until the weapon is within
+# a centimetre of where it began. The converged value is kept per weapon for the rest of the session,
+# so only the first hand-over of a given gun settles visibly.
+
+AttachmentSlots.VRPortCarryLeft:
+  $base: AttachmentSlots.WeaponLeft
+  entitySlotName: WeaponLeft
+  customOffset: {x: 0, y: 0, z: 0}

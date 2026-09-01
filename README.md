@@ -42,6 +42,30 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   second view used to rebuild from its own frustum — which is where blinking
   shadows, dead flags, jittering vegetation and a mirror-finish ceiling came
   from. All four are lent from one view now.
+- **The second view builds its own frame, rather than being handed MAIN's bytes.**
+  It keeps its own depth range (borrowing MAIN's near emptied the clustered light
+  grid and put every lamp out indoors), the engine's own environment-override pass
+  is *run* for it instead of copied — which is what brings the scanner's green tint
+  back — and its composition is lent so the pass that draws the scanner outline
+  executes for it at all. The finished frame is then taken at the node epilogue,
+  from the engine's own acquire barrier, instead of mid-chain.
+- **Every view is identified by name, never by elimination.** The port used to call
+  anything that was not the second eye "MAIN" — including the flat desktop window
+  and every reflection-probe face — and that one habit produced a white second eye,
+  a hang on ESC in a braindance, and a braindance with no colour grade. Views are
+  matched by their virtual-camera name hash now; one that cannot be named is passed
+  through untouched.
+- **Braindances are stereo.** A braindance renders through a camera no component
+  points at, so the two eyes used to be built from different bases, at different
+  rates, and the frame was submitted against a pose its pixels were never drawn
+  from. One base, one head sample and one pose label serve both eyes, and the eye
+  separation goes where the picture is actually rendered from.
+- **Cameras you take over are yours.** A surveillance camera or the AV turret keeps
+  its own aim as the base and the head composes on top, at the headset's own fov,
+  with both eyes on the lens rather than one on the player's body. The turret's
+  camera never reaches the hook the port classifies cameras at, so it is identified
+  through the entity the script names and driven through the located buffer; there
+  is a viewpoint slider for the mission that needs one.
 - **Full-body VR avatar** (VRIK) — body under the HMD, arm-length calibration,
   leg IK, real-life squat. Hands are with the controllers, the shoulder girdle
   and elbows hang off the BODY rather than the head, and the solve is clocked by
@@ -102,6 +126,16 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   own HUD into the SECOND eye. The port's own HUDitor setup -- the editor moved
   to **F11**, plus a VR-tuned layout for all 26 widgets -- is saved in
   `mods\config\huditor\`, opt-in rather than installed for you.
+- **The game's own bindings work in menus.** Every controller remap this port makes
+  is for gameplay, so a menu or a braindance now gets the raw pad — nothing of ours
+  eats a button the menu needs. And B closes the phone, the radio port and the
+  vehicle list even with a weapon in hand, without dropping your magazine: the
+  physical reload's own button is held back for a moment after the popup goes.
+- **The UI is fitted to the square VR view.** The phone, the vehicle summon panel,
+  the radio, the subtitles, the dialogue choice list, the tutorial and welcome
+  popups and the loot window are centred and scaled where a 16:9 layout would put
+  them at the edge of vision or off it. The loot window's detailed description used
+  to hang off the right edge; it sits above the take button now.
 - **The cascade shadow rows are hidden** from *Graphics → Advanced*. The atlas is
   shared between the two views, so raising them gives you artefacts the port
   cannot fix from its side.
@@ -190,6 +224,7 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | A | Jump (double jump and charge jump unchanged) |
 | B, **weapon in hand** | **Drop the magazine** (physical reload) — not dodge |
 | B, **holstered** | The game's own B again — close the phone, back out |
+| B, **phone / radio / vehicle list open** | Closes it, weapon in hand or not — and cannot drop a magazine for a second afterwards |
 | X / Y | Reload·interact / Weapon switch |
 | Left menu button | Pause menu |
 | Swing a melee weapon | VR motion melee (native attack along the blade) |
@@ -204,8 +239,14 @@ scanner exists to avoid.
 
 B is the port's only while a weapon is actually in your hand, because a magazine
 drop is the only thing the port needs it for. Holstered, it reaches the game — so
-the phone and the radial close normally. *Known limit: with a weapon drawn, B
-cannot close the phone.*
+the phone and the radial close normally. And while the phone, the radio port or the
+vehicle list is up it reaches the game as well, weapon or no weapon: those three are
+overlays rather than menus, which is why they used to be impossible to close with a
+gun out. Spamming that button is safe — the magazine drop stays blocked for a second
+after the popup closes.
+
+In **menus** and in **braindances** the pad is vanilla: none of the remaps below
+apply there, including the grips-as-shoulders that used to page menu tabs.
 
 While **driving**, the same controllers do something else:
 
@@ -284,7 +325,7 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 |---|---|---|
 | `CyberpunkVR_Stereo.dll` | RED4ext plugin | OpenXR head tracking, the second engine view, HUD composite, sight shaders, F10 overlay, XInput merge |
 | `CyberpunkVR_Stereo.dll` | (same plugin) | Full-body avatar / hand IK, hand recoil, weapon-aim and muzzle override, smoking and reload poses, shared-memory bridge -- was `CyberpunkVR_Hands.dll` until the single-plugin build |
-| `cyberpunkvrport.archive` | archive | The magazine/prop carriers on the player templates, the weapon assets the reload drives, the case-ejection effects, and the 62 VRCAM camera components |
+| `cyberpunkvrport.archive` | archive | The magazine/prop carriers on the player templates (Johnny's replacer body included), the weapon assets the reload drives, the case-ejection effects, the 62 VRCAM camera components, and the UI layouts fitted to the square view — phone, vehicle panel, radio, subtitles, dialogue choices, tutorial popups |
 | `CyberpunkVRPort_Stereo` | CET | Enables the VRCAM component the launcher picked |
 | `CyberpunkVRPort_VRIK` | CET | Starts hand tracking, bridges calibration, publishes the locomotion state |
 | `CyberpunkVRPort_Weapon` | CET | Decoupled weapon aim + VR motion-melee detection |
@@ -299,6 +340,8 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 | `CyberpunkVRPort_Melee` | reds | Native melee along the blade segment |
 | `CyberpunkVRPort_WeaponUp` | reds | Stops auto-lower / auto-unequip of a drawn MELEE weapon |
 | `CyberpunkVRPort_NoAnims` | reds | Disables VR-fighting animations (keeps gameplay systems); also carries no-auto-reload and the firearm half of no-auto-lower |
+| `CyberpunkVRPort_LootUi` | reds | The loot window for the square view — the plate at 0.70 and the detailed description centred above the take button instead of off the right edge |
+| `CyberpunkVRPort_BraindanceHud` | CET | The braindance notification plate, whose slot is declared in a HUD asset the port does not ship |
 | `CyberpunkVRPort_SettingsGuard` | reds | Removes the two cascade shadow rows from the settings menu |
 
 ## Logs

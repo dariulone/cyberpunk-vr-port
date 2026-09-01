@@ -1,0 +1,42 @@
+# WHY A TWEAKDB RECORD FOR A VISUAL EFFECT.
+#
+# The port's laser dot is a game effect (base\gameplay\game_effects\vrport_laser.es) and the only way
+# to create one by name is
+#
+#     EffectSystem.CreateEffectStatic(effectName: CName, effectTag: CName, instigator, weapon)
+#
+# which resolves against a REGISTRY, not against the file system. Measured live, with the game running,
+# by asking the effect system itself:
+#
+#     HasEffect(targetting,     laserSight)                    true    <- Attacks.BaseLaserSight
+#     HasEffect(targetting,     laserSightTech)                true    <- Attacks.TechLaserSight
+#     HasEffect(beams,          plasmaBeam)                    true    <- an attack record
+#     HasEffect(beams,          bombusFlameBeam)               true    <- an attack record
+#     HasEffect(sensor_device,  laser)                         FALSE   <- the security turret's laser
+#     HasEffect(weapon_preview, vehicle_power_weapon_preview)  FALSE   <- the mounted turret's laser
+#     HasEffect(weapon_shoot_effect, shoot)                    FALSE
+#
+# Every pair that answers true is named by an Attack_GameEffect record's effectName/effectTag; every
+# pair that answers false belongs to an effect set the game reaches through a gameEffectRef stored in a
+# component or a device, never by name. The turret's laser is not creatable by name FOR THAT REASON --
+# not because there is anything wrong with the effect. So the port declares its own record, and the
+# registry then carries its pair.
+#
+# The record is never used AS AN ATTACK. Nothing equips it, nothing fires it, and it deals no damage:
+# the effect it points at has an empty executor list and its raycast filter carries isPreview = 1, so
+# the ray finds a target and applies nothing to it. The record exists to make one CName pair resolvable.
+#
+# effectName is a name, not a path, and the engine maps it by indexing base\gameplay\game_effects --
+# hence vrport_laser.es sits in exactly that folder, beside targetting.es, rather than under
+# base\vrport\ where the port keeps its other assets.
+
+Attacks.VRPortLaser:
+  # Inherit the game's own laser sight so every field this record type needs is present and sane --
+  # attackType Direct, useDefaultAimData false, no damage type, no status effects, no stat modifiers
+  # that matter. Only the two names and the reach are ours.
+  $base: Attacks.BaseLaserSight
+  effectName: vrport_laser
+  effectTag: laser
+  # 200 m, the same reach the game gives its own laser sight. The ray stops at the first thing it hits,
+  # so this is a ceiling for the miss case (open sky), not a working distance.
+  range: 200.0

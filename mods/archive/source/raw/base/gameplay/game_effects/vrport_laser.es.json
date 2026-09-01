@@ -1,0 +1,454 @@
+{
+  "Header": {
+    "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+    "WKitJsonVersion": "0.0.9",
+    "GameVersion": 2310,
+    "ExportedDateTime": "2026-08-25T14:06:24.1787893Z",
+    "DataType": "CR2W",
+    "ArchiveFileName": "C:\\Users\\dariulone\\AppData\\Local\\Temp\\wkmcp-read\\83ec1d1b2a6b0f0b\\raw\\base\\gameplay\\game_effects\\targetting.es"
+  },
+  "Data": {
+    "Version": 195,
+    "BuildVersion": 0,
+    "RootChunk": {
+      "$type": "gameEffectSet",
+      "cookingPlatform": "PLATFORM_PC",
+      "effects": [
+        {
+          "$type": "gameEffectDefinition",
+          "debugSettings": {
+            "$type": "gameEffectDebugSettings",
+            "color": {
+              "$type": "Color",
+              "Alpha": 0,
+              "Blue": 0,
+              "Green": 0,
+              "Red": 0
+            },
+            "duration": 1,
+            "overrideGlobalSettings": 0
+          },
+          "durationModifiers": [
+            {
+              "HandleId": "3",
+              "Data": {
+                "$type": "gameEffectDuration_Infinite"
+              }
+            }
+          ],
+          "effectExecutors": [],
+          "noTargetsActions": [
+            {
+              "HandleId": "4",
+              "Data": {
+                "$type": "gameEffectAction_KillFX",
+                "action": "BreakLoop",
+                "effectTag": {
+                  "$type": "CName",
+                  "$storage": "string",
+                  "$value": "hit_point"
+                }
+              }
+            }
+          ],
+          "objectFilters": [
+            {
+              "HandleId": "5",
+              "Data": {
+                "$type": "gameEffectObjectFilter_HitRepresentation_Raycast",
+                "fillNearlyHitData": 0,
+                "isPreview": 1
+              }
+            },
+            {
+              "HandleId": "6",
+              "Data": {
+                "$type": "gameEffectObjectFilter_NoInstigator"
+              }
+            },
+            {
+              "HandleId": "7",
+              "Data": {
+                "$type": "gameEffectObjectFilter_OnlyNearest",
+                "count": 1
+              }
+            }
+          ],
+          "objectProviders": [
+            {
+              "HandleId": "8",
+              "Data": {
+                "$type": "gameEffectObjectProvider_PhysicalRay",
+                "filterData": {
+                  "HandleId": "9",
+                  "Data": {
+                    "$type": "physicsFilterData",
+                    "customFilterData": {
+                      "HandleId": "10",
+                      "Data": {
+                        "$type": "physicsCustomFilterData",
+                        "collideWith": [
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Player"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "AI"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Static"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Dynamic"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Vehicle"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Debris"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Cloth"
+                          }
+                        ],
+                        "collisionType": [
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Player"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "AI"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Static"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Dynamic"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Vehicle"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Debris"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Cloth"
+                          }
+                        ],
+                        "queryDetect": [
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Player"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "AI"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Static"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Dynamic"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Vehicle"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Destructible"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Terrain"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Collider"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Particle"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Ragdoll"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Ragdoll Inner"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Debris"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Visibility"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Audible"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Interaction"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Shooting"
+                          },
+                          {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "Water"
+                          }
+                        ]
+                      }
+                    },
+                    "preset": {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Custom"
+                    },
+                    "queryFilter": {
+                      "$type": "physicsQueryFilter",
+                      "mask1": "0",
+                      "mask2": "16261087"
+                    },
+                    "simulationFilter": {
+                      "$type": "physicsSimulationFilter",
+                      "mask1": "12319",
+                      "mask2": "12319"
+                    }
+                  }
+                },
+                "inputForward": {
+                  "$type": "gameEffectInputParameter_Vector",
+                  "evaluator": {
+                    "HandleId": "11",
+                    "Data": {
+                      "$type": "gameEffectParameter_VectorEvaluator_Blackboard",
+                      "blackboardProperty": {
+                        "$type": "gameBlackboardPropertyBindingDefinition",
+                        "propertyPath": [],
+                        "propertyType": {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Vector4"
+                        },
+                        "serializableID": {
+                          "$type": "gameBlackboardSerializableID",
+                          "blackboardName": {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "EffectData"
+                          },
+                          "fieldName": {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "forward"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "inputPosition": {
+                  "$type": "gameEffectInputParameter_Vector",
+                  "evaluator": {
+                    "HandleId": "12",
+                    "Data": {
+                      "$type": "gameEffectParameter_VectorEvaluator_Blackboard",
+                      "blackboardProperty": {
+                        "$type": "gameBlackboardPropertyBindingDefinition",
+                        "propertyPath": [],
+                        "propertyType": {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Vector4"
+                        },
+                        "serializableID": {
+                          "$type": "gameBlackboardSerializableID",
+                          "blackboardName": {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "EffectData"
+                          },
+                          "fieldName": {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "position"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "inputRange": {
+                  "$type": "gameEffectInputParameter_Float",
+                  "evaluator": {
+                    "HandleId": "13",
+                    "Data": {
+                      "$type": "gameEffectParameter_FloatEvaluator_Blackboard",
+                      "blackboardProperty": {
+                        "$type": "gameBlackboardPropertyBindingDefinition",
+                        "propertyPath": [],
+                        "propertyType": {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Float"
+                        },
+                        "serializableID": {
+                          "$type": "gameBlackboardSerializableID",
+                          "blackboardName": {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "EffectData"
+                          },
+                          "fieldName": {
+                            "$type": "CName",
+                            "$storage": "string",
+                            "$value": "range"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "outputRaycastEnd": {
+                  "$type": "gameEffectOutputParameter_Vector",
+                  "blackboardProperty": {
+                    "$type": "gameBlackboardPropertyBindingDefinition",
+                    "propertyPath": [],
+                    "propertyType": {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Vector4"
+                    },
+                    "serializableID": {
+                      "$type": "gameBlackboardSerializableID",
+                      "blackboardName": {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "EffectData"
+                      },
+                      "fieldName": {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "raycastEnd"
+                      }
+                    }
+                  }
+                },
+                "queryPreset": {
+                  "$type": "physicsQueryPreset",
+                  "presetName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "None"
+                  }
+                }
+              }
+            }
+          ],
+          "postActions": [
+            {
+              "HandleId": "14",
+              "Data": {
+                "$type": "gameEffectPostAction_BeamVFX_Custom",
+                "attached": 1,
+                "breakLoopOnDetach": 1,
+                "effect": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\fx\\devices\\security_systems\\secutity_turret\\d_turret_laser.effect"
+                  },
+                  "Flags": "Soft"
+                },
+                "effectTag": {
+                  "$type": "CName",
+                  "$storage": "string",
+                  "$value": "laser"
+                },
+                "invert": 0,
+                "maxRange": -1,
+                "maxRangeTPP": -1
+              }
+            }
+          ],
+          "preActions": [
+            {
+              "HandleId": "15",
+              "Data": {
+                "$type": "EffectPreAction_PreAttack",
+                "withFriendlyFire": 0,
+                "withSelfDamage": 0
+              }
+            }
+          ],
+          "settings": {
+            "$type": "gameEffectSettings",
+            "advancedTargetHandling": 0,
+            "forceSynchronousProcessing": 0,
+            "synchronousProcessingForPlayer": 0,
+            "tempExecuteOnlyOnce": 0,
+            "tickRate": 0,
+            "useSimTimeForTick": 0
+          },
+          "tag": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "laser"
+          }
+        }
+      ]
+    },
+    "EmbeddedFiles": []
+  }
+}

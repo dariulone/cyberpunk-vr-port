@@ -15,6 +15,10 @@
 #include <psapi.h>
 #include <xinput.h>
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
+#include "Camera/CameraState.hpp"   // PatchFastPath, PatchFastDisarm
+// The per-camera recognition counters, read by the fast-path recovery below.
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugPatchCamMain;
+extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugPatchCamVrcam;
 #include <cstdint>
 #include <cstddef>
 #include <cstdio>
@@ -136,6 +140,31 @@ DWORD WINAPI WorkerThread(LPVOID) {
 
     for (;;) {
         PollLiveControls();
+        // THE FAST PATH'S RECOVERY, and it costs nothing while nothing is wrong.
+        //
+        // The trampoline filter can only compare pointers, so the one failure it cannot notice is a
+        // camera object that was DESTROYED and recreated: the latched address is never seen again,
+        // every component is rejected, and the camera would stay frozen for the session. The
+        // classifier's own latch-drop covers a camera that is still passing the site and no longer
+        // qualifies; it cannot cover one that stops passing at all.
+        //
+        // A blind disarm every tick would fix that and cost a full classifier pass each time --
+        // ~180 slow calls per 200 ms, about 900/s, which is most of what the fast path just saved.
+        // So disarm on the SIGNAL instead: each camera's own recognition counter advances once per
+        // rendered frame, and a tick in which one of them did not advance at all is exactly the
+        // state that needs a re-identification. In the healthy case both advance and nothing is
+        // written; when the site is idle (paused, loading, no camera yet) the disarm is free
+        // because there are no calls to be slow.
+        {
+            static uint64_t prevCamMain = 0, prevCamVrcam = 0;
+            static bool     prevCamValid = false;
+            const uint64_t m = CyberpunkVR_DebugPatchCamMain;
+            const uint64_t v = CyberpunkVR_DebugPatchCamVrcam;
+            if (prevCamValid && (m == prevCamMain || v == prevCamVrcam)) PatchFastDisarm();
+            prevCamMain = m;
+            prevCamVrcam = v;
+            prevCamValid = true;
+        }
         PollHotkeys();
         ApplyKnownResolutionOverrides();
         // The resting left-hand pose's DISK half: writes the frame the pose path captured, and loads it
@@ -143,6 +172,7 @@ DWORD WINAPI WorkerThread(LPVOID) {
         // the pose path because that runs inside the game's own pose apply, several times a tick, and a
         // file open there is an unbounded wait in the middle of the animation.
         cvr::anim::RestFingerTick();
+        cvr::anim::RestFingerRightTick();
         cvr::anim::TwoHandTick();
 
         if ((loopCounter++ % 10) != 0) {

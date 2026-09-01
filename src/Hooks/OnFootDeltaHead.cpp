@@ -19,6 +19,7 @@
 
 // The follow loop and the realign accumulator (src/Hooks/BodyYawFollow.cpp).
 extern "C" float BodyYawFollowStep();
+extern "C" void  BodyYawFollowRelease();
 extern "C" double RecoilLastShotMs();
 // Peak |heading delta| seen within 150 ms of a shot, degrees. Non-zero means the game kicks the
 // camera through THIS channel, which is also the channel the body follower writes -- and then the
@@ -35,7 +36,13 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
         g_telemetry->deltaHeadRcx = reinterpret_cast<uintptr_t>(deltaHead);
     }
     if (!deltaHead) return;
-    if(g_isInVehicle) return;
+    if (g_isInVehicle) {
+        // MOUNTED: the follower issues nothing, so the realign it accumulated on foot must not be
+        // left standing -- PatchCamera subtracts it from the CAR's heading and the drive ends up
+        // that many degrees off the road. See BodyYawFollowRelease.
+        BodyYawFollowRelease();
+        return;
+    }
 
     // Physical body rotation (F10 -> VRIK). OFF (default): no continuous body-yaw
     // tracking from the HMD -- only the discrete snap-turn is applied (classic heading).
@@ -106,6 +113,9 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
     // bodyRot OFF (default) -> classic snap-turn only: the heading never tracks the
     // head; the camera composes heading * FULL HMD, so a head turn moves ONLY the view.
     if (!bodyRot) {
+        // And release the accumulator: the guard inside BodyYawFollowStep cannot, because this
+        // return is upstream of the only call to it.
+        BodyYawFollowRelease();
         deltaHead[idx] += snap;
         return;
     }

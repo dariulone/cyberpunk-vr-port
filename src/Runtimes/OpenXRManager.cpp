@@ -1547,6 +1547,38 @@ extern "C" __declspec(dllexport) extern float CyberpunkVR_HandLerpSpeed;
 // smoothing is lag between the player's hands and the car's wheel, and the drawn hand is the driving
 // animation's at that moment anyway. Exported so it can be tuned live without a rebuild.
 extern "C" __declspec(dllexport) float CyberpunkVR_WheelHandLerpSpeed = 150.0f;
+
+// THE FILTER'S SPEED FOLLOWS WHAT IS IN THE HAND, and that is the honest axis for it: the filter trades
+// tracking noise against lag, and which of the two hurts depends on what the hand is doing. A blade is
+// swung and any lag reads as the weapon trailing the arm; a sniper is held still and aimed, where the
+// noise is what shows and the lag costs nothing. The user's numbers.
+//
+// 0 in any of these means "use the base" (xr_hand_lerp_speed), which is also what empty hands and an
+// unnamed weapon get. Class 5 is melee, 4 sniper, 3 shotgun, 2 rifle, 1 handgun/revolver -- published
+// per draw by the weapon module out of the record's own itemType.
+extern "C" __declspec(dllexport) float CyberpunkVR_HandLerpPistol  = 25.0f;
+extern "C" __declspec(dllexport) float CyberpunkVR_HandLerpRifle   = 25.0f;
+extern "C" __declspec(dllexport) float CyberpunkVR_HandLerpShotgun = 20.0f;   // the other long gun
+extern "C" __declspec(dllexport) float CyberpunkVR_HandLerpSniper  = 10.0f;
+extern "C" __declspec(dllexport) float CyberpunkVR_HandLerpMelee   = 40.0f;
+extern "C" __declspec(dllexport) extern int CyberpunkVR_WeaponClass;
+// The port's own "a weapon is out" flag (src/Core/VrCoreShared.hpp), so empty hands can keep the base.
+extern bool g_hasWeaponEquipped;
+
+static float EffectiveHandLerpSpeed() {
+    const float base = CyberpunkVR_HandLerpSpeed;
+    if (!g_hasWeaponEquipped) return base;          // empty hands: the base, as asked
+    float v = 0.0f;
+    switch (CyberpunkVR_WeaponClass) {
+        case 1: v = CyberpunkVR_HandLerpPistol;  break;
+        case 2: v = CyberpunkVR_HandLerpRifle;   break;
+        case 3: v = CyberpunkVR_HandLerpShotgun; break;
+        case 4: v = CyberpunkVR_HandLerpSniper;  break;
+        case 5: v = CyberpunkVR_HandLerpMelee;   break;
+        default: v = 0.0f;                           // class 0: the record did not say -- the base
+    }
+    return (v > 0.001f) ? v : base;
+}
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugHandPerFrameLocates;
 
 // ---- THE HAND FILTER, IN UEVR'S FORM ------------------------------------------------------------
@@ -1694,7 +1726,7 @@ void OpenXRManager::FlushHandsToShared() {
                              ? static_cast<float>(static_cast<double>(nowUs - s_lastUs) * 1e-6)
                              : 0.0f;
         s_lastUs = nowUs;
-        const float speed = CyberpunkVR_HandLerpSpeed;
+        const float speed = EffectiveHandLerpSpeed();
         const float lerpSpeed = speed * dt;   // the default; each hand may override it below
         (void)lerpSpeed;
         for (int h = 0; h < 2; ++h) {

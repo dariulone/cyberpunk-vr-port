@@ -173,6 +173,40 @@ func VRPortScanMateAt(pp: ref<PlayerPuppet>, idx: Int32) -> ref<inkWidget> {
   return null;
 }
 
+// HALF SIZE IN A BRAINDANCE, AND NOWHERE ELSE.
+//
+// A braindance is played on a 3072x3072 square view with the whole HUD pulled toward the centre, and at
+// authored size the scanner covers it. Asked for as braindance-only, so it cannot go in the asset: a
+// scale written into scanner_hud or quickhacks would shrink the scanner in ordinary play too.
+//
+// IT BELONGS HERE rather than in a mod of its own, and the reason is TIMING. A separate hook on
+// scannerGameController.OnInitialize was written first, compiled clean, and did nothing: that fires when
+// the HUD is BUILT -- once, at load, long before any braindance -- so the factor was computed as 1 and
+// never recomputed. This file already re-applies on OnScannerHudSpawned and on the reapply event, which
+// is per scanner open, and that is the moment the state has to be read.
+//
+// A MULTIPLIER on the slot scale, not a replacement: whatever a slot carries keeps working, and outside
+// a braindance the product is unchanged, so the "1.00 means DO NOT TOUCH IT" rule below still holds and
+// the asset's own halving of the quickhack panel is not overwritten.
+// ASK THE GAME, DO NOT INFER FROM A CONTROLLER'S LIFETIME.
+//
+// The first version kept a flag raised by BraindanceGameController.OnInitialize. That is wrong, and it
+// showed: BraindanceGameController is a HUD game controller, so it is built with the rest of the HUD and
+// initialises on every load, braindance or not -- the flag was true always, and the companion CET mod,
+// armed by the same hook, spent its whole budget walking the ink tree after each save load. Reported as
+// "какие-то фризы где-то секунд 5-10 после загрузки в сейв".
+//
+// BraindanceSystem answers the actual question, and the port's own ForceFPP mod already reads it exactly
+// this way. It is a scriptable system lookup on a path that runs once per scanner open, not per frame.
+func VRPortScannerBdFactor() -> Float {
+  let sys: ref<BraindanceSystem> =
+    GameInstance.GetScriptableSystemsContainer(GetGameInstance()).Get(n"BraindanceSystem") as BraindanceSystem;
+  if IsDefined(sys) && sys.GetIsInBraindance() {
+    return 0.5;
+  };
+  return 1.0;
+}
+
 func VRPortScannerApply(idx: Int32, root: ref<inkWidget>) -> Void {
   let scale: Float;
   if !IsDefined(root) {
@@ -184,6 +218,7 @@ func VRPortScannerApply(idx: Int32, root: ref<inkWidget>) -> Void {
   if scale <= 0.01 {
     scale = 1.00;
   };
+  scale = scale * VRPortScannerBdFactor();
   // Pivot set explicitly, so the scale is about the piece's own middle rather than about whatever its
   // resource happened to declare. Otherwise shrinking also walks the piece across the screen and the
   // two knobs fight each other.

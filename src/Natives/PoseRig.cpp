@@ -1057,6 +1057,63 @@ void VRRestFingerCapture(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, in
     if (aOut) *aOut = 1;
 }
 
+// The plugin's own grip-to-grip reach while the weapon is carried, metres; -1 when it is not. The take
+// gate reads this so the button and the finger preview cannot disagree about "near the weapon".
+//
+// There is no capture command beside it any more: the right hand's grip pose is learned from the hand
+// itself every pass it holds a weapon (see VrikCarryGripPoseRight), because asking the player to record
+// a pose per weapon for fifty weapons is not a feature.
+extern "C" __declspec(dllexport) extern float CyberpunkVR_DebugCarryReach;
+extern "C" __declspec(dllexport) extern float CyberpunkVR_CarryGripRadius;
+void GetVRCarryReach(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void* aOut, int64_t) {
+    aFrame->code++;
+    if (aOut) *static_cast<float*>(aOut) = CyberpunkVR_DebugCarryReach;
+}
+
+// THE SAME QUESTION, ANSWERED WHERE THE RADIUS LIVES. The take gate used to hold its own copy of the
+// radius, which is one number in two places and a preview that promises a take the button will not
+// perform as soon as the two drift apart. -1 means the plugin has nothing to say (no carry running),
+// and the caller may fall back to its own measurement.
+void GetVRCarryNear(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    if (!aOut) return;
+    const float d = CyberpunkVR_DebugCarryReach;
+    *aOut = (d < 0.0f) ? -1 : ((d <= CyberpunkVR_CarryGripRadius) ? 1 : 0);
+}
+
+// ---- THE RESTING RIGHT HAND, same three commands ----
+//
+// Needed only since the weapon can be carried in the left hand: that is the one case where this hand is
+// empty while the game still poses it around a grip. Capture with EMPTY hands, as on the left.
+//     1  captured        0  not yet
+//    <0  refused: -1 weapon in hand, -4 the cigarette owns these fingers
+extern "C" __declspec(dllexport) extern int CyberpunkVR_RestFingerCaptureReqR;
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestFingerHaveR;
+extern "C" __declspec(dllexport) extern int CyberpunkVR_DebugRestFingerRefusedR;
+extern "C" __declspec(dllexport) extern int CyberpunkVR_RestFingerApplyR;
+
+void VRRestFingerCaptureRight(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    CyberpunkVR_DebugRestFingerRefusedR = 0;
+    CyberpunkVR_RestFingerCaptureReqR = 1;
+    if (aOut) *aOut = 1;
+}
+
+void VRRestFingerStatusRight(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    aFrame->code++;
+    if (!aOut) return;
+    if (CyberpunkVR_DebugRestFingerRefusedR) { *aOut = -CyberpunkVR_DebugRestFingerRefusedR; return; }
+    *aOut = CyberpunkVR_DebugRestFingerHaveR ? 1 : 0;
+}
+
+void VRRestFingerApplyRight(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    int32_t on = 1;
+    RED4ext::GetParameter(aFrame, &on);
+    aFrame->code++;
+    CyberpunkVR_RestFingerApplyR = on ? 1 : 0;
+    if (aOut) *aOut = CyberpunkVR_RestFingerApplyR;
+}
+
 void VRRestFingerStatus(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
     aFrame->code++;
     if (!aOut) return;

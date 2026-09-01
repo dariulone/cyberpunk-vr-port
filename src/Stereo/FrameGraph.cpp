@@ -18,6 +18,7 @@
 // settled before any of the above means anything. Forcing ctx+0x44/0x48 to a different W/H is the note
 // inside the moved block -- it records what that does and does not achieve.
 
+#include "Camera/CameraState.hpp"   // the second eye's pose + the RTT dirty flag
 #include "Overlay/ImGuiOverlay.hpp"   // OverlayArmLoadGuard
 #include "Stereo/SyncStereo.hpp"
 #include "Utils/StereoLog.hpp"
@@ -52,6 +53,25 @@ namespace detail {
 
 static void maybe_resize_rtt(uintptr_t comp);   // defined after g_main_ctx
 
+thread_local bool t_rtt_prepare_ours = false;
+
+// The original, called with the scope flag raised when this preparer call is for OUR view. Every
+// return path of the detour below goes through here, so the flag cannot leak past the call.
+// Identified by the camera-name hash at a1+0x260 and by nothing else, which is this project's
+// only accepted way to say which view an object belongs to.
+static __int64 rtt_call_orig(__int64 a1, __int64 a2) {
+    bool ours = false;
+    __try {
+        ours = a1 && *reinterpret_cast<uint64_t*>(a1 + 0x260) ==
+                         g_vrcam_ctx_key.load(std::memory_order_relaxed);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { ours = false; }
+    const bool prev = t_rtt_prepare_ours;
+    t_rtt_prepare_ours = ours;
+    const __int64 r = g_orig_rtt_viewcreate(a1, a2);
+    t_rtt_prepare_ours = prev;
+    return r;
+}
+
 static __int64 __fastcall Detour_RTTViewCreate(__int64 a1, __int64 a2) {
     if (a1) {
         __try {
@@ -73,7 +93,7 @@ static __int64 __fastcall Detour_RTTViewCreate(__int64 a1, __int64 a2) {
                 if (cached && static_cast<uintptr_t>(a1) != cached) {
                     if (!dims_match) {
                         ++CyberpunkVR_DebugRttCompRejects;
-                        return g_orig_rtt_viewcreate(a1, a2);
+                        return rtt_call_orig(a1, a2);
                     }
                     // Same selected resolution, different object: the component was destroyed
                     // and re-created (resolution switch / entity respawn). Re-bind, or every
@@ -88,7 +108,7 @@ static __int64 __fastcall Detour_RTTViewCreate(__int64 a1, __int64 a2) {
                         if ((CyberpunkVR_DebugRttCompRejects++ % 600) == 0)
                             log("[rtt] ignoring component %p %ux%u (selected %ux%u)",
                                 reinterpret_cast<void*>(a1), w, h, sel_w, sel_h);
-                        return g_orig_rtt_viewcreate(a1, a2);
+                        return rtt_call_orig(a1, a2);
                     }
                     g_vrcam_comp.store(static_cast<uintptr_t>(a1), std::memory_order_release);
                     // Capture the AUTHORED fov before anything of ours writes to it -- the
@@ -99,6 +119,49 @@ static __int64 __fastcall Detour_RTTViewCreate(__int64 a1, __int64 a2) {
                         reinterpret_cast<void*>(a1), w, h, g_vrcam_base_fov);
                 }
                 CyberpunkVR_DebugRttComp = static_cast<uint64_t>(a1);
+                // MARK THE CAMERA DIRTY SO THE DRIVER ACTUALLY REBUILDS THE VIEW, and give it a fresh
+                // pose to rebuild from. See the note beside CyberpunkVR_BdCamDirty in VrCore.cpp for
+                // the disassembly this comes from and the measurements that named it.
+                //
+                // Placed here because this detour runs once per view-create -- i.e. once per driver
+                // tick, on the driver's own thread -- and the driver tests the flag at the TOP of its
+                // next tick, so a store made here is consumed on the following frame rather than
+                // racing the build that has already happened.
+                if (CyberpunkVR_BdCamDirty != 0 &&
+                    g_bdActive.load(std::memory_order_relaxed) &&
+                    g_bdScenePoseValid.load(std::memory_order_acquire)) {
+                    __try {
+                        uint8_t* comp = reinterpret_cast<uint8_t*>(a1);
+                        if ((CyberpunkVR_BdCamDirty & 2) && g_headQuatValid) {
+                            // The rotation is the one LocateCamera composed for THIS frame -- the
+                            // scene's own base with the head on top -- so both eyes are built from one
+                            // composition. The viewpoint is the scene camera plus half an IPD along the
+                            // right vector of that same rotation, with the sign copied from
+                            // PatchCamera rather than re-derived: getting it wrong is pseudo-stereo.
+                            const float hq[4] = { g_headQuatComposed[0], g_headQuatComposed[1],
+                                                  g_headQuatComposed[2], g_headQuatComposed[3] };
+                            float* q = reinterpret_cast<float*>(comp + 0xF0);
+                            q[0] = hq[0]; q[1] = hq[1]; q[2] = hq[2]; q[3] = hq[3];
+                            if (CyberpunkVR_IpdInWorldPos) {
+                                float r[3] = {};
+                                ComputeRightVectorFromQuaternion(hq, r);
+                                if (IsPlausibleUnitVector3(r)) {
+                                    const float half = GetDesiredHalfIpd();
+                                    const float sign = CyberpunkVR_MainIsRightEye ? -1.0f : +1.0f;
+                                    int32_t* p = reinterpret_cast<int32_t*>(comp + 0xE0);
+                                    for (int i = 0; i < 3; ++i)
+                                        p[i] = g_bdScenePosFP[i].load(std::memory_order_relaxed) +
+                                               static_cast<int32_t>(r[i] * half * sign * 131072.0f);
+                                }
+                            }
+                            ++CyberpunkVR_DebugBdCamPose;
+                        }
+                        if (CyberpunkVR_BdCamDirty & 1) {
+                            *reinterpret_cast<volatile int32_t*>(comp + 0xA00) = 1;
+                            ++CyberpunkVR_DebugBdCamDirty;
+                        }
+                    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+                }
                 CyberpunkVR_DebugRttW = w;
                 CyberpunkVR_DebugRttH = h;
                 g_mirror_vrcam_serial.fetch_add(1, std::memory_order_release);
@@ -117,7 +180,7 @@ static __int64 __fastcall Detour_RTTViewCreate(__int64 a1, __int64 a2) {
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
-    return g_orig_rtt_viewcreate(a1, a2);
+    return rtt_call_orig(a1, a2);
 }
 
 // --- DIAGNOSTIC (phase 1): where does the eye go in sub_140219730's per-view loop? ---
@@ -512,6 +575,54 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DistantReuseMode = 1;
 // NOT touch orientation (+0x80..0x8C) or aspect (+0x98, vrcam
 // keeps its own for its square RTT dims) and copies NO proj matrix. Default ON.
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ForceVrcamCam = 1;   // vrcam fov/zoom/near/far = main
+
+// ---- WHICH CAMERA FIELDS THE SECOND VIEW TAKES FROM MAIN -------------------------------------
+//
+// ForceVrcamCam above copies MAIN's fov/zoom/near/far onto the second view's camera context, and
+// the note beside it records what that context is for: writing it steers CULLING only. What the
+// second view actually RENDERS with is its component's own fov at comp+0x128, set further down.
+// Two sources, kept in step by the fact that they normally agree.
+//
+// They stop agreeing the moment a scripted beat drives MAIN's camera, and then the copy is
+// actively harmful, because one of the things it steers is the CLUSTERED LIGHT GRID:
+//
+//     ClusteredLightsCull   bins every light into a froxel grid over the frustum -- and the
+//                           frustum it uses is the one in the view context, i.e. MAIN's
+//     RenderLightsIntegrate maps each pixel to a froxel -- using the frustum the second view is
+//                           actually rendered with, i.e. its own
+//
+// The grid is then filled for one frustum and read with another, every pixel lands in a bin that
+// was never filled, and the analytic light contribution disappears while emissive, sky and
+// ambient carry on -- which is the reported defect exactly.
+//
+// How this was pinned, in order. Skipping ClusteredLightsCull for the second view reproduces the
+// picture one for one, while skipping RenderLightBuffers gives something else entirely. Every
+// other account was measured away: only two views run that cull (by camera-name hash), the
+// grid-write gate holds for both in the same 2:1 ratio over thousands of calls, the capability
+// gate passes for both, the light list is ONE shared object with the same count for both, and the
+// capture's submission order has MAIN's own cull running after the second view has already
+// sampled the grid, so nothing overwrites it. A mid-frame race was the next guess and is dead
+// too: sampling the four scalars at the cull and again at the integrate gave ZERO drift over
+// 1929 pairs while the defect was on screen. What did fix it, live, was switching the copy off.
+//
+// So the copy is the cause and the VALUE is the problem, not its timing. Bisected on the picture
+// field by field: NEAR is the one that does it, which is what the shape of the symptom already
+// suggested -- the grid's depth axis is sliced logarithmically between near and far, so a near that
+// belongs to another camera moves every slice boundary at once and every pixel reads a bin nobody
+// filled. A wrong fov would have put the light in the wrong PLACE; a wrong near removes it.
+//
+// Shipped default is fov + zoom, which is what this mechanism exists for -- matching MAIN's field
+// of view and its ADS zoom so culling and LOD agree with the flat view. The depth range is not
+// MAIN's to lend: the second view renders with its own, so it must cull with its own too. Dropping
+// far alongside near for the same reason, rather than keeping a half-borrowed frustum that happens
+// not to break today.
+//
+// One bit per field, live, so the bisection stays repeatable instead of becoming a number to trust:
+//
+//     bit 0 = fov      bit 1 = zoom      bit 2 = near      bit 3 = far
+//
+// F is the old behaviour, 3 is what ships.
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_VrcamCamFields = 3;
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ForceVrcamRes = 0;   // DISABLED (breaks RTT view)
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForceCamHits = 0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForceResHits = 0;

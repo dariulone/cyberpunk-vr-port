@@ -50,6 +50,16 @@ constexpr uintptr_t NODE_DISPATCH_RVA = 0x1EC404;
 constexpr uintptr_t COPY_TO_TEXTURE_WORK_RVA = 0x377B58;
 constexpr uintptr_t RENDER_FINAL2D_WORK_RVA = 0x209FF0;
 constexpr uintptr_t DECLARE_FINAL_ONLY_WORK_RVA   = 0x1EE4A0; // DeclareCommonResourceAllocs_FinalOnly
+// THE FIVE READERS OF viewData+0x168, found by walking the 68 callers of the viewData accessor
+// sub_1401ED930 and keeping the ones that touch +0x168. Measured, not taken from a note: the
+// declaration pass DeclareCommonResourceAllocs_FinalOnly (0x1EE4A0) is NOT among them, which is
+// why lending to it did nothing.
+constexpr uintptr_t COMPOSITION_WORK_RVA          = 0x1F8928; // CRenderNode_CompositionPostProcess
+constexpr uintptr_t RT_DECLARE_WORK_RVA           = 0xC66188; // names RT_viewDepthTexture[%d] and
+                                                              // RT_localShadowTexture[%d] -- the
+                                                              // render-target declarations
+constexpr uintptr_t GATE_READER_770268_RVA        = 0x770268; // the fifth reader, unnamed
+constexpr uintptr_t COMP_ASSIGN_RVA               = 0x201A68; // the composition-state assign
 constexpr uintptr_t EXTRACTION_FINAL_COLOR_WORK_RVA = 0x209CD4; // ExtractionFinalColor
 constexpr uintptr_t CLEAR_FINAL_COLOR_WORK_RVA    = 0x209DA0; // ClearFinalColorTarget
 constexpr uintptr_t GRAPH_REQUEST_REGISTER_RVA = 0x2906A28;
@@ -75,6 +85,12 @@ constexpr uintptr_t CAMW_RVA = 0x788A9C;
 constexpr uintptr_t CLOUDS_NODE_RVA = 0x61B5B4;   // CRenderNode_RenderVolumetricClouds
 constexpr uintptr_t DESC_HEAP_SIZE_MOV_RVA = 0x91D64A;
 constexpr uintptr_t RTT_VIEWCREATE_RVA = 0x4FBAFC;   // sub_1404FBAFC
+constexpr uintptr_t VIEW_PARAMS_ENTRY_RVA = 0x3BB0A8;  // sub_1403BB0A8, applies ONE override
+                                                       // entry to a view; the outer pass is
+                                                       // what erases, this does not
+constexpr uintptr_t VIEW_PARAMS_APPLY_RVA = 0x3BAFFC;  // sub_1403BAFFC, the per-view parameter
+                                                       // producer -- writes MAIN's viewData+0x798
+constexpr uintptr_t VIEWDATA_COPY_RVA  = 0x294C94;   // sub_140294C94, carries the struct in
 constexpr uintptr_t RTT_HOST_VTABLE_RVA = 0x307BFD0; // entRenderToTextureCameraComponent host vtable
 constexpr uintptr_t RESIZE_DYNTEX_RVA = 0x291A4D4;   // sub_14291A4D4
 constexpr uintptr_t FULL_BUILD_RVA = 0x1D43040;   // sub_141D43040
@@ -155,6 +171,8 @@ constexpr uintptr_t PREPARE_SORT_B_RVA = 0x37A984;    // second mode1 index-doma
 constexpr uintptr_t PREPARE_SORT_C_RVA = 0x37ADB4;    // third mode1 index-domain sort
 constexpr uintptr_t PREPARE_SORT_FINAL_RVA = 0x45E33C; // final 16-byte descriptor sort
 constexpr uintptr_t DRAWCOMP_RVA = 0x20A264;   // sub_14020A264
+constexpr uintptr_t COMP_ELEM_KEYS_RVA = 0x3C6970;   // sub_1403C6970, the element's draw keys
+constexpr uintptr_t COMP_ELEM_RECT_RVA = 0x3C6F5C;   // sub_1403C6F5C, the element's scissor rect
 constexpr uintptr_t LIGHTBUFFERS_RVA = 0x77D308;   // sub_14077D308 RenderLightBuffers
 constexpr uintptr_t SL_CONSTANTS_RVA = 0x788A9C;   // sub_140788A9C
 constexpr uintptr_t DLSS_EVAL_RVA  = 0x1D4FDC0;   // sub_141D4FDC0 slSetTag+slEvaluateFeature

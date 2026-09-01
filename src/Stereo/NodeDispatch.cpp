@@ -224,6 +224,24 @@ const uint32_t kRenderMaskCount =
 extern "C" __declspec(dllexport) uint32_t CyberpunkVR_RenderMaskGrant =
     (1u << 0) | (1u << 1) | (1u << 11);
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugRenderMaskGrants = 0;
+
+// 1 = NEVER declare a StateBefore for a resource this port does not own unless that state was
+// observed, for that exact resource, on this thread. 0 = the old behaviour, which falls back
+// on a seed or a fixed guess. Kept switchable only so the two can be compared on the picture;
+// the whole point of the change is that the guess is what the driver crashes on.
+// DEFAULT BACK TO 0, ON THE PICTURE, MINUTES AFTER IT SHIPPED AT 1: it took stereo away
+// entirely. The observation flag is only ever set inside hk_ResourceBarrier, so a resource the
+// engine does not transition again after our seed never counts as observed -- and then the eye
+// capture is refused on EVERY frame instead of the rare wrong one. Refusing to guess is right;
+// refusing to copy is not the way to do it, and the fix belongs in observing more, not copying
+// less. Kept as a live switch so the two can still be compared, and so the seed-versus-observed
+// distinction that the flags now carry is not thrown away.
+// Defined in ViewReuse.cpp: the unscoped composition lend. Named here because the viewData fill
+// further down is what installs it, so that fill has to run whenever the lend is armed.
+extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_CompLendSet;
+
+extern "C" __declspec(dllexport) int32_t  CyberpunkVR_NoStateLies = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugForeignStateRefusals = 0;
 std::atomic<uintptr_t> g_vrcam_ctx_seen{0};
 // render_mask_report is declared in Stereo/StereoInternal.hpp; its definition moved to another file.
 
@@ -836,7 +854,7 @@ uint8_t __fastcall Detour_NodeDispatch(
     // Close VRCAM's viewData holes as early as the view is seen at all, so every consumer in
     // the frame reads the filled value rather than the zero the pool handed out.
     if ((CyberpunkVR_ViewDataFixMask || CyberpunkVR_FogMirrorMask ||
-         CyberpunkVR_EnvMirrorMask) && vrcam_node && work_context)
+         CyberpunkVR_EnvMirrorMask || CyberpunkVR_CompLendSet) && vrcam_node && work_context)
         viewdata_fill_from_wc(work_context);
     // Per-view node census. Only views we can name: nodes dispatched with no view ctx are
     // global and cannot be attributed to either eye.
@@ -865,6 +883,7 @@ uint8_t __fastcall Detour_NodeDispatch(
         t_mirror_copy_rtv_format = DXGI_FORMAT_UNKNOWN;
         t_mirror_copy_list = nullptr;
         t_mirror_src_state = (uint32_t)D3D12_RESOURCE_STATE_RENDER_TARGET;
+        t_mirror_src_state_seen = false;   // a seed, not an observation
     }
     // Does the HUD node reach the second view at all? This is the measurement that decides
     // whether the capability override can work: an override is useless on a node the engine
@@ -993,7 +1012,28 @@ uint8_t __fastcall Detour_NodeDispatch(
         t_prof_child_ticks = 0;
         prof_t0 = prof_now();
     }
+    // DrawHUD reads viewData+0x168 too (measured); EngineRvas has no name for it, so one here.
+    constexpr uint32_t DRAWHUD_NODE_RVA_168 = 0x1EE760;
+    // The composition state, for the measured readers of viewData+0x168. NOT for
+    // DrawComposition (0x20A264): it walks a list of composition elements built for another view
+    // and crashes on it -- see the note by CyberpunkVR_CompLendScoped.
+    uint64_t comp_saved[2] = {0, 0};
+    uintptr_t comp_lent_vd = 0;
+    if (CyberpunkVR_CompLendScoped && vrcam_node && work_context && prof_work && g_exe_base) {
+        const uintptr_t cbase = reinterpret_cast<uintptr_t>(g_exe_base);
+        const uint32_t crva = (prof_work > cbase)
+                                  ? static_cast<uint32_t>(prof_work - cbase) : 0;
+        const bool wanted =
+            ((CyberpunkVR_CompLendScoped & 1u) && crva == COMPOSITION_WORK_RVA) ||
+            ((CyberpunkVR_CompLendScoped & 2u) && crva == RT_DECLARE_WORK_RVA) ||
+            ((CyberpunkVR_CompLendScoped & 4u) && crva == DRAWHUD_NODE_RVA_168) ||
+            ((CyberpunkVR_CompLendScoped & 8u) && crva == GATE_READER_770268_RVA);
+        if (wanted) comp_lent_vd = comp_lend_install(work_context, comp_saved);
+    }
+    view_params_report();
+    complend_report();
     const uint8_t result = g_node_dispatch_orig(node, work_context, args);
+    if (comp_lent_vd) comp_lend_restore(comp_lent_vd, comp_saved);
     // Give the slot back before anything else can run on this view.
     if (hud_block_slot) {
         __try { *hud_block_slot = hud_block_saved; }
@@ -1035,13 +1075,41 @@ uint8_t __fastcall Detour_NodeDispatch(
     t_active_view_known = previous_view_known;
     t_active_view_key   = previous_view_key;
     t_current_node_work = previous_node_work;
+    // THE FINISHED FRAME, at the epilogue of the second-view node that produced it. Same window as
+    // every other snapshot taken here, and for the same reasons: the work-fn has returned so both
+    // indirect writes are recorded, the list is still open, and the release barrier that aliases the
+    // heap away arrives later, in a batch at the tail of the list.
+    //
+    // Gated on vrcam_node alone, deliberately. The barrier that arms this sits between the Discard and
+    // the writes inside one node's work-fn, so the first second-view epilogue to run is that node's
+    // own -- and scoping it to a node RVA is exactly what made the barrier-side copy miss four frames
+    // in five.
+    if (vrcam_node) final_frame_copy_now();
     // Tonemap OUTPUT snapshot -> our committed g_stable_tex (flicker fix). Fires at the
     // tonemap node's own epilogue while its list is still open and RT0 not yet aliased.
-    if (CyberpunkVR_StableFromTonemap && !t_tm_consumed && t_tm_rt0 && t_tm_rt0_list &&
-            CyberpunkVR_StableCopy && stereo_eye_capture_wanted()) {
+    // EACH SOURCE'S OWN GATE, ON ITS OWN RESOURCE -- t_tm_from_final says who armed the slot. Opening
+    // this for one source alone let it fire on the OTHER source's target, and that single copy latched
+    // g_have_tonemap_source, which stood the second writer down and suppressed the mirror path too:
+    // nothing was left feeding the eye and the session ended in DXGI_ERROR_INVALID_CALL.
+    if (((CyberpunkVR_StableFromTonemap && !t_tm_from_final) ||
+             (CyberpunkVR_FinalGrab && t_tm_from_final)) &&
+            !t_tm_consumed && t_tm_rt0 && t_tm_rt0_list &&
+            CyberpunkVR_StableCopy && stereo_eye_capture_wanted() &&
+            (t_tm_rt0_state_seen || !CyberpunkVR_NoStateLies)) {
         mirror_stable_inline_copy(t_tm_rt0_list, t_tm_rt0, t_tm_rt0_state);
         t_tm_consumed = true;
-        g_have_tonemap_source.store(true, std::memory_order_release);
+        // AND RELEASE THE SLOT. Marking it consumed is not enough once the armed resource is a
+        // per-frame TRANSIENT out of a pool whose heap is recycled after the frame, so a pointer left
+        // behind here outlives its resource and any later touch of it is invalid. The barrier learns it
+        // again next frame, so clearing costs nothing. 0.1.6 used a 0xFFFFFFFF state sentinel for this;
+        // this branch already carries t_tm_rt0_state_seen, so that is what is cleared instead.
+        t_tm_rt0 = nullptr;
+        t_tm_rt0_list = nullptr;
+        t_tm_rt0_state_seen = false;
+        // Only a copy from the PREFERRED source may claim the role; otherwise the mirror path gets
+        // suppressed by a copy that was never the intended image.
+        if (t_tm_from_final || CyberpunkVR_StableFromTonemap)
+            g_have_tonemap_source.store(true, std::memory_order_release);
         InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(
             &CyberpunkVR_DebugTonemapSnaps));
     }
@@ -1060,11 +1128,25 @@ uint8_t __fastcall Detour_NodeDispatch(
         // Valid-window snapshot: the node work-fn just returned, so the final write is
         // recorded on mirror_list and no later pass aliased it yet. Final2D is the
         // flapping source -> skip it only when a tonemap snapshot is actually available.
-        const bool tonemap_src = CyberpunkVR_StableFromTonemap &&
+        // AND IT MUST NAME EVERY PREFERRED SOURCE. Leaving xr_final_grab out of this test was the whole
+        // reason the finished frame never reached the headset in 0.1.6: the grab landed 1935 times in a
+        // session while THIS path went on copying its own source every frame, and the two formats differ
+        // (R8G8B8A8_TYPELESS against R11G11B10_FLOAT), so the snapshot was recreated per frame.
+        //
+        // Conditional on the latch, never on the key alone: in a frame where the preferred source found
+        // nothing (menu, loading) this path must still feed the eye, or the submit works on a texture
+        // nothing ever wrote and the device goes out with DXGI_ERROR_INVALID_CALL.
+        const bool tonemap_src = (CyberpunkVR_StableFromTonemap || CyberpunkVR_FinalGrab) &&
             g_have_tonemap_source.load(std::memory_order_acquire);
-        if (CyberpunkVR_StableCopy && stereo_eye_capture_wanted() && mirror_list && !tonemap_src) {
+        if (CyberpunkVR_StableCopy && stereo_eye_capture_wanted() && mirror_list && !tonemap_src &&
+                (t_mirror_src_state_seen || !CyberpunkVR_NoStateLies)) {
             g_eye_copy_calls.fetch_add(1, std::memory_order_relaxed);
             mirror_stable_inline_copy(mirror_list, mirror_output, mirror_src_state);
+        } else if (CyberpunkVR_NoStateLies && !t_mirror_src_state_seen && mirror_list &&
+                   CyberpunkVR_StableCopy && stereo_eye_capture_wanted() && !tonemap_src) {
+            // Refused rather than guessed. Counted, so this can never become a silent stall.
+            InterlockedIncrement64(reinterpret_cast<volatile LONG64*>(
+                &CyberpunkVR_DebugForeignStateRefusals));
         } else if (CyberpunkVR_StableCopy && stereo_eye_capture_wanted() && !tonemap_src) {
             // The output target was found but there is no command list to record the copy on.
             // publish() below does not need one, which is exactly why this case can starve the

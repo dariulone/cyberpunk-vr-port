@@ -1376,6 +1376,14 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
             imageCount,
             &imageCount,
             reinterpret_cast<XrSwapchainImageBaseHeader*>(m_eyeSwapchains[eye].images.data()));
+        // The runtime creates these, so nothing here has ever named them, and the debug layer
+        // therefore reports every complaint about them as 'Unnamed ID3D12Resource Object'. A name
+        // is what turned error 527 from 'some texture' into 'eye 1, image 2' the first time.
+        for (uint32_t im = 0; im < imageCount && im < m_eyeSwapchains[eye].images.size(); ++im) {
+            if (m_eyeSwapchains[eye].images[im].texture)
+                SetD3DNamef(m_eyeSwapchains[eye].images[im].texture,
+                            L"OpenXR_eye%u_color_image%u", static_cast<unsigned>(eye), im);
+        }
 
         // Publish the eye image's real geometry for the capture thread. It needs the format
         // and size to build its right-eye target, and it cannot look them up here: this vector

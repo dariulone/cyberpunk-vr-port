@@ -1,9 +1,5 @@
 # ArchiveXL: register the wheel factory so Items.VRSmokeWheel's entityName (vr_smoke_wheel)
 # resolves to vrcigarette\vr_wheel.ent. Place this .xl next to VRCigarette.archive in
 # archive\pc\mod\. If you already have a VRCigarette.archive.xl, just merge the "factories:" list.
-# The second entry registers the port's own held props -- currently the Overture's speedloader, which
-# is seven meshes and so cannot ride the single-mesh carrier the other twelve magazines use. An item
-# whose entityName is a factory name is how the game itself carries a many-part thing in a hand.
 factories:
   - vrcigarette\vr_wheel.csv
-  - base\vrport\vrp_props.csv

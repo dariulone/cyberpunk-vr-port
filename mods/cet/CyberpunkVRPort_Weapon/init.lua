@@ -254,10 +254,25 @@ local function killCameraRecoil(wpn, wid)
     -- fallback was the RECORD id -- which produced CyberpunkVR_TwoHandGrip_itemscraftable_legendary_ticon
     -- .ini, a file keyed to one VARIANT: capture on the legendary and the common one has no hold at all.
     -- These two tokens are the same ones the reload module matches those weapons by.
+    -- MELEE HAS NO RecoilKickMax AT ALL, so the generated table above names none of it and every blade
+    -- fell through to the record id -- one hold file per VARIANT, which is no hold at all. These are
+    -- handle shapes rather than weapon names: a Butcher's Knife and a Chef's Knife are the same grip,
+    -- a katana and a sledgehammer are not. Matched by the same longest-wins rule as the two above, so
+    -- 'baton' beats 'bat' and 'pipe_wrench' beats 'pipe' without depending on this list's order.
     if not famName and key then
         local low2 = string.lower(key .. ' ' .. tostring(fname or ''))
-        for _, w in ipairs({ 'ticon', 'tamayura' }) do
-            if string.find(low2, w, 1, true) then famName = w break end
+        local best2 = 0
+        for _, w in ipairs({
+            'ticon', 'tamayura',
+            -- blades
+            'katana', 'machete', 'kukri', 'knife', 'tanto', 'tomahawk', 'chainsword', 'axe',
+            -- blunt
+            'baton', 'sledgehammer', 'hammer', 'kanabo', 'crowbar', 'pipe_wrench', 'iron_pipe',
+            'tire_iron', 'bat', 'wrench', 'pipe',
+            -- cyberware arms, which are also a hold
+            'mantis', 'monowire', 'gorilla', 'projectilelauncher',
+        }) do
+            if #w > best2 and string.find(low2, w, 1, true) then famName = w; best2 = #w end
         end
     end
     if type(SetVRWeaponName) == 'function' then
@@ -270,6 +285,52 @@ local function killCameraRecoil(wpn, wid)
     if famName and RECOIL_KICK_OVERRIDE[famName] then kick = RECOIL_KICK_OVERRIDE[famName] end
     if not (kick and kick > 0.0) then kick = 1.0 end
     if type(SetVRWeaponKick) == 'function' then SetVRWeaponKick(kick) end
+    -- AND WHAT KIND OF WEAPON IT IS, because the recoil splits the same impulse differently for a
+    -- shouldered rifle and a pistol held out on an arm. Taken from the record's own itemType rather
+    -- than from a list of names: TweakDB already knows, and a name list would be wrong the first time
+    -- a quest gun is named after its quest -- the exact trap the kick lookup above documents.
+    local cls = 0
+    local itName = nil
+    if key then
+        local it = nil
+        pcall(function() it = TweakDB:GetFlat(key .. '.itemType') end)
+        if it then pcall(function() itName = TDBID.ToStringDEBUG(it) end) end
+        local low = string.lower(tostring(itName or ''))
+        -- shotgun first: it is the one class that wants both halves, and 'shotgundual' contains none
+        -- of the other tokens
+        if string.find(low, 'shotgun', 1, true) then cls = 3
+        elseif string.find(low, 'handgun', 1, true) or string.find(low, 'revolver', 1, true) then cls = 1
+        -- SNIPERS BEFORE RIFLES, or 'sniperrifle' would be caught by the 'rifle' token below and lose
+        -- its own class. The precision family goes with them: it is the semi-automatic half of the same
+        -- thing and fires the same class of round.
+        elseif string.find(low, 'sniperrifle', 1, true) or string.find(low, 'precisionrifle', 1, true) then cls = 4
+        elseif string.find(low, 'rifle', 1, true) or string.find(low, 'machinegun', 1, true)
+            or string.find(low, 'submachine', 1, true) then cls = 2
+        -- MELEE IS ITS OWN CLASS, not "unknown". It used to fall through as 0 -- "the record did not
+        -- say" -- which is a different statement and would keep a blade on the base hand-filter speed
+        -- for ever. None of these tokens collide with the firearm ones above.
+        elseif string.find(low, 'katana', 1, true)  or string.find(low, 'blade', 1, true)
+            or string.find(low, 'knife', 1, true)   or string.find(low, 'machete', 1, true)
+            or string.find(low, 'axe', 1, true)     or string.find(low, 'hammer', 1, true)
+            or string.find(low, 'club', 1, true)    or string.find(low, 'chainsword', 1, true)
+            or string.find(low, 'sword', 1, true)   or string.find(low, 'fists', 1, true)
+            or string.find(low, 'melee', 1, true)   then cls = 5
+        end
+    end
+    if type(SetVRWeaponClass) == 'function' then SetVRWeaponClass(cls) end
+    -- ...AND INTO THE PROBE FILE, not only into the log. The module's spdlog stops accepting lines after
+    -- a mod reload (measured, and the reason this probe file exists at all), so anything that has to be
+    -- readable after the fact goes where the kick already goes.
+    VRP_lastClass, VRP_lastItemType = cls, itName
+    pcall(function()
+        local f = io.open('recoil_probe.txt', 'a')
+        if f then
+            f:write(string.format('class=%d type=%s key=%s', cls, tostring(itName), tostring(key)))
+            f:write(string.char(10))
+            f:close()
+        end
+    end)
+    logAlways('recoil: itemType=%s class=%d', tostring(itName), cls)
     logAlways('recoil: key=%s kick=%s', tostring(key), tostring(kick))
     -- STRAIGHT TO A FILE, because the module's spdlog log stopped accepting lines after a mod reload
     -- (the file was reopened and nothing more was appended, while the value provably reached the
@@ -278,7 +339,8 @@ local function killCameraRecoil(wpn, wid)
     pcall(function()
         local f = io.open('recoil_probe.txt', 'a')
         if f then
-            f:write(string.format('key=%s kick=%s wid=%s', tostring(key), tostring(kick), tostring(wid)))
+            f:write(string.format('key=%s kick=%s wid=%s cls=%s type=%s', tostring(key), tostring(kick),
+                                  tostring(wid), tostring(VRP_lastClass), tostring(VRP_lastItemType)))
             f:write(string.char(10))
             f:close()
         end
@@ -327,6 +389,44 @@ end
 -- override (bullet leaves the barrel) AND writes the muzzle forward to shared mem for the
 -- overlay's barrel laser dot.
 local muzzlePosWarned = false
+local aimHitProbed = false
+
+-- THE WEAPON IN THE LEFT HAND. See the block above carryTick().
+local CARRY_LEFT      = true
+local carryOn         = false     -- the weapon is in AttachmentSlots.WeaponLeft right now
+local carryItemID     = nil       -- what to put back, and where it came from
+local carryRGripWas   = false
+local carryGrip       = nil       -- the weapon's pose in the LEFT bone's frame, captured once
+local carryHoming     = false     -- easing the offset back to nothing
+local carryW          = 0.0       -- that ease's weight, 1 = in the left hand, 0 = home
+local carryV          = 0.0
+local CARRY_HOME_MS   = 260.0     -- how long the weapon takes to travel back into the right hand
+local CARRY_HOME_ZETA = 0.70
+-- HOW NEAR THE RIGHT HAND HAS TO BE TO TAKE THE WEAPON BACK, metres. A grip pressed across the room
+-- used to snatch it out of the left hand; taking a gun back is a reach. Same order as the two-hand
+-- grip's own radius, which was settled by feel at 6 cm for a fingertip offer -- this is a whole hand
+-- closing on a rifle, so it is wider.
+-- 18 cm, down from 30 on the user's call ("радиус для возврата в правую руку большеват"): 30 cm is
+-- most of a forearm, so the grip took the weapon back from a hand that was merely nearby.
+local CARRY_BACK_DIST = 0.18
+local SLOT_RIGHT      = 'AttachmentSlots.WeaponRight'
+-- Ours, so its customOffset can be tuned without moving the cigarette that also lives in WeaponLeft.
+-- Falls back to the stock slot when the tweak has not been loaded yet (it needs a game launch).
+-- The STOCK slot, because what places the weapon is the entry in the player's ItemAttachmentSlots
+-- component (moved above), not the TweakDB record -- customOffset on the record was measured to do
+-- nothing at all on this path.
+local SLOT_LEFT       = 'AttachmentSlots.WeaponLeft'
+local SLOT_LEFT_STOCK = 'AttachmentSlots.WeaponLeft'
+local PLANE_WEAPON    = 2         -- ERenderingPlane.RPl_Weapon: the first-person weapon plane
+local carryLeftSlot   = nil       -- which of the two actually took it, so it goes back from there
+-- KEEPING THE WEAPON WHERE IT WAS. See the block above carryMeasure().
+local carryOffsets    = {}        -- weapon record id -> {x,y,z}, the converged slot offset
+local carryWant       = nil       -- {x,y,z} world position the weapon must keep
+local carryKey        = nil       -- which weapon that is
+local carryFixTries   = 0         -- iterations left for the current hand-over
+local carryPending    = false     -- slot zeroed; measure and move on the next tick
+local CARRY_TOL_M     = 0.01      -- a centimetre is close enough to stop
+local CARRY_MAX_TRIES = 3
 local muzzlePosProbed = false
 local muzzleEnumDone = false
 local function updateMuzzle(wpn)
@@ -398,6 +498,34 @@ local function updateMuzzle(wpn)
                 muzzlePosProbed = true
                 logf("muzzlePos OK: (%.4f, %.4f, %.4f)", x, y, z)
             end
+            -- WHERE THAT LINE HITS THE WORLD. The overlay's dot used to mark a fixed 20 m down the
+            -- barrel, so it was only true at 20 m. This is the same line traced by the game's own
+            -- SpatialQueriesSystem: position and surface normal, about 5 us, and it goes through no
+            -- hook of the port's -- in particular not through the hitscan provider, where a ray
+            -- claimed as ours also fires the hand recoil.
+            if type(SetVRAimHit) == 'function' and q then
+                pcall(function()
+                    local f = Quaternion.GetForward(q)
+                    if not f then return end
+                    local o = Vector4.new(x, y, z, 1)
+                    local far = Vector4.new(x + f.x * 200.0, y + f.y * 200.0, z + f.z * 200.0, 1)
+                    local sq = Game.GetSpatialQueriesSystem()
+                    if not sq then return end
+                    local ok, res = sq:SyncRaycastByCollisionGroup(o, far, CName.new("Static"),
+                                                                   false, false)
+                    if ok and res and res.position then
+                        local n = res.normal
+                        SetVRAimHit(res.position.x, res.position.y, res.position.z,
+                                    n and n.x or 0.0, n and n.y or 0.0, n and n.z or 0.0)
+                        if not aimHitProbed then
+                            aimHitProbed = true
+                            logf("aimHit OK: (%.3f, %.3f, %.3f) n=(%.2f, %.2f, %.2f)",
+                                 res.position.x, res.position.y, res.position.z,
+                                 n and n.x or 0.0, n and n.y or 0.0, n and n.z or 0.0)
+                        end
+                    end
+                end)
+            end
         elseif not muzzlePosWarned then
             muzzlePosWarned = true
             logf("muzzlePos: got %s but no component accessor matched (x type=%s)",
@@ -409,11 +537,349 @@ local function updateMuzzle(wpn)
     end
 end
 
+-- HAND THE WEAPON OVER, AND TAKE IT BACK. Right grip while the left grip is held = the right hand lets
+-- go and the left one keeps it; right grip again = back to the right hand. The left grip does not have
+-- to stay down in between -- once it is in the left hand it stays there.
+--
+-- The move is the game's own three calls (transaction system), with three arguments that differ from
+-- the AI examples for reasons written out above the state block: the entity is NOT destroyed, the
+-- same object is re-attached, and the left slot's restrictions are ignored because a firearm is not on
+-- its list.
+-- THE SLOT ENTRY ON THE PLAYER, AND HOW TO MOVE IT.
+--
+-- ItemAttachmentSlots holds one entry per slot with relativePosition/relativeRotation in the bone's
+-- frame. Element-wise assignment does not stick -- measured: the value reads back unchanged -- so the
+-- array is copied, the entry replaced, and the whole array written back. Returns the entry index so
+-- the caller can put the slot back where it found it.
+local function slotEntryIndex(name)
+    local pl = Game.GetPlayer()
+    if not pl then return nil end
+    local c = pl:FindComponentByName(CName.new('ItemAttachmentSlots'))
+    if not c then return nil end
+    local arr = c.slots
+    if not arr then return nil end
+    for i = 1, #arr do
+        if string.find(tostring(arr[i].slotName), name, 1, true) then return i, c end
+    end
+    return nil
+end
+
+-- POSITION AND ROTATION TOGETHER. Position alone puts the weapon on the right point wearing the left
+-- slot's orientation, and since the two hand slots' axes are nowhere near each other the gun then
+-- hangs low and to the right. Both fields, one write, whole array back.
+local function slotSetRel(name, x, y, z, qi, qj, qk, qr)
+    local idx, c = slotEntryIndex(name)
+    if not (idx and c) then return false end
+    -- NOTHING IS WRITTEN IF NOTHING CHANGES. The write has to be the WHOLE slots array or it is lost
+    -- (measured), so it also rewrites the entries holding the weapon, the cigarette and the props --
+    -- churn on the attachment machinery every time, for no change at all.
+    local same = false
+    pcall(function()
+        local e = c.slots[idx]
+        local p, r = e.relativePosition, e.relativeRotation
+        same = p and math.abs(p.x - x) < 1e-5 and math.abs(p.y - y) < 1e-5 and math.abs(p.z - z) < 1e-5
+        if same and qi and r then
+            same = math.abs(r.i - qi) < 1e-5 and math.abs(r.j - qj) < 1e-5
+               and math.abs(r.k - qk) < 1e-5 and math.abs(r.r - qr) < 1e-5
+        end
+    end)
+    if same then return true end
+    local ok = pcall(function()
+        local arr = c.slots
+        local e = arr[idx]
+        e.relativePosition = Vector3.new(x, y, z)
+        if qi then e.relativeRotation = Quaternion.new(qi, qj, qk, qr) end
+        arr[idx] = e
+        c.slots = arr            -- the whole array, or the write is lost
+    end)
+    return ok
+end
+
+-- Quaternion odds and ends the carry needs. Spelled out rather than pulled in, because the only other
+-- copy in this port is in the plugin and a paraphrase of it would be a silent divergence.
+local function qmul(a1, a2, a3, a4, b1, b2, b3, b4)
+    return a4*b1 + a1*b4 + a2*b3 - a3*b2,
+           a4*b2 - a1*b3 + a2*b4 + a3*b1,
+           a4*b3 + a1*b2 - a2*b1 + a3*b4,
+           a4*b4 - a1*b1 - a2*b2 - a3*b3
+end
+local function qrotv(i, j, k, r, x, y, z)
+    local tx, ty, tz = 2.0*(j*z - k*y), 2.0*(k*x - i*z), 2.0*(i*y - j*x)
+    return x + r*tx + (j*tz - k*ty),
+           y + r*ty + (k*tx - i*tz),
+           z + r*tz + (i*ty - j*tx)
+end
+-- Slerp from identity toward (i,j,k,r) by w -- the way home for the offset's rotation half.
+local function qslerpId(i, j, k, r, w)
+    if r < 0.0 then i, j, k, r = -i, -j, -k, -r end
+    local li, lj, lk, lr
+    if r > 0.9995 then
+        li, lj, lk, lr = i*w, j*w, k*w, 1.0 + (r - 1.0)*w
+    else
+        local th0 = math.acos(r)
+        local th  = th0 * w
+        local s0  = math.sin(th0)
+        local sa, sb = math.sin(th0 - th)/s0, math.sin(th)/s0
+        li, lj, lk, lr = i*sb, j*sb, k*sb, sa + r*sb
+    end
+    local l = math.sqrt(li*li + lj*lj + lk*lk + lr*lr)
+    if l < 1e-6 then return 0.0, 0.0, 0.0, 1.0 end
+    return li/l, lj/l, lk/l, lr/l
+end
+
+-- A quaternion from a world-space basis (columns X, Y, Z), Shepperd's method: the branch on the
+-- largest diagonal term is what keeps it stable when the trace is small.
+local function quatFromBasis(X, Y, Z)
+    local m = { {X[1], Y[1], Z[1]}, {X[2], Y[2], Z[2]}, {X[3], Y[3], Z[3]} }
+    local tr = m[1][1] + m[2][2] + m[3][3]
+    local i, j, k, r
+    if tr > 0 then
+        local s = math.sqrt(tr + 1.0) * 2
+        r = 0.25 * s; i = (m[3][2]-m[2][3])/s; j = (m[1][3]-m[3][1])/s; k = (m[2][1]-m[1][2])/s
+    elseif m[1][1] > m[2][2] and m[1][1] > m[3][3] then
+        local s = math.sqrt(1.0 + m[1][1] - m[2][2] - m[3][3]) * 2
+        r = (m[3][2]-m[2][3])/s; i = 0.25*s; j = (m[1][2]+m[2][1])/s; k = (m[1][3]+m[3][1])/s
+    elseif m[2][2] > m[3][3] then
+        local s = math.sqrt(1.0 + m[2][2] - m[1][1] - m[3][3]) * 2
+        r = (m[1][3]-m[3][1])/s; i = (m[1][2]+m[2][1])/s; j = 0.25*s; k = (m[2][3]+m[3][2])/s
+    else
+        local s = math.sqrt(1.0 + m[3][3] - m[1][1] - m[2][2]) * 2
+        r = (m[2][1]-m[1][2])/s; i = (m[1][3]+m[3][1])/s; j = (m[2][3]+m[3][2])/s; k = 0.25*s
+    end
+    return i, j, k, r
+end
+
+local function slotGetRel(name)
+    local idx, c = slotEntryIndex(name)
+    if not (idx and c) then return nil end
+    local v = nil
+    pcall(function() v = c.slots[idx].relativePosition end)
+    return v
+end
+
+-- A SLOT'S FRAME, IN WORLD SPACE, WITHOUT ATTACHING ANYTHING TO IT.
+--
+-- CreateSlotPositionProvider takes a localOffset expressed in the slot's own frame, so asking it for
+-- the slot at the origin and then at each unit axis and subtracting gives that frame's basis. Four
+-- queries, no side effects, and it works before the weapon is moved -- which is the requirement:
+-- everything has to be known BEFORE the hand-over, not corrected after it.
+--
+-- GameObject.GetSlotTransform would answer this in one call and is not exposed to scripts (measured:
+-- nil on the player), which is why this takes the long way round.
+local function slotFrame(name)
+    local pl = Game.GetPlayer()
+    if not pl then return nil end
+    local function at(x, y, z)
+        local pp, ok, pos = nil, false, nil
+        pcall(function()
+            pp = IPositionProvider.CreateSlotPositionProvider(pl, CName.new(name), Vector3.new(x, y, z))
+        end)
+        if pp then pcall(function() ok, pos = pp:CalculatePosition() end) end
+        if ok and pos then return pos end
+        return nil
+    end
+    local o, x, y, z = at(0, 0, 0), at(1, 0, 0), at(0, 1, 0), at(0, 0, 1)
+    if not (o and x and y and z) then return nil end
+    return {
+        ox = o.x, oy = o.y, oz = o.z,
+        xx = x.x - o.x, xy = x.y - o.y, xz = x.z - o.z,
+        yx = y.x - o.x, yy = y.y - o.y, yz = y.z - o.z,
+        zx = z.x - o.x, zy = z.y - o.y, zz = z.z - o.z,
+    }
+end
+
+-- ONE CORRECTION STEP, run on a tick AFTER the weapon has landed in the left slot.
+--
+-- The weapon is where the attachment put it; carryWant is where it has to be. The difference is a
+-- world vector, and customOffset is expressed in the slot's frame, so it is rotated by the inverse of
+-- the weapon's own orientation -- the weapon is attached to that slot, so its frame IS the slot's
+-- frame up to the weapon's own (constant) attachment rotation. That constant is why this iterates
+-- instead of stepping once: if it is not identity the first correction overshoots or undershoots
+-- slightly, and the second one takes out what is left.
+local function carryMeasure()
+    if not carryWant or carryFixTries <= 0 then return end
+    local pl = Game.GetPlayer()
+    local ts = Game.GetTransactionSystem()
+    if not (pl and ts and carryLeftSlot) then return end
+    local slot = TweakDBID.new(carryLeftSlot)
+    local w = ts:GetItemInSlot(pl, slot)
+    if not w then return end          -- the slot map answers a frame late; try again next tick
+
+    local now = w:GetWorldPosition()
+    local dx, dy, dz = carryWant.x - now.x, carryWant.y - now.y, carryWant.z - now.z
+    local err = math.sqrt(dx*dx + dy*dy + dz*dz)
+    if err <= CARRY_TOL_M then
+        logAlways('carry: placed, error %.1f mm after %d fix(es)', err * 1000.0,
+                  CARRY_MAX_TRIES - carryFixTries)
+        carryFixTries = 0
+        return
+    end
+
+    -- world delta -> the weapon's own frame
+    local q = w:GetWorldOrientation()
+    local lx, ly, lz = dx, dy, dz
+    if q then
+        -- v' = conj(q) * v * q, written out: rotate by the inverse quaternion
+        local qi, qj, qk, qr = -q.i, -q.j, -q.k, q.r
+        local tx = 2.0 * (qj * dz - qk * dy)
+        local ty = 2.0 * (qk * dx - qi * dz)
+        local tz = 2.0 * (qi * dy - qj * dx)
+        lx = dx + qr * tx + (qj * tz - qk * ty)
+        ly = dy + qr * ty + (qk * tx - qi * tz)
+        lz = dz + qr * tz + (qi * ty - qj * tx)
+    end
+
+    -- A CHECK, NOT A CORRECTION. The offset was decided before the move; if it is wrong the honest
+    -- thing is to say by how much and in which direction, not to shuffle the weapon around while the
+    -- player is looking at it. The local components are what the offset would have to change BY.
+    carryFixTries = 0
+    logAlways('carry: check -- off by %.0f mm, local delta (%.3f %.3f %.3f)',
+              err * 1000.0, lx, ly, lz)
+end
+
+local function carryTick(dt)
+    if not CARRY_LEFT then return end
+    local pl = Game.GetPlayer()
+    if not pl then return end
+    local ts = Game.GetTransactionSystem()
+    if not ts then return end
+    local RIGHT = TweakDBID.new(SLOT_RIGHT)
+    local LEFT  = TweakDBID.new(SLOT_LEFT_STOCK)
+
+    local rg, lg = 0.0, 0.0
+    if type(GetVRSharedSlot) == 'function' then
+        rg = GetVRSharedSlot(49) or 0.0     -- right grip analog
+        lg = GetVRSharedSlot(155) or 0.0    -- left grip pressed
+    end
+    local rDown  = rg > 0.5
+    local rFresh = rDown and not carryRGripWas
+    carryRGripWas = rDown
+
+    -- THE RENDERING PLANE IS STILL OPEN. Moving the item between slots drops it off the first-person
+    -- weapon plane and the game re-asserts it on a shot or a zoom; nothing here touches the camera to
+    -- force that, on the user's call. Left as it is until a mechanism turns up that does not.
+    -- THE SLOT IS CLEAN WHENEVER NOTHING HANGS ON IT. Catches the abnormal exits: holstered mid-carry,
+    -- a load, a mod reload, a reload module that took the weapon.
+    if not rFresh then
+        if ts:GetItemInSlot(pl, LEFT) == nil then
+            local cur = slotGetRel('WeaponLeft')
+            if cur and (math.abs(cur.x) + math.abs(cur.y) + math.abs(cur.z)) > 0.0005 then
+                slotSetRel('WeaponLeft', 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+                logAlways('carry: left slot empty but displaced -- reset')
+            end
+        end
+        return
+    end
+
+    if not carryOn then
+        -- NOT FOR PISTOLS: a one-handed weapon has no reason to change hands. Class 1 is
+        -- handgun/revolver, resolved per draw from the record's own itemType; class 0 ("the record did
+        -- not say") keeps the feature rather than losing it silently.
+        if VRP_lastClass == 1 then return end
+        -- the left hand has to be ON the gun: this is "the right hand lets go", not "the gun jumps"
+        if lg <= 0.5 then return end
+        local w = ts:GetItemInSlot(pl, RIGHT)
+        if not w then return end
+        local id = w:GetItemID()
+
+        -- THE PLACEMENT, MEASURED BEFORE ANYTHING MOVES: the weapon's own transform against the target
+        -- bone's frame. PropLeft rides the same bone as WeaponLeft and is never displaced, so it is the
+        -- clean frame to measure in -- no need to unpick our own offset out of the reading.
+        local W = slotFrame('PropLeft')
+        local wp, wq = nil, nil
+        pcall(function() wp = w:GetWorldPosition() end)
+        pcall(function() wq = w:GetWorldOrientation() end)
+        if not (W and wp and wq) then
+            logAlways('carry: cannot measure (frame=%s pos=%s rot=%s)',
+                      tostring(W ~= nil), tostring(wp ~= nil), tostring(wq ~= nil))
+            return
+        end
+        local dx, dy, dz = wp.x - W.ox, wp.y - W.oy, wp.z - W.oz
+        local ox = dx * W.xx + dy * W.xy + dz * W.xz          -- transpose(R_bone) * delta
+        local oy = dx * W.yx + dy * W.yy + dz * W.yz
+        local oz = dx * W.zx + dy * W.zy + dz * W.zz
+        local bi, bj, bk, br = quatFromBasis({W.xx, W.xy, W.xz}, {W.yx, W.yy, W.yz},
+                                             {W.zx, W.zy, W.zz})
+        local ci, cj, ck, cr = -bi, -bj, -bk, br
+        local ri = cr*wq.i + ci*wq.r + cj*wq.k - ck*wq.j
+        local rj = cr*wq.j - ci*wq.k + cj*wq.r + ck*wq.i
+        local rk = cr*wq.k + ci*wq.j - cj*wq.i + ck*wq.r
+        local rr = cr*wq.r - ci*wq.i - cj*wq.j - ck*wq.k
+        local wrote = slotSetRel('WeaponLeft', ox, oy, oz, ri, rj, rk, rr)
+
+        -- THE MOVE, AND THE FIFTH ARGUMENT IS THE WHOLE STORY. Passing the item OBJECT hands the game
+        -- the visual it already has; with nil there -- how this was written, and what every note said
+        -- to do -- the game resolves and rebuilds that visual for the new slot, and the rebuild
+        -- dissolves in, which is the fade. With the object passed there is nothing to rebuild, and the
+        -- plane argument still puts the weapon on the first-person plane.
+        --
+        -- shouldDestroyEntity stays false: it is the same entity the reload, the two-hand hold and the
+        -- muzzle publishing all key their state to. keepWorldTransform is NOT passed -- with it the
+        -- weapon is left standing in world space, measured kilometres away.
+        local okR, okA = false, false
+        pcall(function() okR = ts:RemoveItemFromSlot(pl, RIGHT, false) end)
+        pcall(function() okA = ts:AddItemToSlot(pl, LEFT, id, true, w, PLANE_WEAPON) end)
+        if not okA then
+            logAlways('carry: add to the left slot refused (remove=%s)', tostring(okR))
+        end
+        carryOn = okA and true or false
+        carryLeftSlot = SLOT_LEFT_STOCK
+        carryItemID = id
+        if carryOn then
+            if type(SetVRCarryLeft) == 'function' then pcall(function() SetVRCarryLeft(1) end) end
+        else
+            -- put it back the same way it came, object and plane included
+            pcall(function() ts:RemoveItemFromSlot(pl, LEFT, false) end)
+            pcall(function() ts:AddItemToSlot(pl, RIGHT, id, true, w, PLANE_WEAPON) end)
+            slotSetRel('WeaponLeft', 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+        end
+        logAlways('carry: -> LEFT pos (%.3f %.3f %.3f) rot (%.3f %.3f %.3f %.3f) wrote=%s ok=%s',
+                  ox, oy, oz, ri, rj, rk, rr, tostring(wrote), tostring(carryOn))
+    else
+        local from = TweakDBID.new(carryLeftSlot or SLOT_LEFT_STOCK)
+        local w = ts:GetItemInSlot(pl, from)
+        -- THE REACH: the plugin answers it against its own radius (xr_carry_radius), the same one the
+        -- finger preview springs on, so the fingers closing on the weapon and the button taking it
+        -- happen at exactly the same distance.
+        if w then
+            local near = -1
+            if type(GetVRCarryNear) == 'function' then
+                pcall(function() near = GetVRCarryNear() or -1 end)
+            end
+            if near == 0 then
+                logAlways('carry: right hand too far to take it back')
+                return
+            end
+        end
+        local id = carryItemID or (w and w:GetItemID())
+        local okA = false
+        if id then
+            -- the same way back, object and plane both passed. `w` is read BEFORE the remove and stays
+            -- valid across it, because the entity is not destroyed.
+            pcall(function() ts:RemoveItemFromSlot(pl, from, false) end)
+            pcall(function() okA = ts:AddItemToSlot(pl, RIGHT, id, true, w, PLANE_WEAPON) end)
+            if not okA then logAlways('carry: add to the right slot refused') end
+        end
+        carryOn = not okA
+        if okA then
+            carryItemID, carryLeftSlot = nil, nil
+        end
+        -- identity again: PropLeft and the cigarette live on the same bone, and the next hand-over
+        -- depends on this being clean.
+        pcall(function() slotSetRel('WeaponLeft', 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0) end)
+        if type(SetVRCarryLeft) == 'function' then pcall(function() SetVRCarryLeft(0) end) end
+        logAlways('carry: -> RIGHT ok=%s', tostring(okA))
+    end
+end
+
 registerForEvent('onInit', function()
     logf("weapon-aim init")
 end)
 
 registerForEvent('onUpdate', function(dt)
+    pcall(function() carryTick(dt) end)
+    -- carryMeasure is not called any more: it was the post-hoc correction of a placement that
+    -- is now rebuilt from the hands every frame, so there is nothing left for it to correct.
     -- install the GetOrientation VMT instrument + override hooks once, after RTTI is ready
     if not installed then
         installTimer = installTimer + (dt or 0.016)

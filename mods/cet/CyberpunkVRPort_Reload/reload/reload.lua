@@ -250,6 +250,37 @@ local function fadeTick(dt, T)
     if type(VRReloadFingerBlend) == 'function' then pcall(function() VRReloadFingerBlend(fadeS.hand, fadeS.blend) end) end
 end
 
+-- THE PULL-IN, ON A SPRING -- the same shape the two-hand hold uses for the support hand, and asked for
+-- in those words. A grip that lands writes the wrist onto the recorded grip point; without a weight
+-- that is a teleport, so the weight is a damped spring released toward 1 at the grab and the drawn
+-- wrist is drawn from where the hand really is toward the grip by it.
+--
+-- Integrated in fixed 2 ms substeps for the reason every spring in this port is: a frame is too coarse
+-- for it, and integrating once per frame makes the settle depend on the frame rate.
+local PULL_MS   = 180.0     -- how long the hand takes to arrive
+local PULL_ZETA = 0.75      -- a shade under 1: it settles rather than clicks into place
+local pullS = { key = nil, x = 0.0, v = 0.0 }
+local function pullInReset()
+    pullS.key, pullS.x, pullS.v = nil, 0.0, 0.0
+end
+local function pullIn(key, dt)
+    if pullS.key ~= key then pullS.key, pullS.x, pullS.v = key, 0.0, 0.0 end
+    local wn = 6.283185307 / (PULL_MS / 1000.0)
+    local d = dt or 0.016
+    if d < 0.0 then d = 0.0 elseif d > 0.1 then d = 0.1 end
+    local steps = math.floor(d / 0.002) + 1
+    if steps > 64 then steps = 64 end
+    local sdt = d / steps
+    for _ = 1, steps do
+        local a = -wn * wn * (pullS.x - 1.0) - 2.0 * PULL_ZETA * wn * pullS.v
+        pullS.v = pullS.v + a * sdt
+        pullS.x = pullS.x + pullS.v * sdt
+    end
+    -- clamped at 1: a pull-in that overshoots would push the hand THROUGH the grip it is arriving at
+    if pullS.x < 0.0 then pullS.x = 0.0 elseif pullS.x > 1.0 then pullS.x = 1.0 end
+    return pullS.x
+end
+
 -- CET's sandbox has no `_G`, but RED4ext natives are reachable as plain globals by name (referencing an
 -- undefined one yields nil, not an error), so check them directly.
 local function havesNatives()
@@ -1154,6 +1185,9 @@ function M.frame(weapon, slotComp, holder, dt)
     -- gun every frame and the reload then writes its own hold over it, and the plugin sees the pin dropped and
     -- re-taken each frame. The project's own rule from the collision work says it plainly: one owner per hand.
     M.ownedHand = nil
+    -- THE PULL-IN BELONGS TO ONE GRAB. Cleared while nothing is grabbed, so the next grip starts
+    -- from the hand instead of from wherever the last one left the weight.
+    if not slideS.grabbed then pullInReset() end
     if (not weapon) or (not slotComp) or (holder ~= 0 and holder ~= 1) then
         setTrg(0)                                -- the trigger is the game's again the moment the gun is not ours
         -- ...and a hand-turned cylinder does not outlive the grip: angle, momentum and detent all go
@@ -1751,11 +1785,38 @@ function M.frame(weapon, slotComp, holder, dt)
                     if sc.gripSnap and slideS.grip and type(VRHandStopModel) == 'function' then
                         local tx, ty, tz = gripTarget(slideS.grip)
                         M.ownedHand = H                      -- this wrist is ours while it is glued to the slide
-                        VRHandStopModel(H, true, Vector4.new(tx, ty, tz, 1.0))
+                        -- PULLED IN, NOT SNAPPED. The weight is a spring released at the grab (see pullIn);
+                        -- at 0 the wrist is exactly where the player's hand is, at 1 it is on the recorded
+                        -- grip, and in between it travels. The slide itself still answers the RAW hand from
+                        -- the first frame, so this is what is SEEN and never what is measured.
+                        local pw = pullIn('slide', dt)
+                        local px, py, pz = tx, ty, tz
+                        local hrx, hry, hrz = handModel(H)
+                        if hrx and pw < 0.999 then
+                            px = hrx + (tx - hrx) * pw
+                            py = hry + (ty - hry) * pw
+                            pz = hrz + (tz - hrz) * pw
+                        end
+                        VRHandStopModel(H, true, Vector4.new(px, py, pz, 1.0))
                         local gq = slideS.grip.rot
                         if gq and type(VRHandStopRot) == 'function' then
                             local b1, b2, b3, b4 = basisQuat(gFx, gFy, gFz, gDx, gDy, gDz, gSx, gSy, gSz)
                             local ri, rj, rk, rw = qmul(b1, b2, b3, b4, gq[1], gq[2], gq[3], gq[4])
+                            -- the turn comes in on the same weight, from the hand's real orientation --
+                            -- the magazine magnet's own nlerp, for the same reason it is used there
+                            local hq = (type(VRHandRawRot) == 'function') and VRHandRawRot(H) or nil
+                            if hq and pw < 0.999 then
+                                local d2 = hq.i * ri + hq.j * rj + hq.k * rk + hq.r * rw
+                                local sg = (d2 < 0) and -1.0 or 1.0
+                                local qi = hq.i + (ri * sg - hq.i) * pw
+                                local qj = hq.j + (rj * sg - hq.j) * pw
+                                local qk = hq.k + (rk * sg - hq.k) * pw
+                                local qr = hq.r + (rw * sg - hq.r) * pw
+                                local l2 = math.sqrt(qi * qi + qj * qj + qk * qk + qr * qr)
+                                if l2 > 1e-6 then
+                                    ri, rj, rk, rw = qi / l2, qj / l2, qk / l2, qr / l2
+                                end
+                            end
                             VRHandStopRot(H, 1, ri, rj, rk, rw)
                         end
                     end

@@ -203,6 +203,27 @@ extern "C" __declspec(dllexport) const char* CyberpunkVR_VrcamComponentName() { 
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_VrcamCamNameHash() {
     return cname_hash(g_vrcam_component);
 }
+
+// ...AND ITS BRAINDANCE TWIN. A braindance swaps the player for braindance_replacer.ent, which carries
+// the same components under vrcam_braindance_<W>x<H> (see tools/gen_vrcam_assets.py); the selector
+// enables whichever set belongs to the entity that is live, never both. The camera writer therefore has
+// to accept either name as "this is the second view", or the twin renders from wherever its binding
+// left it with nothing writing its transform -- measured as a white frame, or a view somewhere outside
+// the city, in the left eye.
+//
+// Kept across the rollback of the render side to 0.1.5: this is a NAME, not a render mechanism, and
+// the braindance camera writer in VrCore.cpp is its only caller.
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_VrcamBdCamNameHash() {
+    const char* sel = g_vrcam_component;                 // "vrcam_<W>x<H>"
+    if (!sel || !*sel) return 0;
+    static const char kPrefix[] = "vrcam_";
+    const size_t plen = sizeof(kPrefix) - 1;
+    if (std::strncmp(sel, kPrefix, plen) != 0) return 0;
+    char name[96];
+    const int n = std::snprintf(name, sizeof(name), "vrcam_braindance_%s", sel + plen);
+    if (n <= 0 || static_cast<size_t>(n) >= sizeof(name)) return 0;
+    return cname_hash(name);
+}
 extern "C" __declspec(dllexport) const char* CyberpunkVR_VrcamCameraName()    { return g_vrcam_camera; }
 extern "C" __declspec(dllexport) uint64_t    CyberpunkVR_VrcamCtxKey()        { return g_vrcam_ctx_key.load(); }
 // 1 when the key came from the file, 0 when the built-in default is in use.
@@ -251,6 +272,23 @@ thread_local DXGI_FORMAT t_mirror_copy_rtv_format = DXGI_FORMAT_UNKNOWN;
 thread_local ID3D12GraphicsCommandList* t_mirror_copy_list = nullptr;
 thread_local uint32_t t_mirror_src_state =
     (uint32_t)D3D12_RESOURCE_STATE_RENDER_TARGET;
+// AND WHETHER THAT NUMBER WAS EVER OBSERVED FOR THIS RESOURCE.
+//
+// The value above is a SEED, not a measurement: the engine is known to activate the target
+// with ALIASING + transition->RENDER_TARGET + Discard, so RENDER_TARGET is the state it
+// usually rests in. Usually is not always, and a barrier whose StateBefore is wrong is a lie
+// told to the driver's resource-state machine.
+//
+// That machine is where this port's recurring crash lives. Read at instruction level on
+// 2026-08-29: nvwgf2umx+0x757BC9 computes a resource state out of the D3D12 state masks
+// (0x1098, 0x2088, 0x7E, & 0xA180FFFE), arrives at 0x200 = INDIRECT_ARGUMENT, and then does
+// `mov rdx,[rsi+0x30]; cmp [rdx+0x88],2` on a binding whose resource record is null. Twelve
+// crashes, byte-identical registers every time, and the D3D12 debug layer -- which validates
+// exactly these transitions -- suppresses it completely.
+//
+// So: false until hk_ResourceBarrier has actually seen a transition of THIS resource on THIS
+// thread. When it is false the copy is skipped rather than issued on an assumption.
+thread_local bool t_mirror_src_state_seen = false;
 // Work fn of the node currently recording on this thread (set at dispatch; nested
 // dispatches clobber it -- acceptable for attribution probes).
 thread_local uintptr_t t_current_node_work = 0;
@@ -351,6 +389,20 @@ thread_local bool t_tm_consumed = true;
 // necessarily RENDER_TARGET at the node epilogue -> the wrong barrier StateBefore made
 // the engine's Close/submit stall = the freeze). Init to RENDER_TARGET at capture.
 thread_local uint32_t t_tm_rt0_state = (uint32_t)D3D12_RESOURCE_STATE_RENDER_TARGET;
+// Same rule as t_mirror_src_state_seen above: the initialiser is a seed, not an observation.
+thread_local bool t_tm_rt0_state_seen = false;
+// The finished-frame slot, per thread for the reason recorded beside CyberpunkVR_FinalGrab: the
+// engine records nodes on several threads at once, so a global handed the epilogue a command list
+// belonging to ANOTHER thread, or one from the previous frame, by then closed and recycled.
+//
+// t_final_writes is carried for fidelity with the mechanism as authored and stays 0 in this branch:
+// the two sites that incremented it hang off vrcam_list_note, which is 0.1.6-only, and the copy gate
+// never consulted it there either.
+thread_local bool t_tm_from_final = false;
+thread_local ID3D12Resource*            t_final_res = nullptr;
+thread_local uint32_t                   t_final_state = 0;
+thread_local ID3D12GraphicsCommandList* t_final_list = nullptr;
+thread_local uint32_t                   t_final_writes = 0;
 // True once the tonemap RT0 source is available (DLSS path). When set, the Final2D
 // copy is skipped (tonemap source wins); when NOT set (no DLSS), the Final2D copy runs
 // as fallback -> fixes the "washed out without DLSS" regression.

@@ -165,7 +165,9 @@ void EnsureLiveControlFileExists() {
     // used, so the time constant belongs to the setting and not to the frame rate. The key it replaces
     // was a fraction per FRAME, and 0.45 of that was about 190 ms at 52 fps -- three times heavier than
     // the reference and applied to the raw pose rather than to what the arms read.
-    fprintf(file, "xr_hand_lerp_speed=15.0\n");
+    // 25, not 15: the per-class values ship at 25/15/15/10/40, and the base is what a class of 0
+    // falls back to -- a base below the commonest class made the fallback the odd one out.
+    fprintf(file, "xr_hand_lerp_speed=25.0\n");
     fprintf(file, "xr_pair_lock=0\n");
     fprintf(file, "xr_render_pose_submit=1\n");
     fprintf(file, "xr_pose_lag=1\n");

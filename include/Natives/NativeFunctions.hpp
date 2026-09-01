@@ -129,6 +129,28 @@ void VRWristGuard(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, 
 // Which surveillance camera the player took over, published from a CET tick because the plugin's own
 // poll runs on the worker thread and must not call the script VM. See src/Natives/RemoteCamera.cpp.
 void VRRemoteCamera(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// Where the live player's camera component is, so MAIN can be told from a replacer's camera of the
+// same name while a braindance is running.
+void VRPlayerCamera(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// Turn the braindance FOV write on or off live.
+void VRBdSceneFov(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+void VRBdFovWrite(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// The HUD composite in the second eye during a braindance: the A/B for the white eye.
+void VRHudSecondEye(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// ...and the head rotation written into the braindance view.
+void VRBdHeadWrite(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// The scene's own camera pose, for a braindance: the second eye's lens, because neither side can name
+// the object the scene renders through.
+void VRSceneCamera(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// The viewpoint offset of a taken-over camera, in the lens's own frame (right, forward, up), metres.
+void VRDevCamOffset(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// The taken-over entity's id, as a decimal string -- the exact identity of the camera to follow.
+void VRTakeoverEntity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// 1 while a UI overlay that owns the B button is open (phone, radio port, vehicle list).
+void VRUiPopup(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
+// A braindance is running, and the FOV the game reports for its camera -- the only identity script can
+// give for a camera that belongs to a scene.
+void VRBraindance(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
 
 void VRScannerSlotGet(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, float* aOut, int64_t);
 void VRScannerSlotSet(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
@@ -136,6 +158,24 @@ void VRScannerSlotSave(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int3
 // 1 while a device screen (computer, terminal) is up; lets the right stick's Y reach the game's UI.
 void SetVRDeviceScreen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
 void SetVRMuzzlePos(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+// The aim line's hit point and surface normal, from the weapon module's own raycast.
+void SetVRAimHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+// The equipped weapon's class, from its record: 0 unknown, 1 handgun/revolver, 2 rifle, 3 shotgun.
+void SetVRWeaponClass(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+// The reach the carry's finger preview and its take gate share, metres (-1 = not carrying).
+void GetVRCarryReach(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void* aOut, int64_t);
+// ...and the same question already answered against the plugin's own radius: 1 near, 0 far, -1 unknown.
+void GetVRCarryNear(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
+// The resting RIGHT hand: capture it with empty hands, ask what came of it, switch it on and off.
+void VRRestFingerCaptureRight(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
+void VRRestFingerStatusRight(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
+void VRRestFingerApplyRight(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
+// Raised while the weapon is carried in the left hand: starts the wrist's blend out of the hold.
+void SetVRCarryLeft(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+// Switches the two-hand weld off while the weapon is carried in the left hand.
+void SetVRTwoHandSuppress(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+// One component of the left-hand carry offset, from the captured two-hand hold.
+void GetVRCarryOffset(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void* aOut, int64_t);
 void SetVRMuzzleQuat(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void SetVRPairLead(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void SetVRPairSlew(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);

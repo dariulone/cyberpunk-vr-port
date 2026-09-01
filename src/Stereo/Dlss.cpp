@@ -125,10 +125,15 @@ static __int64 __fastcall Detour_SlConstants(void* a1, void* a2, void* a3) {
                     CyberpunkVR_DebugMainProjYY = g_main_proj_yy;
                 } else if (key == g_vrcam_ctx_key && g_main_cam_fov > 0.f) {
                     // ctx scalars: drive vrcam culling/LOD to match main (screen-space).
-                    c[0x90 / 4] = g_main_cam_fov;        // fov
-                    c[0x9C / 4] = g_main_cam_zoom;       // zoom
-                    c[0xB0 / 4] = g_main_cam_near;       // near
-                    c[0xB4 / 4] = g_main_cam_far;        // far
+                    // ONE FIELD AT A TIME. The context steers culling; the component's own fov
+                    // steers what is actually rendered. Handing over near/far makes the light
+                    // cluster grid bin along MAIN's depth slicing while this view's pixels look
+                    // themselves up along their own -- see the note by CyberpunkVR_VrcamCamFields.
+                    const uint32_t camf = CyberpunkVR_VrcamCamFields;
+                    if (camf & 1u) c[0x90 / 4] = g_main_cam_fov;    // fov
+                    if (camf & 2u) c[0x9C / 4] = g_main_cam_zoom;   // zoom
+                    if (camf & 4u) c[0xB0 / 4] = g_main_cam_near;   // near
+                    if (camf & 8u) c[0xB4 / 4] = g_main_cam_far;    // far
 
                     // ---- VRCAM vertical FOV: the only input the RTT projection has --------
                     // Established by measurement (engine_re/dumps/F_rtt_camera_fov.md,
@@ -382,6 +387,10 @@ void STDMETHODCALLTYPE hk_RSSetViewports(
     // snapshot can never barrier a resource whose render-target state belonged to a list that
     // no longer exists.
     t_hud_rt_bound = nullptr; t_hud_rt_list = nullptr;
+    // A RESET ENDS THIS LIST'S IDENTITY, for the same reason as the HUD bind above. Whatever the
+    // finished-frame path latched or learned on this list belonged to the previous recording; carrying
+    // it over would let a list that MAIN now records into look like the second view's.
+    if (t_final_list == self) { t_final_res = nullptr; t_final_list = nullptr; t_final_writes = 0; }
     const CommandListVtableHook* e = command_list_hook_entry(self);
     PFN_GfxReset orig = e ? e->reset_original : nullptr;
     return orig ? orig(self, alloc, pso) : S_OK;

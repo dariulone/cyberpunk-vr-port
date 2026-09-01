@@ -29,6 +29,21 @@
 // DISCRETE MOVEMENT SPEED. 1 = a push past the deadzone moves at ONE speed whatever the deflection,
 // which is what the keyboard does (LeftY_Axis binds IK_W at val="1.0"); 0 = the pad's analogue
 // magnitude, where the speed rides the thumb.
+// EVERYTHING DEFAULT WHILE A MENU OR A BRAINDANCE OWNS THE SCREEN.
+//
+// Asked for directly: "чтобы в меню все бинды и т.д были дефолтные... наши override bindings не
+// применялись", and the same for a braindance. Every remap in this file was written for gameplay -- the
+// grip standing in for a shoulder, the ear gesture on LB, the dash on B, the magazine drop's mask, the
+// walk tiers on the left stick -- and in a menu they are at best redundant and at worst they eat a
+// button the menu itself needs. With this on, a menu or a braindance gets the raw controller: buttons,
+// triggers and sticks merged as they come, and nothing else.
+//
+// The one thing that goes with it: the grips no longer page menu tabs (that was a port remap too).
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_InputDefaultInUi = 1;
+// How long the magazine drop stays blocked after a UI overlay closes. Spamming the close button is what
+// this is for: the popup goes away on the first press and the next one would land in gameplay, where B
+// drops the magazine.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_PopupMagBlockMs = 1000;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_MoveTiers = 1;
 // HOW LONG THE STICK MUST STAY AT THE STOP BEFORE IT SPRINTS, milliseconds. It used to be instant, and
 // with discrete speed that is wrong by construction: any push already runs at full speed, so the stick
@@ -101,6 +116,8 @@ extern "C" __declspec(dllexport) float   CyberpunkVR_ScannerStickNavRearm = 0.50
 // read out of. Each is separately switchable because each takes a button away from gameplay.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerFaceNav     = 1;   // left Y up, left X down / apply
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerTriggerTag  = 1;   // right trigger tags, and does not fire
+// Raised by the weapon module while the weapon is carried in the LEFT hand (see TwoHandGrip.cpp).
+extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryLeft;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerStickTab    = 1;   // right stick click changes the tab
 // THE SCANNER'S ZOOM: hold the LEFT trigger and the right stick zooms, in the game's own steps.
 // The right stick is busy -- crouch, dash, pitch, snap turn -- so the trigger is the modifier that
@@ -276,8 +293,14 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // (With a weapon actually drawn the phone still cannot be closed by B. Fixing that needs a
     // phone-open signal, and the game's own is the blackboard bool UI_ComDevice.ContactsActive --
     // which is what PhoneSystem.IsPhoneOpened reads. Not wired yet; this covers the common case.)
+    // ...AND NOT WHILE AN OVERLAY OWNS B. The phone, the radio port and the vehicle list are not menus
+    // -- menu mode stays 0 for all three -- so this mask applied and there was no way to close any of
+    // them with a weapon in hand. The script publishes which of them is up (VRUiPopup); B then reaches
+    // the game as Exit_Button, and the magazine drop is held back instead (see the publish below), so
+    // the press that closes a popup cannot also eject a magazine.
+    const bool uiPopupOpen = g_uiPopupOpen.load(std::memory_order_relaxed) != 0;
     const uint16_t kPortOwnedButtons =
-        static_cast<uint16_t>(0x0080 | (g_hasWeaponEquipped ? 0x2000 : 0x0000));
+        static_cast<uint16_t>(0x0080 | ((g_hasWeaponEquipped && !uiPopupOpen) ? 0x2000 : 0x0000));
     // X AND B BOTH, and B is the correction: letting the raw B through in a car looked more
     // forgiving and was the opposite. B is ExitVehicle_Button, so a stray press ejects the
     // player from a moving car -- which reads as being thrown across the street, not as a
@@ -289,6 +312,42 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     if (gameplayScreen) ownedNow = mounted ? kVehicleOwnedButtons : kPortOwnedButtons;
     pState->Gamepad.wButtons |=
         (vr.buttons & static_cast<uint16_t>(~ownedNow));
+
+    // THE VANILLA PAD, WHILE A MENU OR A BRAINDANCE IS UP. See CyberpunkVR_InputDefaultInUi.
+    //
+    // Placed here because everything below this line is a port remap of one kind or another, so a
+    // return is the whole implementation: the mask above is undone (it only ever removed bits), the raw
+    // triggers and sticks are merged the way the blocks below would have merged the shaped ones, and
+    // the shared slots the CET mods read are put down -- a gesture must not fire from a menu press, and
+    // a slot left standing at 1 would keep firing after the menu closes.
+    if (CyberpunkVR_InputDefaultInUi != 0 &&
+        (g_menuModeValue != 0 || g_bdActive.load(std::memory_order_relaxed) != 0)) {
+        pState->Gamepad.wButtons |= vr.buttons;
+        const BYTE ltUi = FloatToBYTE(vr.leftTrigger);
+        const BYTE rtUi = FloatToBYTE(vr.rightTrigger);
+        if (ltUi > pState->Gamepad.bLeftTrigger)  pState->Gamepad.bLeftTrigger  = ltUi;
+        if (rtUi > pState->Gamepad.bRightTrigger) pState->Gamepad.bRightTrigger = rtUi;
+        if (fabsf(vr.leftThumbX)  > fabsf(pState->Gamepad.sThumbLX / 32767.0f))
+            pState->Gamepad.sThumbLX = FloatToSHORT(vr.leftThumbX);
+        if (fabsf(vr.leftThumbY)  > fabsf(pState->Gamepad.sThumbLY / 32767.0f))
+            pState->Gamepad.sThumbLY = FloatToSHORT(vr.leftThumbY);
+        if (fabsf(vr.rightThumbX) > fabsf(pState->Gamepad.sThumbRX / 32767.0f))
+            pState->Gamepad.sThumbRX = FloatToSHORT(vr.rightThumbX);
+        if (fabsf(vr.rightThumbY) > fabsf(pState->Gamepad.sThumbRY / 32767.0f))
+            pState->Gamepad.sThumbRY = FloatToSHORT(vr.rightThumbY);
+        // The discrete ones go down; the analog trigger slots keep their real value, because the hands'
+        // finger curl is drawn from them and a menu is no reason for a fist.
+        OpenXRManager::Get().SetSharedSlot(30, 0.0f);
+        OpenXRManager::Get().SetSharedSlot(49, 0.0f);
+        OpenXRManager::Get().SetSharedSlot(vrshared::kRightSecondaryBtn, 0.0f);
+        OpenXRManager::Get().SetSharedSlot(vrshared::kLeftSecondaryBtn, 0.0f);
+        OpenXRManager::Get().SetSharedSlot(vrshared::kRightStickClick, 0.0f);
+        OpenXRManager::Get().SetSharedSlot(vrshared::kLeftGripPressed, 0.0f);
+        OpenXRManager::Get().SetSharedSlot(vrshared::kRightTriggerAnalog, vr.rightTrigger);
+        OpenXRManager::Get().SetSharedSlot(vrshared::kLeftTriggerAnalog, vr.leftTrigger);
+        pState->dwPacketNumber++;
+        return r;
+    }
 
     // MENU-ONLY: right grip = RB (right shoulder) for tab navigation to the RIGHT,
     // symmetric with the left grip's LB. The right grip is deliberately NEVER merged as
@@ -552,7 +611,21 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // Face buttons B / Y as flags, for gestures that want a button (the physical reload drops the magazine on
     // B). Y still reaches the game through the merge above; B no longer does -- it is the port's now, so a
     // magazine drop cannot also dodge.
-    OpenXRManager::Get().SetSharedSlot(vrshared::kRightSecondaryBtn, (vr.buttons & 0x2000) ? 1.0f : 0.0f);
+    // THE MAGAZINE DROP, AND THE SECOND AFTER A POPUP CLOSES.
+    //
+    // This slot is what the reload module reads for the drop, so blocking it here is what makes the
+    // close press harmless: while an overlay is up B belongs to the overlay, and for a moment after it
+    // goes the next press of a spammed close cannot eject a magazine either. Asked for exactly that
+    // way, with the window as a live key rather than a constant.
+    {
+        const unsigned long long closedMs = g_uiPopupClosedMs.load(std::memory_order_relaxed);
+        const int32_t blockMs = (CyberpunkVR_PopupMagBlockMs > 0) ? CyberpunkVR_PopupMagBlockMs : 0;
+        const bool justClosed = closedMs != 0ull &&
+                                (GetTickCount64() - closedMs) < static_cast<unsigned long long>(blockMs);
+        const bool magBlocked = uiPopupOpen || justClosed;
+        OpenXRManager::Get().SetSharedSlot(vrshared::kRightSecondaryBtn,
+                                           (!magBlocked && (vr.buttons & 0x2000)) ? 1.0f : 0.0f);
+    }
     OpenXRManager::Get().SetSharedSlot(vrshared::kLeftSecondaryBtn,  (vr.buttons & 0x8000) ? 1.0f : 0.0f);
     // The right stick click, which the merge above deliberately does NOT pass on: the physical reload uses it as
     // the slide release. Published as a flag; the Lua side takes the rising edge.
@@ -583,6 +656,11 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     const float trgMode = OpenXRManager::Get().GetSharedSlot(vrshared::kTriggerOverride);
     if (trgMode > 1.5f)      pState->Gamepad.bRightTrigger = 255;
     else if (trgMode > 0.5f) pState->Gamepad.bRightTrigger = 0;
+
+    // AND NOTHING FIRES WHILE THE WEAPON IS IN THE LEFT HAND. Asked for with the feature: the right
+    // hand has let go of the gun, so a trigger under that finger is pulling on nothing. Placed after
+    // the override above because "cannot fire at all" outranks a cocked hammer's early break.
+    if (CyberpunkVR_CarryLeft != 0) pState->Gamepad.bRightTrigger = 0;
 
     // THE SCANNER'S TRIGGER IS A TAG AND NOT A SHOT. While the gesture is held the trigger marks the
     // target (Tag_Button, emitted further down), and a tag that also fires a round is a tag nobody can

@@ -423,7 +423,19 @@ using SignalFn = HRESULT(STDMETHODCALLTYPE*)(ID3D12CommandQueue*, ID3D12Fence*, 
 struct QueueSignalState {
     ID3D12Fence* fence = nullptr;
     UINT64 value = 0;
+    // WHEN it was signalled. Without this the table below is a list of every queue the game has
+    // EVER signalled, and the depth copy's cross-queue wait blocks on all of them forever.
+    uint64_t tickMs = 0;
 };
+// A queue that has not signalled for this long is not part of the current frame's work; waiting
+// on its last value is waiting on something nothing is going to advance.
+static const uint64_t kSignalFreshMs = 250;
+// And one this old is gone for good -- drop it and let go of its fence.
+static const uint64_t kSignalDeadMs  = 5000;
+// Counted so the guard can never become a silent behaviour change.
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugQueueWaitsIssued  = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugQueueWaitsSkipped = 0;
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugQueueWaitsDropped = 0;
 std::mutex g_queueSignalMutex;
 std::unordered_map<ID3D12CommandQueue*, QueueSignalState> g_queueLastSignal;
 // Dedicated mutex for the hooked-vtable set. We CANNOT reuse g_vtableMutex
@@ -450,6 +462,7 @@ HRESULT STDMETHODCALLTYPE HookedQueueSignal(ID3D12CommandQueue* queue, ID3D12Fen
             entry.fence = fence;
         }
         entry.value = value;
+        entry.tickMs = GetTickCount64();
     }
     return hr;
 }
@@ -473,20 +486,49 @@ void TryHookQueueSignalVtable(ID3D12CommandQueue* queue) {
 // recent signal; harmless if none tracked yet.
 extern "C" void CyberpunkVRPort_WaitOnAllGameSignals(ID3D12CommandQueue* consumerQueue) {
     if (!consumerQueue) return;
+    // ONLY QUEUES THAT ARE STILL RUNNING. This used to wait on the last signal of every queue the
+    // game had ever signalled, and that table was never pruned -- so a queue the engine stops feeding
+    // (which is exactly what happens when the pause menu opens) left a Wait on our consumer queue that
+    // nothing was ever going to satisfy. A GPU wait that never resolves is a hang for the whole
+    // device, and it reads in the crash report as DXGI_ERROR_DEVICE_HUNG (0x887a0006) with DRED's
+    // PageFaultVA at 0 and every command list of the next frame marked "Not started": the GPU did not
+    // fault, it never began.
+    //
+    // Fresh means signalled within kSignalFreshMs. Anything older is not part of the frame we are
+    // about to copy against and cannot race it; anything past kSignalDeadMs is dropped outright, which
+    // also stops the table -- and the fence references it holds -- from growing for the whole session.
     std::vector<QueueSignalState> snapshot;
+    const uint64_t now = GetTickCount64();
     {
         std::lock_guard<std::mutex> lock(g_queueSignalMutex);
         snapshot.reserve(g_queueLastSignal.size());
-        for (auto& kv : g_queueLastSignal) {
-            if (kv.first == consumerQueue) continue; // no self-wait
-            if (kv.second.fence) {
-                kv.second.fence->AddRef();
-                snapshot.push_back(kv.second);
+        for (auto it = g_queueLastSignal.begin(); it != g_queueLastSignal.end(); ) {
+            const uint64_t age = (now >= it->second.tickMs) ? now - it->second.tickMs : 0;
+            if (it->second.fence && age > kSignalDeadMs) {
+                it->second.fence->Release();
+                ++CyberpunkVR_DebugQueueWaitsDropped;
+                it = g_queueLastSignal.erase(it);
+                continue;
             }
+            if (it->first != consumerQueue && it->second.fence) {
+                if (age <= kSignalFreshMs) {
+                    it->second.fence->AddRef();
+                    snapshot.push_back(it->second);
+                } else {
+                    ++CyberpunkVR_DebugQueueWaitsSkipped;
+                }
+            }
+            ++it;
         }
     }
     for (auto& s : snapshot) {
-        consumerQueue->Wait(s.fence, s.value);
+        // Already complete on the GPU: the copy cannot race it, so do not put a wait in the way.
+        if (s.fence->GetCompletedValue() < s.value) {
+            consumerQueue->Wait(s.fence, s.value);
+            ++CyberpunkVR_DebugQueueWaitsIssued;
+        } else {
+            ++CyberpunkVR_DebugQueueWaitsSkipped;
+        }
         s.fence->Release();
     }
 }

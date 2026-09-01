@@ -18,14 +18,22 @@ local VrcamSelect = {
     want         = true,    -- false once the overlay asks for VRCAM off
     appliedName  = nil,     -- what we last actually applied (nil = nothing applied yet)
     appliedWant  = nil,
+    appliedId    = nil,     -- ...and to WHICH entity, because the player can be replaced under us
     lastError    = nil,
     ticksToRetry = 0,
     enabledCount = 0,
     seenCount    = 0,
+    prevPlayer   = nil,     -- the entity we last applied to, so it can be let go of
+    prevId       = nil,
+    onBdReplacer = false,   -- the live player is the braindance replacer
 }
 
 local RETRY_TICKS = 30      -- ~150 ms @ 200 fps; the player is not there during load
 local NAME_PREFIX = "vrcam_"
+-- THE BRAINDANCE REPLACER'S OWN SET. A braindance swaps the player for braindance_replacer.ent, so the
+-- same components are authored there under this prefix -- same virtualCameraName, same dtex, so nothing
+-- downstream can tell which of the two is live, which is the point.
+local BD_PREFIX = "vrcam_braindance_"
 
 local function safeCall(obj, methodName, ...)
     if obj == nil then return false, "nil obj" end
@@ -96,6 +104,28 @@ local function setEnabled(comp, want)
     return false, "no way to toggle"
 end
 
+-- Turn every vrcam_* off on an entity we are walking away from. Two enabled render-to-texture
+-- cameras share one feed, and that is the flicker: the parked entity's transform lands in the same
+-- place ours does, every other frame.
+local function releaseEntity(ent)
+    if ent == nil then return 0 end
+    local okL, comps = safeCall(ent, "GetComponents")
+    if not okL or not comps then return 0 end
+    local n = 0
+    pcall(function() n = #comps end)
+    local off = 0
+    for i = 1, n do
+        local c = comps[i]
+        local nm = c and cnameToString(c.name) or nil
+        if nm and nm:sub(1, #NAME_PREFIX) == NAME_PREFIX then
+            local ok = safeCall(c, "Toggle", false)
+            if not ok then pcall(function() c.isEnabled = false end) end
+            off = off + 1
+        end
+    end
+    return off
+end
+
 local function apply(player, wanted, want_on)
     if not wanted then return false end
 
@@ -110,6 +140,29 @@ local function apply(player, wanted, want_on)
         VrcamSelect.lastError = "player has no components yet"
         return false
     end
+
+    -- WHICH OF THE TWO SETS THIS ENTITY CARRIES. The replacer's components differ only in name, so the
+    -- resolution suffix is what is kept and the prefix is what is chosen.
+    local suffix = wanted:sub(#NAME_PREFIX + 1)
+    local wantedBd = BD_PREFIX .. suffix
+    local hasBd = false
+    for i = 1, n do
+        local c = comps[i]
+        local nm = c and cnameToString(c.name) or nil
+        if nm == wantedBd then hasBd = true break end
+    end
+    if hasBd then wanted = wantedBd end
+    VrcamSelect.onBdReplacer = hasBd
+
+    -- ...AND LET GO OF THE ENTITY WE CAME FROM, once, on the frame the player changes.
+    local id = nil
+    pcall(function() id = tostring(player:GetEntityID().hash) end)
+    if id ~= nil and VrcamSelect.prevId ~= nil and id ~= VrcamSelect.prevId then
+        local off = releaseEntity(VrcamSelect.prevPlayer)
+        print(string.format("[Stereo.VRCAM] player changed (%s -> %s): %d component(s) released",
+                            tostring(VrcamSelect.prevId), tostring(id), off))
+    end
+    VrcamSelect.prevPlayer, VrcamSelect.prevId = player, id
 
     local seen, enabled, disabled, found, how = 0, 0, 0, false, nil
     local enabledComp = nil
@@ -200,14 +253,25 @@ function VrcamSelect.tick(dt)
     -- Re-apply only when the DESIRED state changed. The old guard compared tostring(player),
     -- but CET hands out a fresh wrapper on every Game.GetPlayer() call, so that string differed
     -- every time and the module re-applied (and logged) a few times a second.
+    --
+    -- ...AND WHEN THE PLAYER ITSELF CHANGES, which is the case this guard used to miss entirely. A
+    -- braindance swaps the player for braindance_replacer.ent, a whole entity of its own carrying its
+    -- own set of these components. The desired NAME does not change across that swap, so keying on the
+    -- name alone left the replacer's cameras disabled and the parked original's enabled -- measured: one
+    -- eye in the recording, the other looking from 2.8 km away. The entity id is what changes, so it is
+    -- part of the key. It is read off the game object rather than the wrapper, so it is stable.
+    local id = nil
+    pcall(function() id = tostring(player:GetEntityID().hash) end)
     if VrcamSelect.appliedName == VrcamSelect.selected and
-       VrcamSelect.appliedWant == VrcamSelect.want then
+       VrcamSelect.appliedWant == VrcamSelect.want and
+       VrcamSelect.appliedId == id then
         return
     end
 
     if apply(player, VrcamSelect.selected, VrcamSelect.want) then
         VrcamSelect.appliedName = VrcamSelect.selected
         VrcamSelect.appliedWant = VrcamSelect.want
+        VrcamSelect.appliedId   = id
     end
 end
 
