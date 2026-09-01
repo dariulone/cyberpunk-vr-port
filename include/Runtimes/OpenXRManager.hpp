@@ -800,7 +800,12 @@ public:
     void MaybeLogRuntimeFovDetails(const XrFovf& left, const XrFovf& right, float runtimeHfovDeg, float runtimeVfovDeg, float runtimeIpdMeters);
     bool GetCurrentEyeCenterOffset(int eye, XrVector3f* out);
     bool GetCurrentEyeFov(int eye, XrFovf* out);
-    
+    // Pitch/yaw (radians) for "Center box on lens". Camera + submit, no FOV change.
+    float GetViewBoxPitchRad();
+    float GetViewBoxYawRad();
+    float GetViewBoxManualSlideRad();
+    float GetViewBoxManualYawRad();
+    void ApplyViewBoxPitch(OpenXRHeadPose* pose);
     bool GetRecommendedRenderTargetSize(uint32_t* width, uint32_t* height) const;
 
     bool IsInitialized() const { return m_initialized; }

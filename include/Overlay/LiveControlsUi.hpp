@@ -97,6 +97,9 @@ struct LiveControlsUiState {
     // xrVehicleThrottleTrim of full travel per second.
     int xrVehicleGunTrigger;
     float xrVehicleThrottleTrim;
+    int xrLensBoxCenter;
+    float xrViewBoxPitchDeg;
+    float xrViewBoxYawDeg;
 };
 
 // Read-only snapshot for the compact ADS-camera diagnostic (dabinn, TofuExpress f8a827eb).

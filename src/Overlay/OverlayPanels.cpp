@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
 #include "im3d.h"
@@ -107,11 +108,121 @@ bool InputIntClamped(const char* label, int* value, int minValue, int maxValue) 
     return changed;
 }
 
+static constexpr float kSliderArrowStep = 0.1f;
+
+static void DrawResetArrowIcon(ImDrawList* drawList, ImVec2 center, float radius, ImU32 color) {
+    // Counter-clockwise circular arrow (ReShade-style undo), Y-down screen space.
+    const float thickness = (1.5f > radius * 0.32f) ? 1.5f : (radius * 0.32f);
+    const float a0 = -IM_PI * 0.15f;
+    const float sweep = IM_PI * 1.65f;
+    const int segs = 16;
+    ImVec2 prev(center.x + cosf(a0) * radius, center.y + sinf(a0) * radius);
+    for (int i = 1; i <= segs; ++i) {
+        const float a = a0 - sweep * (static_cast<float>(i) / static_cast<float>(segs));
+        const ImVec2 p(center.x + cosf(a) * radius, center.y + sinf(a) * radius);
+        drawList->AddLine(prev, p, color, thickness);
+        prev = p;
+    }
+    const float tipA = a0 - sweep;
+    const ImVec2 tip(center.x + cosf(tipA) * radius, center.y + sinf(tipA) * radius);
+    const float tx = sinf(tipA);
+    const float ty = -cosf(tipA);
+    const float nx = -ty;
+    const float ny = tx;
+    const float head = radius * 0.72f;
+    drawList->AddTriangleFilled(
+        ImVec2(tip.x + tx * head * 0.15f, tip.y + ty * head * 0.15f),
+        ImVec2(tip.x - tx * head + nx * head * 0.42f, tip.y - ty * head + ny * head * 0.42f),
+        ImVec2(tip.x - tx * head - nx * head * 0.42f, tip.y - ty * head - ny * head * 0.42f),
+        color);
+}
+
+static bool ResetToDefaultButton(const char* id) {
+    const float size = ImGui::GetFrameHeight();
+    ImGui::PushID(id);
+    ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
+    const bool pressed = ImGui::InvisibleButton("##reset", ImVec2(size, size));
+    ImGui::PopItemFlag();
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const bool hovered = ImGui::IsItemHovered();
+    const ImU32 bg = hovered ? IM_COL32(48, 48, 48, 255) : IM_COL32(28, 28, 28, 255);
+    const ImU32 border = IM_COL32(64, 64, 64, 255);
+    drawList->AddRectFilled(min, max, bg, 2.0f);
+    drawList->AddRect(min, max, border, 2.0f);
+    const ImVec2 center((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
+    DrawResetArrowIcon(drawList, center, size * 0.28f, IM_COL32(255, 255, 255, 255));
+    if (hovered) {
+        ImGui::SetTooltip("Reset to default");
+    }
+    ImGui::PopID();
+    return pressed;
+}
+
+static bool ApplySliderArrowStep(float* value, float minValue, float maxValue) {
+    if (!ImGui::IsItemFocused() || ImGui::IsItemActive()) {
+        return false;
+    }
+    float delta = 0.0f;
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true) ||
+        ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, true)) {
+        delta = -kSliderArrowStep;
+    } else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true) ||
+               ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, true)) {
+        delta = kSliderArrowStep;
+    } else {
+        return false;
+    }
+    ImGui::NavMoveRequestCancel();
+    const float next = std::clamp(*value + delta, minValue, maxValue);
+    if (next == *value) {
+        return false;
+    }
+    *value = next;
+    return true;
+}
+
+bool SliderFloatReset(const char* label, float* value, float minValue, float maxValue,
+                      const char* format, float defaultValue) {
+    const float resetW = ImGui::GetFrameHeight();
+    const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
+    float sliderW = ImGui::CalcItemWidth() - resetW - gap;
+    if (sliderW < 80.0f) {
+        sliderW = 80.0f;
+    }
+    ImGui::SetNextItemWidth(sliderW);
+    bool changed = ImGui::SliderFloat(label, value, minValue, maxValue, format);
+    changed |= ApplySliderArrowStep(value, minValue, maxValue);
+    ImGui::SameLine(0.0f, gap);
+    if (ResetToDefaultButton(label)) {
+        if (*value != defaultValue) {
+            *value = std::clamp(defaultValue, minValue, maxValue);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 bool DrawFovControl(LiveControlsUiState& state) {
     bool changed = false;
+    // Last non-zero (manual) FOV for this session. Checking the runtime box must not
+    // throw it away, so unchecking restores 86 instead of snapping back to 112.
+    static float s_savedManualFov = 0.0f;
+    if (state.xrForceFov > 0.0f) {
+        s_savedManualFov = state.xrForceFov;
+    }
+
     bool useRuntime = state.xrForceFov <= 0.0f;
     if (ImGui::Checkbox("Use OpenXR runtime projection FOV", &useRuntime)) {
-        state.xrForceFov = useRuntime ? 0.0f : 112.0f;
+        if (useRuntime) {
+            if (state.xrForceFov > 0.0f) {
+                s_savedManualFov = state.xrForceFov;
+            }
+            state.xrForceFov = 0.0f;
+        } else {
+            state.xrForceFov = (s_savedManualFov > 0.0f) ? s_savedManualFov : 112.0f;
+        }
         changed = true;
     }
 
@@ -119,8 +230,10 @@ bool DrawFovControl(LiveControlsUiState& state) {
         ImGui::BeginDisabled();
     }
     float fov = state.xrForceFov <= 0.0f ? 112.0f : state.xrForceFov;
-    if (ImGui::SliderFloat("OpenXR projection layer FOV", &fov, 80.0f, 140.0f, "%.1f deg")) {
+    if (SliderFloatReset("OpenXR projection layer FOV", &fov, 80.0f, 140.0f, "%.1f deg", 112.0f)
+        && !useRuntime) {
         state.xrForceFov = fov;
+        s_savedManualFov = fov;
         changed = true;
     }
     if (useRuntime) {
@@ -205,7 +318,7 @@ void DrawVRHandsControls() {
         // The one number the feature has. Everything else -- the rate, when it starts, when it stops --
         // follows from it: whatever is outside the cone is asked for in the frame it appears.
         float cone = CyberpunkVR_BodyYawFollowDeadDeg;
-        if (ImGui::SliderFloat("Free-look cone", &cone, 0.0f, 60.0f, "%.0f deg")) {
+        if (SliderFloatReset("Free-look cone", &cone, 0.0f, 60.0f, "%.0f deg", 25.0f)) {
             CyberpunkVR_BodyYawFollowDeadDeg = cone;
         }
         if (ImGui::IsItemHovered()) {
@@ -243,23 +356,23 @@ void DrawVRHandsControls() {
     }
 
     bool calChanged = false;
-    calChanged |= ImGui::SliderFloat("Reach scale R", &scaleR, 0.80f, 1.30f, "%.3f");
-    calChanged |= ImGui::SliderFloat("Reach scale L", &scaleL, 0.80f, 1.30f, "%.3f");
-    calChanged |= ImGui::SliderFloat("Height R", &heightR, -0.20f, 0.50f, "%.3f m");
-    calChanged |= ImGui::SliderFloat("Height L", &heightL, -0.20f, 0.50f, "%.3f m");
-    calChanged |= ImGui::SliderFloat("Elbow swing R", &swingR, -3.0f, 3.0f, "%.2f");
-    calChanged |= ImGui::SliderFloat("Elbow swing L", &swingL, -3.0f, 3.0f, "%.2f");
-    calChanged |= ImGui::SliderFloat("Elbow pole R", &poleR, -180.0f, 180.0f, "%.1f deg");
-    calChanged |= ImGui::SliderFloat("Elbow pole L", &poleL, -180.0f, 180.0f, "%.1f deg");
+    calChanged |= SliderFloatReset("Reach scale R", &scaleR, 0.80f, 1.30f, "%.3f", 1.05f);
+    calChanged |= SliderFloatReset("Reach scale L", &scaleL, 0.80f, 1.30f, "%.3f", 1.06f);
+    calChanged |= SliderFloatReset("Height R", &heightR, -0.20f, 0.50f, "%.3f m", 0.0f);
+    calChanged |= SliderFloatReset("Height L", &heightL, -0.20f, 0.50f, "%.3f m", 0.0f);
+    calChanged |= SliderFloatReset("Elbow swing R", &swingR, -3.0f, 3.0f, "%.2f", 1.0f);
+    calChanged |= SliderFloatReset("Elbow swing L", &swingL, -3.0f, 3.0f, "%.2f", 1.0f);
+    calChanged |= SliderFloatReset("Elbow pole R", &poleR, -180.0f, 180.0f, "%.1f deg", 0.0f);
+    calChanged |= SliderFloatReset("Elbow pole L", &poleL, -180.0f, 180.0f, "%.1f deg", 0.0f);
 
     ImGui::Separator();
     ImGui::TextUnformatted("Wrist rotation offset (palm/finger alignment, deg)");
-    calChanged |= ImGui::SliderFloat("Wrist R pitch", &wRp, -180.0f, 180.0f, "%.1f");
-    calChanged |= ImGui::SliderFloat("Wrist R yaw",   &wRy, -180.0f, 180.0f, "%.1f");
-    calChanged |= ImGui::SliderFloat("Wrist R roll",  &wRr, -180.0f, 180.0f, "%.1f");
-    calChanged |= ImGui::SliderFloat("Wrist L pitch", &wLp, -180.0f, 180.0f, "%.1f");
-    calChanged |= ImGui::SliderFloat("Wrist L yaw",   &wLy, -180.0f, 180.0f, "%.1f");
-    calChanged |= ImGui::SliderFloat("Wrist L roll",  &wLr, -180.0f, 180.0f, "%.1f");
+    calChanged |= SliderFloatReset("Wrist R pitch", &wRp, -180.0f, 180.0f, "%.1f", 0.0f);
+    calChanged |= SliderFloatReset("Wrist R yaw",   &wRy, -180.0f, 180.0f, "%.1f", -90.0f);
+    calChanged |= SliderFloatReset("Wrist R roll",  &wRr, -180.0f, 180.0f, "%.1f", 0.0f);
+    calChanged |= SliderFloatReset("Wrist L pitch", &wLp, -180.0f, 180.0f, "%.1f", -180.0f);
+    calChanged |= SliderFloatReset("Wrist L yaw",   &wLy, -180.0f, 180.0f, "%.1f", -90.0f);
+    calChanged |= SliderFloatReset("Wrist L roll",  &wLr, -180.0f, 180.0f, "%.1f", 0.0f);
 
     ImGui::Separator();
     // Auto-calibration: T-pose sample from the same controller poses that draw the gizmo hands.
@@ -510,8 +623,8 @@ void DrawStereoControls() {
         }
         if (g_showCompactAdsTelemetry) {
             ImGui::Indent();
-            ImGui::SliderFloat("Telemetry X", &g_compactAdsTelemetryX, 0.10f, 0.90f, "%.2f");
-            ImGui::SliderFloat("Telemetry Y", &g_compactAdsTelemetryY, 0.10f, 0.90f, "%.2f");
+            SliderFloatReset("Telemetry X", &g_compactAdsTelemetryX, 0.10f, 0.90f, "%.2f", 0.57f);
+            SliderFloatReset("Telemetry Y", &g_compactAdsTelemetryY, 0.10f, 0.90f, "%.2f", 0.30f);
             ImGui::TextDisabled("Normalised position in the eye image");
             ImGui::Unindent();
         }
@@ -573,17 +686,17 @@ bool DrawLiveControls(LiveControlsUiState& state) {
             if (ImGui::CollapsingHeader("View / Resolution", ImGuiTreeNodeFlags_DefaultOpen)) {
                 changed |= DrawFovControl(state);
                 changed |= CheckboxInt("VR menu quad", &state.xrMenuRect);
-                changed |= ImGui::SliderFloat("VR menu FOV", &state.xrMenuFov, 30.0f, 120.0f, "%.1f deg");
+                changed |= SliderFloatReset("VR menu FOV", &state.xrMenuFov, 30.0f, 120.0f, "%.1f deg", 65.0f);
             }
 
             if (ImGui::CollapsingHeader("Stereo", ImGuiTreeNodeFlags_DefaultOpen)) {
-        changed |= ImGui::SliderFloat("Motion prediction (ms)", &state.xrMotionPredictMs, 0.0f, 60.0f, "%.1f ms");
+        changed |= SliderFloatReset("Motion prediction (ms)", &state.xrMotionPredictMs, 0.0f, 60.0f, "%.1f ms", 0.0f);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Forward-predicts the head pose by this many ms using head\n"
                               "velocity, hiding render-to-photon latency. 0 = off.\n"
                               "Tune up until motion feels responsive without overshoot.");
         }
-        changed |= ImGui::SliderFloat("Stereo separation x", &state.xrStereoScale, 0.25f, 5.0f, "%.2fx");
+        changed |= SliderFloatReset("Stereo separation x", &state.xrStereoScale, 0.25f, 5.0f, "%.2fx", 1.0f);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Personal fine-tune on the auto IPD. 1.0 = calibrated natural\n"
                               "separation, auto-scaled to the headset's runtime IPD. Nudge\n"
@@ -591,14 +704,14 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                               "the eye alternation obvious on the flat monitor for testing.");
         }
         // ── World scale + honest IPD ──
-        changed |= ImGui::SliderFloat("World scale", &state.xrWorldScale, 0.20f, 3.0f, "%.2f");
+        changed |= SliderFloatReset("World scale", &state.xrWorldScale, 0.20f, 3.0f, "%.2f", 1.0f);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Scales eye separation AND head translation together.\n"
                               "Lower it (e.g. 0.8) to make the world look\n"
                               "BIGGER / yourself smaller; raise to shrink the world. Use this if V\n"
                               "and NPCs feel too large.");
         }
-        changed |= ImGui::SliderFloat("IPD scale", &state.xrIpdScale, 0.50f, 2.0f, "%.2fx");
+        changed |= SliderFloatReset("IPD scale", &state.xrIpdScale, 0.50f, 2.0f, "%.2fx", 1.0f);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Eye-separation multiplier on the runtime IPD. 1.0 = the neutral\n"
                               "baseline (+-0.033 m on a typical headset).\n"
@@ -631,9 +744,36 @@ bool DrawLiveControls(LiveControlsUiState& state) {
         // head translation -- it dropped these three offsets and the calibration bakes with it,
         // then hid the very sliders that were needed to put the view right. The offsets are
         // always live now, and they reach BOTH eyes.
-        changed |= ImGui::SliderFloat("Head X right", &state.xrHeadOffsetX, -0.50f, 0.50f, "%.3f m");
-        changed |= ImGui::SliderFloat("Head Y forward", &state.xrHeadOffsetY, -0.50f, 0.50f, "%.3f m");
-        changed |= ImGui::SliderFloat("Head Z up", &state.xrHeadOffsetZ, -0.50f, 0.50f, "%.3f m");
+        changed |= SliderFloatReset("Head X right", &state.xrHeadOffsetX, -0.50f, 0.50f, "%.3f m", 0.0f);
+        changed |= SliderFloatReset("Head Y forward", &state.xrHeadOffsetY, -0.50f, 0.50f, "%.3f m", 0.0f);
+        changed |= SliderFloatReset("Head Z up", &state.xrHeadOffsetZ, -0.50f, 0.50f, "%.3f m", 0.0f);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("HMD picture box");
+        ImGui::TextWrapped("Centers the rendered image on the headset's lens optical centre "
+            "(important on canted optics such as Quest 3). Use the sliders below "
+            "to fine-tune vertical and horizontal position.");
+        {
+            int boxCenter = state.xrLensBoxCenter != 0 ? 1 : 0;
+            if (CheckboxInt("Center box on lens", &boxCenter)) {
+                state.xrLensBoxCenter = boxCenter;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Aligns the full picture box with the lens optical centre.\n"
+                    "Applied to the render camera and the submit pose together.");
+            }
+            changed |= SliderFloatReset("Box vertical (deg)", &state.xrViewBoxPitchDeg, -15.0f, 15.0f, "%.2f", 0.0f);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Move the picture box up or down.\n"
+                    "Positive = down. Negative = up.");
+            }
+            changed |= SliderFloatReset("Box horizontal (deg)", &state.xrViewBoxYawDeg, -15.0f, 15.0f, "%.2f", 0.0f);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Move the picture box left or right.\n"
+                    "Positive = right. Negative = left.");
+            }
+        }
 
         ImGui::Separator();
         ImGui::TextUnformatted("In a vehicle only (added on top of the Head sliders)");
@@ -647,9 +787,9 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                 "ignored the moment you step out, so the car and the street can be tuned\n"
                 "separately. Zero = the car keeps exactly the offset it has today.");
         }
-        changed |= ImGui::SliderFloat("Car Head X right", &state.xrVehHeadOffsetX, -0.50f, 0.50f, "%.3f m");
-        changed |= ImGui::SliderFloat("Car Head Y forward", &state.xrVehHeadOffsetY, -0.50f, 0.50f, "%.3f m");
-        changed |= ImGui::SliderFloat("Car Head Z up", &state.xrVehHeadOffsetZ, -0.50f, 0.50f, "%.3f m");
+        changed |= SliderFloatReset("Car Head X right", &state.xrVehHeadOffsetX, -0.50f, 0.50f, "%.3f m", 0.0f);
+        changed |= SliderFloatReset("Car Head Y forward", &state.xrVehHeadOffsetY, -0.50f, 0.50f, "%.3f m", 0.0f);
+        changed |= SliderFloatReset("Car Head Z up", &state.xrVehHeadOffsetZ, -0.50f, 0.50f, "%.3f m", 0.0f);
         {   // Live, so a slider that is doing nothing says so instead of being blamed.
             ImGui::TextDisabled(g_isInVehicle ? "   (in a vehicle: these are live)"
                                               : "   (on foot: these are ignored)");
@@ -661,7 +801,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                 ImGui::Checkbox("Enable hand overlay", &g_drawHandLocator);
                 ImGui::Checkbox("Draw 3D hand proxy", &g_drawHandProxy3D);
                 ImGui::Checkbox("Draw debug wire/axes", &g_drawHandDebugAxes);
-                ImGui::SliderFloat("Locator scale", &g_handLocatorScale, 0.50f, 2.00f, "%.2f");
+                SliderFloatReset("Locator scale", &g_handLocatorScale, 0.50f, 2.00f, "%.2f", 1.0f);
             }
 
             if (ImGui::CollapsingHeader("DLSS / Debug")) {
@@ -739,7 +879,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
             }
             {
                 float r = state.xrWheelRadius > 0.0f ? state.xrWheelRadius : 0.28f;
-                if (ImGui::SliderFloat("Grab radius (m)", &r, 0.08f, 0.60f, "%.2f")) {
+                if (SliderFloatReset("Grab radius (m)", &r, 0.08f, 0.60f, "%.2f", 0.28f)) {
                     state.xrWheelRadius = r;
                     changed = true;
                 }
@@ -749,7 +889,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                                       "wheel you cannot see; too big and every grip in a car grabs.");
                 }
                 float m = state.xrWheelSteerMaxDeg > 0.0f ? state.xrWheelSteerMaxDeg : 90.0f;
-                if (ImGui::SliderFloat("Full lock at (deg)", &m, 30.0f, 120.0f, "%.0f")) {
+                if (SliderFloatReset("Full lock at (deg)", &m, 30.0f, 120.0f, "%.0f", 90.0f)) {
                     state.xrWheelSteerMaxDeg = m;
                     changed = true;
                 }
@@ -761,7 +901,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                                       "Lower = the same wrist movement steers more.");
                 }
                 float d = state.xrWheelSteerDeadDeg >= 0.0f ? state.xrWheelSteerDeadDeg : 1.5f;
-                if (ImGui::SliderFloat("Steering deadzone (deg)", &d, 0.0f, 20.0f, "%.1f")) {
+                if (SliderFloatReset("Steering deadzone (deg)", &d, 0.0f, 20.0f, "%.1f", 1.5f)) {
                     state.xrWheelSteerDeadDeg = d;
                     changed = true;
                 }
@@ -781,7 +921,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                         "No grip needed; a hand that is GRABBING the wheel never honks.");
                 }
                 float hr = state.xrWheelHornRadius > 0.0f ? state.xrWheelHornRadius : 0.12f;
-                if (ImGui::SliderFloat("Horn hub radius (m)", &hr, 0.04f, 0.30f, "%.2f")) {
+                if (SliderFloatReset("Horn hub radius (m)", &hr, 0.04f, 0.30f, "%.2f", 0.12f)) {
                     state.xrWheelHornRadius = hr;
                     changed = true;
                 }
@@ -805,7 +945,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                         "trim: no lean / rock and no autodrive gesture until you holster.");
                 }
                 float tt = state.xrVehicleThrottleTrim > 0.0f ? state.xrVehicleThrottleTrim : 0.5f;
-                if (ImGui::SliderFloat("Throttle trim rate (/s)", &tt, 0.05f, 3.0f, "%.2f")) {
+                if (SliderFloatReset("Throttle trim rate (/s)", &tt, 0.05f, 3.0f, "%.2f", 0.5f)) {
                     state.xrVehicleThrottleTrim = tt;
                     changed = true;
                 }
@@ -861,7 +1001,7 @@ bool DrawLiveControls(LiveControlsUiState& state) {
                                   "instead of smooth rotation. Helps with motion sickness.");
             }
             if (state.xrSnapTurn != 0) {
-                changed |= ImGui::SliderFloat("Snap angle", &state.xrSnapTurnAngleDeg, 10.0f, 90.0f, "%.0f deg");
+                changed |= SliderFloatReset("Snap angle", &state.xrSnapTurnAngleDeg, 10.0f, 90.0f, "%.0f deg", 30.0f);
             }
 
             ImGui::Separator();

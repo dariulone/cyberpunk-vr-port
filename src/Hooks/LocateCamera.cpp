@@ -550,6 +550,7 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         : OpenXRManager::Get().GetHeadPose(&xrPose);
     const bool composeAtWrite = (CyberpunkVR_CamWriteInPatch && CyberpunkVR_CamComposeAtWrite);
     if (hasXR) {
+        OpenXRManager::Get().ApplyViewBoxPitch(&xrPose);
         // Hand the EXACT sample this frame's camera is built from to the submit path, so
         // the image is labelled with the pose it was rendered from instead of whatever the
         // pose cache holds by the time it reaches Present. See SetPendingRenderHeadPose.
