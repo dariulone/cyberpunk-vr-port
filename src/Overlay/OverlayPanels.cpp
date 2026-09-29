@@ -17,6 +17,7 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -114,24 +115,40 @@ bool InputIntClamped(const char* label, int* value, int minValue, int maxValue) 
 
 bool DrawFovControl(LiveControlsUiState& state) {
     bool changed = false;
-    bool useRuntime = state.xrForceFov <= 0.0f;
-    if (ImGui::Checkbox("Use OpenXR runtime projection FOV", &useRuntime)) {
-        state.xrForceFov = useRuntime ? 0.0f : 112.0f;
+    const bool psvr2 = OpenXRManager::Get().IsRuntimePsvr2();
+    bool overrideEnabled = state.xrForceFov > 0.0f;
+    if (ImGui::Checkbox("Enable FOV override", &overrideEnabled)) {
+        state.xrForceFov = overrideEnabled ? (psvr2 ? 104.5f : 112.0f) : 0.0f;
         changed = true;
     }
-
-    if (useRuntime) {
-        ImGui::BeginDisabled();
+    if (!overrideEnabled) ImGui::BeginDisabled();
+    int preset = 0;
+    if (std::fabs(state.xrForceFov - 104.5f) < .01f) preset = 1;
+    else if (std::fabs(state.xrForceFov - 94.0f) < .01f) preset = 2;
+    else if (std::fabs(state.xrForceFov - 104.0f) < .01f) preset = 3;
+    if (widgets::Combo("FOV preset", &preset,
+        "Custom\0PSVR2 - 104.5 deg\0Quest 3 legacy - 94 deg (test)\0Pico 4 - 104 deg\0")) {
+        if (preset > 0) {
+            const float values[] = {0.0f, 104.5f, 94.0f, 104.0f};
+            state.xrForceFov = values[preset];
+            changed = true;
+        }
     }
-    float fov = state.xrForceFov <= 0.0f ? 112.0f : state.xrForceFov;
-    if (widgets::SliderFloat("OpenXR projection layer FOV", &fov, 80.0f, 140.0f, "%.1f deg")) {
+    float fov = overrideEnabled ? state.xrForceFov : (psvr2 ? 104.5f : 112.0f);
+    if (widgets::SliderFloat("Horizontal render / projection FOV", &fov, 80.0f, 140.0f, "%.1f deg")) {
         state.xrForceFov = fov;
         changed = true;
     }
-    if (useRuntime) {
-        ImGui::EndDisabled();
-    }
-    ImGui::TextUnformatted("This changes the OpenXR projection layer FOV, not the CP2077 camera FOV.");
+    if (!overrideEnabled) ImGui::EndDisabled();
+    ImGui::TextWrapped("Override changes BOTH the game VR camera and OpenXR projection. "
+        "Off uses automatic panel-edge coverage, which can be wider than the per-eye FOV span.");
+    if (psvr2) ImGui::TextWrapped("PSVR2: 104.5 deg restores the previous override. Automatic coverage measured 123 deg on this setup.");
+    ImGui::TextWrapped("Narrower coverage can improve central detail at the same resolution, but may reveal black borders. "
+        "Quest 3 legacy is an optional comparison, not a universal correction; keep the matching headset resolution preset.");
+    const float actual = GetGameRenderFovDeg();
+    const float vertical = GetGameRenderVerticalFovDeg();
+    if (actual > 1.0f && vertical > 1.0f)
+        ImGui::Text("Camera render FOV: %.1f H / %.1f V deg", actual, vertical);
     return changed;
 }
 
