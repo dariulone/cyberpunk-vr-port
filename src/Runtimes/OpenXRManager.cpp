@@ -3,6 +3,7 @@
 #include "Runtimes/HybridBodyYaw.hpp"
 #include "Anim/WheelGrab.hpp"   // the wheel-grab blends, for the hand smoothing below
 #include "Runtimes/OpenXRManager.hpp"
+#include "Hooks/Psvr2Input.hpp"
 #include "Hooks/RoomscaleMove.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Runtimes/SimulatorRecenter.hpp"
@@ -676,8 +677,14 @@ bool OpenXRManager::Init() {
     }
 
     XrSystemProperties systemProps{XR_TYPE_SYSTEM_PROPERTIES};
+    m_runtimeIsPsvr2.store(false, std::memory_order_relaxed);
     if (XR_SUCCEEDED(xrGetSystemProperties(m_instance, m_systemId, &systemProps))) {
         strncpy_s(m_systemName, systemProps.systemName, _TRUNCATE);
+        m_runtimeIsPsvr2.store(cvr::input::IsPsvr2System(systemProps.systemName), std::memory_order_relaxed);
+        if (IsRuntimePsvr2()) {
+            Log("OpenXRManager[PSVR2]: Sense Triangle touch D-pad and Create SystemButton enabled. "
+                "Haptic actuator ownership remains with the external Toolkit bridge; no OpenXR vibration action.\n");
+        }
         Log("OpenXRManager: OpenXR system vendorId=0x%X systemName=\"%s\" maxSwapchain=%ux%u maxLayerCount=%u positionTracking=%d orientationTracking=%d\n",
             systemProps.vendorId,
             systemProps.systemName,
@@ -745,7 +752,13 @@ bool OpenXRManager::Init() {
             makeAction(m_thumbstickClickAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "thumbstick_click", "Thumbstick Click",     true);
             makeAction(m_primaryButtonAction,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "primary_button",   "Primary Button (A/X)", true);
             makeAction(m_secondaryButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "secondary_button", "Secondary Button (B/Y)", true);
-            makeAction(m_menuButtonAction,      XR_ACTION_TYPE_BOOLEAN_INPUT,  "menu",             "Menu Button",          false);
+            makeAction(m_menuButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,
+                IsRuntimePsvr2() ? "systembutton" : "menu",
+                IsRuntimePsvr2() ? "SystemButton (Sense Create)" : "Menu Button", false);
+            if (IsRuntimePsvr2()) {
+                makeAction(m_psvr2TriangleTouchAction, XR_ACTION_TYPE_BOOLEAN_INPUT,
+                    "secondary_button_touch", "Triangle Touch D-pad Shift", true);
+            }
             if(steamFrameEnabled)m_steamFrameActions.Create(makeAction);
         }
         Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
@@ -762,6 +775,14 @@ bool OpenXRManager::Init() {
                 XrPath p = XR_NULL_PATH;
                 if (XR_SUCCEEDED(xrStringToPath(m_instance, b.path, &p))) {
                     v.push_back({ b.action, p });
+                }
+            }
+            if (IsRuntimePsvr2() && inputActionsEnabled &&
+                strcmp(profileStr, "/interaction_profiles/oculus/touch_controller") == 0) {
+                XrPath triangle = XR_NULL_PATH;
+                if (m_psvr2TriangleTouchAction != XR_NULL_HANDLE &&
+                    XR_SUCCEEDED(xrStringToPath(m_instance, "/user/hand/left/input/y/touch", &triangle))) {
+                    v.push_back({m_psvr2TriangleTouchAction, triangle});
                 }
             }
             XrInteractionProfileSuggestedBinding sb{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
@@ -1069,6 +1090,14 @@ void OpenXRManager::PollEvents() {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* changed = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
             m_sessionState = changed->state;
+            if (m_sessionState != XR_SESSION_STATE_FOCUSED) {
+                // A stopped/nonfocused session may not publish another frame.
+                // Do not let a stale held Create become a Back event later.
+                std::lock_guard<std::mutex> lock(m_inputMutex);
+                m_controllerState.psvr2SystemAvailable = false;
+                m_controllerState.psvr2SystemPressed = false;
+                m_controllerState.psvr2DpadShift = false;
+            }
             Log("OpenXRManager: Session state -> %d\n", static_cast<int>(m_sessionState));
 
             if (m_sessionState == XR_SESSION_STATE_READY) {

@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(psvr2_input_tests LANGUAGES CXX)
+enable_testing()
+add_executable(psvr2_input_tests main.cpp)
+target_compile_features(psvr2_input_tests PRIVATE cxx_std_17)
+target_include_directories(psvr2_input_tests PRIVATE ../../include)
+add_test(NAME psvr2_input_policy COMMAND psvr2_input_tests)

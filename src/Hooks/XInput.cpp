@@ -20,6 +20,7 @@
 #include "Hooks/SwimmingInput.hpp"
 #include "Hooks/LadderInput.hpp"
 #include "Hooks/InputPacketSequence.hpp"
+#include "Hooks/Psvr2Input.hpp"
 #include "Hooks/AnalogStick.hpp"
 #include "Hooks/KeypadInput.hpp"
 #include "Hooks/CyberwareChord.hpp"
@@ -265,21 +266,44 @@ static void PublishMergedPacket(XINPUT_STATE* state) {
     state->dwPacketNumber=packets.Publish(state->Gamepad);
 }
 
+static uint16_t SenseSystemEvent(bool pressed, bool available) {
+    static std::mutex mutex;
+    static cvr::input::SenseSystemButton button;
+    std::lock_guard lock(mutex);
+    const auto event = button.Update(pressed, GetTickCount64(), available);
+    static uint16_t logged = 0;
+    if (event && !(logged & event)) {
+        logged |= event;
+        Log("XInput[PSVR2]: SystemButton mapped to %s.\n", event == 0x10 ? "Start/Pause" : "Back/Select");
+    }
+    return event;
+}
+
 DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     DWORD r = ERROR_DEVICE_NOT_CONNECTED;
     if (g_realXInputGetState) r = g_realXInputGetState(dwUserIndex, pState);
 
     if (!pState) return r;
     if (dwUserIndex != 0) return r;
-    if (g_liveControls.xrXInputHook == 0) { cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
+    if (g_liveControls.xrXInputHook == 0) { SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
 
     VRControllerState vr{};
-    if (!OpenXRManager::Get().GetControllerState(&vr)) { cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
+    if (!OpenXRManager::Get().GetControllerState(&vr)) { SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
+    vr.buttons |= SenseSystemEvent(vr.psvr2SystemPressed, vr.psvr2SystemAvailable && !cvr::vrui::CapturesInput());
     cvr::input::DispatchCyberwareChord();
 
     if (r != ERROR_SUCCESS) {
         memset(pState, 0, sizeof(*pState));
         r = ERROR_SUCCESS;
+    }
+    if (vr.psvr2DpadShift) {
+        // A physical/Steam XInput contribution must not reintroduce look after
+        // the XR action snapshot suppressed it. Also cancel an in-flight snap.
+        pState->Gamepad.sThumbRX = pState->Gamepad.sThumbRY = 0;
+        vr.rightThumbX = vr.rightThumbY = 0;
+        g_xinputSnapArmedDir = 0;
+        g_xinputSnapPulseDir = 0;
+        InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
     }
     // Exact, already-scanned manual clue only. Capture before scanner X remaps
     // and swallow the whole press so the newly revealed Take needs another X.

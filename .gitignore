@@ -15,6 +15,7 @@ CyberpunkVRProxy.log
 # tools/ is scratch, with one exception. Note the glob: `tools/` would exclude the directory
 # itself and git never descends into an excluded directory, so the negation below would not fire.
 tools/*
+!tools/psvr2_input_tests/
 !tools/roomscale_tests/
 !tools/vrik_tests/
 !tools/xr_probe/
@@ -58,6 +59,7 @@ package.json
 !.opencode/memory/*.md
 *.zip
 *.ps1
+!scripts/Start-PSVR2Bridge.ps1
 # ...except the probe layer install scripts, which are part of the tool,
 !tools/xr_probe/*.ps1
 # the install/uninstall pair, which is how the mod is meant to be deployed,

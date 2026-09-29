@@ -5,6 +5,7 @@
 // Split verbatim from openxr_manager.cpp; this is an OpenXRManager method. Shared
 // module state/helpers come from openxr_internal.h (inline, single instance).
 #include "Runtimes/OpenXRManager.hpp"
+#include "Hooks/Psvr2Input.hpp"
 #include "Camera/ImagePoseIdentity.hpp"
 #include "Runtimes/RoomscaleTracking.hpp"
 #include "Runtimes/SimulatorRecenter.hpp"
@@ -1441,6 +1442,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // HOLD the LEFT stick click, pick the direction with the RIGHT stick.
                 bool leftStickClicked  = false;
                 bool dpadUsedThisFrame = false;
+                bool triangleShift = false;
 
                 std::lock_guard<std::mutex> handLock(m_handMutex);
                 // ONE INSTANT: the head position that goes with these controller poses, plus the
@@ -1703,6 +1705,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // (sprint) is emitted DEFERRED, after the loop: only when the
                         // click is released without a D-Pad direction having been used.
                         leftStickClicked = sclick;
+                        triangleShift = IsRuntimePsvr2() && m_psvr2TriangleTouchAction != XR_NULL_HANDLE &&
+                            getBool(m_psvr2TriangleTouchAction);
+                        if (triangleShift) {
+                            static bool logged = false;
+                            if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Triangle-touch D-pad modifier active.\n"); }
+                        }
                     } else {
                         ctrl.rightTrigger = trig;
                         ctrl.rightGrip    = grip;
@@ -1716,7 +1724,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // D-PAD CHORD: while the LEFT stick click is held, the RIGHT
                         // stick picks the D-Pad direction. The right axes are zeroed for
                         // the whole hold so snap-turn/camera cannot fire during selection.
-                        if (leftStickClicked) {
+                        if (triangleShift) {
+                            dpadUsedThisFrame = cvr::input::TriangleDpad(true, ctrl.rightThumbX, ctrl.rightThumbY, ctrl.buttons);
+                        } else if (leftStickClicked) {
                             float threshold = CyberpunkVR_DpadChordStick;
                             if (!(threshold > 0.05f) || threshold > 1.0f) threshold = 0.90f;
                             if (sy > threshold)  { ctrl.buttons |= XB_DPAD_UP;    dpadUsedThisFrame = true; }
@@ -1778,7 +1788,19 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // as Touch controls. Menu/Start retains the existing escape path.
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
-                    if(getGlobalBool(m_menuButtonAction))ctrl.buttons|=0x0010; // XINPUT_GAMEPAD_START
+                    const bool menuPressed = getGlobalBool(m_menuButtonAction);
+                    if (IsRuntimePsvr2()) {
+                        // L3+R3 belongs to upstream's overlay, not our menu fallback.
+                        const bool chord = triangleShift && uiTracking.hands[1].stickClick && !leftStickClicked;
+                        ctrl.psvr2SystemAvailable = syncRes == XR_SUCCESS && m_sessionState == XR_SESSION_STATE_FOCUSED;
+                        ctrl.psvr2SystemPressed = menuPressed || (chord && !cvr::vrui::CapturesInput());
+                        ctrl.psvr2DpadShift = triangleShift && !cvr::vrui::CapturesInput();
+                        if (chord) ctrl.buttons &= static_cast<uint16_t>(~0x0080u);
+                        if (menuPressed) {
+                            static bool logged = false;
+                            if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Create SystemButton active (tap=Start, hold=Back).\n"); }
+                        }
+                    } else if(menuPressed)ctrl.buttons|=0x0010; // Other headsets unchanged.
 
                     // Publish the snapshot for the XInput hook.
                     std::lock_guard<std::mutex> inLock(m_inputMutex);
