@@ -15,6 +15,7 @@ CyberpunkVRProxy.log
 # tools/ is scratch, with one exception. Note the glob: `tools/` would exclude the directory
 # itself and git never descends into an excluded directory, so the negation below would not fire.
 tools/*
+!tools/psvr2_input_tests/
 !tools/roomscale_tests/
 !tools/vrik_tests/
 !tools/xr_probe/

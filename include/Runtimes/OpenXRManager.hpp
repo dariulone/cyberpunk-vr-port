@@ -61,6 +61,9 @@ struct VRControllerState {
     float    rightGrip    = 0.0f;
     bool     leftHandValid  = false;
     bool     rightHandValid = false;
+    bool     psvr2SystemPressed = false;
+    bool     psvr2SystemAvailable = false;
+    bool     psvr2DpadShift = false;
 };
 
 extern "C" int GetXrRuntimeMode();
@@ -840,6 +843,7 @@ public:
     float GetRuntimeHorizontalFovDeg() const { return m_runtimeHorizontalFovDeg.load(std::memory_order_relaxed); }
     const char* GetSystemName() const { return m_systemName; }
     bool IsRuntimeSteamVR() const { return m_runtimeIsSteamVR.load(std::memory_order_relaxed); }
+    bool IsRuntimePsvr2() const { return m_runtimeIsPsvr2.load(std::memory_order_relaxed); }
     bool IsRuntimeVirtualDesktop() const { return m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed); }
     float GetRuntimeVerticalFovDeg() const { return m_runtimeVerticalFovDeg.load(std::memory_order_relaxed); }
     float GetRuntimeIpd() const { return m_runtimeIpd.load(std::memory_order_relaxed); }
@@ -922,6 +926,7 @@ private:
     XrAction m_primaryButtonAction = XR_NULL_HANDLE;     // Bool, per hand (X / A)
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)
     XrAction m_menuButtonAction = XR_NULL_HANDLE;        // Bool, global menu/start action
+    XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};
     XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
     XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
@@ -1291,6 +1296,7 @@ private:
     float m_loggedRuntimeIpd = 0.0f;
     float m_loggedForcedProjectionFovDeg = 0.0f;
     std::atomic<bool> m_runtimeIsSteamVR = false;
+    std::atomic<bool> m_runtimeIsPsvr2 = false;
     std::atomic<bool> m_runtimeIsVirtualDesktop = false;
     // Head velocity in the base-recentered frame (rad/s, m/s), sampled from
     // xrLocateSpace. See GetHeadPose().

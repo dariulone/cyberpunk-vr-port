@@ -113,6 +113,9 @@ local equipSndId = nil
 local GUARD_THRUST_DOT   = 0.50  -- blade within ~60° of body-forward = attack intent, guard off
 local GUARD_PARRY_WINDOW = 0.25  -- s of IsDeflecting right after guard entry (gesture parry)
 local guardClock = 0.0           -- accumulated onUpdate time (drives the parry window)
+-- Restore the local fork's PSVR2 pulse envelope through the Toolkit mixer.
+-- This is NOT an OpenXR vibration action; Toolkit remains the only actuator owner.
+local hapticHitLast = -1.0
 local guardParryUntil = -1.0
 local guardWasOn = false
 local guardBlockMod = nil        -- IsBlocking stat modifier handle (applied = guarding)
@@ -1077,11 +1080,20 @@ registerForEvent('onUpdate', function(dt)
             local strongW = false
             if type(GetVRMeleeTrigger) == 'function' then strongW = (GetVRMeleeTrigger() == 1) end
             pcall(function() pl:VRMeleeWhoosh(wpn, wSpeed >= WHOOSH_FAST_SPEED, strongW) end)
+            pcall(function()
+                local amplitude = 0.45 + (0.85 - 0.45)
+                    * math.min(1.0, math.max(0.0, (wSpeed - WHOOSH_SWING_SPEED) / 3.0))
+                SetVRHapticPulse(1, amplitude, 45)
+            end)
         end
         if speed >= MELEE_SWING_SPEED then
             local strong = false
             if type(GetVRMeleeTrigger) == 'function' then strong = (GetVRMeleeTrigger() == 1) end
             pcall(function() pl:VRMeleeBladeHit(wpn, wp, fwd, MELEE_BOX, strong) end)
+            if (guardClock - hapticHitLast) >= 0.12 then
+                hapticHitLast = guardClock
+                pcall(function() SetVRHapticPulse(1, 1.0, 90) end)
+            end
         end
     end)
 end)

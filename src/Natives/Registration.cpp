@@ -5,6 +5,16 @@
 // living beside any one family.
 
 #include "Natives/NativeFunctions.hpp"
+#include "Runtimes/Psvr2HapticChannel.hpp"
+
+static void PublishPSVR2Haptic(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, int64_t) {
+    int32_t hand = 1, duration = 0; float amplitude = 0;
+    RED4ext::GetParameter(frame, &hand);
+    RED4ext::GetParameter(frame, &amplitude);
+    RED4ext::GetParameter(frame, &duration);
+    frame->code++;
+    cvr::psvr2::Haptics().Pulse(hand, amplitude, duration);
+}
 
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Functions.hpp>
@@ -12,6 +22,10 @@
 RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto rtti = RED4ext::CRTTISystem::Get();
     RED4ext::CBaseFunction::Flags flags = {.isNative = true, .isStatic = true};
+    auto haptic = RED4ext::CGlobalFunction::Create("SetVRHapticPulse", "SetVRHapticPulse", &PublishPSVR2Haptic);
+    haptic->flags = flags; haptic->AddParam("Int32", "hand");
+    haptic->AddParam("Float", "amplitude"); haptic->AddParam("Int32", "durationMs");
+    rtti->RegisterFunction(haptic);
     auto reflexTiming=RED4ext::CGlobalFunction::Create("VRReflexTiming","VRReflexTiming",&VRReflexTiming);
     reflexTiming->flags=flags;reflexTiming->AddParam("Bool","request");reflexTiming->SetReturnType("String");rtti->RegisterFunction(reflexTiming);
     auto mouseY=RED4ext::CGlobalFunction::Create("GetVRMouseYDisabled","GetVRMouseYDisabled",&GetVRMouseYDisabled);
