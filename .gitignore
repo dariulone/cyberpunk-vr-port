@@ -59,7 +59,6 @@ package.json
 !.opencode/memory/*.md
 *.zip
 *.ps1
-!scripts/Start-PSVR2Bridge.ps1
 # ...except the probe layer install scripts, which are part of the tool,
 !tools/xr_probe/*.ps1
 # the install/uninstall pair, which is how the mod is meant to be deployed,

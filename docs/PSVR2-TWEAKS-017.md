@@ -1,94 +1,66 @@
-# PSVR2 tweaks on upstream 0.1.7: first commit
+# PS VR2 controls, haptics, and display options
 
-Base: official `0.1.7`, `a0c23fe110530bb74a73b3adf1ffa7d83050c43d`.
-Branch: `psvr2-tweaks-0.1.7`. This is not the older `psvr2-tweaks` implementation.
+This change adds PS VR2 Sense shortcuts, restores an optional advanced-haptics
+path through PSVR2Toolkit, and exposes FOV and overlay-pacing controls in F10.
+Other headset input behavior is unchanged.
 
-## Scope
+## Sense controls
 
-This first change restores the measured Sense input behavior and provides a safe
-launcher for the existing optional PSVR2Toolkit DSX-compatible bridge. It does
-not add Quest/general OpenXR haptics, alter rendering, change shared-memory
-slot meanings, or port unrelated old gameplay remaps. General OpenXR haptics
-must be a separate commit with explicit actuator ownership.
-
-## Controls
-
-| Sense input | Result |
+| Input | Action |
 |---|---|
-| Touch Triangle, move right stick | D-pad, threshold 0.5; no right-stick turning during the whole touch |
-| Click Triangle | Y remains available |
-| Left Create / application SystemButton, release before 500 ms | Start / pause |
-| Hold Create at least 500 ms | Back / in-game menu once; release does not also emit Start |
-| Triangle touch + R3 without L3 | Same menu tap/hold fallback; suppresses R3's gameplay action |
-| L3+R3 | Upstream overlay shortcut, priority over the fallback |
-| L3+right stick | Existing upstream D-pad fallback and threshold unchanged |
+| Touch Triangle and move right stick | D-pad; suppresses right-stick turning while touched |
+| Click Triangle | Existing Y action |
+| Tap left Create | Start/pause |
+| Hold left Create for 500 ms | Back/menu once; release does not also trigger Start |
+| Triangle touch + R3 | Fallback menu chord |
+| L3 + R3 | Existing overlay shortcut; retains priority |
+| L3 + right stick | Existing D-pad fallback |
 
-The new touch action and SystemButton identity are created only for PSVR2,
-identified from the OpenXR system name. Other headset bindings/menu behavior are
-unchanged. SteamVR presents Sense as Oculus Touch; Triangle touch is
-`/user/hand/left/input/y/touch`.
+Create is mapped to the OpenXR application `SystemButton` action. If SteamVR
+does not deliver it, edit the CyberpunkVR controller binding and assign physical
+left Create to **SystemButton (Sense Create)**. SteamVR has previously omitted
+that suggestion for Sense controllers. Right Options remains available for the
+SteamVR dashboard. Triangle touch is `/user/hand/left/input/y/touch` under the
+SteamVR Sense-to-Oculus-Touch mapping.
 
-If Create does not arrive, open SteamVR controller bindings for CyberpunkVR and
-assign physical **left Create** to **SystemButton (Sense Create)**. The Oculus
-left-menu suggestion remains present, but SteamVR's Sense auto-remapper has
-previously dropped that suggestion. An old custom binding may need updating to
-include the touch action. Right Options/the SteamVR dashboard remain reserved;
-this application action does not open the SteamVR dashboard.
+Pending Create taps are cancelled when focus or input is lost, or when the VR
+overlay captures input. The D-pad shift clears physical and Steam input look
+contributions and pending snap rotation.
 
-SystemButton timing runs at XInput polling, not as a transient XR-frame pulse.
-Losing input/focus or overlay capture cancels pending taps. Shift also clears
-physical/Steam XInput look contributions and pending snap rotation.
+## Optional PS VR2 haptics
 
-## Optional adaptive triggers / advanced haptics
+The port exposes `SetVRHapticPulse(hand, amplitude, durationMs)` for the CET
+weapon script. Swing and hit-check pulses use a dedicated mapping named
+`Local\CyberpunkVR_PSVR2_Haptics_017_v1`; upstream input slots 157–160 keep
+their controller meanings. Without a matching bridge, the optional pulses have
+no PS VR2 actuator consumer.
 
-Run `scripts\Start-PSVR2Bridge.bat` **after starting SteamVR and before the game**.
-Defaults match the existing local installation; use `-GameRoot` and `-BridgeRoot`
-for other locations. `-CheckOnly` validates without starting the bridge.
+The matching external bridge and driver are provided by the
+[PSVR2Toolkit v0.3.1 release](https://github.com/satyaloka93/PSVR2Toolkit/releases/tag/cyberpunk-dsx-bridge-v0.3.1).
+Install its driver and use its Cyberpunk 0.1.7 launcher. Also install the
+Enhanced DualSense Support CET mod and Native Settings UI. Set its
+`UDPautostart=false`; do not run DSX, its bundled UDPClient, another bridge, or
+another Sense actuator client at the same time. The port does not install or
+redistribute the Toolkit, driver, or Enhanced DualSense Support mod.
 
-Requirements installed separately:
+## F10 options
 
-- Enhanced DualSense Support CET mod and Native Settings UI.
-- Compatible PSVR2Toolkit bridge/CAPI driver setup.
-- Enhanced DualSense Support `UDPautostart=false`.
-- No DSX app, bundled UDPClient, second bridge or other Sense actuator owner.
-- Disable the unnecessary Enhanced DualSense Support native launcher DLL if
-  present. Never patch its advertised game version to bypass RED4ext validation.
+F10 → STEREO → STEREO VIEW contains the explicit FOV override and presets. The
+override defaults to 104.5° on PS VR2 and can be disabled to return to automatic
+projection coverage. Other presets remain selectable; narrower coverage can
+expose image edges.
 
-The wrapper does not edit those third-party settings, install drivers, start/kill
-processes automatically, or expose an OpenXR vibration-output action. It passes
-`--no-vr-motion-haptics` to the existing bridge. Weapon/adaptive-trigger profile
-translation and audio-derived grip haptics remain available.
+F10 → STEREO → PERFORMANCE contains **Stable pacing with no overlay graphics**.
+It is on by default. When checked, the port submits the empty overlay command
+list and fence even when the weapon dot is absent. This retained the prior
+queue-pacing behavior in the user's external-OFXR bike test. Turning it off
+skips that work and may reintroduce bike or post-dismount cadence drops. The
+option is session-only and is not a frame-generation switch.
 
-### Why legacy motion haptics are disabled
+## Validation
 
-The old bridge interpreted shared float slots 157-160 as sequence, hand,
-amplitude and duration. Upstream 0.1.7 assigns those same slots to right B,
-left Y, R3 and right-trigger analog. Enabling the old watcher would misinterpret
-input as haptic events. This commit deliberately does **not** overwrite upstream
-slots or claim explicit swing/impact pulses work. Restoring those pulses needs
-a separate versioned IPC channel and matching bridge consumer/producer changes.
-Use this launcher, not the old bridge shortcut that enables that watcher.
-
-## Validation and headset checklist
-
-Standalone policy tests: `tools/psvr2_input_tests`. Test tap/hold boundaries,
-focus cancellation, headset identity, all D-pad directions, shift suppression,
-Triangle-click preservation and unchanged non-PSVR2 policy. Build with CMake and
-run CTest; the test executable prints its check count.
-
-Before considering a bundle release, test on the headset:
-
-1. Touch Triangle and select all directions; verify no turn/crouch/dash.
-2. Release touch and verify turning resumes. Triangle click still switches weapons.
-3. Tap and hold Create; verify one correct menu event, including release behavior.
-4. Test Triangle+R3 fallback and L3+R3 overlay priority; L3 alone still works.
-5. Open/close the VR overlay and lose/regain focus; no delayed menu event.
-6. With only the safe bridge running, verify weapon trigger resistance/recoil
-   and audio haptics. Explicit legacy VR melee pulses are intentionally absent.
-
-Successful builds, action suggestions and preflight checks do not establish
-physical Sense input or haptic correctness; retain the runtime/headset test gate.
-
-Sources: the old fork's `.okf/fixes/psvr2-triangle-dpad.md` and
-`.okf/operations/psvr2-adaptive-triggers.md`; upstream `Utils/SharedSlots.hpp`;
-PSVR2Toolkit `vr_motion_haptics.cpp` and `run_bridge.ps1`.
+`tools/psvr2_input_tests` covers D-pad directions, touch suppression, Create
+tap/hold timing, focus cancellation, headset identity, and preservation of
+Triangle-click and non-PSVR2 behavior. The FOV override and pacing option also
+need headset verification on the target runtime. Source builds and policy tests
+cannot prove physical Sense input or haptic output.
