@@ -1,4 +1,5 @@
 #include "Utils/DebugGate.hpp"
+#include "Runtimes/Psvr2HapticChannel.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
 // openxr_frameloop.cpp - the XR frame loop (PumpInlineFrame / FrameThreadMain).
@@ -1083,6 +1084,7 @@ DWORD OpenXRManager::FrameThreadMain() {
         // ping-pong the synth scratch slot + stride logs). The blendFactor itself
         // is computed from QPC capture timestamps, not this counter.
         ++displayFrameIndex;
+        cvr::psvr2::Haptics().Heartbeat();
         if (frameState.predictedDisplayPeriod > 0) {
             cvr::framegen::DisplayPeriod(frameState.predictedDisplayPeriod);
             m_predictedDisplayPeriodNs.store(frameState.predictedDisplayPeriod, std::memory_order_relaxed);

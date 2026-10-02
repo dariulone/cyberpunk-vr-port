@@ -81,6 +81,7 @@ extern volatile int32_t g_lastLocatePosFP[3];
 extern "C" float CyberpunkVRPort_HalfIpd();
 extern "C" float GetGameRenderFovDeg();
 extern "C" int CyberpunkVR_MainIsRightEye;
+extern "C" int32_t CyberpunkVR_OverlaySkipEmpty;
 extern "C" UINT GetForcedDisplayModeWidth();
 extern "C" UINT GetForcedDisplayModeHeight();
 
@@ -1046,6 +1047,13 @@ bool DrawLiveControls(LiveControlsUiState& state,int section) {
 
         if (section>=0 ? section==4 : ImGui::BeginTabItem("STEREO")) {
             if(ImGui::CollapsingHeader("PERFORMANCE",ImGuiTreeNodeFlags_DefaultOpen)) {
+                bool stableEmptyPacing = CyberpunkVR_OverlaySkipEmpty == 0;
+                if (ImGui::Checkbox("Stable pacing with no overlay graphics", &stableEmptyPacing))
+                    CyberpunkVR_OverlaySkipEmpty = stableEmptyPacing ? 0 : 1;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+                    "On (default): submit an empty overlay command list and fence so pacing stays consistent when the weapon dot disappears, including on bikes.\n"
+                    "Off: skip that work and possibly gain throughput, but bike riding or holstering may cause frame-rate drops that persist after dismount.\n"
+                    "Session-only comparison; restarts restore On.");
                 int reflex=state.nvidiaReflex+1;
                 if(widgets::Combo("NVIDIA Reflex",&reflex,"Game setting\0Off (higher FPS)\0On (lower latency)\0On + Boost\0")) {
                     state.nvidiaReflex=reflex-1;changed=true;

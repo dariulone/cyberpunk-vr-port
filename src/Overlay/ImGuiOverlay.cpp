@@ -254,8 +254,13 @@ void ShutdownOverlay() {
 // because it is how the guard was proven necessary. 3 = pacing plus the guard (default).
 // ================================================================================================
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlayPacing = 3;
-// Live diagnostic A/B switch; the normal path skips empty submissions.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlaySkipEmpty = 1;
+// Keep the fork's previous-submission pacing even when holstering/mounting removes
+// the barrel dot. Skipping this submission also skips next frame's queue fence,
+// making GPU pacing depend on whether ImGui happens to have visible vertices.
+// PID36688: waits stopped 21ms before mounted=1, XR delivery fell to ~38/s while
+// Present stayed ~75/s, and waits stayed absent after dismount. Retain the empty
+// fast path only as an explicit diagnostic opt-in, not the default scheduling policy.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlaySkipEmpty = 0;
 // Diagnostics: how long the two waits actually cost, and how often the guard was open.
 extern "C" __declspec(dllexport) double   CyberpunkVR_DebugOverlayWaitMs = 0.0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayDrains = 0;
