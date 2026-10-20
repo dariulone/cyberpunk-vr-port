@@ -335,7 +335,7 @@ static const ResolutionPreset kMeganeX8KResolutions[] = {
 static const ResolutionPreset kGalaxyXrResolutions[] = {
     {4080, 4768, L"4080 x 4768 (VD Rampage, native)"},
     {2928, 3424, L"2928 x 3424 (VD Godlike)"},
-    {3504, 4096, L"3504 x 4096 (VD Monster)"},
+    {3552, 4144, L"3552 x 4144 (VD Monster)"},
 };
 
 static const HmdPreset kHmdPresets[] = {
