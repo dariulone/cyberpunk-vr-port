@@ -326,6 +326,23 @@ static const ResolutionPreset kMeganeX8KResolutions[] = {
     {6216, 5792, L"6216 x 5792"},
 };
 
+// SAMSUNG GALAXY XR: L-54.5 / R+39.9 (mirrored), U+52.6 / D-52.6, parallel views, no hidden-area mask
+// (SteamVR 2.13, 2025)
+//     window AR = (1.401340 + 0.835410) / (2 x 1.306490) = 0.85601
+// The 3552 x 3840 panels (0.925) are wider than the window; a panel-shaped target renders 7.5% past the lens.
+// Each entry costs what the Virtual Desktop preset it is named for does (VD's sizes are panel-shaped).
+// Rampage, 4224 x 4608, is about 1.19x the panel per side: the native default.
+static const ResolutionPreset kGalaxyXrResolutions[] = {
+    {4080, 4768, L"4080 x 4768 (VD Rampage, native)"},
+    {1288, 1504, L"1288 x 1504 (VD Potato)"},
+    {1640, 1920, L"1640 x 1920 (VD Low)"},
+    {2040, 2384, L"2040 x 2384 (VD Medium)"},
+    {2400, 2800, L"2400 x 2800 (VD High)"},
+    {2576, 3008, L"2576 x 3008 (VD Ultra)"},
+    {2928, 3424, L"2928 x 3424 (VD Godlike)"},
+    {3504, 4096, L"3504 x 4096 (VD Monster)"},
+};
+
 static const HmdPreset kHmdPresets[] = {
     {0, L"Q2",    L"Meta Quest2",     kQuest2Resolutions,       _countof(kQuest2Resolutions)},
     {1, L"Q3S",   L"Meta Quest3s",    kQuest3SResolutions,      _countof(kQuest3SResolutions)},
@@ -343,6 +360,7 @@ static const HmdPreset kHmdPresets[] = {
     {13,L"SFRAME",L"Steam Frame", kSteamFrameResolutions, _countof(kSteamFrameResolutions)},
     {14,L"RG2",   L"HP Reverb G2", kReverbG2Resolutions, _countof(kReverbG2Resolutions)},
     {15,L"MX8K",  L"MeganeX superlight 8K", kMeganeX8KResolutions, _countof(kMeganeX8KResolutions)},
+    {16,L"GXR",   L"Samsung Galaxy XR", kGalaxyXrResolutions, _countof(kGalaxyXrResolutions)},
 };
 
 // The ladder entry nearest in cost (pixel count) to w x h.

@@ -87,10 +87,13 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
         if(mode==0) {
             Check(GetDlgItem(window,102) && GetDlgItem(window,104),"launcher controls missing");
             const auto headset=GetDlgItem(window,104);
-            Check(SendMessageW(headset,CB_GETCOUNT,0,0)==16,"headset count changed unexpectedly");
+            Check(SendMessageW(headset,CB_GETCOUNT,0,0)==17,"headset count changed unexpectedly");
             Check(ComboText(headset,3)==L"Pico4" && ComboText(headset,12)==L"Bigscreen Beyond 2/2e","existing headset IDs moved");
             Check(ComboText(headset,13)==L"Steam Frame" && ComboText(headset,14)==L"HP Reverb G2","new headset entries missing");
             Check(ComboText(headset,15)==L"MeganeX superlight 8K","MeganeX superlight 8K entry missing");
+            Check(ComboText(headset,16)==L"Samsung Galaxy XR","Samsung Galaxy XR entry missing");
+            const auto galaxy=Resolutions(window,16);
+            Check(galaxy.size()==8 && galaxy.front()==L"4080 x 4768 (VD Rampage, native)" && galaxy.back()==L"3504 x 4096 (VD Monster)","Samsung Galaxy XR resolution ladder incorrect");
             // Steam Frame is selected last: the nearest-cost check below reads its ladder.
             const auto meganex=Resolutions(window,15),quest3=Resolutions(window,2);
             Check(meganex.size()==8 && meganex.front()==L"3824 x 3568 (cost of the 3552 x 3840 panel)" && meganex.back()==L"6216 x 5792","MeganeX superlight 8K resolution ladder incorrect");
