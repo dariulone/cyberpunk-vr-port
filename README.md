@@ -167,7 +167,7 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   latches so the car keeps rolling.
 - **World-map head-lock** — DLSS/NGX handling (the second
   view gets its own upscaler viewport automatically).
-- **17 headsets, 133 resolutions**, every ladder shaped to that headset's measured
+- **17 headsets, 128 resolutions**, every ladder shaped to that headset's measured
   eye window, picked before launch: Quest 2 / 3 / 3S, Pico 4 / 4 Ultra, Pimax
   Crystal OG / Light / Super / Ultra Wide and Dream Air, Valve Index, PSVR2,
   Bigscreen Beyond 2/2e, Steam Frame, HP Reverb G2, MeganeX superlight 8K and

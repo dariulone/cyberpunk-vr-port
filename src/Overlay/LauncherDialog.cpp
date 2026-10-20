@@ -334,11 +334,6 @@ static const ResolutionPreset kMeganeX8KResolutions[] = {
 // Rampage, 4224 x 4608, is about 1.19x the panel per side: the native default.
 static const ResolutionPreset kGalaxyXrResolutions[] = {
     {4080, 4768, L"4080 x 4768 (VD Rampage, native)"},
-    {1288, 1504, L"1288 x 1504 (VD Potato)"},
-    {1640, 1920, L"1640 x 1920 (VD Low)"},
-    {2040, 2384, L"2040 x 2384 (VD Medium)"},
-    {2400, 2800, L"2400 x 2800 (VD High)"},
-    {2576, 3008, L"2576 x 3008 (VD Ultra)"},
     {2928, 3424, L"2928 x 3424 (VD Godlike)"},
     {3504, 4096, L"3504 x 4096 (VD Monster)"},
 };
