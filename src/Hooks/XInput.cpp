@@ -65,7 +65,7 @@ bool cvr::input::WeaponTriggerEnabled() {
 // DISCRETE MOVEMENT SPEED. 1 = a push past the deadzone moves at ONE speed whatever the deflection,
 // which is what the keyboard does (LeftY_Axis binds IK_W at val="1.0"); 0 = the pad's analogue
 // magnitude, where the speed rides the thumb.
-// EVERYTHING DEFAULT WHILE A MENU OR A BRAINDANCE OWNS THE SCREEN.
+// GAMEPLAY REMAPS ARE OFF WHILE A MENU OR A BRAINDANCE OWNS THE SCREEN.
 //
 // Asked for directly: "чтобы в меню все бинды и т.д были дефолтные... наши override bindings не
 // применялись", and the same for a braindance. Every remap in this file was written for gameplay -- the
@@ -74,7 +74,9 @@ bool cvr::input::WeaponTriggerEnabled() {
 // button the menu itself needs. With this on, a menu or a braindance gets the raw controller: buttons,
 // triggers and sticks merged as they come, and nothing else.
 //
-// The one thing that goes with it: the grips no longer page menu tabs (that was a port remap too).
+// The Quest Touch controllers have no physical LB/RB. In menus only, their grip buttons stand in
+// for those two shoulders so the UI remains navigable with Virtual Desktop gamepad emulation off.
+// This is a hardware translation, not a gameplay remap; gameplay grips remain reserved for VR actions.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_InputDefaultInUi = 1;
 // How long the magazine drop stays blocked after a UI overlay closes. Spamming the close button is what
 // this is for: the popup goes away on the first press and the next one would land in gameplay, where B
@@ -370,6 +372,14 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // button. Exit is a deliberate X press now, translated below; nothing else can eject.
     const bool keypadInput = cvr::input::KeypadInputActive();
     const bool gameplayScreen = (g_menuModeValue == 0) && !keypadInput;
+    // A world map has its own UI bridge and does not always raise the native menu-mode flag.
+    // Read it before the vanilla-UI early return below so Touch grips can still supply LB/RB there.
+    bool menuOpenForGripShoulders = g_menuModeValue != 0;
+    if (!menuOpenForGripShoulders) {
+        if (float* sh = GetShotShared()) {
+            if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenForGripShoulders = true;
+        }
+    }
     cvr::gestures::PublishInput(vr.leftGrip,vr.rightGrip,vr.leftTrigger,vr.rightTrigger,
         (vr.buttons&0x0080)!=0,gameplayScreen && !uiPopupOpen && g_bdActive.load(std::memory_order_relaxed)==0);
     const bool mounted = g_isInVehicle;
@@ -388,8 +398,14 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // the shared slots the CET mods read are put down -- a gesture must not fire from a menu press, and
     // a slot left standing at 1 would keep firing after the menu closes.
     if (keypadInput || (CyberpunkVR_InputDefaultInUi != 0 &&
-        (g_menuModeValue != 0 || g_bdActive.load(std::memory_order_relaxed) != 0))) {
+        (menuOpenForGripShoulders || g_bdActive.load(std::memory_order_relaxed) != 0))) {
         pState->Gamepad.wButtons |= vr.buttons;
+        // Touch has grip buttons where a gamepad has LB/RB. Apply this only to actual menus
+        // (including the world map), never to braindances or gameplay, where grips are VR gestures.
+        if (CyberpunkVR_InputDefaultInUi != 0 && !keypadInput && menuOpenForGripShoulders) {
+            if (vr.leftGrip >= 0.7f)  pState->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
+            if (vr.rightGrip >= 0.7f) pState->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        }
         const BYTE ltUi = FloatToBYTE(vr.leftTrigger);
         const BYTE rtUi = FloatToBYTE(vr.rightTrigger);
         if (ltUi > pState->Gamepad.bLeftTrigger)  pState->Gamepad.bLeftTrigger  = ltUi;
@@ -431,29 +447,11 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         return r;
     }
 
-    // MENU-ONLY: right grip = RB (right shoulder) for tab navigation to the RIGHT,
-    // symmetric with the left grip's LB. The right grip is deliberately NEVER merged as
-    // RB in gameplay -- there it is reserved for the hand-to-holster equip (published as
-    // shared[49] above) and the D-pad modifier, and RB is a gameplay action that would
-    // misfire on every holster reach. Menus run no holster logic and can't fire gameplay
-    // actions, so the grip is safe as RB while one is open. Menu state = the native
-    // menu-mode hook OR the redscript world-map bridge flag (shared[81]).
-    {
-        bool menuOpenForRb = (g_menuModeValue != 0);
-        if (!menuOpenForRb) {
-            if (float* sh = GetShotShared()) {
-                if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenForRb = true;
-            }
-        }
-        if (menuOpenForRb && vr.rightGrip >= 0.7f) {
-            pState->Gamepad.wButtons |= 0x0200; // XINPUT_GAMEPAD_RIGHT_SHOULDER
-        }
-        // And the LEFT grip's LB, on the same terms. It used to be emitted unconditionally from the frameloop,
-        // which meant every gameplay squeeze of the left grip opened the SCANNER -- LB's gameplay binding. That
-        // hand now grabs the magazine for the reload, so the two cannot share the input.
-        if (menuOpenForRb && vr.leftGrip >= 0.7f) {
-            pState->Gamepad.wButtons |= 0x0100; // XINPUT_GAMEPAD_LEFT_SHOULDER
-        }
+    // Compatibility for users who disable vanilla input handling in menus. With the default
+    // setting, the same Touch grip-to-shoulder translation happens in the UI early-return above.
+    if (menuOpenForGripShoulders) {
+        if (vr.leftGrip >= 0.7f)  pState->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
+        if (vr.rightGrip >= 0.7f) pState->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
     }
 
     // Triggers: take the max so a physical squeeze isn't lost.

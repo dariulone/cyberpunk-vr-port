@@ -326,8 +326,9 @@ overlays rather than menus, which is why they used to be impossible to close wit
 gun out. Spamming that button is safe — the magazine drop stays blocked for a second
 after the popup closes.
 
-In **menus** and in **braindances** the pad is vanilla: none of the remaps below
-apply there, including the grips-as-shoulders that used to page menu tabs.
+In **menus** and in **braindances** the pad is otherwise vanilla. Quest Touch grips
+stand in for LB/RB in menus because the controllers have no physical shoulder buttons;
+gameplay remaps stay off there, and grips are not remapped during braindances.
 
 While **driving**, the same controllers do something else:
 
