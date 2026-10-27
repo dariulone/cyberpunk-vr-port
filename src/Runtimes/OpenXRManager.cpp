@@ -1,3 +1,4 @@
+#include "Runtimes/PresenceRecenter.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
@@ -1089,6 +1090,10 @@ void OpenXRManager::EndSession() {
     Log("OpenXRManager: Session ended.\n");
 }
 
+// 1 = recenter automatically when the player puts the headset back on (xr_auto_recenter, see
+// Runtimes/PresenceRecenter.hpp). 0 = only F7 / the controller gesture / the runtime's own recenter.
+extern "C" __declspec(dllexport) int CyberpunkVR_AutoRecenter = 1;
+
 void OpenXRManager::PollEvents() {
     if (m_instance == XR_NULL_HANDLE) return;
 
@@ -1096,8 +1101,18 @@ void OpenXRManager::PollEvents() {
     while (xrPollEvent(m_instance, &event) == XR_SUCCESS) {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* changed = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
+            const XrSessionState previous = m_sessionState;
             m_sessionState = changed->state;
             Log("OpenXRManager: Session state -> %d\n", static_cast<int>(m_sessionState));
+            static cvr::presence::AwayTracker s_away;
+            if (cvr::presence::OnSessionState(s_away, previous, m_sessionState)) {
+                if (CyberpunkVR_AutoRecenter) {
+                    RequestRecenter();
+                    Log("OpenXRManager: headset back on after an absence -> automatic recenter.\n");
+                } else {
+                    Log("OpenXRManager: headset back on after an absence (xr_auto_recenter=0, not recentering).\n");
+                }
+            }
 
             if (m_sessionState == XR_SESSION_STATE_READY) {
                 BeginSession();
