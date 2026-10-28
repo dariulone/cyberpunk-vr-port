@@ -1044,7 +1044,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                                       "the weapon arm. Either way the shot leaves the real muzzle, for guns and\n"
                                       "projectiles alike, and free-look while aiming is preserved.");
                 }
-                UI::Checkbox("Weapon Aim laser dot (where the bullet hits)", &g_drawBarrelCross);
+                changed |= UI::Checkbox("Weapon Aim laser dot (where the bullet hits)", &state.xrWeaponLaserDot);
                 if (UI::IsItemHovered()) {
                     UI::SetTooltip("Red dot projected from the actual weapon muzzle direction through the\n"
                                       "game camera -- marks exactly where the bullet will fly.");

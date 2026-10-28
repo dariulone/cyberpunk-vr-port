@@ -31,6 +31,7 @@
 #include <share.h>
 #include "Utils/AobScanner.hpp"
 #include "Overlay/LiveControlsUi.hpp"
+namespace overlay { extern bool g_drawBarrelCross; }
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Overlay/LauncherDialog.hpp"
 #include "Runtimes/OpenXRManager.hpp"
@@ -414,6 +415,7 @@ void PollLiveControls() {
     g_lastLiveControlWrite = fileData.ftLastWriteTime;
 
     // Neutral-neck mounting supplies the anatomical offset. These are optional trims.
+    bool xrWeaponLaserDot = false;
     float xrHeadOffsetX = 0.0f;
     float xrHeadOffsetY = 0.0f;
     float xrHeadOffsetZ = 0.0f;
@@ -627,6 +629,10 @@ void PollLiveControls() {
     char line[128];
     while (fgets(line, sizeof(line), file)) {
         float value = 0.0f;
+        if (sscanf_s(line, "xr_weapon_laser_dot = %f", &value) == 1) {
+            xrWeaponLaserDot = value != 0.0f;
+            continue;
+        }
 
         if (sscanf_s(line, "xr_head_offset_x=%f", &value) == 1 ||
             sscanf_s(line, "xr_head_offset_x = %f", &value) == 1) {
@@ -1552,6 +1558,7 @@ void PollLiveControls() {
         g_liveControls.xrRuntime != xrRuntime ||
         g_liveControls.xrDepthSubmit != xrDepthSubmit;
 
+    overlay::g_drawBarrelCross = xrWeaponLaserDot;
     g_liveControls.xrHeadOffsetX = xrHeadOffsetX;
     g_liveControls.xrHeadOffsetY = xrHeadOffsetY;
     g_liveControls.xrHeadOffsetZ = xrHeadOffsetZ;
@@ -1868,6 +1875,7 @@ void PollLiveControls() {
 
 LiveControlsUiState MakeLiveControlsUiState() {
     LiveControlsUiState state{};
+    state.xrWeaponLaserDot = overlay::g_drawBarrelCross;
     state.xrHeadOffsetX = g_liveControls.xrHeadOffsetX;
     state.xrHeadOffsetY = g_liveControls.xrHeadOffsetY;
     state.xrHeadOffsetZ = g_liveControls.xrHeadOffsetZ;
@@ -1971,6 +1979,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     FILE* file = _fsopen(g_liveControlPath, "w", _SH_DENYNO);
     if (!file) return;
 
+    fprintf(file, "xr_weapon_laser_dot=%d\n", state.xrWeaponLaserDot ? 1 : 0);
     fprintf(file, "xr_head_offset_x=%.4f\n", state.xrHeadOffsetX);
     fprintf(file, "xr_head_offset_y=%.4f\n", state.xrHeadOffsetY);
     fprintf(file, "xr_head_offset_z=%.4f\n", state.xrHeadOffsetZ);
@@ -2324,6 +2333,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
 
     const int prevMono = g_liveControls.xrMonoSubmit;
 
+    overlay::g_drawBarrelCross = state->xrWeaponLaserDot;
     g_liveControls.xrHeadOffsetX = state->xrHeadOffsetX;
     g_liveControls.xrHeadOffsetY = state->xrHeadOffsetY;
     g_liveControls.xrHeadOffsetZ = state->xrHeadOffsetZ;
