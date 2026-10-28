@@ -204,15 +204,10 @@ return {
 
         slot       = 'vrp_mag_slot',
         which      = 0,
-        -- TRACK 9, and it is worth saying how that number was got, because the .rig file says 8 and the file is not
-        -- what the game runs. The rig lists nine tracks -- bulletUsed01..06, showMagazineReload,
-        -- showMagazineReloadBullets, showMagazineBullets -- which would put the one we want at index 8. The LIVE rig
-        -- reports ELEVEN, so its numbering is not the file's, and the log settled it in one look: with the rounds
-        -- visible exactly one track reads 1.00 and every other reads 0.00, and that one is index 9.
-        --
-        -- (All twelve seated-round meshes are gated on `showMagazineBullets`, checked in the entity -- so the NAME
-        -- was right from the start; only the number was not.)
-        showTrack  = 9,
+        -- Source track 8 is showMagazineBullets. The old direct-buffer reader
+        -- observed destination 9; native writes now use the verified remap.
+        -- Live mapped readback on Rosco: source 8=1, source 9 absent.
+        showTrack = 8,
         -- TWO ENTITIES, because a revolver gives up one thing and is given another. What the hand BRINGS is the
         -- speedloader -- `mag_stdr`, a star with a handle and its own six rounds. What FALLS OUT of the cylinder is
         -- the six spent cases, `mag_std`, and nothing else. One entity for both roles was visibly wrong in both
@@ -338,6 +333,9 @@ return {
             -- the friction that resists it is lower, which is true of every dry contact there is. Sharing one
             -- number made them creep out: they were being held back by the value that only decides when to let go.
             mu      = 0.22,
+            -- Assisted extractor travel after deliberate tilt; 48 mm clears in
+            -- at most 0.14 s once each staggered case starts moving.
+            minExitSpeed = 0.35,
             spread  = 0.12,
             -- A head start counted from the moment a case CAN move, not from when the cylinder opened -- and it only
             -- breaks ties, because the real ordering comes from `bias`.
