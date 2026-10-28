@@ -10,6 +10,7 @@
 #include "Render/MonoCascades.hpp"
 
 struct LiveControlsUiState {
+    bool xrWeaponLaserDot = false;
     float xrHeadOffsetX;
     float xrHeadOffsetY;
     float xrHeadOffsetZ;
