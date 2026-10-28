@@ -870,6 +870,16 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     const bool engineStereo = cvr::engine_stereo::Enabled() && sourceDesc.Width >= 2;
     const bool split = engineStereo && !menuOpen;
     const bool squeeze = engineStereo && menuOpen && !cvr::engine_stereo::LoadingSideBySide();
+    // Bounded transition trace, not per-frame logging. Useful for splash variants.
+    static unsigned lastLayout = ~0u, layoutLogs = 0;
+    const unsigned layout = unsigned(menuOpen) | (unsigned(split) << 1) | (unsigned(squeeze) << 2);
+    if (layout != lastLayout) {
+        lastLayout = layout;
+        if (layoutLogs++ < 32)
+            Log("[menu-capture] serial=%llu panel=%d split=%d fullWindow=%d source=%llux%u\n",
+                static_cast<unsigned long long>(serial), int(menuOpen), int(split), int(squeeze),
+                static_cast<unsigned long long>(sourceDesc.Width), sourceDesc.Height);
+    }
     D3D12_RESOURCE_DESC eyeDesc = sourceDesc;
     if (engineStereo) eyeDesc.Width = sourceDesc.Width / 2;
     const uint32_t mainEyeIndex = CyberpunkVR_MainIsRightEye ? 1u : 0u;
@@ -877,6 +887,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     const auto halfX = [&](uint32_t eye) {
         return eye == 0 ? 0u : static_cast<uint32_t>(sourceDesc.Width - eyeDesc.Width);
     };
+    // Never fall back to half of a full-window splash if the blitter is unavailable.
+    if (squeeze && !EnsureMenuWindow(sourceDesc)) return false;
     if (!EnsureMonoCaptureResource(eyeDesc)) {
         CVR_DIAGNOSTIC(CyberpunkVR_DebugCapSkipNoRes.fetch_add(1, std::memory_order_relaxed));
         return false;
@@ -1508,6 +1520,10 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         if (m_monoCapturedFrame.texture == snapshot) {
             m_monoCapturedFrame.serial = serial;
             m_monoCapturedFrame.captureMs = XrDiagNowMs();
+            m_monoCapturedFrame.menuPanel = menuOpen;
+            // SBS loading UI is a full-window design squeezed into each half too.
+            m_monoCapturedFrame.panelAspect = engineStereo && sourceDesc.Height
+                ? float(sourceDesc.Width) / float(sourceDesc.Height) : 1.0f;
             CVR_DIAGNOSTIC(CyberpunkVR_DebugCapOk.fetch_add(1, std::memory_order_relaxed));
             for (int eye = 0; eye < 2; ++eye) {
                 m_monoCapturedFrame.poses[eye] = capturedPoses[eye];

@@ -1086,6 +1086,8 @@ private:
         // and a warp distance that varies frame to frame is what reads as the world shifting, while
         // every rate counter stays perfect.
         double captureMs = 0.0;
+        bool menuPanel = false; // interpretation of this image, not the next UI state
+        float panelAspect = 1.0f; // unsqueezed source aspect
     };
     std::vector<EyeSwapchain> m_eyeSwapchains;
     CapturedMonoFrame m_monoCapturedFrame;

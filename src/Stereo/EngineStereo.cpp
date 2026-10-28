@@ -429,7 +429,7 @@ bool LoadingShown() {
     return layer && LayerActive(layer);
 }
 
-bool OnePicture() { return Enabled() && (!Rendering() || LoadingShown()); }
+bool OnePicture() { return Enabled() && (!Rendering() || MainMenuUp() || LoadingShown()); }
 
 bool LoadingSideBySide() { return Enabled() && Rendering() && !MainMenuUp() && LoadingShown(); }
 

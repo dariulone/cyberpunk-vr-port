@@ -1208,7 +1208,8 @@ DWORD OpenXRManager::FrameThreadMain() {
         uint32_t viewCountOutput = 0;
         const bool monoEnabled = m_monoSubmitEnabled.load(std::memory_order_relaxed);
         // The loading screen and a frame rendered mono too (Stereo/EngineStereo.hpp OnePicture).
-        const bool menuRectActive = (GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture();
+        bool menuRectActive = (GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture();
+        float capturedPanelAspect = 1.0f;
         // Menu closed -> drop the latched panel anchors so the NEXT menu re-anchors in
         // front of wherever the player is looking at open time.
         if (!menuRectActive) {
@@ -1890,6 +1891,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                         monoSource->AddRef();
                         presentSerial = m_monoCapturedFrame.serial;
                         monoCaptureMs = m_monoCapturedFrame.captureMs;
+                        menuRectActive = m_monoCapturedFrame.menuPanel;
+                        capturedPanelAspect = m_monoCapturedFrame.panelAspect;
                         for (int eye = 0; eye < 2; ++eye) {
                             if(!cvr::framegen::CaptureInputsEnabled())m_monoCapturedFrame.framegenInputs[eye].reset();
                             monoPoses[eye] = m_monoCapturedFrame.poses[eye];
@@ -2413,17 +2416,11 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                                 float quadWidth = 2.0f * 1.5f * tanf(GetMenuFov() * 3.14159f / 180.0f * 0.5f);
                                 float quadHeight = quadWidth;
-                                // ENGINE STEREO: the image is the whole two-eyes-wide window squeezed into one
-                                // eye's (OpenXRCapture.cpp). Ink fits a menu's 16:9 design into that window by
-                                // its height, where one eye's window fitted it by the width: the menu keeps the
-                                // panel width it had there, and the panel takes the window's own aspect.
-                                if (cvr::engine_stereo::Enabled() && m_eyeSwapchains[0].height) {
-                                    const float windowW = 2.0f * static_cast<float>(m_eyeSwapchains[0].width);
-                                    const float windowH = static_cast<float>(m_eyeSwapchains[0].height);
-                                    const float menuW = (std::min)(windowW, windowH * 16.0f / 9.0f);
-                                    quadHeight = quadWidth * windowH / menuW;
-                                    quadWidth *= windowW / menuW;
-                                }
+                                // Fit the COMPLETE panel inside the requested angular size.
+                                // Expanding its width to restore a 16:9 design cropped wide
+                                // splash artwork. Preserve source aspect without zooming it.
+                                if (capturedPanelAspect > 1.0f) quadHeight /= capturedPanelAspect;
+                                else if (capturedPanelAspect > 0.0f) quadWidth *= capturedPanelAspect;
                                 layerQuad.size = {quadWidth, quadHeight};
                                 layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layerQuad);
                             } else {
