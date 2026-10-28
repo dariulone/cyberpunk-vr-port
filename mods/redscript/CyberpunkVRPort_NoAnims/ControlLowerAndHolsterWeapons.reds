@@ -137,6 +137,15 @@ public func IsFirearms(scriptInterface: ref<StateGameScriptInterface>) -> Bool
 @wrapMethod(UpperBodyEventsTransition)
   protected final func UpdateSwitchItem(timeDelta: Float, stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Bool
   {
+    let player = scriptInterface.executionOwner as PlayerPuppet;
+    if IsDefined(player) && player.vrLauncherConsumeSwitchRelease {
+      this.ResetEquipVars(stateContext);
+      if scriptInterface.GetActionValue(n"SwitchItem") <= 0.00 {
+        player.vrLauncherConsumeSwitchRelease = false;
+      };
+      return false;
+    };
+
     if IsFirearms(scriptInterface)
     {
       // raised by the fire or aim button
