@@ -42,6 +42,7 @@ extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 extern void Log(const char* fmt, ...);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 extern volatile float g_lastLocateQuat[4];
+extern "C" int32_t CyberpunkVR_OverlaySkipEmpty;
 extern "C" int   CyberpunkVR_StereoModuleEnable;   // vr_core.cpp: did we install at all
 extern "C" int   CyberpunkVR_StereoModuleLoaded;
 extern "C" int32_t CyberpunkVR_StereoLog;
@@ -1152,6 +1153,17 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
 
         if (section>=0 ? section==4 : UI::BeginTabItem("STEREO")) {
             if(UI::CollapsingHeader("PERFORMANCE",ImGuiTreeNodeFlags_DefaultOpen)) {
+                bool stableEmptyPacing = CyberpunkVR_OverlaySkipEmpty == 0;
+                if (UI::Checkbox("Stable pacing with no overlay graphics", &stableEmptyPacing)) {
+                    CyberpunkVR_OverlaySkipEmpty = stableEmptyPacing ? 0 : 1;
+                    Log("[pacing] stable empty-overlay pacing=%d (skipEmpty=%d)\n",
+                        stableEmptyPacing, CyberpunkVR_OverlaySkipEmpty);
+                }
+                if (UI::IsItemHovered()) UI::SetTooltip(
+                    "Keep the previous-overlay fence pacing even when no overlay is drawn.\n"
+                    "May improve headset delivery when mounting or holstering. Adds a small\n"
+                    "empty command submission. Uncheck for upstream behavior; resets ON at launch.");
+
                 int reflex=state.nvidiaReflex+1;
                 if(widgets::Combo("NVIDIA Reflex",&reflex,"Game setting\0Off (higher FPS)\0On (lower latency)\0On + Boost\0")) {
                     state.nvidiaReflex=reflex-1;changed=true;
