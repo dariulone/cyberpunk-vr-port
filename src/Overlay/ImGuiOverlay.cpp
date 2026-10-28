@@ -257,7 +257,7 @@ void ShutdownOverlay() {
 // ================================================================================================
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlayPacing = 3;
 // Live diagnostic A/B switch; the normal path skips empty submissions.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlaySkipEmpty = 1;
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlaySkipEmpty = 0;
 // Diagnostics: how long the two waits actually cost, and how often the guard was open.
 extern "C" __declspec(dllexport) double   CyberpunkVR_DebugOverlayWaitMs = 0.0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayDrains = 0;
