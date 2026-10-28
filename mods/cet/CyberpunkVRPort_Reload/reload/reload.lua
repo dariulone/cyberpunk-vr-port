@@ -842,6 +842,91 @@ local function beltMagRadius()
     return r or 0.12
 end
 
+local function bodyMagReach(side)
+    if type(GetVRSharedSlot) ~= 'function' then return false end
+    local seq = GetVRSharedSlot(127)
+    if not seq or seq % 2 ~= 0 then return false end
+    local b = side == 0 and 0 or 8
+    if (GetVRSharedSlot(b) or 0) < 0.5 then return false end
+    local x, y, z = GetVRSharedSlot(b+1), GetVRSharedSlot(b+2), GetVRSharedSlot(b+3)
+    local i, j, k, r = GetVRSharedSlot(16), GetVRSharedSlot(17), GetVRSharedSlot(18), GetVRSharedSlot(19)
+    local function finite(v) return type(v) == 'number' and v == v and math.abs(v) < math.huge end
+    if not (finite(x) and finite(y) and finite(z) and finite(i) and finite(j) and finite(k) and finite(r))
+        or GetVRSharedSlot(127) ~= seq then return false end
+    local n = math.sqrt(i*i+j*j+k*k+r*r)
+    if n < 0.5 or n > 1.5 then return false end
+    x, y, z = qrot(i/n, j/n, k/n, r/n, x, y, z)
+    return y <= -0.18 and y >= -1.10 and x*x + z*z <= 0.42*0.42
+end
+
+-- Wrist roll can close a cylinder without translating the controller. Require
+-- a deliberate, sustained roll about the bore, not ordinary aiming yaw/pitch.
+local function cylinderRollFlick(state, q, ax, ay, az, dt)
+    local prev = state.rollQ
+    state.rollQ = nil
+    if not q or dt <= 0 or dt > 0.10 then state.rollTravel, state.rollSamples = 0, 0; return false end
+    local n = math.sqrt(q.i*q.i + q.j*q.j + q.k*q.k + q.r*q.r)
+    if not (n >= 0.5 and n <= 1.5) then state.rollTravel, state.rollSamples = 0, 0; return false end
+    local i,j,k,r = q.i/n,q.j/n,q.k/n,q.r/n
+    state.rollQ = {i,j,k,r}
+    if not prev then state.rollTravel, state.rollSamples = 0, 0; return false end
+    local x,y,z,w = qmul(i,j,k,r,-prev[1],-prev[2],-prev[3],prev[4])
+    if w < 0 then x,y,z,w = -x,-y,-z,-w end
+    local sn = math.sqrt(x*x+y*y+z*z)
+    local angle = sn > 1e-6 and 2*math.atan2(sn,w) or 0
+    local roll = sn > 1e-6 and angle*(x*ax+y*ay+z*az)/sn or 0
+    local speed = math.abs(roll)/dt
+    state.rollPeak = math.max(state.rollPeak or 0, math.deg(speed))
+    if speed < math.rad(250) then state.rollTravel, state.rollSamples = 0, 0; return false end
+    local travel = state.rollTravel or 0
+    if travel*roll < 0 then travel = 0; state.rollSamples = 0 end
+    state.rollTravel = travel + roll
+    state.rollSamples = (state.rollSamples or 0) + 1
+    -- At least 20 degrees at speed: a single tiny tracking jitter cannot close it.
+    return state.rollSamples >= 2 and math.abs(state.rollTravel) >= math.rad(20)
+end
+
+-- Capture a stable CLOSED crane before any opening animation/write. The old
+-- native relative rotation latched its base on the first open frame, which
+-- could already contain the game's reload swing and doubled the rotation.
+local function captureCraneRest(state, hc, dt)
+    if state.rest or state.open or (state.p or 0) > 0 or type(VRRigBone) ~= 'function' then return end
+    local p = {}
+    for i=0,6 do
+        local v = VRRigBone(hc.which,hc.bone,i)
+        if type(v) ~= 'number' or v ~= v or math.abs(v) == math.huge then state.restCandidate=nil;state.restTime=0;return end
+        p[i+1]=v
+    end
+    local norm=math.sqrt(p[4]^2+p[5]^2+p[6]^2+p[7]^2)
+    if norm < .95 or norm > 1.05 or p[1]^2+p[2]^2+p[3]^2 > .36 then
+        state.restCandidate=nil;state.restTime=0;return
+    end
+    for i=4,7 do p[i]=p[i]/norm end
+    local prev=state.restCandidate
+    local stable=false
+    if prev then
+        local d=(p[1]-prev[1])^2+(p[2]-prev[2])^2+(p[3]-prev[3])^2
+        local dot=math.abs(p[4]*prev[4]+p[5]*prev[5]+p[6]*prev[6]+p[7]*prev[7])
+        stable=d < .000001 and dot > .99999
+    end
+    state.restTime=stable and ((state.restTime or 0)+math.min(dt,.05)) or 0
+    if not stable then state.restCandidate=p end
+    if state.restTime >= .15 then state.rest=p end
+end
+local function driveCraneRest(state,hc,angle)
+    local p=state.rest
+    if not p then return false end
+    local ax,ay,az=hc.axis[1],hc.axis[2],hc.axis[3]
+    local n=math.sqrt(ax*ax+ay*ay+az*az)
+    if n < .001 then return false end
+    local h=math.rad(angle*(hc.sign or 1))*.5
+    local sn=math.sin(h)/n
+    local i,j,k,r=qmul(p[4],p[5],p[6],p[7],ax*sn,ay*sn,az*sn,math.cos(h))
+    VRRigWriteRot(hc.which,hc.bone,0,ax,ay,az)
+    state.writeSlot = VRRigWriteAbs(hc.which,hc.bone,p[1],p[2],p[3],i,j,k,r,1)
+    return true
+end
+
 -- Said every frame with the current truth rather than on transitions: a missed edge would leave the
 -- pouch permanently empty, and the player would have nothing to reach for ever again.
 local function beltMagTaken(on)
@@ -1208,6 +1293,10 @@ local function magHome()
     holdS.comp[0], holdS.comp[1] = nil, nil
     holdS.mesh[0], holdS.mesh[1] = nil, nil
     holdS.skin[0], holdS.skin[1] = nil, nil
+    hatchS.open, hatchS.btnPrev, hatchS.openT, hatchS.hp = false, false, 0, nil
+    hatchS.rest, hatchS.restCandidate, hatchS.restTime = nil, nil, 0
+    hatchS.rollQ, hatchS.rollTravel, hatchS.rollSamples = nil, 0, 0
+
 end
 
 -- THE GAME'S OWN RELOAD TAKES THE GUN, and everything of ours lets go of it at once.
@@ -4006,25 +4095,26 @@ function M.frame(weapon, slotComp, holder, dt)
             if magS.state == 'in' and slideS.grabbed and slideS.hand == free then catchW = 0.0 end
             local takeAnywhere = false
             if magS.state == 'gone' then
-                -- OFF THE BELT WHEN THE BELT HAS ONE. The distance is the pouch's, so the fingers fade in as
-                -- the hand goes down to the hip and the grip only bites there -- the same gesture as taking a
-                -- grenade, and the pouch is already lit by then.
                 local beltD = beltMagDist(free)
-                local gx, gy, gz = magFromRaw(free)          -- from the RAW hand: a weight must never feed itself
+                local atBody = bodyMagReach(free)
+                local gx, gy, gz = magFromRaw(free)
                 local goneD = gx and len3(gx - wx, gy - wy, gz - wz) or -1
                 if beltD ~= nil then goneD = beltD end
                 catchW = pullW(goneD, beltD ~= nil and beltMagRadius() or (mc.seatSnapRadius or 0.12))
-                -- the same rule, and it matters more here: with the well empty a squeeze conjures a magazine
-                -- ANYWHERE, so without this a hand on the slide of a dry gun got a magazine instead of a rack
                 local slD2 = slideS.dist or -1
+                -- A real slide grab retains priority. Merely being closer to a
+                -- distant slide than a low pouch must not block the body zone.
                 local busy = slideS.grabbed or slideS.releasing
-                             or (magS.slideHasPose and slD2 >= 0 and goneD >= 0 and slD2 < goneD)
+                    or (magS.slideHasPose and slD2 >= 0
+                        and (atBody and slD2 <= (sc.previewRadius or 0.05)
+                             or not atBody and goneD >= 0 and slD2 < goneD))
+                if atBody then catchW = 1.0 end
                 if busy then catchW = 0.0 end
                 magS.insD = goneD
-                -- ...and with a pouch there is no "anywhere" any more: the hand has to be AT it. Without one
-                -- nothing changes -- a squeeze conjures a magazine as it always did.
                 magS.fromBelt = (beltD ~= nil)
-                takeAnywhere = (not busy) and (beltD == nil)
+                -- Retain the existing belt-less fallback; the body zone also
+                -- works when a pouch exists but is too low or unavailable.
+                takeAnywhere = (not busy) and (atBody or beltD == nil)
             end
 
             if magS.state == 'in' or magS.state == 'gone' then
@@ -4105,6 +4195,7 @@ function M.frame(weapon, slotComp, holder, dt)
                     -- ...and the gun is empty only when the last one has actually left its chamber
                     if magS.casesOut and REVOLVER.spent() then
                         magS.state, magS.hand, magS.carried = 'gone', nil, nil
+                        magS.gripLock = grip and not bodyMagReach(free)
                         setMagAmmo(weapon, 0)
                         playSnd(weapon, snd and snd.magOut)
                         magS.casesOut = false
@@ -4625,9 +4716,12 @@ function M.frame(weapon, slotComp, holder, dt)
             hatchS.wantPrev = want
         end
         if hc.manual then
+            captureCraneRest(hatchS,hc,dt)
             local b2 = (GetVRSharedSlot(157) or 0.0) > 0.5
             if b2 and not hatchS.btnPrev then
-                hatchS.open = not hatchS.open
+                -- Do not latch an arbitrary animated base if the rig is not
+                -- ready yet. Usually the closed-pose capture finishes on draw.
+                hatchS.open = not hatchS.open and hatchS.rest ~= nil
                 -- on the EDGE, not on arrival: a crane is heard leaving the frame, not reaching the end of its swing
                 playSnd(weapon, snd and (hatchS.open and snd.hatchOpen or snd.hatchShut))
             end
@@ -4650,7 +4744,17 @@ function M.frame(weapon, slotComp, holder, dt)
             hatchS.openT = hatchS.open and ((hatchS.openT or 0.0) + dt) or 0.0
             if hatchS.open and hc.flickSpeed and gFx then
                 local hfx, hfy, hfz = handModel(holder)
-                if hfx and hatchS.hp and dt > 1e-4 then
+                local rollClose = false
+                if hatchS.openT > (hc.flickArm or 0.30) and hfx and type(VRHandRawRot) == 'function' then
+                    rollClose = cylinderRollFlick(hatchS, VRHandRawRot(holder), ax, ay, az, dt)
+                else
+                    hatchS.rollQ, hatchS.rollTravel = nil, 0
+                end
+                if rollClose then
+                    hatchS.open = false
+                    playSnd(weapon, snd and snd.hatchShut)
+                end
+                if hfx and hatchS.hp and dt > 1e-4 and dt <= 0.10 then
                     local vx6 = (hfx - hatchS.hp[1]) / dt
                     local vy6 = (hfy - hatchS.hp[2]) / dt
                     local vz6 = (hfz - hatchS.hp[3]) / dt
@@ -4658,7 +4762,7 @@ function M.frame(weapon, slotComp, holder, dt)
                     -- the PEAK since the last log line, not the instant: a flick lasts two or three frames, and a
                     -- sample taken every few seconds will never once land on one
                     if lat > (hatchS.lat or 0.0) then hatchS.lat = lat end
-                    if hatchS.openT > (hc.flickArm or 0.30) and lat >= hc.flickSpeed then
+                    if hatchS.open and hatchS.openT > (hc.flickArm or 0.30) and lat >= hc.flickSpeed then
                         hatchS.open = false
                         playSnd(weapon, snd and snd.hatchShut)
                     end
@@ -4666,6 +4770,7 @@ function M.frame(weapon, slotComp, holder, dt)
                 if hfx then hatchS.hp = { hfx, hfy, hfz } else hatchS.hp = nil end
             else
                 hatchS.hp = nil
+                hatchS.rollQ, hatchS.rollTravel = nil, 0
             end
             want = hatchS.open and 1.0 or 0.0
         end
@@ -4676,7 +4781,6 @@ function M.frame(weapon, slotComp, holder, dt)
             p = (want > p) and math.min(1.0, p + step) or math.max(0.0, p - step)
             hatchS.p = p
         end
-        if hc.parts then M.hatchParts(hc, p, hatchS) else
         local A, wu = hc.angle or 90.0, hc.windUp or 0.0
         local ang
         if p < 0.20 then       ang = -wu * (p / 0.20)                     -- winding up
@@ -4689,13 +4793,20 @@ function M.frame(weapon, slotComp, holder, dt)
         end
         if p <= 0.0 then
             if hatchS.wrote then
-                VRRigWriteRot(hc.which, hc.bone, 0.0, hc.axis[1], hc.axis[2], hc.axis[3])  -- angle 0 = hand it back
+                if hc.manual and type(VRRigWriteOff) == 'function' then
+                    VRRigWriteOff(hc.which,hc.bone)
+                else
+                    VRRigWriteRot(hc.which, hc.bone, 0.0, hc.axis[1], hc.axis[2], hc.axis[3])
+                end
                 hatchS.wrote = false
             end
         else
-            VRRigWriteRot(hc.which, hc.bone, ang * (hc.sign or 1.0), hc.axis[1], hc.axis[2], hc.axis[3])
-            hatchS.wrote = true
-        end
+            if hc.manual then
+                hatchS.wrote = driveCraneRest(hatchS,hc,ang)
+            else
+                VRRigWriteRot(hc.which, hc.bone, ang * (hc.sign or 1.0), hc.axis[1], hc.axis[2], hc.axis[3])
+                hatchS.wrote = true
+            end
         end
     end
 

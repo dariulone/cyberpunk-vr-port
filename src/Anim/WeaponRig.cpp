@@ -27,6 +27,7 @@
 #include "Hooks/Hook.hpp"
 #include <MinHook.h>
 #include "Anim/WeaponRig.hpp"
+#include "Anim/RigTrackMapping.hpp"
 
 extern uintptr_t g_gameModuleBase;   // src/Core/VrCore.cpp, filled by InitGameModuleInfo at startup
 extern size_t    g_gameModuleSize;
@@ -45,6 +46,7 @@ static uint32_t RigTrackCount(const uint8_t* rig, uintptr_t trackBuf) {
     return *reinterpret_cast<const uint32_t*>(rig + 0xA0);
 }
 
+
 // IDENTIFY THE RIG BY BONE NAME, then write the reload module's tracks onto it.
 //
 // a1[8] IS THE RIG OBJECT -- established in the debugger, not inferred -- so the names it carries at
@@ -59,22 +61,10 @@ static uint32_t RigTrackCount(const uint8_t* rig, uintptr_t trackBuf) {
 void WeaponRigIdentifyAndWrite(void** a1, void** a2, unsigned int a4, void* poseDesc,
                                uint8_t* boneBuf, uintptr_t trackBuf) {
                 int which = -1;
-                for (int w = 0; w < VRRIG_N; ++w) {
-                    if (trackBuf == g_RigBuf[w]) { which = w; break; }
-                }
-                if (which >= 0) {
-                    // VERIFY the short-circuit. Track buffers are freed and REUSED across weapon state changes,
-                    // and the magazine rig arriving at the frame rig's cached address classified every mag pass
-                    // as the frame: telemetry read map0 = 1>18..4>21 (the mag slots) on passes tagged which==1
-                    // while the real frame rig slept. One deref pair settles it -- the rig's bone count (5 mag,
-                    // 16 frame); on mismatch drop the stale cache entry and fall through to re-identification.
-                    uint8_t* vrig = reinterpret_cast<uint8_t**>(a1)[8];
-                    const uint32_t vn = vrig ? *reinterpret_cast<uint32_t*>(vrig + 0x58) : 0u;
-                    // The count this rig was IDENTIFIED with, not a literal: a second weapon has its own numbers.
-                    const uint32_t expect = g_RigBones[which];
-                    if (expect == 0u || vn != expect) { g_RigBuf[which] = 0; which = -1; }
-                }
-                uint32_t nb = (which >= 0) ? g_RigBones[which] : 0;
+                // Track addresses and bone counts can be reused by another gun.
+                // Validate the active signature every pass; only two weapon
+                // signatures are registered now, so this stays bounded/cheap.
+                uint32_t nb = 0;
 
                 if (which < 0) {
                     uint8_t* rig = reinterpret_cast<uint8_t**>(a1)[8];
@@ -165,20 +155,17 @@ void WeaponRigIdentifyAndWrite(void** a1, void** a2, unsigned int a4, void* pose
                         }
                         g_RigPoseHave[which] = 1;
                     }
-                    // FLOAT TRACKS, same order: read the game's values back first, then apply ours. Bounded by the
-                    // track count the RIG object reports (rig+0xA0, latched at identification), so nothing is written
-                    // past the buffer -- the frame rig reports 0 and is skipped entirely.
-                    const uint32_t ntr = g_RigTracks[which];
-                    if (ntr) {
-                        float* tv = reinterpret_cast<float*>(trackBuf);
-                        const uint32_t mt = (ntr < static_cast<uint32_t>(VRRIG_TRACKS))
-                                          ? ntr : static_cast<uint32_t>(VRRIG_TRACKS);
-                        for (uint32_t e = 0; e < mt; ++e) g_RigTrackVal[which][e] = tv[e];
-                        g_RigTrackHave[which] = 1;
-                        for (uint32_t e = 0; e < mt; ++e) {
-                            if (g_RigTrackOn[which][e]) tv[e] = g_RigTrackSet[which][e];
-                        }
-                    }
+                    // 2.50 RVA 0x1B3D13..0x1B3D39: float tracks use their OWN
+                    // (source,destination) remap at six+0x60, LOD counts +0x70.
+                    // The rig's source count is NOT the destination capacity.
+                    const uint32_t* trackMap = six ? *reinterpret_cast<uint32_t**>(six + 0x60) : nullptr;
+                    const uint16_t* trackCounts = six ? *reinterpret_cast<uint16_t**>(six + 0x70) : nullptr;
+                    const uint32_t trackPairs = trackCounts ? trackCounts[a4] : 0u;
+                    const uint32_t trackCapacity = *reinterpret_cast<uint32_t*>(
+                        reinterpret_cast<uint8_t*>(poseDesc) + 0x20);
+                    g_RigTrackHave[which] = ApplyRigTracks(trackMap, trackPairs,
+                        g_RigTracks[which], reinterpret_cast<float*>(trackBuf), trackCapacity,
+                        g_RigTrackVal[which], g_RigTrackSet[which], g_RigTrackOn[which], VRRIG_TRACKS);
                     const int wn = g_RigWriteN;
                     for (int k = 0; k < wn && k < VRRIG_WRITES; ++k) {
                         if (g_RigWriteWhich[k] != which) continue;
@@ -192,19 +179,16 @@ void WeaponRigIdentifyAndWrite(void** a1, void** a2, unsigned int a4, void* pose
                             }
                         }
                         g_RigWriteSlot[k] = dst;
-                        // THIS PASS'S resolve wins when it has one; the pin is only a FALLBACK for passes whose
-                        // remap dropped the bone (low LOD -- the slot still holds local-stage data there, because
-                        // writer 3 restores locals after each composition, so writing it keeps the part alive).
-                        //
-                        // It used to be the other way round -- pin first, and a pass resolving differently was
-                        // skipped as "foreign numbering". That silently broke every SECOND INSTANCE of a rig: this
-                        // weapon carries two magazine components (`Magazine` and `MagazineReload`), same 5-bone rig,
-                        // and the instance drawing mag_stdr resolves its own slots -- so all writes to it were
-                        // dropped and the carried magazine never appeared. Trusting the live resolve fixes that,
-                        // and the mess the pin was introduced for turned out to be rig MISIDENTIFICATION, which the
-                        // bone-count check above now catches.
-                        if (a4 == 0 && dst >= 0) g_RigWritePin[k] = dst;
-                        if (dst < 0) dst = g_RigWritePin[k];
+                        // Later LOD passes can omit a bone after its local pose
+                        // was copied. Resolve through THIS component's LOD-0 map;
+                        // never borrow a slot cached from another gun/component.
+                        if(dst<0 && remap && rcnt && g_RigWriteAbs[k]) {
+                            const uint32_t full=rcnt[0];
+                            if(full<=nb)for(uint32_t e=0;e<full;++e)
+                                if(remap[e*2]==static_cast<uint32_t>(bi)){dst=static_cast<int>(remap[e*2+1]);break;}
+                        }
+                        g_RigWriteSlot[k]=dst;
+                        if(a4==0 && dst>=0)g_RigWritePin[k]=dst; // diagnostics only
                         if (dst < 0 || static_cast<uint32_t>(dst) >= slots) continue;
                         float* t = reinterpret_cast<float*>(boneBuf + dst * 48 + VRIK_TRANS_OFF);
                         // Capture the rest value the first time this bone is seen, BEFORE writing it. The pose copy
@@ -212,13 +196,13 @@ void WeaponRigIdentifyAndWrite(void** a1, void** a2, unsigned int a4, void* pose
                         // sight t holds the game's rest local pose. From then on t = base + offset every pass: it
                         // overrides the animation with our controlled pose, is idempotent and bounded, and offset 0
                         // returns the part to rest by itself.
-                        if (!g_RigWriteHaveBase[k]) {
+                        if (!g_RigWriteHaveBase[k] && !g_RigWriteAbs[k]) {
                             // BASE SANITY: a weapon part's parent-local translation is centimetres (back_slider
                             // rest is 0.22 m). A magnitude beyond 0.6 m means the slot held a WORLD-stage value
                             // when we looked (see the no-fallback note above) -- latching it would poison every
                             // later write, so wait for a pass where the slot is freshly local.
                             const float bm2 = t[0]*t[0] + t[1]*t[1] + t[2]*t[2];
-                            if (bm2 > 0.36f) continue;
+                            if (!std::isfinite(bm2) || bm2 > 0.36f) continue;
                             g_RigWriteBase[k][0] = t[0];
                             g_RigWriteBase[k][1] = t[1];
                             g_RigWriteBase[k][2] = t[2];
