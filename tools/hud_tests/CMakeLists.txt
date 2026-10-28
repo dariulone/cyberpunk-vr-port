@@ -10,6 +10,6 @@ target_include_directories(hud_tests PRIVATE ../../include ../../build/_deps/ope
 target_compile_features(hud_tests PRIVATE cxx_std_20)
 target_compile_definitions(hud_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
 target_link_libraries(hud_tests PRIVATE d3d12 dxgi d3dcompiler)
-foreach(case cone catchup wrap reversal invalid delta_limit delayed_catchup delayed_jitter delayed_turn delayed_limits delayed_reset delayed_wrap delayed_slow_frames channels gpu_sprites gpu_leases gpu_quad_timeout gpu_quad_tracking gpu_quad_recenter gpu_quad_serial gpu_quad_delay gpu_quad_debug_gate gpu_quad_interaction gpu_quad_loot display_clock vertical_head layout_latch layout_transform layout_config scanner_crop gpu_quad_alignment gpu_quad_projection gpu_quad_body gpu_style)
+foreach(case cone catchup wrap reversal invalid delta_limit delayed_catchup delayed_jitter delayed_turn delayed_limits delayed_reset delayed_wrap delayed_slow_frames channels gpu_sprites gpu_leases gpu_quad_timeout gpu_quad_tracking gpu_quad_recenter gpu_quad_serial gpu_quad_delay gpu_quad_debug_gate gpu_quad_interaction gpu_quad_loot display_clock vertical_head layout_latch layout_transform layout_keep_inside layout_config scanner_crop gpu_quad_alignment gpu_quad_projection gpu_quad_body gpu_style)
     add_test(NAME hud_${case} COMMAND hud_tests ${case})
 endforeach()

@@ -459,6 +459,24 @@ int main(int argc,char** argv) try {
         cvr::hud::ElementSettings e;e.x=10;e.y=-5;e.scale=.5f;
         auto rect=cvr::hud::ApplyElement({100,200,400,300},e,2000,1000);
         Check(rect.x==400 && rect.y==225 && rect.width==200 && rect.height==150,"element centre/normalized offsets wrong");
+    } else if(name=="layout_keep_inside") {
+        // Defaults leave the authored rect untouched, even one the game parks partly off-canvas.
+        cvr::hud::ElementSettings d;
+        auto same=cvr::hud::ApplyElement({1700,800,400,300},d,2000,1000);
+        Check(same.x==1700 && same.y==800 && same.width==400 && same.height==300,"default changed an authored rect");
+        // A corner element scaled 2x slides back inside instead of being cut at the canvas edge.
+        cvr::hud::ElementSettings e;e.scale=2;
+        auto big=cvr::hud::ApplyElement({1600,700,400,300},e,2000,1000);
+        Check(big.width==800 && big.height==600,"scale changed while sliding inside");
+        Check(big.x==1200 && big.y==400,"scaled corner element not kept on the canvas");
+        // An offset that would leave the canvas stops at its edge.
+        cvr::hud::ElementSettings o;o.x=-100;o.y=100;
+        auto moved=cvr::hud::ApplyElement({100,100,200,100},o,2000,1000);
+        Check(moved.x==0 && moved.y==900,"offset not clamped to the canvas");
+        // An element scaled larger than the canvas shrinks to fit, keeping its aspect.
+        cvr::hud::ElementSettings huge;huge.scale=3;
+        auto fit=cvr::hud::ApplyElement({0,0,1000,600},huge,2000,1000);
+        Check(std::abs(fit.height-1000.f)<0.01f && std::abs(fit.width-1000.f/0.6f)<0.01f && fit.x>=0 && fit.x+fit.width<=2000.01f,"oversized element not fitted");
     } else if(name=="scanner_crop") {
         for(float rootWidth:{1280.f,2648.f,2856.f,3616.f}) {
             const float scale=rootWidth/3840.f;

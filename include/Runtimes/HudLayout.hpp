@@ -80,9 +80,30 @@ inline ElementSettings Sanitize(ElementSettings s) {
 inline Rect ApplyElement(Rect r, ElementSettings s,float canvasW,float canvasH) {
     s=Sanitize(s);
     // Scaling around the element centre keeps a size edit from shifting its anchor.
-    const float w=r.width*s.scale,h=r.height*s.scale;
-    return {r.x+(r.width-w)*0.5f+s.x*canvasW*0.01f,
-            r.y+(r.height-h)*0.5f+s.y*canvasH*0.01f,w,h};
+    float w=r.width*s.scale,h=r.height*s.scale;
+    float x=r.x+(r.width-w)*0.5f+s.x*canvasW*0.01f;
+    float y=r.y+(r.height-h)*0.5f+s.y*canvasH*0.01f;
+    // KEEP THE EDIT ON THE CANVAS. Every sprite is drawn into one canvas of canvasW x canvasH, and
+    // whatever falls outside it is simply not there: an element near an edge (the phone, the minimap)
+    // scaled up around its centre grew past the edge and was cut, and a bigger scale only pushed more of
+    // it out. The edited rect is now slid back inside, and shrunk to fit if it is larger than the canvas.
+    //
+    // The limit is the canvas JOINED WITH the element's own authored rect, so an element the game itself
+    // places partly off-canvas (a slide-in animation, an off-screen parked widget) keeps that overhang:
+    // with the defaults (scale 1, no offset) the result is exactly the authored rect, as before.
+    if(canvasW>0 && canvasH>0) {
+        const float minX=std::min(0.0f,r.x),minY=std::min(0.0f,r.y);
+        const float maxX=std::max(canvasW,r.x+r.width),maxY=std::max(canvasH,r.y+r.height);
+        const float boundW=maxX-minX,boundH=maxY-minY;
+        if(w>boundW || h>boundH) {
+            const float k=std::min(boundW/w,boundH/h);
+            const float cx=x+w*0.5f,cy=y+h*0.5f;
+            w*=k;h*=k;x=cx-w*0.5f;y=cy-h*0.5f;
+        }
+        x=std::clamp(x,minX,maxX-w);
+        y=std::clamp(y,minY,maxY-h);
+    }
+    return {x,y,w,h};
 }
 LayoutSettings GetLayoutSettings();
 void SetLayoutSettings(const LayoutSettings& settings);
