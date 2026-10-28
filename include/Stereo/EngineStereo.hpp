@@ -72,11 +72,11 @@ inline bool SharedWindow() { return Enabled() && CyberpunkVR_EngineStereoEyeWind
 bool Rendering();
 
 // The main menu's controller (mods/redscript/CyberpunkVRPort_EngineStereo, native VREngineStereoMenuShown) says it
-// was shown; from then on the plugin's SDK answers "available" and StereoEnabled is on (src/Stereo/EngineStereoSdk.cpp).
+// was shown; track its lifetime. The first closure of the last frontend arms stereo.
 void NoteMainMenu();
 // The main menu's controller was uninitialised (the save loads, or the game quits to the desktop).
 void NoteMainMenuClosed();
-// Whether the main menu has been shown in this launch: the engine is asked for stereo from then on.
+// Whether the frontend has closed in this launch: the engine is asked for stereo from then on.
 bool Armed();
 // Whether the main menu is up now (between its controller's initialisation and uninitialisation).
 bool MainMenuUp();

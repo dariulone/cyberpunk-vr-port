@@ -37,6 +37,7 @@ extern "C" int CyberpunkVR_StereoSubmit;
 extern "C" void CvrWorldMarkerTextPublishDetour();
 extern "C" { uintptr_t CvrWorldMarkerTextPublishTarget{}; }   // the native publication the thunk jumps on to
 extern "C" int GetMenuMode();
+extern "C" int GetMenuRectMode();
 extern "C" float CyberpunkVR_HudRootWidth, CyberpunkVR_HudRootHeight;   // Natives/HudPanel.cpp
 extern int g_launcherWidth;
 extern int g_launcherHeight;
@@ -942,7 +943,9 @@ bool EngineEyeWindow(int eye,cvr::projection::ViewWindow& window) {
 // With the UI laid out for one eye (src/Stereo/EngineStereo.cpp) the canvas is one eye's under the engine's stereo
 // too: drawn into the eye's half it is an eye pixel per canvas pixel already, and only the centre moves.
 bool InkShift(int side,int eye,float width,float height,cvr::projection::ViewWindow& window,float& squeeze) {
-    if(!CyberpunkVR_AsymHudShift.load(std::memory_order_relaxed) || GetMenuMode() || g_launcherHeight<=0 || !(height>0))return false;
+    // Flat panels must not inherit the gameplay HUD's eye offset or squeeze.
+    if(!CyberpunkVR_AsymHudShift.load(std::memory_order_relaxed) || GetMenuMode() || GetMenuRectMode() ||
+       cvr::engine_stereo::OnePicture() || g_launcherHeight<=0 || !(height>0))return false;
     const float across=eye>=0 && !cvr::engine_stereo::UiOneEye() ? 2.0f : 1.0f;   // the eyes the canvas spans
     const float aspect=across*float(g_launcherWidth)/float(g_launcherHeight);
     if(std::fabs(width/height-aspect)>.01f*aspect)return false;

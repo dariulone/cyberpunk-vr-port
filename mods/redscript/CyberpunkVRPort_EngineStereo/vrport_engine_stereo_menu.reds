@@ -1,10 +1,6 @@
-// CyberpunkVRPort — ENGINE STEREO STARTS AT THE MAIN MENU.
-//
-// In engine stereo (xr_engine_stereo=1) the plugin keeps the engine mono until the main menu is first shown: splash
-// screens, intro videos and the first loading are one picture in the headset. The main menu's controller tells the
-// plugin when it is up; from then on the engine renders both eyes (src/Stereo/EngineStereoSdk.cpp). It also says when
-// the main menu goes: under it the loading layer stays active, but only a loading screen without the main menu is
-// drawn side by side (src/Stereo/EngineStereo.cpp LoadingSideBySide). Outside engine stereo the calls do nothing.
+// CyberpunkVRPort: frontend lifetime notifications.
+// The native plugin keeps initial splashes mono until the last frontend closes,
+// then leaves native stereo enabled. Menu lifetimes also select the flat panel.
 
 native func VREngineStereoMenuShown() -> Void;
 native func VREngineStereoMenuClosed() -> Void;
@@ -17,6 +13,21 @@ protected cb func OnInitialize() -> Bool {
 }
 
 @wrapMethod(SingleplayerMenuGameController)
+protected cb func OnUninitialize() -> Bool {
+  VREngineStereoMenuClosed();
+  return wrappedMethod();
+}
+
+// The startup Load Game screen replaces SingleplayerMenuGameController.
+// Keep a full-window menu capture until this screen also closes.
+@wrapMethod(LoadGameMenuGameController)
+protected cb func OnInitialize() -> Bool {
+  let result: Bool = wrappedMethod();
+  VREngineStereoMenuShown();
+  return result;
+}
+
+@wrapMethod(LoadGameMenuGameController)
 protected cb func OnUninitialize() -> Bool {
   VREngineStereoMenuClosed();
   return wrappedMethod();

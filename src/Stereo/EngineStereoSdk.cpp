@@ -8,12 +8,10 @@
 // is followed and, in engine stereo, handed the plugin's own factory and interface -- the contract the stand-in
 // implements (tools/odyssey3d_fake_sdk/Odyssey3DSDK.cpp) -- and the three cvars are set in memory.
 //
-// STEREO STARTS AT THE MAIN MENU. Until the main menu has been shown (mods/redscript/CyberpunkVRPort_EngineStereo
-// calls VREngineStereoMenuShown from its controller) the interface answers "not available" and StereoEnabled is
-// off: splash screens, intro videos and the first loading render mono, the camera is the vanilla one, and the
-// startup window path (sub_1408F36D8, which with stereo on would take the SDK's display size and go fullscreen)
-// never fires. From the main menu on, stereo stays on; the headset shows any frame the engine renders mono as one
-// picture (EngineStereo.hpp OnePicture).
+// Startup remains mono until the last frontend controller closes. Creating a menu controller
+// can precede completion of the splash/initial loading screen; enabling SBS at creation
+// transformed those remaining screens while capture still treated them as full-window UI.
+// Once armed, stereo stays on for gameplay and subsequent menu transitions.
 
 #include "Stereo/EngineStereo.hpp"
 #include "Stereo/DetourRegistry.hpp"
@@ -199,15 +197,19 @@ uint8_t* __fastcall Detour_WrapperCtor(uint8_t* wrapper) {
 void NoteMainMenu() {
     if (!Enabled()) return;
     CyberpunkVR_EngineStereoMainMenus.fetch_add(1, std::memory_order_relaxed);
-    if (g_armed.exchange(true, std::memory_order_relaxed)) return;
-    CyberpunkVR_EngineStereoArmed.store(1, std::memory_order_relaxed);
-    WriteCvars(true);
-    Log("[engine-stereo-sdk] main menu shown: the engine renders both eyes from now on\n");
+    // Controller creation precedes the end of the splash. Keep startup mono.
 }
 
 void NoteMainMenuClosed() {
     int32_t open = CyberpunkVR_EngineStereoMainMenus.load(std::memory_order_relaxed);
     while (open > 0 && !CyberpunkVR_EngineStereoMainMenus.compare_exchange_weak(open, open - 1, std::memory_order_relaxed)) {
+    }
+    // Arm only after the last frontend controller closes, never on its creation.
+    // Once armed, gameplay retains stereo (including return-to-menu transitions).
+    if (Enabled() && open == 1 && !g_armed.exchange(true, std::memory_order_relaxed)) {
+        CyberpunkVR_EngineStereoArmed.store(1, std::memory_order_relaxed);
+        WriteCvars(true);
+        Log("[engine-stereo-sdk] frontend closed: engine stereo enabled\n");
     }
 }
 
