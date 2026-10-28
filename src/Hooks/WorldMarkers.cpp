@@ -1147,11 +1147,11 @@ bool RewriteConstants(uint32_t size,const void* source,void* scratch,uint32_t* s
         if(shift) ShiftInkCamera(out,p,size,squeeze,window.shiftX,window.shiftY,content);
         inkCameras[slot].parallax=parallax ? out[2] : 0;inkCameras[slot].squeeze=squeeze;
         if(engineStereo) {
-            // Each eye's move, once per change: what the engine wrote, what the eye gets.
-            static float logged[2][4]{};
-            float* l=logged[slot];
-            if(l[0]!=out[0] || l[1]!=out[3] || l[2]!=out[7] || l[3]!=out[2]) {
-                l[0]=out[0];l[1]=out[3];l[2]=out[7];l[3]=out[2];
+            // Camera floats change continuously. One sample per eye is enough to
+            // identify this path; do not format/write a log line for every upload.
+            static std::atomic<bool> logged[2]{};
+            if(!logged[slot].load(std::memory_order_relaxed) &&
+               !logged[slot].exchange(true,std::memory_order_relaxed)) {
                 Log("[world-markers] eye %d canvas %.0fx%.0f: x %.6f %.4f y %.4f -> x %.6f %.4f y %.4f parallax %.5f "
                     "(squeeze %.4f window %.4f %.4f %.4f %.4f)\n",eye,p[188],p[189],p[0],p[3],p[7],out[0],out[3],out[7],out[2],
                     squeeze,window.shiftX,window.shiftY,window.halfX,window.halfY);
