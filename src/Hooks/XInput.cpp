@@ -76,7 +76,7 @@ bool cvr::input::WeaponTriggerEnabled() {
 // button the menu itself needs. With this on, a menu or a braindance gets the raw controller: buttons,
 // triggers and sticks merged as they come, and nothing else.
 //
-// The one thing that goes with it: the grips no longer page menu tabs (that was a port remap too).
+// Menu grip-to-shoulder translation remains available before the default UI return.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_InputDefaultInUi = 1;
 // How long the magazine drop stays blocked after a UI overlay closes. Spamming the close button is what
 // this is for: the popup goes away on the first press and the next one would land in gameplay, where B
@@ -409,6 +409,22 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // player from a moving car -- which reads as being thrown across the street, not as a
     // button. Exit is a deliberate X press now, translated below; nothing else can eject.
     const bool keypadInput = cvr::input::KeypadInputActive();
+    bool menuOpenForRb = (g_menuModeValue != 0);
+    if (!menuOpenForRb) {
+        if (float* sh = GetShotShared()) {
+            if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenForRb = true;
+        }
+    }
+    // ONLY A SQUEEZE THAT STARTS INSIDE THE MENU. A grip already held when the menu opens is the hand's
+    // resting pose -- the VR menu's map button is pressed with a gripped pointing hand -- and turned into
+    // RB/LB it paged the hub off the map on its first frame (right grip: Character, left: Inventory), so the
+    // map button seemed to open some other menu at random. Each grip arms once it is seen open in a menu.
+    static bool s_gripShoulderArmed[2] = {false, false};
+    const float grips[2] = {vr.leftGrip, vr.rightGrip};
+    for (int h = 0; h < 2; ++h) {
+        if (!menuOpenForRb || menuCapture) s_gripShoulderArmed[h] = false;
+        else if (grips[h] < 0.5f) s_gripShoulderArmed[h] = true;
+    }
     const bool gameplayScreen = (g_menuModeValue == 0) && !keypadInput;
     cvr::gestures::PublishInput(handInput.leftGrip,handInput.rightGrip,handInput.leftTrigger,handInput.rightTrigger,
         (handInput.buttons&0x0080)!=0,gameplayScreen && !uiPopupOpen && g_bdActive.load(std::memory_order_relaxed)==0);
@@ -430,6 +446,10 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     if (keypadInput || (CyberpunkVR_InputDefaultInUi != 0 &&
         (g_menuModeValue != 0 || g_bdActive.load(std::memory_order_relaxed) != 0))) {
         pState->Gamepad.wButtons |= vr.buttons;
+        if (!keypadInput && CyberpunkVR_InputDefaultInUi && menuOpenForRb && !menuCapture) {
+            if (s_gripShoulderArmed[0] && vr.leftGrip >= 0.7f) pState->Gamepad.wButtons |= XINPUT_GAMEPAD_LEFT_SHOULDER;
+            if (s_gripShoulderArmed[1] && vr.rightGrip >= 0.7f) pState->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        }
         const BYTE ltUi = FloatToBYTE(vr.leftTrigger);
         const BYTE rtUi = FloatToBYTE(vr.rightTrigger);
         if (ltUi > pState->Gamepad.bLeftTrigger)  pState->Gamepad.bLeftTrigger  = ltUi;
@@ -480,22 +500,6 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // actions, so the grip is safe as RB while one is open. Menu state = the native
     // menu-mode hook OR the redscript world-map bridge flag (shared[81]).
     {
-        bool menuOpenForRb = (g_menuModeValue != 0);
-        if (!menuOpenForRb) {
-            if (float* sh = GetShotShared()) {
-                if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpenForRb = true;
-            }
-        }
-        // ONLY A SQUEEZE THAT STARTS INSIDE THE MENU. A grip already held when the menu opens is the hand's
-        // resting pose -- the VR menu's map button is pressed with a gripped pointing hand -- and turned into
-        // RB/LB it paged the hub off the map on its first frame (right grip: Character, left: Inventory), so the
-        // map button seemed to open some other menu at random. Each grip arms once it is seen open in a menu.
-        static bool s_gripShoulderArmed[2] = {false, false};
-        const float grips[2] = {vr.leftGrip, vr.rightGrip};
-        for (int h = 0; h < 2; ++h) {
-            if (!menuOpenForRb || menuCapture) s_gripShoulderArmed[h] = false;
-            else if (grips[h] < 0.5f) s_gripShoulderArmed[h] = true;
-        }
         if (s_gripShoulderArmed[1] && vr.rightGrip >= 0.7f) {
             pState->Gamepad.wButtons |= 0x0200; // XINPUT_GAMEPAD_RIGHT_SHOULDER
         }
