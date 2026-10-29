@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation wymaga nowszego sterownika NVIDIA",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation nie jest obsługiwane na tym GPU (wymagany RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Inicjalizacja NGX nie powiodła się (0x%08X)",
+  ["FINGER TRACKING"] = "ŚLEDZENIE PALCÓW",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Chwyt z palców (pięść / kciuk w górę) (następne uruchomienie)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "Chwyt i dane palców ze śledzenia dłoni (rękawice ze śledzeniem palców, kontrolery Index).\nDziała od następnego uruchomienia gry.",
+  ["Fingers follow the hand tracking"] = "Palce podążają za śledzeniem dłoni",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "Każdy palec V podąża za twoim. Wyłączone: pozy palców z przycisków.",
+  ["Open thumb from the rig's pose"] = "Otwarty kciuk z pozy szkieletu",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "Przy otwartej dłoni kciuk V przyjmuje pozę szkieletu gry.\nWyłączone: kciuk leży płasko wzdłuż palca wskazującego.",
+  ["Finger spread"] = "Rozstaw palców",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Palce V rozchylają się na boki jak twoje.\n0: wyłączone, palce tylko się zginają. 1: domyślnie.",
 }

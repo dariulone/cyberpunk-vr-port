@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "Для DLSS Frame Generation потрібен новіший драйвер NVIDIA",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation не підтримується цим GPU (потрібна RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Помилка ініціалізації NGX (0x%08X)",
+  ["FINGER TRACKING"] = "ВІДСТЕЖЕННЯ ПАЛЬЦІВ",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Хват пальцями (кулак / великий палець угору) (під час наступного запуску)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "Хват і дані пальців із відстеження рук (рукавички з відстеженням пальців, контролери Index).\nЗастосовується під час наступного запуску гри.",
+  ["Fingers follow the hand tracking"] = "Пальці слідують за відстеженням рук",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "Кожен палець V повторює ваш. Вимк.: пози пальців за кнопками.",
+  ["Open thumb from the rig's pose"] = "Відкритий великий палець з пози скелета",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "Коли долоня відкрита, великий палець V набуває пози скелета гри.\nВимк.: палець лежить пласко вздовж вказівного.",
+  ["Finger spread"] = "Розведення пальців",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Пальці V розводяться в боки, як ваші.\n0: вимк., пальці лише згинаються. 1: за замовчуванням.",
 }

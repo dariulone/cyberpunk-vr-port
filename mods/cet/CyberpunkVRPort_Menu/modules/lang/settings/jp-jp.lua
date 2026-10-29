@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generationには新しいNVIDIAドライバーが必要です",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame GenerationはこのGPUではサポートされていません（RTX 40/50が必要）",
   ["NGX initialization failed (0x%08X)"] = "NGXの初期化に失敗しました（0x%08X）",
+  ["FINGER TRACKING"] = "フィンガートラッキング",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "指でグリップ（握りこぶし／サムズアップ）（次回起動時）",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "ハンドトラッキング（指トラッキンググローブ、Indexコントローラー）からのグリップと指のデータ。\n次回ゲーム起動時に適用。",
+  ["Fingers follow the hand tracking"] = "指がハンドトラッキングに追従",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "Vの各指があなたの指に追従します。オフ：ボタンによる指のポーズ。",
+  ["Open thumb from the rig's pose"] = "開いた親指をリグのポーズに",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "手を開いたとき、Vの親指はゲームのスケルトン本来のポーズになります。\nオフ：親指は人差し指に沿って平らに伸びます。",
+  ["Finger spread"] = "指の開き",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Vの指があなたの指と同じように横に開きます。\n0：オフ、指は曲がるだけ。1：標準。",
 }

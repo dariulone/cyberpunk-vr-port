@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation benötigt einen neueren NVIDIA-Treiber",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation wird auf dieser GPU nicht unterstützt (RTX 40/50 erforderlich)",
   ["NGX initialization failed (0x%08X)"] = "NGX-Initialisierung fehlgeschlagen (0x%08X)",
+  ["FINGER TRACKING"] = "FINGERTRACKING",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Griff aus den Fingern (Faust / Daumen hoch) (nächster Start)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "Griff- und Fingerdaten aus dem Handtracking (Fingertracking-Handschuhe, Index-Controller).\nGilt ab dem nächsten Spielstart.",
+  ["Fingers follow the hand tracking"] = "Finger folgen dem Handtracking",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "Jeder Finger von V folgt deinem eigenen. Aus: Fingerposen aus den Tasten.",
+  ["Open thumb from the rig's pose"] = "Offener Daumen aus der Skelettpose",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "Bei offener Hand nimmt Vs Daumen die Pose des Spielskeletts an.\nAus: der Daumen liegt flach am Zeigefinger.",
+  ["Finger spread"] = "Fingerspreizung",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Vs Finger spreizen sich seitlich wie deine.\n0: aus, die Finger beugen sich nur. 1: Standard.",
 }

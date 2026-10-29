@@ -1,3 +1,4 @@
+#include "Runtimes/FingerGrip.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Render/CommandResources.hpp"
@@ -1707,7 +1708,10 @@ DWORD OpenXRManager::FrameThreadMain() {
                     };
 
                     const float trig = getFloat(m_triggerAction);
-                    const float grip = getFloat(m_gripAction);
+                    float grip = getFloat(m_gripAction);
+                    // Finger-tracking gloves: grip from a fist or thumbs-up (xr_grip_from_fingers, Runtimes/FingerGrip.hpp).
+                    if (const int fingers = cvr::fingergrip::Evaluate(i, m_localSpace, frameState.predictedDisplayTime); fingers >= 0)
+                        grip = fingers ? 1.0f : 0.0f;
                     float sx = 0.0f, sy = 0.0f;
                     getVec2(m_thumbstickAction, sx, sy);
                     const bool sclick = getBool(m_thumbstickClickAction);

@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation에는 최신 NVIDIA 드라이버가 필요합니다",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "이 GPU에서는 DLSS Frame Generation이 지원되지 않습니다(RTX 40/50 필요)",
   ["NGX initialization failed (0x%08X)"] = "NGX 초기화 실패(0x%08X)",
+  ["FINGER TRACKING"] = "손가락 추적",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "손가락으로 쥐기 (주먹 / 엄지 척) (다음 실행 시)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "핸드 트래킹(손가락 추적 장갑, Index 컨트롤러)의 쥐기 및 손가락 데이터.\n다음 게임 실행 시 적용.",
+  ["Fingers follow the hand tracking"] = "손가락이 핸드 트래킹을 따름",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "V의 각 손가락이 당신의 손가락을 따릅니다. 끔: 버튼에 따른 손가락 포즈.",
+  ["Open thumb from the rig's pose"] = "펼친 엄지를 리그 포즈로",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "손을 펼쳤을 때 V의 엄지가 게임 스켈레톤의 포즈를 따릅니다.\n끔: 엄지가 검지를 따라 평평하게 놓입니다.",
+  ["Finger spread"] = "손가락 벌림",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "V의 손가락이 당신의 손가락처럼 옆으로 벌어집니다.\n0: 끔, 손가락이 굽혀지기만 함. 1: 기본값.",
 }

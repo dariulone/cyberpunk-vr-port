@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation necesita un controlador de NVIDIA más reciente",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation no es compatible con esta GPU (requiere RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Falló la inicialización de NGX (0x%08X)",
+  ["FINGER TRACKING"] = "SEGUIMIENTO DE DEDOS",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Agarre con los dedos (puño / pulgar arriba) (próximo inicio)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "Agarre y datos de los dedos del seguimiento de manos (guantes con seguimiento de dedos, mandos Index).\nSe aplica en el próximo inicio del juego.",
+  ["Fingers follow the hand tracking"] = "Los dedos siguen el seguimiento de manos",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "Cada dedo de V sigue al tuyo. Desactivado: poses de dedos según los botones.",
+  ["Open thumb from the rig's pose"] = "Pulgar abierto según la pose del esqueleto",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "Con la mano abierta, el pulgar de V adopta la pose del esqueleto del juego.\nDesactivado: el pulgar queda plano junto al índice.",
+  ["Finger spread"] = "Separación de los dedos",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Los dedos de V se separan hacia los lados como los tuyos.\n0: desactivado, los dedos solo se doblan. 1: predeterminado.",
 }

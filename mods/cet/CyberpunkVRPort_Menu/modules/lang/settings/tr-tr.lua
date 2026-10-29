@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation daha yeni bir NVIDIA sürücüsü gerektirir",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation bu GPU'da desteklenmiyor (RTX 40/50 gerekli)",
   ["NGX initialization failed (0x%08X)"] = "NGX başlatılamadı (0x%08X)",
+  ["FINGER TRACKING"] = "PARMAK TAKİBİ",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Parmaklardan kavrama (yumruk / başparmak yukarı) (sonraki başlatma)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "El takibinden kavrama ve parmak verileri (parmak takipli eldivenler, Index kontrolcüleri).\nOyunun bir sonraki başlatılmasında geçerli olur.",
+  ["Fingers follow the hand tracking"] = "Parmaklar el takibini izler",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "V'nin her parmağı seninkini izler. Kapalı: parmak pozları düğmelerden.",
+  ["Open thumb from the rig's pose"] = "İskelet pozundan açık başparmak",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "El açıkken V'nin başparmağı oyun iskeletinin pozunu alır.\nKapalı: başparmak işaret parmağı boyunca düz durur.",
+  ["Finger spread"] = "Parmak açıklığı",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "V'nin parmakları seninkiler gibi yana açılır.\n0: kapalı, parmaklar yalnızca bükülür. 1: varsayılan.",
 }

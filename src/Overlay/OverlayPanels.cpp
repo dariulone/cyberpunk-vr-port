@@ -1029,6 +1029,22 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             else {
             UI::TextWrapped("Movement, weapon aiming and physical interaction shortcuts.");
 
+            // Finger tracking from OpenXR hand tracking (Runtimes/FingerGrip.hpp, Anim/HandGestures.hpp).
+            if (UI::CollapsingHeader("FINGER TRACKING", ImGuiTreeNodeFlags_DefaultOpen)) {
+                changed |= CheckboxInt("Grip from the fingers (fist / thumbs-up) (next start)", &state.xrGripFromFingers);
+                if (UI::IsItemHovered()) UI::SetTooltip("Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start.");
+                UI::BeginDisabled(!state.xrGripFromFingers);
+                changed |= CheckboxInt("Fingers follow the hand tracking", &state.xrFingerBones);
+                if (UI::IsItemHovered()) UI::SetTooltip("Each of V's fingers follows your own. Off: finger poses from the buttons.");
+                UI::BeginDisabled(!state.xrFingerBones);
+                changed |= CheckboxInt("Open thumb from the rig's pose", &state.xrThumbRigOpen);
+                if (UI::IsItemHovered()) UI::SetTooltip("With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger.");
+                changed |= widgets::SliderFloat("Finger spread", &state.xrFingerSpread, 0.0f, 2.0f, "%.2fx");
+                if (UI::IsItemHovered()) UI::SetTooltip("V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default.");
+                UI::EndDisabled();
+                UI::EndDisabled();
+            }
+
             // Weapon aim: bullets/projectiles fly down the WEAPON BARREL (controller-pointed) instead
             // of the camera crosshair. Hooks the projectile launch orientation provider and feeds it
             // the game's own muzzle world transform. Writes shared[58]; the RED4ext plugin applies it.

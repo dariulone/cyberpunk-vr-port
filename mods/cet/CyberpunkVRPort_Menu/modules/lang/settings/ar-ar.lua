@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "يحتاج DLSS Frame Generation إلى برنامج تشغيل NVIDIA أحدث",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation غير مدعوم على هذا GPU (يتطلب RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "فشلت تهيئة NGX (0x%08X)",
+  ["FINGER TRACKING"] = "تتبع الأصابع",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "القبض من الأصابع (قبضة / إبهام للأعلى) (عند التشغيل التالي)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "بيانات القبض والأصابع من تتبع اليدين (قفازات تتبع الأصابع، وحدات تحكم Index).\nيُطبَّق عند تشغيل اللعبة التالي.",
+  ["Fingers follow the hand tracking"] = "الأصابع تتبع تتبع اليدين",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "كل إصبع من أصابع V يتبع إصبعك. معطّل: وضعيات الأصابع من الأزرار.",
+  ["Open thumb from the rig's pose"] = "إبهام مفتوح من وضعية الهيكل",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "عندما تكون اليد مفتوحة، يأخذ إبهام V وضعية هيكل اللعبة.\nمعطّل: يمتد الإبهام مستويًا بمحاذاة السبابة.",
+  ["Finger spread"] = "تباعد الأصابع",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "تتباعد أصابع V جانبيًا كما تفعل أصابعك.\n0: معطّل، الأصابع تنثني فقط. 1: الافتراضي.",
 }

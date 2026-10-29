@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation richiede un driver NVIDIA più recente",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation non è supportata su questa GPU (richiede RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Inizializzazione NGX non riuscita (0x%08X)",
+  ["FINGER TRACKING"] = "TRACCIAMENTO DELLE DITA",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Presa dalle dita (pugno / pollice in su) (al prossimo avvio)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "Presa e dati delle dita dal tracciamento delle mani (guanti con tracciamento delle dita, controller Index).\nSi applica al prossimo avvio del gioco.",
+  ["Fingers follow the hand tracking"] = "Le dita seguono il tracciamento delle mani",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "Ogni dito di V segue il tuo. Disattivato: pose delle dita dai pulsanti.",
+  ["Open thumb from the rig's pose"] = "Pollice aperto dalla posa dello scheletro",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "Con la mano aperta, il pollice di V assume la posa dello scheletro del gioco.\nDisattivato: il pollice è disteso lungo l'indice.",
+  ["Finger spread"] = "Apertura delle dita",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Le dita di V si allargano lateralmente come le tue.\n0: disattivato, le dita si piegano soltanto. 1: predefinito.",
 }

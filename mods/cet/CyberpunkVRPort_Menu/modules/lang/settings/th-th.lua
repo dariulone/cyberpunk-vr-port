@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation ต้องใช้ไดรเวอร์ NVIDIA ที่ใหม่กว่า",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "GPU นี้ไม่รองรับ DLSS Frame Generation (ต้องใช้ RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "การเริ่มต้น NGX ล้มเหลว (0x%08X)",
+  ["FINGER TRACKING"] = "การติดตามนิ้ว",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "จับจากนิ้ว (กำปั้น / ยกนิ้วโป้ง) (เริ่มครั้งถัดไป)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "ข้อมูลการจับและนิ้วจากการติดตามมือ (ถุงมือติดตามนิ้ว, คอนโทรลเลอร์ Index)\nมีผลเมื่อเริ่มเกมครั้งถัดไป",
+  ["Fingers follow the hand tracking"] = "นิ้วตามการติดตามมือ",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "นิ้วแต่ละนิ้วของ V จะตามนิ้วของคุณ ปิด: ท่านิ้วจากปุ่ม",
+  ["Open thumb from the rig's pose"] = "นิ้วโป้งเปิดตามท่าของโครงกระดูก",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "เมื่อมือเปิด นิ้วโป้งของ V จะใช้ท่าของโครงกระดูกเกม\nปิด: นิ้วโป้งวางแนบขนานกับนิ้วชี้",
+  ["Finger spread"] = "การกางนิ้ว",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "นิ้วของ V จะกางออกด้านข้างเหมือนนิ้วของคุณ\n0: ปิด นิ้วงอได้อย่างเดียว 1: ค่าเริ่มต้น",
 }

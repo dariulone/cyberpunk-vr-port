@@ -35,6 +35,10 @@ struct LiveControlsUiState {
     float xrHudBrightness = 1.0f;
     float xrHudShadow = 1.0f;
     float xrHudGlow = 1.0f;
+    int xrGripFromFingers = 0;       // xr_grip_from_fingers: grip and fingers from hand tracking (next start)
+    int xrFingerBones = 1;           // xr_finger_bones: V's fingers follow the tracked fingers
+    int xrThumbRigOpen = 1;          // xr_thumb_rig_open: the open thumb from the rig's reference pose
+    float xrFingerSpread = 1.0f;     // xr_finger_spread: how far the fingers spread sideways, 0 = off
     cvr::hud::LayoutSettings hudElements{};
     cvr::framegen::Settings framegen{};
     cvr::foveated::Settings foveated{};

@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation potřebuje novější ovladač NVIDIA",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation není na tomto GPU podporováno (vyžaduje RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Inicializace NGX selhala (0x%08X)",
+  ["FINGER TRACKING"] = "SLEDOVÁNÍ PRSTŮ",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Úchop z prstů (pěst / palec nahoru) (při dalším spuštění)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "Úchop a data prstů ze sledování rukou (rukavice se sledováním prstů, ovladače Index).\nPlatí od dalšího spuštění hry.",
+  ["Fingers follow the hand tracking"] = "Prsty sledují sledování rukou",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "Každý prst V sleduje ten tvůj. Vypnuto: pózy prstů z tlačítek.",
+  ["Open thumb from the rig's pose"] = "Otevřený palec podle pózy kostry",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "Při otevřené ruce zaujme palec V pózu kostry hry.\nVypnuto: palec leží naplocho podél ukazováčku.",
+  ["Finger spread"] = "Roztažení prstů",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Prsty V se roztahují do stran jako tvoje.\n0: vypnuto, prsty se jen ohýbají. 1: výchozí.",
 }

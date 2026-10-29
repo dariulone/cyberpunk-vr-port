@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation 需要更新的 NVIDIA 驱动",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "此 GPU 不支持 DLSS Frame Generation（需要 RTX 40/50）",
   ["NGX initialization failed (0x%08X)"] = "NGX 初始化失败（0x%08X）",
+  ["FINGER TRACKING"] = "手指追踪",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "手指抓握（握拳 / 竖大拇指）（下次启动）",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "来自手部追踪（手指追踪手套、Index 控制器）的抓握和手指数据。\n下次启动游戏时生效。",
+  ["Fingers follow the hand tracking"] = "手指跟随手部追踪",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "V 的每根手指都会跟随你的手指。关闭：按按钮确定手指姿势。",
+  ["Open thumb from the rig's pose"] = "张开的拇指使用骨骼姿势",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "手张开时，V 的拇指采用游戏骨骼本身的姿势。\n关闭：拇指沿食指平放。",
+  ["Finger spread"] = "手指张开",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "V 的手指会像你的手指一样向两侧张开。\n0：关闭，手指只会弯曲。1：默认。",
 }

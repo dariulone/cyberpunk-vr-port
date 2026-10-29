@@ -517,6 +517,30 @@ bool cvr::gestures::ThumbReference(int side,float* rotation) {
     return true;
 }
 
+bool cvr::gestures::SpreadAxis(int side,int digit,int* bone,float axis[3]) {
+    if(side<0 || side>1 || !bone || !axis || digit<0 || digit>4 || digit==2)return false;
+    const int* slot=s_ladderFingers[side];
+    // Slots: 0-4 InHand*, 5-9 Hand*1 (knuckles), 10-14 Hand*2, 15-18 Hand*3 (no thumb 3).
+    const int root=digit==0 ? slot[0] : slot[5+digit], next=digit==0 ? slot[10] : slot[10+digit];
+    const int refFrom=digit==0 ? slot[1] : slot[7], refTo=digit==0 ? slot[15] : slot[12];
+    const int indexKnuckle=slot[6],littleKnuckle=slot[9],palm=slot[2];
+    for(int b:{root,next,refFrom,refTo,indexKnuckle,littleKnuckle,palm})if(b<0 || b>=g_VRBoneCount || !s_referenceValid[b])return false;
+    const int parent=g_VRBoneParent[root];if(parent<0 || !s_referenceValid[parent])return false;
+    const auto* p=s_referenceModelPos;
+    float dir[3],ref[3],across[3],toPalm[3],normal[3],turn[3];
+    for(int k=0;k<3;++k){dir[k]=p[next][k]-p[root][k];ref[k]=p[refTo][k]-p[refFrom][k];
+        across[k]=p[littleKnuckle][k]-p[indexKnuckle][k];toPalm[k]=p[palm][k]-p[indexKnuckle][k];}
+    normal[0]=across[1]*toPalm[2]-across[2]*toPalm[1];normal[1]=across[2]*toPalm[0]-across[0]*toPalm[2];normal[2]=across[0]*toPalm[1]-across[1]*toPalm[0];
+    turn[0]=ref[1]*dir[2]-ref[2]*dir[1];turn[1]=ref[2]*dir[0]-ref[0]*dir[2];turn[2]=ref[0]*dir[1]-ref[1]*dir[0];
+    if(VRIK_Dot3(normal,normal)<1e-12f)return false;
+    VRIK_Norm3(normal);
+    // Turning dir further around +normal increases its angle from ref when ref x dir points along +normal.
+    if(VRIK_Dot3(turn,normal)<0)for(float& v:normal)v=-v;
+    float inverse[4];VRIK_QuatConj(s_referenceModelRot[parent],inverse);VRIK_QuatRotateVec(inverse,normal,axis);
+    if(VRIK_Dot3(axis,axis)<1e-12f)return false;
+    VRIK_Norm3(axis);*bone=root;return true;
+}
+
 // Forward kinematics: accumulate parent-local transforms into model space.
 // Requires parent index < child index (true for these rigs / topological order).
 void VRIK_ComputeFK(uint8_t* boneBuf, int count) {

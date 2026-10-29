@@ -276,6 +276,11 @@ extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_FixLodEnable;
 // reaches that view through DrawComposition + CompositionPostProcess (xr_comp_lend_set), so this
 // path is a candidate for retirement and wants an A/B without a rebuild.
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudToSecondEye;
+// xr_grip_from_fingers: kept here so a save keeps it; Runtimes/FingerGrip.cpp reads it when the session starts.
+static int g_gripFromFingersSetting = 0;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_FingerBones;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_ThumbRigOpen;
+extern "C" __declspec(dllexport) extern float    CyberpunkVR_FingerSpread;
 // 1 = each eye renders its own off-centre window and is submitted with it (src/Stereo/AsymProjection.cpp);
 // 0 = the old symmetric frustum sized to the widest half-angle. 2 = test values (CyberpunkVR_AsymTest).
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_AsymProjection;
@@ -532,6 +537,9 @@ void PollLiveControls() {
     int xrLightContent = CyberpunkVR_LightContent;
     int32_t  xrFixLod = CyberpunkVR_FixLodEnable;
     int      xrHudTo2 = CyberpunkVR_HudToSecondEye;
+    int      xrFingerBones = CyberpunkVR_FingerBones;
+    int      xrThumbRigOpen = CyberpunkVR_ThumbRigOpen;
+    float    xrFingerSpread = CyberpunkVR_FingerSpread;
     int32_t  xrAsym = CyberpunkVR_AsymProjection;
     float    xrAsymGuard = CyberpunkVR_AsymInnerGuard;
     int      xrVisionTo2 = CyberpunkVR_VisionToSecondEye;
@@ -843,6 +851,26 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_vrcam_composition=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_vrcam_composition = %d", &intValue) == 1) {
             xrCompGroup = static_cast<uint32_t>(intValue < 0 ? 0 : intValue);
+            continue;
+        }
+        if (sscanf_s(line, "xr_grip_from_fingers=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_grip_from_fingers = %d", &intValue) == 1) {
+            g_gripFromFingersSetting = intValue == 1 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_spread=%f", &value) == 1 ||
+            sscanf_s(line, "xr_finger_spread = %f", &value) == 1) {
+            xrFingerSpread = std::isfinite(value) ? std::clamp(value, 0.0f, 2.0f) : 1.0f;
+            continue;
+        }
+        if (sscanf_s(line, "xr_thumb_rig_open=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_thumb_rig_open = %d", &intValue) == 1) {
+            xrThumbRigOpen = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_bones=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_finger_bones = %d", &intValue) == 1) {
+            xrFingerBones = intValue ? 1 : 0;
             continue;
         }
         if (sscanf_s(line, "xr_hud_to_second_eye=%d", &intValue) == 1 ||
@@ -1772,6 +1800,9 @@ void PollLiveControls() {
     CyberpunkVR_LightContent = xrLightContent;
     CyberpunkVR_FixLodEnable = xrFixLod;
     CyberpunkVR_HudToSecondEye = xrHudTo2;
+    CyberpunkVR_FingerBones = xrFingerBones;
+    CyberpunkVR_ThumbRigOpen = xrThumbRigOpen;
+    CyberpunkVR_FingerSpread = xrFingerSpread;
     CyberpunkVR_AsymProjection = xrAsym;
     CyberpunkVR_AsymInnerGuard = xrAsymGuard;
     CyberpunkVR_VisionToSecondEye = xrVisionTo2;
@@ -1888,6 +1919,10 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrHudDistance=g_liveControls.xrHudDistance;
     state.xrHudFollowMode=g_liveControls.xrHudFollowMode;
     state.xrHudStereoDepth=g_liveControls.xrHudStereoDepth;
+    state.xrGripFromFingers=g_gripFromFingersSetting;
+    state.xrFingerBones=CyberpunkVR_FingerBones;
+    state.xrThumbRigOpen=CyberpunkVR_ThumbRigOpen;
+    state.xrFingerSpread=CyberpunkVR_FingerSpread;
     state.xrHudBrightness=g_liveControls.xrHudBrightness;
     state.xrHudShadow=g_liveControls.xrHudShadow;
     state.xrHudGlow=g_liveControls.xrHudGlow;
@@ -2161,6 +2196,14 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_fix_lod=%d\n", CyberpunkVR_FixLodEnable);
     // The port's own HUD composite into the second eye, and whether it applies in a braindance.
     fprintf(file, "xr_hud_to_second_eye=%d\n", CyberpunkVR_HudToSecondEye);
+    // 1 = finger-tracking gloves: grip from a fist or thumbs-up (hand skeleton), not the squeeze value. Next session.
+    fprintf(file, "xr_grip_from_fingers=%d\n", state.xrGripFromFingers ? 1 : 0);
+    // 1 = with xr_grip_from_fingers, each of V's fingers follows its own measured bend; 0 = poses from the buttons.
+    fprintf(file, "xr_finger_bones=%d\n", state.xrFingerBones ? 1 : 0);
+    // 1 = with finger tracking, the open thumb is the rig's reference pose; 0 = laid flat along the index.
+    fprintf(file, "xr_thumb_rig_open=%d\n", state.xrThumbRigOpen ? 1 : 0);
+    // How far V's fingers spread sideways as the player's do: 0 = off (only curl), 1 = default, up to 2.
+    fprintf(file, "xr_finger_spread=%.2f\n", state.xrFingerSpread);
     // 1 = each eye renders exactly its own lens window (off-centre, the runtime's per-eye FOV, so a FOV
     // cut set in the runtime is followed) and is submitted with it; 0 = the old symmetric frustum.
     fprintf(file, "xr_asym_projection=%d\n", CyberpunkVR_AsymProjection == 1 ? 1 : 0);
@@ -2333,6 +2376,10 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrHudPanel=state->xrHudPanel!=0;
     g_liveControls.xrHudFollowMode=state->xrHudFollowMode==1;
     g_liveControls.xrHudStereoDepth=state->xrHudStereoDepth!=0;
+    g_gripFromFingersSetting=state->xrGripFromFingers!=0;   // read when the next session starts
+    CyberpunkVR_FingerBones=state->xrFingerBones!=0;
+    CyberpunkVR_ThumbRigOpen=state->xrThumbRigOpen!=0;
+    CyberpunkVR_FingerSpread=std::clamp(state->xrFingerSpread,0.0f,2.0f);
     g_liveControls.xrHudBrightness=(state->xrHudBrightness>=0.25f && state->xrHudBrightness<=3) ? state->xrHudBrightness : 1;
     g_liveControls.xrHudShadow=(state->xrHudShadow>=0 && state->xrHudShadow<=2) ? state->xrHudShadow : 1;
     g_liveControls.xrHudGlow=(state->xrHudGlow>=0 && state->xrHudGlow<=2) ? state->xrHudGlow : 1;

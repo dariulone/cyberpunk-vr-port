@@ -528,4 +528,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "A DLSS Frame Generationhöz újabb NVIDIA illesztőprogram kell",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "A DLSS Frame Generation ezen a GPU-n nem támogatott (RTX 40/50 szükséges)",
   ["NGX initialization failed (0x%08X)"] = "Az NGX inicializálása sikertelen (0x%08X)",
+  ["FINGER TRACKING"] = "UJJKÖVETÉS",
+  ["Grip from the fingers (fist / thumbs-up) (next start)"] = "Fogás az ujjakból (ököl / felfelé mutató hüvelykujj) (következő indításkor)",
+  ["Grip and finger data from hand tracking (finger-tracking gloves, Index controllers).\nApplies at the next game start."] = "Fogás és ujjadatok a kézkövetésből (ujjkövető kesztyűk, Index kontrollerek).\nA következő játékindításkor lép életbe.",
+  ["Fingers follow the hand tracking"] = "Az ujjak követik a kézkövetést",
+  ["Each of V's fingers follows your own. Off: finger poses from the buttons."] = "V minden ujja a sajátodat követi. Ki: ujjpózok a gombokból.",
+  ["Open thumb from the rig's pose"] = "Nyitott hüvelykujj a csontváz pózából",
+  ["With the hand open, V's thumb takes the game skeleton's own pose.\nOff: the thumb lies flat along the index finger."] = "Nyitott kéznél V hüvelykujja a játék csontvázának pózát veszi fel.\nKi: a hüvelykujj laposan a mutatóujj mentén fekszik.",
+  ["Finger spread"] = "Ujjak szétterpesztése",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "V ujjai oldalra széttárulnak, mint a tieid.\n0: ki, az ujjak csak hajlanak. 1: alapértelmezett.",
 }
