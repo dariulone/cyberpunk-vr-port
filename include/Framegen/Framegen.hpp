@@ -6,12 +6,13 @@
 
 namespace cvr::framegen {
 // FidelityFX: FidelityFX frame interpolation, with FidelityFX optical flow unless flowScale is 0 (any GPU).
-// Nvidia: NVIDIA optical flow (OFA) + FidelityFX frame interpolation.
+// Nvidia: private patched OFXR V557 with its own XR presentation schedule.
 // DlssG: native NVIDIA DLSS Frame Generation through NGX (RTX 40/50).
 enum class Backend:int { FidelityFX=0,Nvidia=1,DlssG=2 };
 const char* BackendName(Backend);
 struct Settings {
     bool enabled=false,overlay=false,autoPace=true;
+    bool ofxrLogging=true; // V557 timing/error flight recorder, independent of FPS overlay
     // DLSS-G where the GPU has it (falls back to FidelityFX), and FidelityFX interpolation on the
     // engine's vectors alone: optical flow measured no difference in quality for its GPU time.
     Backend backend=Backend::DlssG;

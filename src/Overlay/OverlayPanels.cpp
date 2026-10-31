@@ -36,6 +36,7 @@
 #include "Camera/CameraState.hpp"
 #include "Hooks/Reflex.hpp"
 #include "Framegen/DlssFrameGen.hpp"
+#include "Framegen/OfxrBridge.hpp"
 #include "Stereo/EngineStereo.hpp"
 
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
@@ -776,6 +777,7 @@ bool DrawFpsOverlayControls(LiveControlsUiState& state) {
             int history=fg.historySeconds==10?0:(fg.historySeconds==60?2:(fg.historySeconds==120?3:1));
             if(widgets::Combo("History window",&history,"10 seconds\0 30 seconds\0 60 seconds\0 120 seconds\0")) {const int seconds[]={10,30,60,120};fg.historySeconds=seconds[history];changed=true;}
             if(fg.overlay) {
+            if(fg.backend==cvr::framegen::Backend::Nvidia)UI::TextWrapped("V557 delivery is recorded in its flight log. These counters measure mod submissions, not V557 generated headset frames.");
             if(UI::Button("Reset statistics"))cvr::framegen::ResetStatistics();
             const auto stats=cvr::framegen::GetStatistics();
             UI::Text("Real %.1f FPS   Framegen %.1f FPS   Output %.1f FPS",stats.realFps,stats.generatedFps,stats.outputFps);
@@ -947,27 +949,37 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
         if (section>=0 ? section==1 : UI::BeginTabItem("FRAMEGEN")) {
             auto& fg=state.framegen;
             changed|=UI::Checkbox("Enable frame generation",&fg.enabled);
-            if(UI::IsItemHovered())UI::SetTooltip("While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.5; 0 turns it off).");
+            if(UI::IsItemHovered())UI::SetTooltip("Enable the selected generator. OFXR V557 owns its XR schedule; native generators use the mod's cadence.");
             int backend=int(fg.backend);
-            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0NVIDIA OFA + FidelityFX\0NVIDIA DLSS Frame Generation\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
+            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0OFXR V557 (NVIDIA)\0NVIDIA DLSS Frame Generation\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
+            if(UI::IsItemHovered())UI::SetTooltip("Switching to or from OFXR V557 requires restarting the OpenXR runtime (or game). Enable, quality and logging apply live within V557.");
             using cvr::framegen::Backend;
             const Backend active=cvr::framegen::ActiveBackend();
             if(fg.backend==Backend::DlssG && fg.enabled && active!=Backend::DlssG)
                 UI::TextWrapped("DLSS Frame Generation is not available here (%s); FidelityFX is used.",cvr::framegen::dlssg::Reason());
-            else if(fg.backend==Backend::Nvidia && fg.enabled && active==Backend::FidelityFX)
-                UI::TextWrapped("NVIDIA optical flow is not available on this GPU; FidelityFX optical flow is used.");
-            else if(fg.backend==Backend::Nvidia && fg.flowScale)
+            if(fg.backend==Backend::Nvidia)
                 changed|=widgets::Combo("NVIDIA quality",&fg.quality,"Fast (performance)\0Medium (balanced)\0Slow (best)\0");
-            if(fg.backend==Backend::FidelityFX || fg.backend==Backend::Nvidia) {
+            if(fg.backend==Backend::Nvidia) {
+                int scale=fg.flowScale==100?2:(fg.flowScale==75?1:0);
+                if(widgets::Combo("Optical flow resolution",&scale,"50%\0 75%\0 100%\0")) {fg.flowScale=scale==2?100:(scale==1?75:50);changed=true;}
+                if(UI::IsItemHovered())UI::SetTooltip("V557 optical flow resolution. Slow at 50% matches the tested Cyberpunk profile. Higher resolution costs more GPU time.");
+                changed|=UI::Checkbox("V557 flight recorder",&fg.ofxrLogging);
+                if(UI::IsItemHovered())UI::SetTooltip("Record frame delivery estimates, capture/synthesis timings, settings and errors. Applies live and is saved. No GPU image readbacks. Files are capped at 256 MiB each.");
+                const int recorder=cvr::ofxr::RecordingStatus();
+                UI::Text("Recorder: %s",recorder<0?"backend not attached":recorder>0?"writing log":fg.ofxrLogging?"waiting for file; check permissions if this persists":"off");
+                UI::TextWrapped("Logs: red4ext/plugins/CyberpunkVR_Stereo/ofxr-v557/ofxr-bridge-flight-*.log");
+                UI::TextWrapped("Patched OFXR V557: 2X with V557 pacing. Dialog and loot panels stay at game cadence. No tray required; external OFXR must be disarmed before launching.");
+            } else if(fg.backend==Backend::FidelityFX) {
                 int scale=fg.flowScale==100?3:(fg.flowScale==75?2:(fg.flowScale==0?0:1));
                 if(widgets::Combo("Optical flow",&scale,"Off (game vectors only)\0 50%\0 75%\0 100%\0")) {fg.flowScale=scale==3?100:(scale==2?75:(scale==0?0:50));changed=true;}
-                if(UI::IsItemHovered())UI::SetTooltip("The game's motion vectors already describe almost all motion; optical flow adds GPU time\nand memory for what they miss (some particles and effects).");
             }
             if(fg.backend==Backend::DlssG)
                 UI::TextWrapped("NVIDIA's frame generation model on the game's motion vectors and depth. Highest quality, RTX 40/50.");
+            if(fg.backend!=Backend::Nvidia) {
             changed|=UI::Checkbox("Adaptive real-frame pacing",&fg.autoPace);
             if(UI::IsItemHovered())UI::SetTooltip("Up to half headset refresh. Leaves more GPU time for generated frames when adjacent real frames are being missed.");
             UI::TextWrapped("Uses game motion vectors and depth in both eyes. Adds one intermediate frame between real frames.");
+            }
             UI::Separator();
             const auto runtimeStatus=cvr::framegen::GetRuntimeStatus();
             UI::TextWrapped("%s",runtimeStatus.text);

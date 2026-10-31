@@ -181,3 +181,7 @@ tools/vr_menu_tests/*
 !tools/vr_menu_assets/
 tools/vr_menu_assets/*
 !tools/vr_menu_assets/matte_sources.py
+
+/build-local/
+/build-tests/
+!tools/ofxr_bridge_tests/
