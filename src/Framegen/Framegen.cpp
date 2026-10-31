@@ -1,4 +1,5 @@
 #include "Framegen/Framegen.hpp"
+#include "Framegen/OfxrBridge.hpp"
 #include "Framegen/FramePolicy.hpp"
 #include "Utils/DebugGate.hpp"
 #include <windows.h>
@@ -72,14 +73,14 @@ Settings GetSettings() {std::lock_guard lock(mutex);return settings;}
 namespace {std::atomic<int> activeBackend{-1};}
 const char* BackendName(Backend value) {
     switch(value) {
-        case Backend::Nvidia:return "NVIDIA OFA + FidelityFX";
+        case Backend::Nvidia:return "OFXR V557 (NVIDIA)";
         case Backend::DlssG:return "NVIDIA DLSS-G";
         default:return "FidelityFX";
     }
 }
 Backend ActiveBackend() {const int v=activeBackend.load(std::memory_order_relaxed);return v<0 ? GetSettings().backend : Backend(v);}
 void PublishActiveBackend(Backend value) {activeBackend.store(int(value),std::memory_order_relaxed);}
-bool Enabled() {return enabled.load(std::memory_order_relaxed);}
+bool Enabled() {return enabled.load(std::memory_order_relaxed) && cvr::ofxr::NativeAllowed();}
 bool DepthCaptureEnabled() {return depthCapture.load(std::memory_order_relaxed);}
 bool CaptureInputsEnabled() {return Enabled() || DepthCaptureEnabled();}
 void SetDepthCaptureEnabled(bool value) {depthCapture.store(value,std::memory_order_relaxed);}
@@ -104,10 +105,10 @@ void SetSettings(Settings value) {
     if(metricsChanged)ClearMetricsLocked();
     if(value.historySeconds!=settings.historySeconds)nextRefresh=nextSummary=0;
     settings=value;
-    enabled.store(value.enabled,std::memory_order_relaxed);
+    enabled.store(value.enabled && value.backend!=Backend::Nvidia,std::memory_order_relaxed);
     metrics.store(value.overlay,std::memory_order_relaxed);
     autoPace.store(value.autoPace,std::memory_order_relaxed);
-    if(!value.enabled || !value.autoPace){pacingIntervalMs=0;resetPacing=true;}
+    if(!value.enabled || value.backend==Backend::Nvidia || !value.autoPace){pacingIntervalMs=0;resetPacing=true;}
     if(!value.enabled) {pacingReady.store(false,std::memory_order_relaxed);stats.generationMs=0;}
     if(cvr::RuntimeDiagnosticsEnabled() && !value.overlay && disabledReportChanged) {
         CyberpunkVR_FramegenReportSeq.fetch_add(1,std::memory_order_acq_rel);
@@ -116,9 +117,12 @@ void SetSettings(Settings value) {
         CyberpunkVR_FramegenReportSeq.fetch_add(1,std::memory_order_release);
     }
     }
+    cvr::ofxr::Configure(value);
     if(value.overlay)WakeHardwareTelemetry();else if(metricsChanged)StopHardwareTelemetry();
 }
 RuntimeStatus GetRuntimeStatus() {
+    if(GetSettings().backend==Backend::Nvidia)return cvr::ofxr::Status();
+    if(!cvr::ofxr::NativeAllowed()) {RuntimeStatus r{};std::snprintf(r.text,sizeof(r.text),"Restart the OpenXR runtime to switch from V557 to this generator.");return r;}
     std::lock_guard lock(mutex);RuntimeStatus result{};result.active=stats.active;
     std::memcpy(result.text,stats.status,sizeof(result.text));return result;
 }
@@ -223,6 +227,7 @@ void PaceRenderedFrame() {
 bool ParseSetting(const char* line,Settings& value) {
     int n{};float f{};
     if(sscanf_s(line,"xr_framegen = %d",&n)==1)value.enabled=n!=0;
+    else if(sscanf_s(line,"xr_framegen_logging = %d",&n)==1)value.ofxrLogging=n!=0;
     else if(sscanf_s(line,"xr_framegen_overlay = %d",&n)==1)value.overlay=n!=0;
     else if(sscanf_s(line,"xr_framegen_pace = %d",&n)==1)value.autoPace=n!=0;
     else if(sscanf_s(line,"xr_framegen_backend = %d",&n)==1)value.backend=Backend(std::clamp(n,0,2));
@@ -241,6 +246,7 @@ bool ParseSetting(const char* line,Settings& value) {
     return true;
 }
 void WriteSettings(void* file,const Settings& s) {
+    std::fprintf(static_cast<FILE*>(file),"xr_framegen_logging=%d\n",s.ofxrLogging);
     std::fprintf(static_cast<FILE*>(file),"xr_framegen=%d\nxr_framegen_overlay=%d\nxr_framegen_pace=%d\nxr_framegen_backend=%d\nxr_framegen_quality=%d\nxr_framegen_flow_scale=%d\nxr_framegen_overlay_corner=%d\n",
         s.enabled,s.overlay,s.autoPace,int(s.backend),s.quality,s.flowScale,s.overlayCorner);
     std::fprintf(static_cast<FILE*>(file),"xr_framegen_overlay_layout=%d\nxr_framegen_overlay_follow=%d\nxr_framegen_history=%d\nxr_framegen_overlay_cone=%.2f\nxr_framegen_overlay_scale=%.3f\nxr_framegen_overlay_distance=%.3f\nxr_framegen_overlay_x=%.2f\nxr_framegen_overlay_y=%.2f\n",

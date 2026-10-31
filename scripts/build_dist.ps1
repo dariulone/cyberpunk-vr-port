@@ -81,6 +81,15 @@ function Add-File($src, $rel) {
 # detouring one address -- so a stale CyberpunkVR_Hands.dll left in red4ext\plugins is worth deleting.
 $stereoDll = Need (Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\CyberpunkVR_Stereo\Release\CyberpunkVR_Stereo.dll") "CyberpunkVR_Stereo.dll"
 Add-File $stereoDll "red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_Stereo.dll"
+# Private V557 and loader must travel with the plugin; do not copy flight logs.
+$ofxrDir=Join-Path (Split-Path $stereoDll -Parent) 'ofxr-v557'
+foreach($file in @('CyberpunkVR_OFXR.dll','openxr_loader.dll','ofxr-v557.json','ofxr_bridge.ini','LICENSE-OFXR.txt','LICENSE-OpenXR.txt','THIRD_PARTY-OFXR.md','README.md')) {
+    Add-File (Need (Join-Path $ofxrDir $file) "Private V557 $file") ("red4ext\plugins\CyberpunkVR_Stereo\ofxr-v557\"+$file)
+}
+foreach($license in Get-ChildItem -LiteralPath (Need (Join-Path $ofxrDir 'licenses') 'OFXR licenses') -File) {
+    Add-File $license.FullName ("red4ext\plugins\CyberpunkVR_Stereo\ofxr-v557\licenses\"+$license.Name)
+}
+
 
 # The sight shaders are loaded by name at PSO-replacement time; without both, the replacement is
 # skipped and the only symptom is one line in the log.

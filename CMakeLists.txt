@@ -8,6 +8,8 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/KhronosGroup/OpenXR-SDK.git
   GIT_TAG release-1.0.34
 )
+# Private V557 routes to a separate loader module, avoiding symbol recursion.
+set(DYNAMIC_LOADER ON CACHE BOOL "Build the private OpenXR loader DLL" FORCE)
 FetchContent_MakeAvailable(openxr)
 
 FetchContent_Declare(
@@ -105,6 +107,7 @@ add_library(cyberpunkvrport_stereo SHARED
 include(cmake/WorldMarkerShaders.cmake)
 cvr_world_marker_shaders(cyberpunkvrport_stereo)
 include(cmake/NativeFramegen.cmake)
+include(cmake/EmbeddedOfxr.cmake)
 target_compile_features(cyberpunkvrport_stereo PRIVATE cxx_std_20)
 target_compile_definitions(cyberpunkvrport_stereo PRIVATE
     WIN32_LEAN_AND_MEAN NOMINMAX
@@ -123,11 +126,15 @@ target_link_libraries(cyberpunkvrport_stereo PRIVATE
     xaudio2.lib     # the VR menu's own sounds (VRMenuPlayWav)
     RED4ext::SDK
 )
-# Use the JSON parser already selected for the statically linked OpenXR loader.
+# Use the same JSON source version as the loader; the private DLL does not export Json C++ symbols.
 if(BUILD_WITH_SYSTEM_JSONCPP)
     target_link_libraries(cyberpunkvrport_stereo PRIVATE JsonCpp::JsonCpp)
 else()
     target_include_directories(cyberpunkvrport_stereo PRIVATE ${openxr_SOURCE_DIR}/src/external/jsoncpp/include)
+    target_sources(cyberpunkvrport_stereo PRIVATE
+        ${openxr_SOURCE_DIR}/src/external/jsoncpp/src/lib_json/json_reader.cpp
+        ${openxr_SOURCE_DIR}/src/external/jsoncpp/src/lib_json/json_value.cpp
+        ${openxr_SOURCE_DIR}/src/external/jsoncpp/src/lib_json/json_writer.cpp)
 endif()
 target_include_directories(cyberpunkvrport_stereo PRIVATE
     # ONE root for our own headers. Every internal include reads "Area/Name.hpp", so a header's
@@ -173,4 +180,6 @@ set_target_properties(cyberpunkvrport_stereo PROPERTIES
 #     cmake --build build --config Release --target xr_probe_layer
 add_subdirectory(tools/xr_probe)
 # rtti_dump_plugin -- patch-day RED4ext plugin: the running game's RTTI layouts as JSON (tools/rtti_dump).
-add_subdirectory(tools/rtti_dump)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/rtti_dump/CMakeLists.txt")
+    add_subdirectory(tools/rtti_dump)
+endif()

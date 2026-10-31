@@ -58,7 +58,7 @@ Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame
     if(!gameplay || (pending.identity.serial && pending.identity.origin!=current.identity.origin))Reset();
     if(cadence.Pending())return {pending,Cadence::Next::PendingReal,{},false};
     Selection result{current,cadence.Select(current.identity.serial,false,false),{},false};
-    if(!settings.enabled || !gameplay) {
+    if(!Enabled() || settings.backend==Backend::Nvidia || !gameplay) {
         primed=false;previous={};generatedSerial=0;
         PacingReady(false);
         if(generator.Reset()) {if(!DepthCaptureEnabled())ReleaseInputs();if(MetricsEnabled())SetVram(InputVram());}
