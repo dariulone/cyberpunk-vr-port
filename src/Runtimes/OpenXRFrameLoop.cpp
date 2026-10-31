@@ -1,4 +1,7 @@
 #include "Utils/DebugGate.hpp"
+#include "Hooks/Psvr2Input.hpp"
+#include "Runtimes/Psvr2HapticChannel.hpp"
+#include "Runtimes/HapticRouting.hpp"
 #include "Core/LiveControls.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
@@ -1120,6 +1123,7 @@ DWORD OpenXRManager::FrameThreadMain() {
         // ping-pong the synth scratch slot + stride logs). The blendFactor itself
         // is computed from QPC capture timestamps, not this counter.
         ++displayFrameIndex;
+        if (cvr::haptics::HapticRoute().Toolkit()) cvr::psvr2::Haptics().Heartbeat();
         if (frameState.predictedDisplayPeriod > 0) {
             cvr::framegen::DisplayPeriod(frameState.predictedDisplayPeriod);
             m_predictedDisplayPeriodNs.store(frameState.predictedDisplayPeriod, std::memory_order_relaxed);
@@ -1475,7 +1479,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                 syncInfo.activeActionSets = &activeActionSet;
                 XrResult syncRes = xrSyncActions(m_session, &syncInfo);
                 // Vibration queued since the last frame, played where the actions are synced.
-                if (XR_SUCCEEDED(syncRes)) cvr::haptics::Tick();
+                if (XR_SUCCEEDED(syncRes) && m_sessionState == XR_SESSION_STATE_FOCUSED)
+                    cvr::haptics::Tick();
+                else cvr::haptics::Clear();
                 
                 if (doHandLog) {
                     Log("OpenXRManager[Hands]: syncRes=%d sessionState=%d\n", syncRes, (int)m_sessionState);
@@ -1493,6 +1499,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // HOLD the LEFT stick click, pick the direction with the RIGHT stick.
                 bool leftStickClicked  = false;
                 bool dpadUsedThisFrame = false;
+                bool triangleShift = false;
 
                 std::lock_guard<std::mutex> handLock(m_handMutex);
                 // ONE INSTANT: the head position that goes with these controller poses, plus the
@@ -1756,6 +1763,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // (sprint) is emitted DEFERRED, after the loop: only when the
                         // click is released without a D-Pad direction having been used.
                         leftStickClicked = sclick;
+                        triangleShift = IsRuntimePsvr2() && m_psvr2TriangleTouchAction != XR_NULL_HANDLE &&
+                            getBool(m_psvr2TriangleTouchAction);
+                        if (triangleShift) {
+                            static bool logged = false;
+                            if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Triangle-touch D-pad modifier active.\n"); }
+                        }
                     } else {
                         ctrl.rightTrigger = trig;
                         ctrl.rightGrip    = grip;
@@ -1769,7 +1782,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // D-PAD CHORD: while the LEFT stick click is held, the RIGHT
                         // stick picks the D-Pad direction. The right axes are zeroed for
                         // the whole hold so snap-turn/camera cannot fire during selection.
-                        if (leftStickClicked) {
+                        if (triangleShift) {
+                            dpadUsedThisFrame = cvr::input::TriangleDpad(true, ctrl.rightThumbX, ctrl.rightThumbY, ctrl.buttons);
+                        } else if (leftStickClicked) {
                             float threshold = CyberpunkVR_DpadChordStick;
                             if (!(threshold > 0.05f) || threshold > 1.0f) threshold = 0.90f;
                             if (sy > threshold)  { ctrl.buttons |= XB_DPAD_UP;    dpadUsedThisFrame = true; }
@@ -1831,7 +1846,19 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // as Touch controls. Menu/Start retains the existing escape path.
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
-                    if(getGlobalBool(m_menuButtonAction))ctrl.buttons|=0x0010; // XINPUT_GAMEPAD_START
+                    const bool menuPressed = getGlobalBool(m_menuButtonAction);
+                    if (IsRuntimePsvr2()) {
+                        // L3+R3 belongs to upstream's overlay, not our menu fallback.
+                        const bool chord = triangleShift && uiTracking.hands[1].stickClick && !leftStickClicked;
+                        ctrl.psvr2SystemAvailable = syncRes == XR_SUCCESS && m_sessionState == XR_SESSION_STATE_FOCUSED;
+                        ctrl.psvr2SystemPressed = menuPressed || (chord && !cvr::vrui::CapturesInput());
+                        ctrl.psvr2DpadShift = triangleShift && !cvr::vrui::CapturesInput();
+                        if (chord) ctrl.buttons &= static_cast<uint16_t>(~0x0080u);
+                        if (menuPressed) {
+                            static bool logged = false;
+                            if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Create SystemButton active (tap=Start, hold=Back).\n"); }
+                        }
+                    } else if(menuPressed)ctrl.buttons|=0x0010; // Other headsets unchanged.
 
                     // Publish the snapshot for the XInput hook.
                     std::lock_guard<std::mutex> inLock(m_inputMutex);
