@@ -28,6 +28,9 @@ void RecordConstants(const sl::Constants& values, const sl::FrameToken& frame, c
 // caller run the engine's evaluate unchanged.
 bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseStructure* const* inputs, uint32_t count,
               void* commandList, EvaluateFn evaluate, ConstantsFn constants, sl::Result* result);
+// Serialized fallback; accounts for original viewport command-list/GPU lifetime.
+sl::Result EvaluateOriginal(sl::Feature, const sl::FrameToken&, const sl::BaseStructure* const*, uint32_t,
+                            void*, EvaluateFn);
 // The eye whose DLSS evaluate runs on this thread, inside Evaluate (0 left, 1 right); -1 outside one. Both eyes are
 // MAIN's view, so what runs under it (NGX's evaluate, Render/FoveatedDlss.cpp) tells them apart by this.
 int EvaluatingEye();
