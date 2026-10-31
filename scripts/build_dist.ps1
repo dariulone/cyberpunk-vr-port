@@ -89,7 +89,6 @@ foreach($file in @('CyberpunkVR_OFXR.dll','openxr_loader.dll','ofxr-v557.json','
 foreach($license in Get-ChildItem -LiteralPath (Need (Join-Path $ofxrDir 'licenses') 'OFXR licenses') -File) {
     Add-File $license.FullName ("red4ext\plugins\CyberpunkVR_Stereo\ofxr-v557\licenses\"+$license.Name)
 }
-Add-File (Join-Path $RepoRoot 'docs\OFXR-V557-INTEGRATION.md') 'docs\OFXR-V557-INTEGRATION.md'
 
 
 # The sight shaders are loaded by name at PSO-replacement time; without both, the replacement is
