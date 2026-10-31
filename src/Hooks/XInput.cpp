@@ -330,6 +330,14 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         memset(pState, 0, sizeof(*pState));
         r = ERROR_SUCCESS;
     }
+    if (vr.thumbrestDpadShift) {
+        // Physical XInput must not reintroduce look after the OpenXR modifier consumed it.
+        pState->Gamepad.sThumbRX = pState->Gamepad.sThumbRY = 0;
+        vr.rightThumbX = vr.rightThumbY = 0;
+        g_xinputSnapArmedDir = 0;
+        g_xinputSnapPulseDir = 0;
+        InterlockedExchange(&g_pendingSnapYawDeltaBits, 0);
+    }
     // Exact, already-scanned manual clue only. Capture before scanner X remaps
     // and swallow the whole press so the newly revealed Take needs another X.
     if(cvr::quest::ConsumeManualClueButton(((vr.buttons|pState->Gamepad.wButtons)&0x4000)!=0,true)) {

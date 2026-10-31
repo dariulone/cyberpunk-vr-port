@@ -3,6 +3,7 @@
 #include "Runtimes/HybridBodyYaw.hpp"
 #include "Anim/WheelGrab.hpp"   // the wheel-grab blends, for the hand smoothing below
 #include "Runtimes/OpenXRManager.hpp"
+#include "Hooks/ThumbrestDpad.hpp"
 #include "Render/FoveatedDlss.hpp"
 #include "Render/FixedVrs.hpp"
 #include "Hooks/RoomscaleMove.hpp"
@@ -747,6 +748,8 @@ bool OpenXRManager::Init() {
             makeAction(m_primaryButtonAction,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "primary_button",   "Primary Button (A/X)", true);
             makeAction(m_secondaryButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "secondary_button", "Secondary Button (B/Y)", true);
             makeAction(m_menuButtonAction,      XR_ACTION_TYPE_BOOLEAN_INPUT,  "menu",             "Menu Button",          false);
+            makeAction(m_thumbrestTouchAction, XR_ACTION_TYPE_BOOLEAN_INPUT,
+                "thumbrest_touch", "D-pad Shift Thumbrest Touch", true);
             // HAPTICS: an OUTPUT action (Runtimes/Haptics.cpp). Bound inside each profile's one
             // suggest call below, because xrSuggestInteractionProfileBindings REPLACES a profile's
             // suggestions -- a second call for the haptic alone would drop every input binding.
@@ -767,6 +770,15 @@ bool OpenXRManager::Init() {
                 XrPath p = XR_NULL_PATH;
                 if (XR_SUCCEEDED(xrStringToPath(m_instance, b.path, &p))) {
                     v.push_back({ b.action, p });
+                }
+            }
+            if (inputActionsEnabled && m_thumbrestTouchAction != XR_NULL_HANDLE &&
+                cvr::input::ThumbrestProfileAllowed(m_systemName) &&
+                strcmp(profileStr, "/interaction_profiles/oculus/touch_controller") == 0) {
+                for (const char* path : {"/user/hand/left/input/thumbrest/touch", "/user/hand/right/input/thumbrest/touch"}) {
+                    XrPath rest = XR_NULL_PATH;
+                    if (XR_SUCCEEDED(xrStringToPath(m_instance, path, &rest)))
+                        v.push_back({m_thumbrestTouchAction, rest});
                 }
             }
             XrInteractionProfileSuggestedBinding sb{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
@@ -1097,6 +1109,10 @@ void OpenXRManager::PollEvents() {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* changed = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
             m_sessionState = changed->state;
+            if (m_sessionState != XR_SESSION_STATE_FOCUSED) {
+                std::lock_guard<std::mutex> lock(m_inputMutex);
+                m_controllerState.thumbrestDpadShift = false;
+            }
             Log("OpenXRManager: Session state -> %d\n", static_cast<int>(m_sessionState));
 
             if (m_sessionState == XR_SESSION_STATE_READY) {
@@ -2292,6 +2308,7 @@ void OpenXRManager::Shutdown() {
     m_primaryButtonAction = XR_NULL_HANDLE;
     m_secondaryButtonAction = XR_NULL_HANDLE;
     m_menuButtonAction = XR_NULL_HANDLE;
+    m_thumbrestTouchAction = XR_NULL_HANDLE;
     m_steamFrameActions = {};
 
     m_views.clear();

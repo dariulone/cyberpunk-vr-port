@@ -1,4 +1,5 @@
 #include "Utils/DebugGate.hpp"
+#include "Hooks/ThumbrestDpad.hpp"
 #include "Core/LiveControls.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
@@ -1493,6 +1494,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // HOLD the LEFT stick click, pick the direction with the RIGHT stick.
                 bool leftStickClicked  = false;
                 bool dpadUsedThisFrame = false;
+                bool thumbrestShift = false;
 
                 std::lock_guard<std::mutex> handLock(m_handMutex);
                 // ONE INSTANT: the head position that goes with these controller poses, plus the
@@ -1756,6 +1758,11 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // (sprint) is emitted DEFERRED, after the loop: only when the
                         // click is released without a D-Pad direction having been used.
                         leftStickClicked = sclick;
+                        thumbrestShift = m_thumbrestTouchAction != XR_NULL_HANDLE && getBool(m_thumbrestTouchAction);
+                        if (thumbrestShift) {
+                            static bool logged = false;
+                            if (!logged) { logged = true; Log("OpenXRManager[Touch]: Left-thumbrest D-pad modifier active.\n"); }
+                        }
                     } else {
                         ctrl.rightTrigger = trig;
                         ctrl.rightGrip    = grip;
@@ -1769,7 +1776,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // D-PAD CHORD: while the LEFT stick click is held, the RIGHT
                         // stick picks the D-Pad direction. The right axes are zeroed for
                         // the whole hold so snap-turn/camera cannot fire during selection.
-                        if (leftStickClicked) {
+                        if (thumbrestShift) {
+                            dpadUsedThisFrame = cvr::input::ThumbrestDpad(true, ctrl.rightThumbX, ctrl.rightThumbY, ctrl.buttons);
+                        } else if (leftStickClicked) {
                             float threshold = CyberpunkVR_DpadChordStick;
                             if (!(threshold > 0.05f) || threshold > 1.0f) threshold = 0.90f;
                             if (sy > threshold)  { ctrl.buttons |= XB_DPAD_UP;    dpadUsedThisFrame = true; }
@@ -1831,6 +1840,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // as Touch controls. Menu/Start retains the existing escape path.
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
+                    ctrl.thumbrestDpadShift = thumbrestShift && !cvr::vrui::CapturesInput();
                     if(getGlobalBool(m_menuButtonAction))ctrl.buttons|=0x0010; // XINPUT_GAMEPAD_START
 
                     // Publish the snapshot for the XInput hook.
