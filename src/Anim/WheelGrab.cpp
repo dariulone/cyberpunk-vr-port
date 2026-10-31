@@ -13,10 +13,10 @@
 // resolve and no per-model offset table -- the reference pose IS the animation, which is why the same
 // code works on a bike, in any car, and in vehicles this port has never seen.
 //
-// Per hand, independently: bring a hand to where the animation holds the wheel, squeeze that grip,
+// Per hand, independently: bring a hand to where the animation holds the wheel, click that grip,
 // and the arm is handed back to the animation (fingers included -- VRIK never writes finger bones, so
-// the native grip comes for free). Release the grip and the arm returns to the controller. The other
-// hand is unaffected, so you can hold the wheel with one hand and keep the other on a gun.
+// the native grip comes for free). Click again to release the arm to the controller, wherever that
+// hand is. The other hand is unaffected, so you can keep one on the wheel and the other on a gun.
 //
 // Handing an arm back means three writes must stop TOGETHER, not just the IK solve:
 //   * VRIK_SolveArm              -- the rotations
@@ -64,7 +64,7 @@ namespace {
 
 struct WheelHand {
     float blend       = 0.0f;   // 0 = arm IK drives the hand, 1 = animation does
-    bool  engaged     = false;  // grip held on a grab that started at the wheel
+    bool  engaged     = false;  // latched by a grip click that started at the wheel
     bool  atWheel     = false;  // controller is within the radius of the animated hand
     bool  atHub       = false;  // controller is on the wheel HUB -> horn
     bool  gripPrev    = false;
@@ -191,13 +191,15 @@ void WheelUpdate(float dtSec) {
             // radial, a keyboard) must not leave the hand welded to the wheel, and the blend below
             // then walks the arm back over the usual ~0.1 s instead of snapping.
             w.engaged = false;
-        } else if (w.engaged) {
-            w.engaged = grip;                       // the grip alone holds it; let go and it ends
-        } else if (grip && !w.gripPrev && w.atWheel) {
-            w.engaged = true;                       // fresh press AT the wheel, never a held grip
+        } else if (grip && !w.gripPrev) {
+            if (w.engaged) {
+                w.engaged = false;                  // second click releases, wherever the hand moved
+            } else if (w.atWheel) {
+                w.engaged = true;                   // first click must begin at the wheel/handlebar
+            }
         }
         // Kept up to date even while blocked: a grip still held when the weapon is holstered is not a
-        // fresh press, so the wheel is not re-grabbed behind the player's back.
+        // fresh click, so the wheel is not re-grabbed behind the player's back.
         w.gripPrev = grip;
 
         const float step = dtSec / (w.engaged ? kEngageSec : kReleaseSec);
@@ -239,9 +241,9 @@ void WheelUpdate(float dtSec) {
     // down. Measured against the same centre the one-handed steering uses -- the midpoint of the two
     // ANIMATED hands, i.e. the hub -- so it needs no bone and no per-vehicle table.
     //
-    // A hand that is GRABBING is excluded: with the grip held the arm is the animation's, the
-    // controller is free to wander, and working a wheel two-handed regularly takes a hand across
-    // where the hub is. Releasing the grip is what turns a hand at the hub back into a horn.
+    // A hand that is GRABBING is excluded: the arm is the animation's, the controller is free to
+    // wander, and working a wheel two-handed regularly takes a hand across the hub. Toggling the grab
+    // off turns a hand at the hub back into a horn.
     int hornMask = 0;
     {
         const bool hornEnabled = (g_liveControls.xrWheelHorn != 0);
@@ -275,8 +277,8 @@ void WheelUpdate(float dtSec) {
     g_wheelBlendLeft.store(g_wheel[1].blend, std::memory_order_relaxed);
     g_wheelHornMask.store(hornMask, std::memory_order_relaxed);
     // THE ONE THING THAT STILL CROSSES A BOUNDARY: the CET mods read the grips out of the shared
-    // block ([49] and [155] feed the holster equip, the smoking poses, the basketball grab and the
-    // reload's magazine hand), and a grip that is holding the wheel must not also mean any of those.
+    // block ([49] and [155] feed holster equip, smoking poses, basketball grab and reload's magazine
+    // hand), and a grip latched onto the wheel must not also mean any of those.
     if (g_pSharedHands) g_pSharedHands[vrshared::kWheelArmedMask] = static_cast<float>(armedMask);
 }
 
@@ -294,7 +296,7 @@ void WheelPublishGrab() {
 }
 
 void WheelMaintainGrab() {
-    // Camera availability does not determine whether a tracked grip is held.
+    // Camera availability does not determine whether a tracked, latched wheel grab remains active.
     // Without this heartbeat, a >250ms camera miss reset the physical pivot
     // mid-turn even though controllers were fresh. New grabs still require a
     // normal proximity solve; this path can only retain or release old grabs.
@@ -303,7 +305,8 @@ void WheelMaintainGrab() {
         auto& w=g_wheel[h];
         const bool grip=WheelSlot(h==0 ? 49:vrshared::kLeftGripPressed)>.5f;
         const bool tracked=SharedPose(h==0 ? 8:0)>0;
-        if(!allowed || !grip || !tracked || (h==0 && g_hasWeaponEquipped))w.engaged=false;
+        if(!allowed || !tracked || (h==0 && g_hasWeaponEquipped))w.engaged=false;
+        else if(w.engaged && grip && !w.gripPrev)w.engaged=false; // release still works during a camera miss
         w.gripPrev=grip;
         if(!w.engaged)w.blend=0;
     }

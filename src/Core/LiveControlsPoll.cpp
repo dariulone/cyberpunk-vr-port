@@ -34,6 +34,8 @@
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Overlay/LauncherDialog.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/HapticRouting.hpp"
+#include "Runtimes/Haptics.hpp"
 #include "Runtimes/RuntimeFovCorrection.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -556,7 +558,12 @@ void PollLiveControls() {
     float xrSniperBack = CyberpunkVR_SniperBackMul;
     float xrRecoilScale = CyberpunkVR_RecoilScale;
     int   xrHaptics = CyberpunkVR_Haptics;
+    int xrPsvr2HapticBackend = 2; // Auto: native unless a compatible bridge is running.
     float xrHapticScale = CyberpunkVR_HapticScale;
+    float xrOpenXrHapticGain = cvr::haptics::LegacyGain();
+    float xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
+    int xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
+    int xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
     float xrPistolBack = CyberpunkVR_PistolBackMul;
     float xrClimbFrac = CyberpunkVR_RecoilClimbFrac;
     float xrClimbMax = CyberpunkVR_RecoilClimbMaxDeg;
@@ -1279,6 +1286,19 @@ void PollLiveControls() {
             xrRecoilScale = value;
             continue;
         }
+        if (sscanf_s(line, "xr_psvr2_haptic_backend=%f", &value) == 1 ||
+            sscanf_s(line, "xr_psvr2_haptic_backend = %f", &value) == 1) {
+            xrPsvr2HapticBackend = value == 2.0f ? 2 : (value == 1.0f ? 1 : 0);
+            continue;
+        }
+        if (sscanf_s(line, "xr_openxr_haptic_gain = %f", &value) == 1) {
+            xrOpenXrHapticGain = value; continue;
+        }
+        if (sscanf_s(line, "xr_vehicle_audio_channels = %d", &xrVehicleAudioChannels) == 1) continue;
+        if (sscanf_s(line, "xr_vehicle_audio_require_grip = %d", &xrVehicleAudioRequireGrip) == 1) continue;
+        if (sscanf_s(line, "xr_openxr_vehicle_haptic_gain = %f", &value) == 1) {
+            xrOpenXrVehicleHapticGain = value; continue;
+        }
         if (sscanf_s(line, "xr_haptics=%f", &value) == 1 ||
             sscanf_s(line, "xr_haptics = %f", &value) == 1) {
             xrHaptics = value != 0.0f ? 1 : 0;
@@ -1800,6 +1820,11 @@ void PollLiveControls() {
     CyberpunkVR_SniperBackMul  = (xrSniperBack < 0.0f) ? 0.0f : ((xrSniperBack > 8.0f) ? 8.0f : xrSniperBack);
     CyberpunkVR_RecoilScale    = (xrRecoilScale < 0.0f) ? 0.0f : ((xrRecoilScale > 2.0f) ? 2.0f : xrRecoilScale);
     CyberpunkVR_Haptics        = xrHaptics;
+    cvr::haptics::HapticRoute().Request(xrPsvr2HapticBackend);
+    cvr::haptics::SetLegacyGain(xrOpenXrHapticGain);
+    cvr::haptics::SetVehicleGain(xrOpenXrVehicleHapticGain);
+    cvr::haptics::SetVehicleAudioChannels(xrVehicleAudioChannels);
+    cvr::haptics::SetVehicleAudioRequireGrip(xrVehicleAudioRequireGrip != 0);
     CyberpunkVR_HapticScale    = (xrHapticScale < 0.0f) ? 0.0f : ((xrHapticScale > 2.0f) ? 2.0f : xrHapticScale);
     CyberpunkVR_PistolBackMul  = (xrPistolBack < 0.0f) ? 0.0f : ((xrPistolBack > 4.0f) ? 4.0f : xrPistolBack);
     CyberpunkVR_RecoilClimbFrac   = (xrClimbFrac < 0.0f) ? 0.0f : ((xrClimbFrac > 2.0f) ? 2.0f : xrClimbFrac);
@@ -1933,6 +1958,11 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrPhysicalCrouchDepth = g_liveControls.xrPhysicalCrouchDepth;
     state.xrAsymProjection = CyberpunkVR_AsymProjection == 1 ? 1 : 0;
     state.xrHaptics = CyberpunkVR_Haptics != 0 ? 1 : 0;
+    state.xrPsvr2HapticBackend = cvr::haptics::HapticRoute().Requested();
+    state.xrOpenXrHapticGain = cvr::haptics::LegacyGain();
+    state.xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
+    state.xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
+    state.xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
     state.xrHapticScale = CyberpunkVR_HapticScale;
     state.xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
     state.xrLadderGripClimb = g_liveControls.xrLadderGripClimb;
@@ -2206,7 +2236,13 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // bullet block and deflect, a tick on reaching a belt element. 0 switches it all off; the scale
     // multiplies every profile, clamped to [0, 2].
     fprintf(file, "xr_haptics=%d\n", CyberpunkVR_Haptics);
+    fprintf(file, "# PSVR2: 0=OpenXR (stop bridge), 1=prefer Toolkit, 2=auto. Missing bridge falls back to OpenXR. Restart game.\n");
+    fprintf(file, "xr_psvr2_haptic_backend=%d\n", cvr::haptics::HapticRoute().Requested());
     fprintf(file, "xr_haptic_scale=%.3f\n", CyberpunkVR_HapticScale);
+    fprintf(file, "xr_openxr_haptic_gain=%.3f\n", cvr::haptics::LegacyGain());
+    fprintf(file, "xr_openxr_vehicle_haptic_gain=%.3f\n", cvr::haptics::VehicleGain());
+    fprintf(file, "xr_vehicle_audio_channels=%d\n", cvr::haptics::VehicleAudioChannels());
+    fprintf(file, "xr_vehicle_audio_require_grip=%d\n", cvr::haptics::VehicleAudioRequireGrip());
     // A pistol's throw: the smallest of the four, because its energy goes into the flip. Its RISE has no
     // multiplier -- the reference angle is the pistol's. Clamped to [0, 4].
     fprintf(file, "xr_recoil_pistol_back=%.3f\n", CyberpunkVR_PistolBackMul);
@@ -2383,6 +2419,11 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     if ((state->xrAsymProjection != 0) != (CyberpunkVR_AsymProjection == 1))
         CyberpunkVR_AsymProjection = state->xrAsymProjection != 0 ? 1 : 0;
     CyberpunkVR_Haptics = state->xrHaptics != 0 ? 1 : 0;
+    cvr::haptics::HapticRoute().Request(state->xrPsvr2HapticBackend);
+    cvr::haptics::SetLegacyGain(state->xrOpenXrHapticGain);
+    cvr::haptics::SetVehicleGain(state->xrOpenXrVehicleHapticGain);
+    cvr::haptics::SetVehicleAudioChannels(state->xrVehicleAudioChannels);
+    cvr::haptics::SetVehicleAudioRequireGrip(state->xrVehicleAudioRequireGrip);
     CyberpunkVR_HapticScale = std::isfinite(state->xrHapticScale) ? std::clamp(state->xrHapticScale, 0.0f, 2.0f) : 1.0f;
     g_liveControls.xrBreaststrokeSwim = state->xrBreaststrokeSwim != 0 ? 1 : 0;
     g_liveControls.xrLadderGripClimb = state->xrLadderGripClimb != 0 ? 1 : 0;

@@ -92,10 +92,21 @@ function M.update(dt,player,weapon,position,forward,origin,diag)
     -- success of a queued game attack. One whoosh per stroke/reversal.
     if clock>=s.mute and soundSpeed>=tuning.whooshSpeed and s.soundArmed and clock-s.lastSound>=.12 then
         player:VRMeleeWhoosh(weapon,soundSpeed>=tuning.fastSpeed,Game.GetVRSharedSlot(160)>.5)
+        -- Recovered swing envelope on 0.1.8's physical tracking path.
+        -- Native routes to OpenXR, or exclusively to the active Toolkit bridge.
+        pcall(function()
+            local amplitude=.45+(.85-.45)*math.min(1,math.max(0,(soundSpeed-tuning.whooshSpeed)/3))
+            SetVRHapticPulse(1,amplitude,45)
+        end)
         s.soundArmed=false;s.lastSound=clock
         diag.whooshes=(diag.whooshes or 0)+1
     end
     local active=s.episode and clock<=(s.liveUntil or -1)
+    if active and speed>=tuning.swingSpeed and clock-(s.lastHaptic or -10)>=.12 then
+        s.lastHaptic=clock
+        -- This is swing feedback, not confirmed collision telemetry.
+        pcall(function() SetVRHapticPulse(1,1.0,90) end)
+    end
     if not active then s.episode=false end
     player:VRMeleeSweepHit(weapon,position,tip,previous.position,previous.tip,.22,not active)
     if diag.traceMotion then

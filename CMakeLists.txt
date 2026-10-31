@@ -120,6 +120,10 @@ target_link_libraries(cyberpunkvrport_stereo PRIVATE
     bcrypt
     dxgi.lib        # the SYSTEM import lib -- bare "dxgi" would resolve to our own target
     psapi
+    ole32
+    uuid
+    iphlpapi
+    ws2_32
     xaudio2.lib     # the VR menu's own sounds (VRMenuPlayWav)
     RED4ext::SDK
 )

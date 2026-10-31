@@ -68,6 +68,9 @@ struct VRControllerState {
     float    rightGrip    = 0.0f;
     bool     leftHandValid  = false;
     bool     rightHandValid = false;
+    bool     psvr2SystemPressed = false;
+    bool     psvr2SystemAvailable = false;
+    bool     psvr2DpadShift = false;
 };
 
 extern "C" int GetXrRuntimeMode();
@@ -846,6 +849,7 @@ public:
 
     float GetRuntimeHorizontalFovDeg() const { return m_runtimeHorizontalFovDeg.load(std::memory_order_relaxed); }
     const char* GetSystemName() const { return m_systemName; }
+    bool IsRuntimePsvr2() const { return m_runtimeIsPsvr2.load(std::memory_order_relaxed); }
     bool IsRuntimeSteamVR() const { return m_runtimeIsSteamVR.load(std::memory_order_relaxed); }
     bool IsRuntimeVirtualDesktop() const { return m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed); }
     bool IsRuntimeSimulator() const { return m_runtimeIsSimulator.load(std::memory_order_relaxed); }
@@ -937,7 +941,10 @@ private:
     XrAction m_primaryButtonAction = XR_NULL_HANDLE;     // Bool, per hand (X / A)
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)
     XrAction m_menuButtonAction = XR_NULL_HANDLE;        // Bool, global menu/start action
+    XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     XrAction m_hapticAction = XR_NULL_HANDLE;            // Vibration OUTPUT, per hand
+    bool m_hapticBindingLogged = false;
+    int m_hapticLastResult[2] = {123456, 123456};
     cvr::input::SteamFrameActions m_steamFrameActions{};
     XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
     XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
@@ -1322,6 +1329,7 @@ private:
     float m_loggedRuntimeVerticalFovDeg = 0.0f;
     float m_loggedRuntimeIpd = 0.0f;
     float m_loggedForcedProjectionFovDeg = 0.0f;
+    std::atomic<bool> m_runtimeIsPsvr2 = false;
     std::atomic<bool> m_runtimeIsSteamVR = false;
     std::atomic<bool> m_runtimeIsVirtualDesktop = false;
     // The OpenXR Simulator (the test runtime): its controllers report the AIM direction as their grip pose. See
