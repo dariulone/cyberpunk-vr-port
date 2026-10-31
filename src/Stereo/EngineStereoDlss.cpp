@@ -23,6 +23,8 @@
 // tags or constants for the evaluate's viewport and frame, an odd width) runs the engine's evaluate unchanged,
 // counted in CyberpunkVR_DebugEngineStereoDlss.
 #include "Stereo/EngineStereoDlss.hpp"
+#include "Render/CommandResources.hpp"
+#include "Render/IdleDlssContext.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include <windows.h>
 #include <d3d12.h>
@@ -76,7 +78,11 @@ struct TagSet {
 struct ConstantSet { sl::Constants values; uint32_t frame = 0, viewport = 0; bool valid = false; };
 struct OptionSet { sl::DLSSOptions values; uint32_t viewport = 0; bool valid = false; };
 
-std::mutex mutex;
+std::recursive_mutex mutex;
+cvr::gpu::IdleDlssContext originalContext;
+std::atomic<bool> lifecycleHooksReady{false};
+std::atomic<bool> optionsIntercepted{false};
+bool originalReclaimed=false;
 thread_local int evaluatingEye = -1;   // EvaluatingEye()
 TagSet tags;
 ConstantSet constants;
@@ -98,7 +104,8 @@ bool OwnViewport(uint32_t v) { return v == kEyeViewport[0] || v == kEyeViewport[
 // its half of every input the size of the scaling input (colour, motion, depth, masks) into a texture of the
 // eye's size, read at (0, 0), and its output into a target of its own, copied into its half afterwards -- all on
 // the evaluate's command list. A depth-stencil resource cannot be copied in part and keeps the offset. A
-// replaced copy is released a few evaluates later, after the GPU is done with it.
+// Each recording retains its copies through submission and GPU fence completion.
+// Replacing a cache entry releases only the cache's reference, never an in-flight copy.
 struct EyeCopy {
     ID3D12Resource* resource = nullptr;
     sl::Resource tag{};
@@ -112,9 +119,6 @@ struct EyeCopy {
     ID3D12Resource* staging = nullptr;   // a depth-stencil source copied whole first (it cannot be copied in part)
 };
 EyeCopy copies[kMaxTags];
-struct Retired { ID3D12Resource* resource = nullptr; uint64_t at = 0; };
-Retired retired[8];
-uint64_t evaluates = 0;
 constexpr D3D12_RESOURCE_STATES kReadable = D3D12_RESOURCE_STATES(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
                                                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
@@ -135,12 +139,12 @@ DXGI_FORMAT Typed(DXGI_FORMAT f) {
     }
 }
 
-void Retire(ID3D12Resource* r) {
-    for (auto& x : retired)
-        if (x.resource && evaluates - x.at > 8) { x.resource->Release(); x.resource = nullptr; }
-    if (!r) return;
-    for (auto& x : retired) if (!x.resource) { x = Retired{r, evaluates}; return; }
-    // all slots taken: kept for good
+bool KeepCopy(ID3D12GraphicsCommandList* list, const EyeCopy& copy) {
+    if (cvr::gpu::HasCommandResource(list, copy.resource) &&
+        (!copy.staging || cvr::gpu::HasCommandResource(list, copy.staging))) return true;
+    return copy.staging
+        ? cvr::gpu::KeepCommandResources(list, {copy.resource, copy.staging})
+        : cvr::gpu::KeepCommandResources(list, {copy.resource});
 }
 
 D3D12_RESOURCE_DESC DescOf(ID3D12Resource* r, bool* ok) {
@@ -171,8 +175,8 @@ EyeCopy* OwnCopy(sl::BufferType type, ID3D12Resource* source, uint64_t width, ui
     if (slot->resource && slot->width == width && slot->height == height && slot->format == format && slot->output == output &&
             (slot->staging != nullptr) == depth)
         return slot;
-    Retire(slot->resource);
-    Retire(slot->staging);
+    if (slot->resource) slot->resource->Release();
+    if (slot->staging) slot->staging->Release();
     slot->resource = slot->staging = nullptr;
     ID3D12Device* device = nullptr;
     if (FAILED(source->GetDevice(IID_PPV_ARGS(&device))) || !device) return nullptr;
@@ -342,10 +346,28 @@ uint32_t ViewportValue(const void* handle) {
     __except (EXCEPTION_EXECUTE_HANDLER) { return kEyeViewport[0]; }   // treated as ours: ignored
 }
 
+using AllocateResourcesFn = sl::Result (*)(void*,sl::Feature,const sl::ViewportHandle&);
+using FreeResourcesFn = sl::Result (*)(sl::Feature,const sl::ViewportHandle&);
+AllocateResourcesFn allocateResources = nullptr;
+FreeResourcesFn freeResources = nullptr;
+sl::Result TrackedAllocate(void* list,sl::Feature feature,const sl::ViewportHandle& viewport) {
+    std::lock_guard lock(mutex);
+    if(feature==sl::kFeatureDLSS && ViewportValue(&viewport)==0)
+        originalContext.Used(static_cast<ID3D12GraphicsCommandList*>(list),GetTickCount64());
+    const auto result=allocateResources(list,feature,viewport);
+    return result;
+}
+sl::Result TrackedFree(sl::Feature feature,const sl::ViewportHandle& viewport) {
+    std::lock_guard lock(mutex);
+    const auto result=freeResources(feature,viewport);
+    if(result==sl::Result::eOk && feature==sl::kFeatureDLSS && ViewportValue(&viewport)==0)originalContext.Released();
+    return result;
+}
+
 sl::Result HookedSetOptions(const sl::ViewportHandle& viewport, const sl::DLSSOptions& options) {
+    std::lock_guard lock(mutex);
     const uint32_t v = ViewportValue(&viewport);
     if (!OwnViewport(v)) {
-        std::lock_guard lock(mutex);
         CopyOptions(options, v);
         ++CyberpunkVR_DebugEngineStereoDlss[7];
     }
@@ -438,6 +460,20 @@ void InstallOptionsHook() {
     std::lock_guard lock(installMutex);
     if (optionsHooked.load(std::memory_order_relaxed)) return;
     const auto module = GetModuleHandleW(L"sl.interposer.dll");
+    if(module) {
+        static bool allocateHooked=false,freeHooked=false;
+        if(!allocateResources) {
+            auto target=GetProcAddress(module,"slAllocateResources");
+            if(target && MH_CreateHook(target,reinterpret_cast<void*>(&TrackedAllocate),reinterpret_cast<void**>(&allocateResources))==MH_OK)
+                allocateHooked=MH_EnableHook(target)==MH_OK;
+        }
+        if(!freeResources) {
+            auto target=GetProcAddress(module,"slFreeResources");
+            if(target && MH_CreateHook(target,reinterpret_cast<void*>(&TrackedFree),reinterpret_cast<void**>(&freeResources))==MH_OK)
+                freeHooked=MH_EnableHook(target)==MH_OK;
+        }
+        lifecycleHooksReady.store(allocateHooked && freeHooked,std::memory_order_release);
+    }
     auto get = module ? reinterpret_cast<GetFeatureFunctionFn>(GetProcAddress(module, "slGetFeatureFunction")) : nullptr;
     void* target = nullptr;
     if (!get || get(sl::kFeatureDLSS, "slDLSSSetOptions", target) != sl::Result::eOk || !target) return;
@@ -448,6 +484,7 @@ void InstallOptionsHook() {
         setOptions = reinterpret_cast<SetOptionsFn>(target);
         Log("[engine-stereo-dlss] slDLSSSetOptions could not be hooked; eye options are derived\n");
     } else {
+        optionsIntercepted.store(true,std::memory_order_release);
         Log("[engine-stereo-dlss] slDLSSSetOptions hooked\n");
     }
     optionsHooked.store(true, std::memory_order_release);
@@ -481,6 +518,17 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
     const bool recorded = engineOptions.valid && engineOptions.viewport == viewport;
     const sl::DLSSOptions base = recorded ? engineOptions.values : Derived(in, out, exposureTagged);
     LogOnce(tags, constants, base, recorded, in, out);
+
+    // Only the observed engine viewport (0). A live recording or unfinished GPU
+    // submission owns a marker, so elapsed frames alone can never allow release.
+    if(viewport==0 && recorded && optionsIntercepted.load(std::memory_order_acquire) &&
+       lifecycleHooksReady.load(std::memory_order_acquire) && originalContext.Ready(GetTickCount64())) {
+        const sl::ViewportHandle original(0);
+        const auto released=freeResources(sl::kFeatureDLSS,original);
+        Log("[engine-stereo-dlss-reclaim] viewport=0 result=%d pending=%u tick_ms=%llu\n",int(released),originalContext.Pending(),GetTickCount64());
+        if(released==sl::Result::eOk){originalContext.Released();originalReclaimed=true;}
+        else originalContext.Disable(); // no repeated attempts or render-loop stalls
+    }
 
     const uint32_t mode = CyberpunkVR_EngineStereoDlssMode.load(std::memory_order_relaxed);
     static std::atomic<uint32_t> logged{0};
@@ -529,7 +577,11 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         values.jitterOffset.y *= jitterY;
         res[2] = int32_t(setConstants(values, frame, handle));
         sl::ResourceTag eyeTags[kMaxTags];
-        CopyJob before[kMaxTags], after[1];                // the right eye's inputs in, its output out
+        // Native DLSS-G adds HUD-less color (tag 2) alongside scaling output
+        // (tag 4). Both may be output-sized. The old one-element after array
+        // overwrote the stack when the second copy job was appended.
+        CopyJob before[kMaxTags], after[kMaxTags];
+        static_assert(sizeof(after)/sizeof(after[0]) == sizeof(eyeTags)/sizeof(eyeTags[0]));
         uint32_t nBefore = 0, nAfter = 0;
         for (uint32_t i = 0; i < tags.count; ++i) {
             eyeTags[i] = tags.tag[i];
@@ -547,13 +599,23 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
                 if (j != i && tags.tag[j].resource && tags.tag[j].resource->native == native) shared = true;
             EyeCopy* own = native && !shared ? OwnCopy(tags.tag[i].type, native, half.width, half.height, isOutput) : nullptr;
             if (!own) continue;
+            if (!KeepCopy(static_cast<ID3D12GraphicsCommandList*>(commandList), *own)) {
+                // Do not record references whose lifetime we cannot protect.
+                // Preserve the existing offset fallback used for allocation failure.
+                static bool warned = false;
+                if (!warned) Log("[engine-stereo-dlss-memory] lifetime registration failed; right-eye copy skipped\n");
+                warned = true;
+                continue;
+            }
             const CopyJob job{native, D3D12_RESOURCE_STATES(tags.tag[i].resource->state), own, half};
             if (isOutput) after[nAfter++] = job;
             else before[nBefore++] = job;
             eyeTags[i].resource = &own->tag;
             eyeTags[i].extent = sl::Extent{0, 0, half.width, half.height};
         }
-        RunCopies(commandList, before, nBefore, false);
+        if(nBefore) {
+            RunCopies(commandList, before, nBefore, false);
+        }
         const uint32_t drop = CyberpunkVR_EngineStereoDlssDropTags.load(std::memory_order_relaxed);
         for (uint32_t i = 0; i < tags.count; ++i)
             if (tags.tag[i].type < 32 && (drop >> tags.tag[i].type) & 1u) eyeTags[i].resource = nullptr;
@@ -567,7 +629,9 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         const auto r = evaluate(feature, frame, eyeInputs, n, commandList);
         evaluatingEye = -1;
         res[3] = int32_t(r);
-        if (r == sl::Result::eOk) RunCopies(commandList, after, nAfter, true);
+        if (r == sl::Result::eOk && nAfter) {
+            RunCopies(commandList, after, nAfter, true);
+        }
         if (log)
             Log("[engine-stereo-dlss]   eye %d: tags %d constants %d evaluate %d; in (%u,%u %ux%u) out (%u,%u %ux%u)\n", eye,
                 res[1], res[2], res[3], Half(in, eye).left, Half(in, eye).top, Half(in, eye).width, Half(in, eye).height,
@@ -578,9 +642,32 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         }
     }
     ++debug[0];
-    ++evaluates;
+    if(worst==sl::Result::eOk && viewport==0)originalContext.SplitSucceeded();
     *result = worst;
     return true;
+}
+
+sl::Result EvaluateOriginal(sl::Feature feature,const sl::FrameToken& frame,const sl::BaseStructure* const* inputs,
+                            uint32_t count,void* list,EvaluateFn evaluate) {
+    std::lock_guard lock(mutex);
+    if(feature==sl::kFeatureDLSS) {
+        uint32_t viewport=UINT32_MAX;
+        if(FindViewport(inputs,count,&viewport)<0)originalContext.Disable();
+        else if(viewport==0) {
+            originalContext.Used(static_cast<ID3D12GraphicsCommandList*>(list),GetTickCount64());
+            if(originalReclaimed) {
+                // Streamline recreates the feature lazily on evaluate. Reassert
+                // current engine options, never substitute an eye-sized preset.
+                if(engineOptions.valid && engineOptions.viewport==0 && setOptions) {
+                    const sl::ViewportHandle original(0);
+                    setOptions(original,engineOptions.values);
+                }
+                Log("[engine-stereo-dlss-reclaim] viewport=0 resumed; lazy recreation tick_ms=%llu\n",GetTickCount64());
+                originalReclaimed=false;
+            }
+        }
+    }
+    return evaluate(feature,frame,inputs,count,list);
 }
 
 int EvaluatingEye() { return evaluatingEye; }
