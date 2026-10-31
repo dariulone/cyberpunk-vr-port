@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(ThumbrestInputTests LANGUAGES CXX)
+enable_testing()
+add_executable(thumbrest_input_tests main.cpp)
+target_include_directories(thumbrest_input_tests PRIVATE ../../include)
+target_compile_features(thumbrest_input_tests PRIVATE cxx_std_17)
+add_test(NAME thumbrest_input_policy COMMAND thumbrest_input_tests)

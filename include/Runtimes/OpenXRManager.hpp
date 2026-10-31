@@ -66,6 +66,7 @@ struct VRControllerState {
     float    rightThumbY  = 0.0f;
     float    leftGrip     = 0.0f;
     float    rightGrip    = 0.0f;
+    bool     thumbrestDpadShift = false;
     bool     leftHandValid  = false;
     bool     rightHandValid = false;
 };
@@ -933,6 +934,7 @@ private:
     XrAction m_thumbstickAction = XR_NULL_HANDLE;        // Vector2f, per hand
     XrAction m_triggerAction = XR_NULL_HANDLE;           // Float, per hand
     XrAction m_gripAction = XR_NULL_HANDLE;              // Float, per hand
+    XrAction m_thumbrestTouchAction = XR_NULL_HANDLE;
     XrAction m_thumbstickClickAction = XR_NULL_HANDLE;   // Bool, per hand (L3/R3)
     XrAction m_primaryButtonAction = XR_NULL_HANDLE;     // Bool, per hand (X / A)
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)
