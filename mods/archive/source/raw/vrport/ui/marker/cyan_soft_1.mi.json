@@ -1,0 +1,88 @@
+{
+ "Header": {
+  "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-21T08:48:36.9812780Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": ""
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "EmbeddedFiles": [],
+  "RootChunk": {
+   "$type": "CMaterialInstance",
+   "audioTag": {
+    "$type": "CName",
+    "$storage": "string",
+    "$value": "None"
+   },
+   "baseMaterial": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\fx\\shaders\\hud_markers_notxaa.mt"
+    },
+    "Flags": "Default"
+   },
+   "cookingPlatform": "PLATFORM_PC",
+   "enableMask": 0,
+   "metadata": null,
+   "resourceVersion": 4,
+   "values": [
+    {
+     "$type": "rRef:ITexture",
+     "Diffuse": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "engine\\textures\\editor\\white.xbm"
+      },
+      "Flags": "Default"
+     }
+    },
+    {
+     "$type": "Float",
+     "AdditiveAlphaBlend": 1.0
+    },
+    {
+     "$type": "Float",
+     "UseOnMeshes": 1.0
+    },
+    {
+     "$type": "Float",
+     "TillingX": 1.0
+    },
+    {
+     "$type": "Float",
+     "TillingY": 1.0
+    },
+    {
+     "$type": "Color",
+     "Color": {
+      "$type": "Color",
+      "Red": 175,
+      "Green": 239,
+      "Blue": 255,
+      "Alpha": 255
+     }
+    },
+    {
+     "$type": "Color",
+     "Second_Color": {
+      "$type": "Color",
+      "Red": 175,
+      "Green": 239,
+      "Blue": 255,
+      "Alpha": 255
+     }
+    },
+    {
+     "$type": "Float",
+     "ColorMultiplier": 0.06
+    }
+   ]
+  }
+ }
+}

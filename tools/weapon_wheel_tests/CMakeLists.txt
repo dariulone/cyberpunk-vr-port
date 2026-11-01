@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(WeaponWheelTests LANGUAGES CXX)
+enable_testing()
+add_executable(weapon_wheel_tests main.cpp)
+target_include_directories(weapon_wheel_tests PRIVATE ../../include)
+target_compile_features(weapon_wheel_tests PRIVATE cxx_std_20)
+add_test(NAME weapon_wheel COMMAND weapon_wheel_tests)

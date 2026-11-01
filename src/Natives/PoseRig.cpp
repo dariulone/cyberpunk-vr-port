@@ -605,7 +605,10 @@ void VRReloadFingerBlend(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, in
 // weapon draw/switch: a stale latch on the previous instance's buffer is one way the slide stops responding.
 void VRRigReset(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t) {
     aFrame->code++;
+    g_RigSigN = 0; // registrations below belong to the newly selected weapon
     for (int w = 0; w < VRRIG_N; ++w) {
+        g_RigPoseHave[w] = 0;
+        for(int bone=0;bone<20;++bone) for(int field=0;field<7;++field) g_RigPose[w][bone][field]=0;
         g_RigBuf[w] = 0; g_RigBones[w] = 0;
         g_RigTrackHave[w] = 0;                                  // read-back belongs to the rig that is going away
         for (int e = 0; e < VRRIG_TRACKS; ++e) g_RigTrackOn[w][e] = 0;

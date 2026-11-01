@@ -49,6 +49,7 @@ extern "C" unsigned long long CyberpunkVR_DebugBarrelDotDraws;
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
 #include "Stereo/DetourRegistry.hpp"
+#include "Lobby/MenuLobby.hpp"
 
 extern "C" float CyberpunkVR_HudEngineCurvature[2];   // Stereo/Hud.cpp
 
@@ -134,9 +135,9 @@ namespace detail {
 // resolution numbers to find the view -- only at the configured name.
 // Selection file (written by the launcher, also read by modules/vrcam_select.lua which flips
 // isEnabled on the matching component through the game's RTTI):
-//   <game>\bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_Stereo\vrcam.json
-// with a fallback next to this DLL. CET sandboxes Lua file IO to the mod folder, which is why
-// the canonical copy lives there and this side reaches out to it instead of the reverse.
+//   PLUGIN\lua\CyberpunkVRPort_Stereo\vrcam.json
+// The Lua host sandboxes a mod's file IO to its folder, which is why the copy lives there and
+// this side reaches out to it instead of the reverse.
 // File access + CName hashing live in vrcam_config.h, shared with the launcher dialog.
 // Defaults are the LEGACY single-component names, so deleting vrcam.json returns the mod to
 // exactly the pre-per-resolution behaviour. That is the escape hatch if the expanded entity has
@@ -703,6 +704,7 @@ static __int64 __fastcall Detour_Resolve3D20(__int64 reg, uint32_t* out,
     if (!out || !idp) return r;
     cvr::stereo::SynchronizeFogHistory(static_cast<uintptr_t>(reg),out,idp[0],reinterpret_cast<uintptr_t>(ra));
     cvr::framegen::ObserveNativeInput(idp[0],*out);
+    cvr::lobby::ObserveResolve(idp[0],*out);
     const uint32_t id = idp[0];
     if ((id & 0x00FFFFFFu) != POSTCOLOR_LOW) return r;      // post-color ids only
     const bool in_fin = t_mirror_copy_node_active;          // vrcam Final2D consumer

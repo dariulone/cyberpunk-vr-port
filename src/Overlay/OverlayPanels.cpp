@@ -19,6 +19,7 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -42,6 +43,7 @@ extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 extern void Log(const char* fmt, ...);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 extern volatile float g_lastLocateQuat[4];
+extern "C" int32_t CyberpunkVR_OverlaySkipEmpty;
 extern "C" int   CyberpunkVR_StereoModuleEnable;   // vr_core.cpp: did we install at all
 extern "C" int   CyberpunkVR_StereoModuleLoaded;
 extern "C" int32_t CyberpunkVR_StereoLog;
@@ -119,24 +121,40 @@ bool InputIntClamped(const char* label, int* value, int minValue, int maxValue) 
 
 bool DrawFovControl(LiveControlsUiState& state) {
     bool changed = false;
-    bool useRuntime = state.xrForceFov <= 0.0f;
-    if (UI::Checkbox("Use OpenXR runtime projection FOV", &useRuntime)) {
-        state.xrForceFov = useRuntime ? 0.0f : 112.0f;
+    const bool psvr2 = OpenXRManager::Get().IsRuntimePsvr2();
+    bool overrideEnabled = state.xrForceFov > 0.0f;
+    if (UI::Checkbox("Enable FOV override", &overrideEnabled)) {
+        state.xrForceFov = overrideEnabled ? (psvr2 ? 104.5f : 112.0f) : 0.0f;
         changed = true;
     }
-
-    if (useRuntime) {
-        UI::BeginDisabled();
+    if (!overrideEnabled) UI::BeginDisabled();
+    int preset = 0;
+    if (std::fabs(state.xrForceFov - 104.5f) < .01f) preset = 1;
+    else if (std::fabs(state.xrForceFov - 94.0f) < .01f) preset = 2;
+    else if (std::fabs(state.xrForceFov - 104.0f) < .01f) preset = 3;
+    if (widgets::Combo("FOV preset", &preset,
+        "Custom\0PSVR2 - 104.5 deg\0Quest 3 legacy - 94 deg (test)\0Pico 4 - 104 deg\0")) {
+        if (preset > 0) {
+            const float values[] = {0.0f, 104.5f, 94.0f, 104.0f};
+            state.xrForceFov = values[preset];
+            changed = true;
+        }
     }
-    float fov = state.xrForceFov <= 0.0f ? 112.0f : state.xrForceFov;
-    if (widgets::SliderFloat("OpenXR projection layer FOV", &fov, 80.0f, 140.0f, "%.1f deg")) {
+    float fov = overrideEnabled ? state.xrForceFov : (psvr2 ? 104.5f : 112.0f);
+    if (widgets::SliderFloat("Horizontal render / projection FOV", &fov, 80.0f, 140.0f, "%.1f deg")) {
         state.xrForceFov = fov;
         changed = true;
     }
-    if (useRuntime) {
-        UI::EndDisabled();
-    }
-    UI::TextUnformatted("This changes the OpenXR projection layer FOV, not the CP2077 camera FOV.");
+    if (!overrideEnabled) UI::EndDisabled();
+    UI::TextWrapped("Override changes BOTH the game VR camera and OpenXR projection. "
+        "Off uses automatic panel-edge coverage, which can be wider than the per-eye FOV span.");
+    if (psvr2) UI::TextWrapped("PSVR2: 104.5 deg restores the previous override. Automatic coverage measured 123 deg on this setup.");
+    UI::TextWrapped("Narrower coverage can improve central detail at the same resolution, but may reveal black borders. "
+        "Quest 3 legacy is an optional comparison, not a universal correction; keep the matching headset resolution preset.");
+    const float actual = GetGameRenderFovDeg();
+    const float vertical = GetGameRenderVerticalFovDeg();
+    if (actual > 1.0f && vertical > 1.0f)
+        UI::Text("Camera render FOV: %.1f H / %.1f V deg", actual, vertical);
     return changed;
 }
 
@@ -1029,6 +1047,15 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             else {
             UI::TextWrapped("Movement, weapon aiming and physical interaction shortcuts.");
 
+            changed |= CheckboxInt("Left-handed controls", &state.xrLeftHanded);
+            if (UI::IsItemHovered()) {
+                UI::SetTooltip("The two controllers trade roles: the left trigger fires and the right one aims,\n"
+                                  "the right stick walks and the left one turns, dashes and crouches.\n"
+                                  "X jumps, Y drops the magazine, A reloads and interacts, B switches weapons,\n"
+                                  "and the right stick click is the D-pad. Button prompts show these buttons.");
+            }
+            UI::Separator();
+
             // Weapon aim: bullets/projectiles fly down the WEAPON BARREL (controller-pointed) instead
             // of the camera crosshair. Hooks the projectile launch orientation provider and feeds it
             // the game's own muzzle world transform. Writes shared[58]; the RED4ext plugin applies it.
@@ -1044,7 +1071,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                                       "the weapon arm. Either way the shot leaves the real muzzle, for guns and\n"
                                       "projectiles alike, and free-look while aiming is preserved.");
                 }
-                UI::Checkbox("Weapon Aim laser dot (where the bullet hits)", &g_drawBarrelCross);
+                changed |= UI::Checkbox("Weapon Aim laser dot (where the bullet hits)", &state.xrWeaponLaserDot);
                 if (UI::IsItemHovered()) {
                     UI::SetTooltip("Red dot projected from the actual weapon muzzle direction through the\n"
                                       "game camera -- marks exactly where the bullet will fly.");
@@ -1061,6 +1088,20 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             UI::BeginDisabled(state.xrHaptics == 0);
             changed |= widgets::SliderFloat("Vibration strength", &state.xrHapticScale, 0.0f, 2.0f, "%.2fx");
             UI::EndDisabled();
+            UI::Separator();
+
+            changed |= CheckboxInt("Open the VR menu with a grip swipe", &state.xrMenuGesture);
+            if (UI::IsItemHovered()) {
+                UI::SetTooltip("Hold the right grip and sweep the hand straight down to open or close the VR menu.\n"
+                                  "Off: only L3 + R3 (both sticks pressed) opens it.\n"
+                                  "A hand holding something (the steering wheel, a ladder, an item) never opens it.");
+            }
+            changed |= CheckboxInt("VR weapon wheel on a held Y", &state.xrVrWeaponWheel);
+            if (UI::IsItemHovered()) {
+                UI::SetTooltip("Hold Y: a small wheel opens in front of the body and the game keeps running.\n"
+                                  "Point at a weapon, the arm cyberware, fists, a grenade or a consumable, then let go of Y.\n"
+                                  "A tap of Y is still the next weapon. Off: the game's own wheel, which slows time.");
+            }
             UI::Separator();
 
             changed |= CheckboxInt("Enable VR -> XInput merge", &state.xrXInputHook);
@@ -1152,6 +1193,17 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
 
         if (section>=0 ? section==4 : UI::BeginTabItem("STEREO")) {
             if(UI::CollapsingHeader("PERFORMANCE",ImGuiTreeNodeFlags_DefaultOpen)) {
+                bool stableEmptyPacing = CyberpunkVR_OverlaySkipEmpty == 0;
+                if (UI::Checkbox("Stable pacing with no overlay graphics", &stableEmptyPacing)) {
+                    CyberpunkVR_OverlaySkipEmpty = stableEmptyPacing ? 0 : 1;
+                    Log("[pacing] stable empty-overlay pacing=%d (skipEmpty=%d)\n",
+                        stableEmptyPacing, CyberpunkVR_OverlaySkipEmpty);
+                }
+                if (UI::IsItemHovered()) UI::SetTooltip(
+                    "Keep the previous-overlay fence pacing even when no overlay is drawn.\n"
+                    "May improve headset delivery when mounting or holstering. Adds a small\n"
+                    "empty command submission. Uncheck for upstream behavior; resets ON at launch.");
+
                 int reflex=state.nvidiaReflex+1;
                 if(widgets::Combo("NVIDIA Reflex",&reflex,"Game setting\0Off (higher FPS)\0On (lower latency)\0On + Boost\0")) {
                     state.nvidiaReflex=reflex-1;changed=true;
@@ -1160,6 +1212,11 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 const int applied=cvr::reflex::GetAppliedMode();
                 const char* appliedName=applied==0?"Off":applied==1?"On":applied==2?"On + Boost":"Waiting for renderer";
                 UI::TextDisabled("Applied: %s",appliedName);
+                changed |= CheckboxInt("Limit FPS to the headset refresh rate", &state.fpsCap);
+                if (UI::IsItemHovered()) {
+                    UI::SetTooltip("Frames above the headset's refresh rate are never shown: they only load the GPU\n"
+                                      "and make the picture stutter now and then. Off lets the game run free.");
+                }
             }
             if (UI::CollapsingHeader("STEREO VIEW", ImGuiTreeNodeFlags_DefaultOpen)) {
                 changed |= CheckboxInt("Mono mode", &state.monoMode);

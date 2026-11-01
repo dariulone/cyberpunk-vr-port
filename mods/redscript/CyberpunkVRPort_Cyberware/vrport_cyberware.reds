@@ -1,3 +1,6 @@
+@addField(PlayerPuppet)
+public let vrLauncherConsumeSwitchRelease: Bool;
+
 // A selected projectile launcher remains ready after its native shot/cancel
 // completes. The native action states still own projectiles, charges and costs.
 // No synthetic held input and no repeated equip requests are used.
@@ -127,6 +130,7 @@ public class VrLauncherReadyEvents extends LeftHandCyberwareEventsTransition {
   }
   public func OnExit(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void {
     if (scriptInterface.executionOwner as PlayerPuppet).vrLauncherKeepOpen && scriptInterface.IsActionJustPressed(n"SwitchItem") {
+      (scriptInterface.executionOwner as PlayerPuppet).vrLauncherConsumeSwitchRelease = true;
       this.SendEquipmentSystemWeaponManipulationRequest(scriptInterface, EquipmentManipulationAction.CycleNextWeaponWheelItem, gameEquipAnimationType.Default);
     };
     stateContext.RemovePermanentBoolParameter(n"vrLauncherInputArmed");

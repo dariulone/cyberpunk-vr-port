@@ -119,7 +119,7 @@ def run(pid,game,frames,check,inspect,path,cancel_after=0,scoped_origin=True,com
               'CyberpunkVR_DescriptorDense*','CyberpunkVR_DescriptorLiveMetadata*','CyberpunkVR_ObservationProfile*',
               'CyberpunkVR_ConstantUploadFast*',
               'CyberpunkVR_ConstantCaptureEnable','g_menuModeValue']
-    symbols=resolve(pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',prefixes)
+    symbols=resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',prefixes)
     reader=Reader(pid,game/'bin/x64/Cyberpunk2077.exe',0,0);k=reader.k;handle=None;armed=False;origin_mode=None;instance_mode=None;descriptor_mode=None;metadata_mode=None;upload_mode=None;profiling=False
     read=lambda name:struct.unpack('<I',reader.read(int(symbols[name],16),4))[0]
     early=lambda name:read('CyberpunkVR_EarlyDepth'+name)

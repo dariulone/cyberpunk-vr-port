@@ -20,12 +20,13 @@
 
 module CyberpunkVRPort.WeaponUp
 
-// True if the player has a melee weapon equipped in the right-hand slot (covers katana, knives, bats,
-// hammers, mantis blades / gorilla arms — anything tagged Melee in the weapon record).
+// True if the player has a melee weapon in hand (covers katana, knives, bats, hammers, mantis blades / gorilla
+// arms — anything tagged Melee in the weapon record): the right-hand slot's, or with the left-handed controls a lone
+// one in the left hand (CyberpunkVRPort_LeftHanded).
 func VRWeaponUpHasMelee(scriptInterface: ref<StateGameScriptInterface>) -> Bool {
   let ts = scriptInterface.GetTransactionSystem();
   if !IsDefined(ts) { return false; }
-  let weapon = ts.GetItemInSlot(scriptInterface.executionOwner, t"AttachmentSlots.WeaponRight") as WeaponObject;
+  let weapon = ts.GetItemInSlot(scriptInterface.executionOwner, VRLeftHandedWeapon.HeldSlot(scriptInterface.executionOwner)) as WeaponObject;
   if !IsDefined(weapon) { return false; }
   return ts.HasTag(scriptInterface.executionOwner, WeaponObject.GetMeleeWeaponTag(), weapon.GetItemID());
 }

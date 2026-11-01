@@ -89,6 +89,11 @@ float VRIK_Dot3(const float* a, const float* b);
 float VRIK_Norm3(float* v);
 int VRIK_FKCount();
 bool VRIK_ReferenceFingerRotation(int bone,float* rotation);
+// A bone's parent-local transform in the rig's reference pose; false when the rig has none for it.
+bool VRIK_ReferenceLocal(int bone,float* position,float* rotation);
+// ...and its model-space transform there.
+bool VRIK_ReferenceModel(int bone,float* position,float* rotation);
+int VRIK_LadderFingerBone(int side,int slot);
 void VRIK_ApplyHandStop(int side, float* target, float* handRot);
 void VRIK_BodyAxesFromCamYaw(const float* camModelRot, float* bodyRight, float* bodyUp, float* bodyFwd);
 void VRIK_ComputeFK(uint8_t* boneBuf, int count);
@@ -115,6 +120,12 @@ void VRIK_PlaceLadderUpper(uint8_t* boneBuf,const float* cameraTarget,const floa
 // Explicit arguments remain for offline authoring/equivalence checks.
 void VRIK_ApplyLadderFingers(uint8_t* boneBuf,int side,int kind,const float* curls=nullptr,const float (*adjustments)[6]=nullptr);
 extern float g_VRIKGirdleReach[2][4];
+extern float g_VRIKHandPin[2][3];   // R, L: the solved (drawn) wrist, model space; the target when not short
+extern float g_VRIKHandAim[2][8];   // R, L: the controller's wrist target and rotation (x y z, qx qy qz qw, valid),
+                                    // model space, before the reach, the stops and the blends move it
+// The controller's own wrist (g_VRIKHandAim), noted where the solve has built it from tracking: what a pointer aims
+// with, the hand the player holds rather than the one the arm could reach.
+void VRIK_NoteHandAim(int pin, const float* target, const float* rotation);
 void VRIK_Cross3(const float* a, const float* b, float* o);
 void VRIK_DampenTorsoWeaponPose(uint8_t* boneBuf);
 void VRIK_LatchViewPacket();

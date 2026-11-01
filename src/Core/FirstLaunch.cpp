@@ -7,6 +7,7 @@
 // It is a one-shot rather than an enforcement: after the first launch the settings are the player's.
 
 #include <windows.h>
+#include "Core/Paths.hpp"
 #include <psapi.h>
 #include <xinput.h>
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
@@ -101,6 +102,25 @@ static bool WriteFirstLaunchFlag(int value) {
 // Called from the RED4ext entry, before the game creates its D3D12 device -- the earliest point we
 // have. Whether the game has already read its settings by then is not something this can know, so
 // the log says plainly that a fresh install may need one more launch for them to take.
+// ---- EVERY LAUNCH: the game's window is borderless --------------------------------------------
+//
+// The monitor shows the headset's picture in a window the port fits to the monitor at the render's own
+// aspect (Render/DesktopMirror.cpp), and exclusive fullscreen is refused at the swapchain (Hooks/SwapChain.cpp).
+// A framed window puts a caption and borders round that picture; so every launch starts in the game's own
+// borderless window mode -- /video/display WindowMode = BorderlessWindowed (list index 1), written before the
+// game reads its settings, as early as the first-launch merge below. A mode picked in the game's menu holds
+// for that session.
+extern "C" void ApplyLaunchWindowMode() {
+    wchar_t local[MAX_PATH] = {};
+    const auto localLength=GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+    if (!localLength || localLength>=MAX_PATH) return;
+    const auto player=std::filesystem::path(local)/L"CD Projekt Red"/L"Cyberpunk 2077"/L"UserSettings.json";
+    if (GetFileAttributesW(player.c_str()) == INVALID_FILE_ATTRIBUTES) return;   // the game writes it first
+    const auto set=cvr::settings::SetGameSetting(player,"/video/display","WindowMode","BorderlessWindowed",1);
+    if(!set.ok) Log("WindowMode: %s -- left as it is\n",set.error.c_str());
+    else if(set.changed) Log("WindowMode: %s -> BorderlessWindowed for this launch\n",set.previous.c_str());
+}
+
 extern "C" void ApplyFirstLaunchGameSettings() {
     InitRuntimePaths();
     EnsureLiveControlFileExists();
@@ -109,20 +129,10 @@ extern "C" void ApplyFirstLaunchGameSettings() {
     // cascade quality must never trigger replacement of the whole settings file.
     if(g_liveControls.xrFirstLaunch==0)return;
 
-    // The shipped copy sits next to this DLL, which is the only directory the plugin owns.
-    wchar_t modulePath[MAX_PATH] = {};
-    HMODULE self = nullptr;
-    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            reinterpret_cast<LPCWSTR>(&ApplyFirstLaunchGameSettings), &self) || !self) {
-        Log("FirstLaunch: cannot locate this module -- settings not installed\n");
-        return;
-    }
-    const auto moduleLength=GetModuleFileNameW(self,modulePath,MAX_PATH);
-    if(!moduleLength || moduleLength>=MAX_PATH){Log("FirstLaunch: module path unavailable or too long\n");return;}
-    const auto src=std::filesystem::path(modulePath).parent_path()/L"UserSettings.json";
+    // The shipped copy sits in the plugin's config folder (Core/Paths.hpp).
+    const std::filesystem::path src = cvr::paths::File(cvr::paths::Folder::Config, L"UserSettings.json");
     if (GetFileAttributesW(src.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        Log("FirstLaunch: no shipped UserSettings.json beside the plugin (%ls) -- nothing to do, "
+        Log("FirstLaunch: no shipped UserSettings.json in the plugin's config folder (%ls) -- nothing to do, "
             "leaving first_launch=1\n", src.c_str());
         return;
     }
@@ -158,4 +168,6 @@ extern "C" void ApplyFirstLaunchGameSettings() {
         "             first_launch=0 %s -- the game may need one more launch to read them\n",
         installed.changed,src.c_str(),dst.c_str(),installed.backup.empty()?L"(already matched)":installed.backup.c_str(),
         flagged ? "written to vrport.ini" : "COULD NOT BE WRITTEN (will retry)");
+    for(const auto& skipped:installed.skipped)
+        Log("FirstLaunch: preset's %s not applied (not in this game build, or a value it would not read)\n",skipped.c_str());
 }

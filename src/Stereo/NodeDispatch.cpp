@@ -1334,7 +1334,10 @@ uint8_t __fastcall Detour_NodeDispatch(
     int64_t prof_t0 = 0, prof_saved_child = 0;
     const bool prof_on = CyberpunkVR_ProfEnable != 0;
     const bool prof_top = prof_on && t_prof_disp_depth == 0;
-    const bool timeline = CyberpunkVR_NodeTimeline != 0 && t_prof_disp_depth == 0;
+    // Timeline 1 = top-level nodes; 2 adds the nested ones (kind 16), so a view's scene passes
+    // can be told apart by what runs inside them.
+    const uint32_t timeline_depth = static_cast<uint32_t>(t_prof_disp_depth);
+    const bool timeline = CyberpunkVR_NodeTimeline != 0 && (timeline_depth == 0 || CyberpunkVR_NodeTimeline >= 2);
     const int64_t timeline_t0 = timeline ? prof_now() : 0;
     ++t_prof_disp_depth;
     if (prof_on) {
@@ -1412,7 +1415,15 @@ uint8_t __fastcall Detour_NodeDispatch(
         }
     }
     --t_prof_disp_depth;
-    if (timeline) prof_timeline_add(timeline_t0, prof_now(), work_rva, vrcam_node ? 1u : (view_key_known && view_key != 0) ? 2u : 0u);
+    if (timeline) {
+        // extra: bit 8 set = a scene pass, bits 0-7 its rtId; nested spans add the side (bits 12-13)
+        // and the depth (bits 16-19).
+        const uint32_t side = vrcam_node ? 1u : (view_key_known && view_key != 0) ? 2u : 0u;
+        const uint32_t pass = 0x100u | scene_rtid;
+        if (timeline_depth == 0) prof_timeline_add(timeline_t0, prof_now(), work_rva, side, pass);
+        else prof_timeline_add(timeline_t0, prof_now(), work_rva, 16u,
+                               pass | side << 12 | (timeline_depth < 15u ? timeline_depth : 15u) << 16);
+    }
 
     const int32_t nodeSide=t_view_side;
     t_vrcam_node_active = previous_vrcam_node;

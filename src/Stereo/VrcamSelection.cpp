@@ -11,6 +11,7 @@
 // anonymous namespace is a named one and these functions can be called across a file boundary.
 
 #include "Stereo/SyncStereo.hpp"
+#include "Core/Paths.hpp"
 #include "Utils/StereoLog.hpp"
 #include "Stereo/VrcamConfig.hpp"   // vrcam.json access + CName hashing, shared with the launcher
 #include "Render/ColorBlit.hpp"   // HUD debug overlay on the mirror image
@@ -33,6 +34,8 @@
 #include "Utils/LogThrottle.hpp"
 #include "Stereo/StereoInternal.hpp"
 
+extern "C" int GetLaunchEyeSize(int* width, int* height);   // Core/VrCore.cpp
+
 namespace cvr {
 namespace detail {
 
@@ -50,8 +53,11 @@ namespace detail {
 // So the read is a function now, and the watcher below repeats it every poll. Whatever the
 // resolution turns out to be once the swapchain exists, the component follows it.
 static bool vrcam_launcher_resolution(int* w, int* h) {
+    // Once this launch's eye size is decided it is the one: the pick may have been fitted to what the
+    // runtime takes (FitLauncherResolutionToRuntime), and the file keeps the pick.
+    if (GetLaunchEyeSize(w, h)) return true;
     char iniPath[MAX_PATH] = {};
-    if (!path_beside_module(nullptr, "vrport-launcher.ini", iniPath, sizeof(iniPath)))
+    if (strcpy_s(iniPath, cvr::paths::FileA(cvr::paths::Folder::Config, "vrport-launcher.ini").c_str()) != 0)
         return false;
     FILE* f = fopen(iniPath, "rb");
     if (!f) return false;

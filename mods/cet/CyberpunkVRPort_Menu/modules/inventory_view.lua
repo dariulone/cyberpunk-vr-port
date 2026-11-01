@@ -16,7 +16,7 @@ local W=1780
 local names={Weapon={"ОРУЖИЕ","WEAPONS"},Head={"ГОЛОВА","HEAD"},Face={"ЛИЦО","FACE"},
   OuterChest={"ВЕРХНЯЯ ОДЕЖДА","OUTER TORSO"},InnerChest={"НИЖНЯЯ ОДЕЖДА","INNER TORSO"},
   Legs={"НОГИ","LEGS"},Feet={"ОБУВЬ","FEET"},Outfit={"КОМПЛЕКТ ОДЕЖДЫ","OUTFIT"}}
-local quality={Common=K.GREY,Uncommon={.25,.85,.53},Rare={.25,.65,1},Epic={.75,.3,1},Legendary={1,.62,.16}}
+local quality=K.QUALITY
 local function tr(kit,ru,en) return L.tr(ru,en) end
 local function label(kit,area) local a=names[area];return a and L.tr(a[1],a[2]) or area end
 local function inv(kit)

@@ -163,6 +163,8 @@ public class VRBallConst {
 
 @addField(PlayerPuppet) let m_vrBallId: EntityID;
 @addField(PlayerPuppet) let m_vrBallHas: Bool;
+// The spawned ball has been seen where it was put (see VRBallTick).
+@addField(PlayerPuppet) let m_vrBallPlaced: Bool;
 @addField(PlayerPuppet) let m_vrBallPrevPos: Vector4;
 @addField(PlayerPuppet) let m_vrBallPrevVel: Vector4;
 @addField(PlayerPuppet) let m_vrBallHasPrev: Bool;
@@ -280,20 +282,17 @@ public class VRBallConst {
 @addField(PlayerPuppet) let m_vrBallTestApexZ: Float;
 
 // ---- spawn / despawn ------------------------------------------------------------------------
-// Spawned through Codeware's StaticEntitySystem, exactly like vrport_wheel.reds does it -- that
-// path is already proven in this project for a template-only world entity that TransactionSystem
-// cannot place.
+// Spawned through the plugin's spawn system (VRSpawnTemplate, src/Natives/SpawnSystem.cpp): a
+// template-only world entity that TransactionSystem cannot place.
 @addMethod(PlayerPuppet) public func VRBallEntity() -> ref<Entity> {
   if !this.m_vrBallHas { return null; }
-  let sys = GameInstance.GetStaticEntitySystem();
-  if !IsDefined(sys) { return null; }
-  return sys.GetEntity(this.m_vrBallId);
+  return VRSpawnedEntity(this.m_vrBallId);
 }
 
 @addMethod(PlayerPuppet) public func VRBallMeshComp() -> ref<PhysicalMeshComponent> {
   let ent = this.VRBallEntity();
   if !IsDefined(ent) { return null; }
-  let comps = ent.GetComponents();
+  let comps = VREntityComponents(ent);
   let i = 0;
   while i < ArraySize(comps) {
     let mc = comps[i] as PhysicalMeshComponent;
@@ -308,7 +307,7 @@ public class VRBallConst {
   if !IsDefined(ent) { return null; }
   // Walk the components and cast, rather than FindComponentByType(n"..."): the cast can't be
   // wrong about which CName the native type registry expects.
-  let comps = ent.GetComponents();
+  let comps = VREntityComponents(ent);
   let i = 0;
   while i < ArraySize(comps) {
     let mc = comps[i] as PhysicalMeshComponent;
@@ -321,8 +320,6 @@ public class VRBallConst {
 // Spawn `dist` metres ahead of the player and `up` metres above their feet.
 @addMethod(PlayerPuppet) public func VRBallSpawnAt(dist: Float, up: Float) -> Void {
   if this.m_vrBallHas { this.VRBallDespawn(); }
-  let sys = GameInstance.GetStaticEntitySystem();
-  if !IsDefined(sys) { FTLog("[VRBall] no StaticEntitySystem (Codeware missing?)"); return; }
 
   let base = this.GetWorldPosition();
   let fwd = this.GetWorldForward();
@@ -337,16 +334,10 @@ public class VRBallConst {
   eul.Roll = 0.0;
   eul.Yaw = 0.0;
 
-  let spec = new StaticEntitySpec();
-  spec.templatePath = r"vrbasketball\\vr_basketball.ent";
-  spec.appearanceName = n"default";
-  spec.position = pos;
-  spec.orientation = EulerAngles.ToQuat(eul);
-  spec.attached = true;
-  spec.tags = [n"VRBasketball"];
-
-  this.m_vrBallId = sys.SpawnEntity(spec);
+  this.m_vrBallId = VRSpawnTemplate("vrbasketball\\vr_basketball.ent", n"default", pos, EulerAngles.ToQuat(eul),
+                                    [n"VRBasketball"]);
   this.m_vrBallHas = true;
+  this.m_vrBallPlaced = false;
   this.m_vrBallHasPrev = false;
   this.m_vrBallTestPhase = 0;
   this.m_vrBallHeld = 0;
@@ -368,8 +359,7 @@ public class VRBallConst {
   if this.m_vrBallHas {
     let b = this.VRBallBody();
     if IsDefined(b) { VRBodySetSimMasks(b, VRBallConst.SimMask1(), VRBallConst.SimMask2()); }
-    let sys = GameInstance.GetStaticEntitySystem();
-    if IsDefined(sys) { sys.DespawnEntity(this.m_vrBallId); }
+    VRSpawnDelete(this.m_vrBallId);
     this.m_vrBallHas = false;
     this.m_vrBallHasPrev = false;
     this.m_vrBallTestPhase = 0;
@@ -942,6 +932,13 @@ public class VRBallConst {
 
 
   let p0 = ent.GetWorldPosition();
+  // A ball the population system has just entered reads the world origin until its transform lands, a tick or
+  // two later. Taken for real, that origin is "lost" (the recall below then spawns another, which reads the origin
+  // in turn: a new ball every tick) and a bogus velocity. Nothing of it counts until it is where it was put.
+  if !this.m_vrBallPlaced {
+    if Vector4.Distance(p0, this.GetWorldPosition()) > VRBallConst.LostDistance() { return; }
+    this.m_vrBallPlaced = true;
+  }
   this.VRBallFakeTick(dt, p0);
   // The synthetic hand owns the right grip while a test runs.
   let gR = this.m_vrBallFake ? (this.m_vrBallFakePhase == 1) : gripR;

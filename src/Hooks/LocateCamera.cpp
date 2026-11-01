@@ -23,6 +23,7 @@
 #include "Camera/CameraState.hpp"
 #include "Anim/CharacterRig.hpp"  // g_VrikFrameEpoch: exact camera/entity frame pairing
 #include "Anim/WheelGrab.hpp"
+#include "Anim/LeftHanded.hpp"
 #include "Utils/LogThrottle.hpp"
 #include "Core/LiveControls.hpp"
 #include "Anim/VehiclePosePolicy.hpp"
@@ -50,6 +51,7 @@
 #include <cstddef>
 #include <mutex>
 #include "Overlay/LiveControlsUi.hpp"   // AdsCameraTelemetryUiState
+#include "Lobby/MenuLobby.hpp"
 
 // MAIN's live ADS magnification, recovered from its own projection by the stereo module.
 extern "C" float CyberpunkVR_MainAdsZoomFactor;
@@ -176,12 +178,33 @@ static void SyncAdsWeaponZoomToWorld() {
 // two halves of one frame's pose together rather than recomputing either.
 float g_bdPushQuat[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
+// The game's own image, from its headers, once: a live component's vtable and its slots point into it.
+static bool InGameImage(uintptr_t at) {
+    static const auto image = [] {
+        const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+        return std::pair<uintptr_t, uintptr_t>{base, base + nt->OptionalHeader.SizeOfImage};
+    }();
+    return at >= image.first && at < image.second;
+}
+
 void BdPushTransformOnce(uintptr_t comp, float qx, float qy, float qz, float qw,
                                 bool secondEye, const int32_t* base,
                                 const OpenXRHeadPose* pose,uint64_t poseId) {
     if (comp <= 0x10000) return;
     __try {
         uint8_t* c = reinterpret_cast<uint8_t*>(comp);
+        // THE OBJECT IS CHECKED BEFORE ANYTHING GOES INTO IT. A latch can outlive its component -- the
+        // braindance replacer's camera is freed as the scene ends, a tick before script says so -- and the
+        // pose used to be written first, into whatever had taken the memory, with the vtable read only for
+        // the notify after it (a crash after a braindance, 2026-11-01: the vtable was float data). A live
+        // component's vtable and its notify slot both lie in the game image.
+        const uintptr_t vt = *reinterpret_cast<uintptr_t*>(c);
+        if (!InGameImage(vt)) return;
+        using NotifyFn = void (__fastcall*)(void*, void*);
+        const NotifyFn notify = *reinterpret_cast<NotifyFn*>(vt + 0x240);
+        if (!InGameImage(reinterpret_cast<uintptr_t>(notify))) return;
         const float hq[4] = { qx, qy, qz, qw };
         if (!IsPlausibleUnitQuaternion(hq)) return;
         float r[3] = {};
@@ -209,15 +232,9 @@ void BdPushTransformOnce(uintptr_t comp, float qx, float qy, float qz, float qw,
         if(pose && poseId)cvr::camera::PublishComponentPose(comp,secondEye?2u:1u,poseId,*pose);
         // The engine's own "the transform changed" call: rcx = component, rdx = component+0x100,
         // exactly as exe+0x1D8AE4..AF1 issues it.
-        const uintptr_t vt = *reinterpret_cast<uintptr_t*>(c);
-        if (vt <= 0x10000) return;
-        using NotifyFn = void (__fastcall*)(void*, void*);
-        NotifyFn notify = *reinterpret_cast<NotifyFn*>(vt + 0x240);
-        if (notify) {
-            notify(c, c + 0x100);
-            if (secondEye) CVR_DIAGNOSTIC(++CyberpunkVR_DebugBdPushTransform);
-            else           CVR_DIAGNOSTIC(++CyberpunkVR_DebugBdPushMain);
-        }
+        notify(c, c + 0x100);
+        if (secondEye) CVR_DIAGNOSTIC(++CyberpunkVR_DebugBdPushTransform);
+        else           CVR_DIAGNOSTIC(++CyberpunkVR_DebugBdPushMain);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
@@ -300,8 +317,15 @@ void RefreshPlayerCameraState() {
 
             if (playerHandle && g_equippedWeaponProp) {
                 auto equippedWeapon = g_equippedWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
-                g_hasWeaponEquipped = (equippedWeapon.instance != nullptr);
+                g_hasRightWeaponEquipped = (equippedWeapon.instance != nullptr);
             }
+            if (playerHandle && g_equippedLeftWeaponProp) {
+                auto equippedWeapon = g_equippedLeftWeaponProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
+                g_hasLeftWeaponEquipped = (equippedWeapon.instance != nullptr);
+            }
+            // A WEAPON IN HAND is the right hand's -- or, left-handed, the left hand's alone: everything that asks
+            // "is a weapon out" (the trigger, the buttons it owns, the hands' poses and filters) asks it of both.
+            g_hasWeaponEquipped = g_hasRightWeaponEquipped || cvr::anim::WeaponInLeftHand();
 
             // Weapon flag lives in [144]. It used to be written to [126], COLLIDING with
             // the OpenXR HMD position publish ([124..126] -- [126] is the HMD Z!) that
@@ -487,7 +511,8 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // map SWIMS as you turn your head. Leave the game camera quat untouched so the
     // menu view stays put. Detection: the native menu-mode hook OR the redscript
     // world-map bridge flag (shared slot [81]) for menus the native hook misses.
-    bool menuOpen = (g_menuModeValue != 0);
+    // The main menu shown in its world is looked around in (Lobby/MenuLobby.hpp WorldShown).
+    bool menuOpen = (g_menuModeValue != 0) && !cvr::lobby::WorldShown();
     if (!menuOpen) {
         if (float* sh = GetShotShared()) {
             if (reinterpret_cast<volatile uint32_t*>(sh)[81] != 0u) menuOpen = true;

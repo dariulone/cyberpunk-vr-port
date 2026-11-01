@@ -97,16 +97,25 @@ local function stereoBound(player)
     return selection.appliedWant == true and selection.enabledCount == 1
 end
 
-local function multiply(a, b)
-    return Quaternion.new(a.r*b.i+a.i*b.r+a.j*b.k-a.k*b.j,
-        a.r*b.j-a.i*b.k+a.j*b.r+a.k*b.i,
-        a.r*b.k+a.i*b.j-a.j*b.i+a.k*b.r,
-        a.r*b.r-a.i*b.i-a.j*b.j-a.k*b.k)
+-- The per-frame math runs on plain numbers: a Quaternion or Vector4 made in Lua is a game value
+-- (binding work, and garbage for the collector). Only what goes to the game is made as one.
+local function qmul(ai, aj, ak, ar, bi, bj, bk, br)
+    return ar*bi+ai*br+aj*bk-ak*bj,
+        ar*bj-ai*bk+aj*br+ak*bi,
+        ar*bk+ai*bj-aj*bi+ak*br,
+        ar*br-ai*bi-aj*bj-ak*bk
 end
 
+local function multiply(a, b)
+    return Quaternion.new(qmul(a.i, a.j, a.k, a.r, b.i, b.j, b.k, b.r))
+end
+
+-- v rotated by q, as a plain {x, y, z}.
 local function rotate(q, v)
-    local r = multiply(multiply(q, Quaternion.new(v.x,v.y,v.z,0)), Quaternion.new(-q.i,-q.j,-q.k,q.r))
-    return Vector4.new(r.i,r.j,r.k,0)
+    local qi, qj, qk, qr = q.i, q.j, q.k, q.r
+    local i, j, k, r = qmul(qi, qj, qk, qr, v.x, v.y, v.z, 0)
+    i, j, k = qmul(i, j, k, r, -qi, -qj, -qk, qr)
+    return {x = i, y = j, z = k}
 end
 
 local function toggle(component, value)
@@ -143,7 +152,7 @@ local function scopeWidgets(weapon, profile)
     if not hide then return end
     state.hiddenWidgets = state.hiddenWidgets or {}
     local worldWidget = CName.new('WorldWidgetComponent')
-    for _, component in ipairs(weapon:GetComponents()) do
+    for _, component in ipairs(Game.VREntityComponents(weapon)) do
         if component:IsA(worldWidget) and component:IsEnabled() then
             local ok, root = pcall(function() return component:GetWidget() end)
             if ok and root then
@@ -177,14 +186,14 @@ local function restoreWeapon()
     -- after equipment swaps, unloading a save, or appearance replacement.
     local weapon = state.weaponID and Game.FindEntityByID(state.weaponID)
     if weapon then
-        for _, component in ipairs(weapon:GetComponents()) do
+        for _, component in ipairs(Game.VREntityComponents(weapon)) do
             local name = NameToString(component:GetName())
             local saved = state.originals[name]
             if saved then
                 if saved.mask ~= nil then component.chunkMask = saved.mask end
                 if saved.visibility then component.visibilityAnimationParam = saved.visibility end
                 toggle(component, saved.enabled)
-                if saved.mask ~= nil then component:RefreshAppearance() end
+                if saved.mask ~= nil then Game.VRComponentRefreshAppearance(component) end
             end
             if name == 'vr_optic_low' or name == 'vr_optic_surface' or name == 'vr_optic_panel'
                 or name:sub(1,17) == 'vr_optic_reticle_' then
@@ -209,7 +218,7 @@ local function scan(player, weapon)
     if not weapon or not weapon:IsRanged() then M.path='none';cameraOff(player);return end
     local components, profile, main, holo = {}, nil, nil, nil
     state.dotSight = false
-    for _, component in ipairs(weapon:GetComponents()) do
+    for _, component in ipairs(Game.VREntityComponents(weapon)) do
         local name = NameToString(component:GetName())
         components[name] = component
         for _, prefix in ipairs(DOT_SIGHTS) do
@@ -275,11 +284,11 @@ local function scan(player, weapon)
             or (low and path == 'shader' and NameToString(low.meshAppearance) ~= (state.lowApp or appearance))
         if state.applied ~= applied or missingState then
             main.chunkMask = profile.bodyMask
-            main:RefreshAppearance()
+            Game.VRComponentRefreshAppearance(main)
             toggle(low, false)
             if path == 'shader' then
                 state.lowApp = appearance
-                if not low:ChangeAppearance(CName.new(state.lowApp), true) then
+                if not Game.VRComponentChangeAppearance(low, CName.new(state.lowApp), true) then
                     error('Cannot select lens magnification '..appearance)
                 end
                 toggle(low, true)
@@ -338,7 +347,7 @@ local function eyeToAxis(weapon, maxBehind)
     local authored = state.profile and state.profile.scopeOffset
     local o = authored and Vector4.new(authored.x,authored.y,authored.z,1) or weapon:GetScopeOffset()
     local s = rotate(q, o)
-    local f = rotate(q, Vector4.new(0,1,0,0))
+    local f = rotate(q, {x = 0, y = 1, z = 0})
     -- The active camera is the game's own view, MAIN: one eye (the right by
     -- default) or the head centre. GetVRMainEyeOffset says which, as its offset
     -- from the head centre along the camera's right axis; the eyes are the centre
@@ -537,7 +546,7 @@ local function update(delta)
         cameraOff(player)
         return
     end
-    local camera = player:FindComponentByName(CName.new('vr_optics_camera'))
+    local camera = player:FindComponentByName(cname('vr_optics_camera'))
     if not camera then M.error='Optics camera missing';return end
     local q, wp = weapon:GetWorldOrientation(), weapon:GetWorldPosition()
     -- The catalog's player entity binds the camera to the WeaponRight slot, so its
@@ -552,16 +561,16 @@ local function update(delta)
     end
     local ep, eq = player:GetWorldPosition(), player:GetWorldOrientation()
     if M.cameraFrame == 'slot' then
-        local slots = player:FindComponentByName(CName.new('ItemAttachmentSlots'))
-        local ok, found, transform = pcall(function() return slots:GetSlotTransform(CName.new('WeaponRight')) end)
+        local slots = player:FindComponentByName(cname('ItemAttachmentSlots'))
+        local ok, found, transform = pcall(slots.GetSlotTransform, slots, cname('WeaponRight'))
         if not (ok and found and transform) then M.error='WeaponRight slot unavailable';return end
         ep, eq = WorldPosition.ToVector4(transform.Position), transform.Orientation
     end
-    local inverse = Quaternion.new(-eq.i,-eq.j,-eq.k,eq.r)
+    local inverse = {i = -eq.i, j = -eq.j, k = -eq.k, r = eq.r}
     -- Some fixed sights (Osprey) report a cached scope-bone offset that differs
     -- from the visible aperture. Use its authored center in the weapon mesh.
     local authored = state.profile and state.profile.scopeOffset
-    local offset = authored and Vector4.new(authored.x,authored.y,authored.z,1) or weapon:GetScopeOffset()
+    local offset = authored and {x = authored.x, y = authored.y, z = authored.z} or weapon:GetScopeOffset()
     offset.y = offset.y + .2
     if state.profile and state.profile.frontCamera then
         -- Rasetsu's rear LCD is not its optical sensor. Place that sensor at
@@ -569,8 +578,8 @@ local function update(delta)
         offset.y = math.max(offset.y, weapon:GetMuzzleOffset().y + .02)
     end
     local world = rotate(q, offset)
-    local localPosition = rotate(inverse, Vector4.new(wp.x+world.x-ep.x,wp.y+world.y-ep.y,wp.z+world.z-ep.z,0))
-    camera:SetLocalTransform(localPosition, multiply(inverse,q))
+    local lp = rotate(inverse, {x = wp.x+world.x-ep.x, y = wp.y+world.y-ep.y, z = wp.z+world.z-ep.z})
+    camera:SetLocalTransform(Vector4.new(lp.x, lp.y, lp.z, 0), multiply(inverse,q))
     camera.fov = Policy.cameraFov(M.magnification)
     toggle(camera, true)
     state.cameraOn = true

@@ -7,6 +7,7 @@
 
 #include "Anim/VrikHook.hpp"
 #include "Anim/CharacterRig.hpp"
+#include "Core/Paths.hpp"
 
 // The VRIK pose path. Was include/Anim/VrikHook.hpp -- a header carrying 4,400 lines of
 // implementation, included by exactly one translation unit, which is the only reason its file-scope
@@ -328,18 +329,13 @@ void VRIK_HeadResidual(float fallbackConsumedRight,float fallbackConsumedForward
 float g_viewPkt[17] = { 0,0,0,1, 0,0,0, 0, 0, 0, 0,0,0, 0,0,0,1 }; // +[13..16]=head ori the view was built with
 bool  g_viewPktValid = false;
 
-// Shared snap-window trace writer (bin\x64\cyberpunkvr_snapwin.log). Used by the
+// Shared snap-window trace writer (log\cyberpunkvr_snapwin.log). Used by the
 // packet-latch [hk] lines AND the puppet pre-rotation [pr] lines -- one file, one
 // session-truncating open, chronological.
 inline void VRIK_SnapTraceLog(const char* fmt, ...) {
     static FILE* s_tf = nullptr;
     if (!s_tf) {
-        char p[MAX_PATH];
-        GetModuleFileNameA(nullptr, p, MAX_PATH);
-        char* sl = strrchr(p, '\\');
-        if (sl) *(sl + 1) = 0;
-        strcat_s(p, "cyberpunkvr_snapwin.log");
-        s_tf = _fsopen(p, "w", _SH_DENYNO);
+        s_tf = _wfsopen(cvr::paths::File(cvr::paths::Folder::Log, L"cyberpunkvr_snapwin.log").c_str(), L"w", _SH_DENYNO);
     }
     if (!s_tf) return;
     va_list args;

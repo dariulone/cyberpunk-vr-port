@@ -30,7 +30,7 @@ import os
 import struct
 import sys
 
-OURS = ("CyberpunkVR_Stereo", "CyberpunkVR_Hands", "XR_APILAYER_CPVR_probe")
+OURS = ("cyberpunkvrport", "CyberpunkVR_Stereo", "CyberpunkVR_Hands", "XR_APILAYER_CPVR_probe")
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 

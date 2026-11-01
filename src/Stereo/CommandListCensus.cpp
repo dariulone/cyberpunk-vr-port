@@ -1,4 +1,5 @@
 #include "Natives/MenuSurface.hpp"
+#include "Core/Paths.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Render/FixedVrs.hpp"
 #include "Render/PhysicalOpticsShaders.hpp"
@@ -1012,13 +1013,14 @@ static std::mutex g_sight_vs_mtx;
 // Published by the DRAW: the vertex shader the sight actually runs with.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSightVsUsed = 0;
 
+// The dump's path in the log folder, kept out of sight_ps_dump: that one has __try, which takes no objects.
+static bool sight_dump_path(char (&path)[MAX_PATH], const char* name) {
+    return strcpy_s(path, cvr::paths::FileA(cvr::paths::Folder::Log, name).c_str()) == 0;
+}
+
  void sight_ps_dump(const void* bytes, size_t len, const char* name) {
     char path[MAX_PATH]{};
-    if (!GetModuleFileNameA(nullptr, path, MAX_PATH)) return;
-    char* slash = strrchr(path, '\\');
-    if (!slash) return;
-    *(slash + 1) = '\0';
-    strcat_s(path, name);
+    if (!sight_dump_path(path, name)) return;
     HANDLE f = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f == INVALID_HANDLE_VALUE) return;
@@ -1045,6 +1047,36 @@ struct PsoIds { uint64_t ps, vs; uint32_t ps_len, vs_len; };
 static std::unordered_map<void*, PsoIds> g_pso_ids;
 static std::mutex g_pso_ids_mtx;
 static thread_local ID3D12PipelineState* t_current_pso = nullptr;
+// Draw probe: the shaders of the draws with this many indices (one chunk of a known mesh), to find a
+// material's pipelines live -- the hash and the length name the shader in the game's shader cache
+// (tools/asym_tests/extract_shader_cache.py hashes the same bytes). Up to four pixel shaders, first
+// seen first. 0: off.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_DrawProbeIndices{0};
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DrawProbePs[4] = {};
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DrawProbeVs[4] = {};
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DrawProbePsLen[4] = {};
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DrawProbeHits{0};
+static std::mutex g_draw_probe_mtx;
+static void draw_probe(ID3D12PipelineState* pso) {
+    PsoIds ids{};
+    {
+        std::lock_guard<std::mutex> lk(g_pso_ids_mtx);
+        auto it = g_pso_ids.find(pso);
+        if (it == g_pso_ids.end()) return;
+        ids = it->second;
+    }
+    CyberpunkVR_DrawProbeHits.fetch_add(1, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lk(g_draw_probe_mtx);
+    for (int i = 0; i < 4; ++i) {
+        if (CyberpunkVR_DrawProbePs[i] == ids.ps) return;
+        if (!CyberpunkVR_DrawProbePs[i]) {
+            CyberpunkVR_DrawProbePs[i] = ids.ps;
+            CyberpunkVR_DrawProbeVs[i] = ids.vs;
+            CyberpunkVR_DrawProbePsLen[i] = ids.ps_len;
+            return;
+        }
+    }
+}
 // Which dispatch inside the vision node is the outline generator, and where that count stands.
 // WHICH 384x384 DISPATCH IN THE NODE IS THE OUTLINE: the third, ordinal 2. Established on the
 // picture, not by reasoning -- with the shader forced to write RED while keeping the alpha it
@@ -2129,6 +2161,9 @@ static void lens_mask(ID3D12GraphicsCommandList* self,const CommandListVtableHoo
         const uint64_t ps = sight_note(t_vrcam_node_active);
         if (ps && ps == CyberpunkVR_SightSkipPs) return;
     }
+    if (const uint32_t probe = CyberpunkVR_DrawProbeIndices.load(std::memory_order_relaxed);
+        probe && idx == probe && t_current_pso)
+        draw_probe(t_current_pso);
     {
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
         cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,t_view_side,e->shading_rate_original,e->shading_image_original);

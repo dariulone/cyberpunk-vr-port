@@ -1,4 +1,5 @@
 #include "Utils/DebugGate.hpp"
+#include "Core/Paths.hpp"
 #include <windows.h>
 #include "Stereo/VrcamConfig.hpp"   // cname_hash, for the device camera name
 #include "Stereo/EngineStereo.hpp"
@@ -106,7 +107,8 @@ extern "C" void PrepareStartupLiveControls() {
         if (g_launcherShow) ShowLauncherDialog();
         else {
             // A pick from a ladder that has since been reshaped names a VRCAM component that no longer
-            // exists: no second eye. The dialog would move it; without the dialog, move it here.
+            // exists, and an entry only engine stereo offers has none: no second eye. The dialog would move it;
+            // without the dialog, move it here.
             const int savedWidth = g_launcherWidth, savedHeight = g_launcherHeight;
             if (SnapLauncherResolution(g_launcherHmdType, &g_launcherWidth, &g_launcherHeight)) {
                 Log("Launcher: %dx%d is not in HMD type %d's ladder -> %dx%d (nearest in cost)\n",
@@ -122,6 +124,33 @@ extern "C" void PrepareStartupLiveControls() {
 
 // Moved to src/Core/FirstLaunch.cpp: the game settings this port was tuned against.
 
+// THE RUNTIME TAKES NO LARGER AN EYE THAN IT SAYS. The pick comes from the dialog before OpenXR is up, and
+// the ladders reach 6000 pixels and more; a runtime has a largest swapchain image and a largest image rect per
+// view (the OpenXR simulator: 4096 x 4096), and an eye created past them came out black -- the desktop mirror
+// fine, the headset black (3752 x 4440 on a Crystal ladder; 4072 x 4096 shown). So once the runtime has
+// answered, before the game's swapchain is sized from the pick, the pick is fitted to it for this launch; the
+// saved pick stays, the next runtime may take it.
+static std::atomic<bool> g_launchEyeSizeDecided{false};
+
+extern "C" void FitLauncherResolutionToRuntime() {
+    uint32_t maxWidth = 0, maxHeight = 0;
+    const int width = g_launcherWidth, height = g_launcherHeight;
+    if (OpenXRManager::Get().GetEyeImageLimit(&maxWidth, &maxHeight) &&
+        FitLauncherResolution(g_launcherHmdType, static_cast<int>(maxWidth), static_cast<int>(maxHeight),
+                              &g_launcherWidth, &g_launcherHeight))
+        Log("Launcher: %dx%d is larger than the runtime takes for one eye (%ux%u) -> %dx%d for this launch\n",
+            width, height, maxWidth, maxHeight, g_launcherWidth, g_launcherHeight);
+    g_launchEyeSizeDecided.store(true, std::memory_order_release);
+}
+
+// One eye's render size for this launch, once it is decided (the pick, fitted to the runtime); false before.
+extern "C" int GetLaunchEyeSize(int* width, int* height) {
+    if (!g_launchEyeSizeDecided.load(std::memory_order_acquire) || !width || !height) return 0;
+    *width = g_launcherWidth;
+    *height = g_launcherHeight;
+    return 1;
+}
+
 extern "C" void SetWindowResolutionAndPersist(int width, int height) {
     SaveLauncherConfig(width, height);
 }
@@ -136,6 +165,12 @@ extern "C" void ApplyLauncherDebugGate();   // debug_gate.cpp
 
 extern "C" int GetLauncherDebug() {
     return g_launcherDebug;
+}
+
+// Whether this launch renders both eyes through engine stereo: the ladder entries without VRCAM assets are offered
+// only then (src/Overlay/LauncherDialog.cpp).
+extern "C" int GetLauncherEngineStereo() {
+    return cvr::engine_stereo::Enabled() ? 1 : 0;
 }
 // Re-arms the gate on the spot. The plugin loads vrport-launcher.ini during RED4ext Main,
 // which is long before the launcher dialog can be shown (that happens at swapchain
@@ -1497,6 +1532,7 @@ RED4ext::CProperty* g_mountedVehicleProp = nullptr;
 RED4ext::CProperty* g_vehicleStateProp = nullptr;
 RED4ext::CProperty* g_isAimingProp = nullptr;
 RED4ext::CProperty* g_equippedWeaponProp = nullptr;
+RED4ext::CProperty* g_equippedLeftWeaponProp = nullptr;
 RED4ext::CProperty* g_sceneTierProp = nullptr;
 RED4ext::CBaseFunction* g_isDriverFunc = nullptr;
 bool g_isRTTIInitialized = false;
@@ -1517,6 +1553,7 @@ void InitializeMountedVehicleCache() {
         g_vehicleStateProp = playerPuppetCls->GetProperty("vehicleState");
         g_isAimingProp = playerPuppetCls->GetProperty("isAiming");
         g_equippedWeaponProp = playerPuppetCls->GetProperty("equippedRightHandWeapon");
+        g_equippedLeftWeaponProp = playerPuppetCls->GetProperty("equippedLeftHandWeapon");
         // The cutscene tier, verified by RTTI dump rather than assumed: PlayerPuppet has
         // `sceneTier : GameplayTier`. The blackboard route the upstream PR used
         // (GetAllBlackboardDefs -> PlayerStateMachine -> GetLocalInstanced -> GetInt) is four
@@ -1560,6 +1597,8 @@ std::atomic<int> g_sceneTier{0};
 std::atomic<float> g_lookStickX{0.0f};
 bool g_isAiming = false;
 bool g_hasWeaponEquipped = false;
+bool g_hasRightWeaponEquipped = false;
+bool g_hasLeftWeaponEquipped = false;
 // [dx-win]/[jerk] diag: ENGINE located camera captured at callback entry (pre-overwrite).
 float g_dbgEntryYaw = 0.0f, g_dbgEntryPosX = 0.0f, g_dbgEntryPosY = 0.0f, g_dbgEntryPosZ = 0.0f;
 // [jerk] diag: the FOV the game LAST TRIED to set (pre-override) + the camera state
@@ -2272,7 +2311,9 @@ void BraindanceCameraRelease() {
 static void patch_fast_note(int kind) {
     if (kind == 1) g_pfSeenMain = true;
     else if (kind == 2) g_pfSeenVrcam = true;
-    if (!g_pfSeenMain || !g_pfSeenVrcam) return;
+    // Without a second view (engine stereo, a mono launch) MAIN is the only camera there will be.
+    const bool secondView = cvr::engine_stereo::SecondViewWanted();
+    if (!g_pfSeenMain || (secondView && !g_pfSeenVrcam)) return;
     if (g_camNameOffset.load(std::memory_order_acquire) < 0) return;
     if (g_bdActive.load(std::memory_order_relaxed)) return;
     // ...AND NOT WHILE A TAKEOVER'S LENS IS STILL BEING LOOKED FOR, for the same reason as the braindance
@@ -2291,7 +2332,7 @@ static void patch_fast_note(int kind) {
     const uintptr_t m = g_camObjMain.load(std::memory_order_relaxed);
     const uintptr_t v = g_camObjVrcam.load(std::memory_order_relaxed);
     const uintptr_t d = g_camObjDevice.load(std::memory_order_relaxed);
-    if (!m || !v) return;
+    if (!m || (secondView && !v)) return;
     if (g_patchFast.owner[0] != m) g_patchFast.owner[0] = m;
     if (g_patchFast.owner[1] != v) g_patchFast.owner[1] = v;
     if (g_patchFast.owner[2] != d) g_patchFast.owner[2] = d;
@@ -2426,6 +2467,12 @@ int ClassifyPatchCameraOwner(void* ownerState) {
     }
     const uint64_t vrcamBd = CyberpunkVR_VrcamBdCamNameHash();
     if ((vrcam != 0 && name == vrcam) || (vrcamBd != 0 && name == vrcamBd)) {
+        // NO SECOND VIEW, NO SECOND CAMERA. Engine stereo renders both eyes from MAIN (and a mono launch
+        // renders one), so these components render nothing, and a latch here was only a pointer that could
+        // outlive its object: in a braindance it is the replacer's vrcam_braindance_ component, freed when
+        // the scene ends a tick before script says so, and the braindance push then wrote into it (a crash
+        // after a braindance, 2026-11-01). Left unlatched, every push into the second camera stands down.
+        if (!cvr::engine_stereo::SecondViewWanted()) return 0;
         // THE NAME NO LONGER IDENTIFIES ONE OBJECT. Two sets of these components are authored -- the
         // player's `vrcam_<W>x<H>` and the replacer's `vrcam_braindance_<W>x<H>` -- and only one of them
         // is enabled at a time, so accepting both names without a tie-break made this latch alternate
@@ -2739,15 +2786,10 @@ void InitStereoOnce() {
         Log("Stereo: module disabled by CyberpunkVR_StereoModuleEnable=0\n");
         return;
     }
-    char optOut[MAX_PATH];
-    GetModuleFileNameA(nullptr, optOut, MAX_PATH);
-    if (char* slash = strrchr(optOut, '\\')) {
-        *(slash + 1) = 0;
-        strcat_s(optOut, "vrport_nostereo.txt");
-        if (GetFileAttributesA(optOut) != INVALID_FILE_ATTRIBUTES) {
-            Log("Stereo: vrport_nostereo.txt present -- engine hooks not installed\n");
-            return;
-        }
+    if (GetFileAttributesW(cvr::paths::File(cvr::paths::Folder::Config, L"vrport_nostereo.txt").c_str()) !=
+        INVALID_FILE_ATTRIBUTES) {
+        Log("Stereo: config\\vrport_nostereo.txt present -- engine hooks not installed\n");
+        return;
     }
 
     // Must run BEFORE the game's D3D12CreateDevice: the descriptor-heap probe enlarges the

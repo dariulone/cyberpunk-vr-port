@@ -19,7 +19,7 @@ def run(pid,game,seconds,check):
     from live_symbols import resolve
     names=['CyberpunkVR_ObservationProfileEnable','CyberpunkVR_ObservationProfileStats','g_menuModeValue',
            'CyberpunkVR_ConstantUploadNativeImports','CyberpunkVR_ConstantUploadNativeRejects','CyberpunkVR_ConstantUploadApiHits']
-    symbols=resolve(pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',names)
+    symbols=resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',names)
     reader=Reader(pid,game/'bin/x64/Cyberpunk2077.exe',0,0);k=reader.k;handle=None;armed=False
     read32=lambda name:struct.unpack('<I',reader.read(int(symbols[name],16),4))[0]
     counters=lambda:struct.unpack('<16Q',reader.read(int(symbols[names[1]],16),128))

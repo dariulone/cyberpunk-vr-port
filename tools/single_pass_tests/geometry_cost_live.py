@@ -27,7 +27,7 @@ from preview_settings import PreviewSettings  # noqa: E402
 import geometry_cost_report as cost  # noqa: E402
 
 SIMULATOR = Path.home() / 'AppData/Local/OpenXR-Simulator'
-DLL = 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll'
+DLL = 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll'
 
 
 def load_state(path):
@@ -177,7 +177,7 @@ def measure(args):
         def image(row):
             if row['control']:
                 images[row['label']] = screenshot(args.out.with_name(f"{args.out.stem}-{row['label']}.bmp"), check)
-        results, cleanup = cost.run(probe, game / 'bin/x64/vrport.ini', on_interval=image if args.images else None)
+        results, cleanup = cost.run(probe, game / 'red4ext/plugins/cyberpunkvrport/config/vrport.ini', on_interval=image if args.images else None)
         value = dict(pid=pid, dll=symbols['sha256'], label=args.label, scene=before, images=images, cleanup=cleanup, results=results)
         args.out.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
         cost.validate(results)

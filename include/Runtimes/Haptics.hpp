@@ -25,6 +25,8 @@ enum Event : int {
     kMeleeParry    = 11,   // a melee hit parried (deflect timing)
     kBulletBlock   = 12,   // a bullet stopped by the blade
     kBulletDeflect = 13,   // a bullet deflected or parried back
+    kMeleeHit      = 14,   // the player's blade or blunt weapon landed on someone
+    kMeleeSwing    = 15,   // ...and swung through the air, once per stroke
     kUiClick       = 20,   // the VR menu: a control pressed
     kUiHover       = 21,   // ...a pointer or fingertip entering a control
     kUiStep        = 22,   // ...a slider crossing one step

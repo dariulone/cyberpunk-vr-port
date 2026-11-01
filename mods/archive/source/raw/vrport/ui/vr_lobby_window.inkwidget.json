@@ -1,0 +1,266 @@
+{
+ "Header": {
+  "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-21T08:49:23.2028408Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "C:\\Users\\dariulone\\Desktop\\CyberpunkVRPort\\build\\distortion-fx-20261018\\pack\\cyberpunkvrport\\vrcigarette\\gui\\vr_wheel.inkwidget"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "inkWidgetLibraryResource",
+   "animationLibraryResRef": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "cookingPlatform": "PLATFORM_PC",
+   "externalDependenciesForInternalItems": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\world\\generic_devices\\button.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\fonts\\raj\\raj.inkfontfamily"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\fonts\\orbitron\\orbitron.inkfontfamily"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\widgets\\radial_menu\\dpad_heant.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\world\\computers\\computer.inkstyle"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\world\\atlas_base_milit_bg.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\world\\atlas_base_zeta_bg.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\world\\computers\\atlas_computer_milit.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\world\\atlas_base_milit_scanlines.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\widgets\\devices\\common\\device_keyvisuals.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\widgets\\mappins\\atlas_gameplay_loop_solid.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\widgets\\quickhacks\\quickhacks.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "externalLibraries": [],
+   "libraryItems": [
+    {
+     "$type": "inkWidgetLibraryItem",
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "Root"
+     },
+     "package": {
+      "Flags": 0,
+      "Type": "WolvenKit.RED4.Archive.Buffer.CR2WWrapper, WolvenKit.RED4, Version=8.18.0.0, Culture=neutral, PublicKeyToken=null",
+      "Data": {
+       "File": {
+        "Version": 195,
+        "BuildVersion": 0,
+        "RootChunk": {
+         "$type": "inkWidgetLibraryItemInstance",
+         "gameController": null,
+         "rootResolution": "UltraHD_3840_2160",
+         "rootWidget": {
+          "HandleId": "0",
+          "Data": {
+           "$type": "inkCanvasWidget",
+           "affectsLayoutWhenHidden": 0,
+           "backendData": null,
+           "canSupportFocus": 0,
+           "childMargin": {
+            "$type": "inkMargin",
+            "bottom": 0,
+            "left": 0,
+            "right": 0,
+            "top": 0
+           },
+           "childOrder": "Forward",
+           "children": {
+            "HandleId": "1",
+            "Data": {
+             "$type": "inkMultiChildren",
+             "children": []
+            }
+           },
+           "effects": [],
+           "fitToContent": 0,
+           "isInteractive": 0,
+           "layout": {
+            "$type": "inkWidgetLayout",
+            "anchor": "TopLeft",
+            "anchorPoint": {
+             "$type": "Vector2",
+             "X": 0.5,
+             "Y": 0.5
+            },
+            "HAlign": "Center",
+            "margin": {
+             "$type": "inkMargin",
+             "bottom": 0,
+             "left": 0,
+             "right": 0,
+             "top": 0
+            },
+            "padding": {
+             "$type": "inkMargin",
+             "bottom": 0,
+             "left": 0,
+             "right": 0,
+             "top": 0
+            },
+            "sizeCoefficient": 1,
+            "sizeRule": "Fixed",
+            "VAlign": "Center"
+           },
+           "logicController": null,
+           "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "Root"
+           },
+           "opacity": 1,
+           "parentWidget": null,
+           "propertyManager": null,
+           "proxyWidget": null,
+           "renderTransform": {
+            "$type": "inkUITransform",
+            "rotation": 0,
+            "scale": {
+             "$type": "Vector2",
+             "X": 1,
+             "Y": 1
+            },
+            "shear": {
+             "$type": "Vector2",
+             "X": 0,
+             "Y": 0
+            },
+            "translation": {
+             "$type": "Vector2",
+             "X": 0,
+             "Y": 0
+            }
+           },
+           "renderTransformPivot": {
+            "$type": "Vector2",
+            "X": 0.5,
+            "Y": 0.5
+           },
+           "secondaryControllers": [],
+           "size": {
+            "$type": "Vector2",
+            "X": 3190,
+            "Y": 2900
+           },
+           "state": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "Default"
+           },
+           "style": null,
+           "tintColor": {
+            "$type": "HDRColor",
+            "Alpha": 1,
+            "Blue": 0.145098045,
+            "Green": 0.815686345,
+            "Red": 0.937254965
+           },
+           "userData": [],
+           "visible": 1
+          }
+         }
+        },
+        "EmbeddedFiles": []
+       }
+      }
+     },
+     "packageData": null
+    }
+   ],
+   "rootDefinitionIndex": 0,
+   "rootResolution": "UltraHD_3840_2160",
+   "sequences": [],
+   "version": "Default"
+  },
+  "EmbeddedFiles": []
+ }
+}

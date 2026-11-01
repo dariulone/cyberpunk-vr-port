@@ -72,7 +72,7 @@ def main():
     a.fine=a.fine or a.scene
     a.query=a.query or a.fine
     game=Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-    symbols=resolve(a.pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', ['CyberpunkVR_CpuCollector*','CyberpunkVR_BoundsTrace*','CyberpunkVR_ParticleTrace*','g_menuModeValue'])
+    symbols=resolve(a.pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', ['CyberpunkVR_CpuCollector*','CyberpunkVR_BoundsTrace*','CyberpunkVR_ParticleTrace*','g_menuModeValue'])
     reader=Reader(a.pid,game/'bin/x64/Cyberpunk2077.exe',0,0)
     k=reader.k
     k.WriteProcessMemory.argtypes=[c.c_void_p,c.c_void_p,c.c_void_p,c.c_size_t,c.POINTER(c.c_size_t)]

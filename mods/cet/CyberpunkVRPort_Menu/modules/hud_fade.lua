@@ -7,7 +7,7 @@ end
 function H.update(hidden,dt)
   if not H.root then
     if not hidden then return end
-    local layer=Game.GetInkSystem():GetLayer(CName.new("inkHUDLayer"))
+    local layer=Game.VRInkLayer(CName.new("inkHUDLayer"))
     local root=layer and layer:GetVirtualWindow()
     if not root then return end
     H.root=root;H.base=root:GetOpacity();H.hidden=false

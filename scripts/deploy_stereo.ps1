@@ -24,7 +24,7 @@ $Stash    = Join-Path $BinX64 "dxgi.dll.disabled_by_stereo"
 
 # The CMake TARGET and the shipped NAME differ, and conflating them is why this script used to
 # install to a folder RED4ext then ignored: the target is cyberpunkvrport_stereo, the artefact is
-# CyberpunkVR_Stereo.dll, and RED4ext loads <plugin folder>\<anything>.dll.
+# cyberpunkvrport.dll, and RED4ext loads <plugin folder>\<anything>.dll.
 $Target   = "cyberpunkvrport_stereo"
 $ModName  = "CyberpunkVR_Stereo"
 $Dll      = Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\$ModName\Release\$ModName.dll"

@@ -17,6 +17,7 @@
 // one-shot drain -- pointed at the outline layer instead of the tonemap output.
 
 #include "Stereo/SyncStereo.hpp"
+#include "Core/Paths.hpp"
 #include "Utils/StereoLog.hpp"
 #include "Stereo/VrcamConfig.hpp"   // vrcam.json access + CName hashing, shared with the launcher
 #include "Render/ColorBlit.hpp"   // HUD debug overlay on the mirror image
@@ -75,11 +76,7 @@ int      g_visdump_slot = -1;
 void vision_dump_write() {
     if (!g_visdump_map || !g_visdump_w || !g_visdump_h) return;
     char path[MAX_PATH]{};
-    if (!GetModuleFileNameA(nullptr, path, MAX_PATH)) return;
-    char* slash = strrchr(path, '\\');
-    if (!slash) return;
-    *(slash + 1) = '\0';
-    strcat_s(path, "cyberpunkvr_vision.raw");
+    if (strcpy_s(path, cvr::paths::FileA(cvr::paths::Folder::Log, "cyberpunkvr_vision.raw").c_str()) != 0) return;
     HANDLE f = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f == INVALID_HANDLE_VALUE) return;

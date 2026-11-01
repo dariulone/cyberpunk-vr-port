@@ -2,8 +2,12 @@
 
 Cigarette and lighter as VR props: spawn the vanilla item entities into the hands, drive their FX,
 and gate everything on real world-space distances (cig tip ↔ lighter flame, cig ↔ head) rather than
-on controller proximity. `init.lua` is only an input bridge — trigger and both grips out of shared
-slots 67/49/68 into `PlayerPuppet.VRSmokeTick`; every decision is in the `.reds`.
+on controller proximity. `init.lua` is only an input bridge — both analog triggers and both grips out of
+shared slots 154/160/49/155 into `PlayerPuppet.VRSmokeTick`; every decision is in the `.reds`.
+
+Left-handed (`xr_left_handed`) the props swap hands: the cigarette goes to the left hand with its own left
+grip, the lighter to the right hand, struck by the right trigger. The right hand's lighter hold is the left
+hand's mirrored through the rig's twins (`src/Anim/LeftHanded.cpp`), not a second recording.
 
 ## It stopped loading on 2026-08-01, and why
 

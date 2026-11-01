@@ -24,6 +24,8 @@
 #include "Framegen/Framegen.hpp"
 #include "Framegen/GpuTimer.hpp"
 #include "Camera/ImagePoseIdentity.hpp"
+#include "Lobby/MenuLobby.hpp"
+#include "Audio/PortSound.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <unordered_map>
@@ -308,6 +310,11 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
     }
 
     section(0);
+    cvr::engine_stereo::NotePresent();
+    // The main menu's world keeps rendering behind the menu (Lobby/MenuLobby.hpp).
+    cvr::lobby::Tick();
+    // The port's own sounds: their fades go on (Audio/PortSound.hpp).
+    cvr::sound::Tick();
     OverlayRender(swapChain);
     section(1);
     OpenXRManager::Get().OnPresent(swapChain);
@@ -664,6 +671,7 @@ extern "C" ID3D12CommandQueue* CyberpunkVR_GetGameQueue();
 // Hooking the factory brings the whole sequence back, in order, on the real swapchain.
 extern "C" void CyberpunkVRPort_EnableDredOnce();
 extern "C" void InitOpenXREarly();
+extern "C" void FitLauncherResolutionToRuntime();
 
 using FacCreateSwapChainFn = HRESULT (STDMETHODCALLTYPE*)(
     IDXGIFactory*, IUnknown*, DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**);
@@ -685,6 +693,7 @@ static void PluginPreSwapchain(IUnknown* pDevice,HWND hwnd) {
         CyberpunkVRPort_EnableDredOnce();
         PrepareStartupLiveControls();
         InitOpenXREarly();          // creates the XR instance/session; InitGraphics needs it
+        FitLauncherResolutionToRuntime();   // before the swapchain below is sized from the pick
     }
     ID3D12CommandQueue* pQueue = nullptr;
     if (!pDevice || FAILED(pDevice->QueryInterface(IID_PPV_ARGS(&pQueue))) || !pQueue) return;

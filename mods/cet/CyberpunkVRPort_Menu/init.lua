@@ -80,11 +80,14 @@
 -- stash_visit/data/view.lua route native storage interactions, with independent filters/sorting,
 -- stack quantities and equipped-item confirmation; VendorDataManager transfers original items.
 -- cyberware_anatomy.lua aligns the original male/female organ layers and animates the focus.
+-- modules/wheel.lua is the weapon wheel on a held Y (the game's radial wheel without the pause); it shares
+-- the menu's screen asset and drawing kit, and stands down while the menu is open.
 -- For development, GetMod("CyberpunkVRPort_Menu").hot() reads modules/
 -- again off disk without a restart (the Reload mod's loader: CET hides `package`, so each file is compiled
 -- with its own `require` in front of it).
 
 local Menu = require("modules/menu")
+local Wheel = require("modules/wheel")
 local shared = { menuController = nil }
 
 local function hotLoad()
@@ -103,7 +106,7 @@ local function hotLoad()
     cache[name] = v
     return v
   end
-  return req("modules/menu")
+  return req("modules/menu"), req("modules/wheel")
 end
 
 registerForEvent("onInit", function()
@@ -120,18 +123,27 @@ registerForEvent("onInit", function()
   print("[VRMenu] ready")
 end)
 
-registerForEvent("onUpdate", function(dt) Menu.update(dt) end)
+registerForEvent("onUpdate", function(dt)
+  Menu.update(dt)
+  Wheel.update(dt, Menu.isOpen())
+end)
 
-registerForEvent("onShutdown", function() Menu.release() end)
+registerForEvent("onShutdown", function()
+  Wheel.release()
+  Menu.release()
+end)
 
--- GetMod("CyberpunkVRPort_Menu"): the menu's own calls (open, close, state, section, click), and hot().
+-- GetMod("CyberpunkVRPort_Menu"): the menu's own calls (open, close, state, section, click), wheel() for the
+-- weapon wheel's state, and hot().
 return setmetatable({
   hot = function()
-    local ok, new = pcall(hotLoad)
+    local ok, new, newWheel = pcall(hotLoad)
     if not ok then return "hot reload failed: " .. tostring(new) end
+    pcall(Wheel.release)
     pcall(Menu.release)
-    Menu = new
+    Menu, Wheel = new, newWheel
     Menu.init(shared)
     return "ok"
   end,
+  wheel = function() return Wheel.state() end,
 }, { __index = function(_, k) return Menu[k] end })

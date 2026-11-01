@@ -23,7 +23,7 @@ local function publishTop(player, dt)
             local at = ladder:GetWorldPosition()
             local distance = (at.x-p.x)^2 + (at.y-p.y)^2 + (at.z-p.z)^2
             if distance < .0001 then
-                for _, component in ipairs(ladder:GetComponents()) do
+                for _, component in ipairs(Game.VREntityComponents(ladder)) do
                     if component:GetName().value:find('generic_ladder_f_finisher_rail', 1, true) then
                         topMatrix = component:GetLocalToWorld()
                         break

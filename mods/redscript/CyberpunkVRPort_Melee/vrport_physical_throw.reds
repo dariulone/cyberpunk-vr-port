@@ -34,7 +34,7 @@ public class VrMeleeThrow extends IScriptable {
 public func VRMeleeThrowReady(weapon: ref<WeaponObject>) -> Bool {
   let bb: ref<IBlackboard>;
   if !VRMeleeThrowEnabled() || !IsDefined(weapon) || !weapon.WeaponHasTag(n"Throwable") || this.IsDead() || this.VRHolsterIntentActive(1.00) { return false; };
-  if GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, t"AttachmentSlots.WeaponRight") != weapon || !MeleeTransition.CanThrowWeaponObject(this, weapon) { return false; };
+  if GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this)) != weapon || !MeleeTransition.CanThrowWeaponObject(this, weapon) { return false; };
   bb = GameInstance.GetBlackboardSystem(this.GetGame()).GetLocalInstanced(this.GetEntityID(), GetAllBlackboardDefs().PlayerStateMachine);
   return IsDefined(bb) && bb.GetInt(GetAllBlackboardDefs().PlayerStateMachine.MeleeWeapon) == 9;
 }

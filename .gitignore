@@ -15,7 +15,9 @@ CyberpunkVRProxy.log
 # tools/ is scratch, with one exception. Note the glob: `tools/` would exclude the directory
 # itself and git never descends into an excluded directory, so the negation below would not fire.
 tools/*
+!tools/psvr2_input_tests/
 !tools/roomscale_tests/
+!tools/il2cpp_study/
 !tools/scanner_input_tests/
 !tools/body_rotation_tests/
 !tools/body_rotation_tests/*.py
@@ -47,6 +49,7 @@ releases/
 !tools/autograss_tests/*.py
 !tools/single_pass_tests/*.py
 !tools/roomscale_tests/*.py
+!tools/il2cpp_study/*.py
 !tools/vrik_tests/*.py
 !tools/story_attention_tests/*.py
 !tools/asym_tests/*.py
@@ -157,6 +160,7 @@ tools/quickboot_tests/__pycache__/
 tools/optics_tests/*
 !tools/optics_tests/CMakeLists.txt
 !tools/optics_tests/pso_lifetime_test.cpp
+!tools/optics_tests/add_optics_camera.py
 !tools/lod_tests/
 tools/lod_tests/*
 !tools/lod_tests/CMakeLists.txt
@@ -181,3 +185,37 @@ tools/vr_menu_tests/*
 !tools/vr_menu_assets/
 tools/vr_menu_assets/*
 !tools/vr_menu_assets/matte_sources.py
+
+# VR lobby asset generators and Blender authoring tools (build caches stay ignored).
+!tools/vr_lobby_assets/
+tools/vr_lobby_assets/*
+!tools/vr_lobby_assets/*.py
+# the first-launch setup's source pictures (make_setup_art.py)
+!tools/vr_lobby_assets/setup_art/
+
+# Offline harness for the lobby's procedural grasp (src/Anim/GraspPose.cpp); its builds and renders stay ignored.
+!tools/grasp_tests/
+tools/grasp_tests/*
+!tools/grasp_tests/*.py
+!tools/grasp_tests/*.cpp
+!tools/grasp_tests/*.bat
+!tools/grasp_tests/README.txt
+!tools/grasp_tests/stub/
+
+# The reload's glow: its generator builds the magazine copies the archive carries (its work files stay ignored).
+!tools/reload_glow/
+tools/reload_glow/*
+!tools/reload_glow/*.py
+# The lobby's toys: the Meshy models made table toys (tools/vr_lobby_assets/lobby_toys.py takes their output).
+!tools/lobby_toys/
+tools/lobby_toys/*
+!tools/lobby_toys/*.py
+# The first-person neck cap: its generator builds the cap meshes and the player entities' component.
+!tools/neck_cap/
+tools/neck_cap/*
+!tools/neck_cap/*.py
+
+# The Lua host's A/B frame cost (src/Lua, stage 6 of docs/native-frameworks-plan-20261030.md).
+!tools/lua_host_tests/
+tools/lua_host_tests/__pycache__/
+!tools/lua_host_tests/*.py

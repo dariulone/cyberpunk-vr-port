@@ -24,7 +24,7 @@ end
 function V.hidePresentation(shared)
   local scope=shared.vendorPresentation
   if not scope then
-    local layer=Game.GetInkSystem():GetLayer(CName.new("inkMenuLayer"))
+    local layer=Game.VRInkLayer(CName.new("inkMenuLayer"))
     local root=layer and layer:GetVirtualWindow()
     if not root then return end
     scope={root=root,opacity=root:GetOpacity()};shared.vendorPresentation=scope

@@ -156,7 +156,7 @@ end
 local function lensPose(obj)
   local cam = nil
   pcall(function()
-    for _, c in ipairs(obj:GetComponents()) do
+    for _, c in ipairs(Game.VREntityComponents(obj)) do
       if string.find(tostring(c:GetClassName().value), "CameraComponent") then cam = c break end
     end
   end)
@@ -281,7 +281,7 @@ local function notificationsContainer()
     memo.notif = nil
   end
   pcall(function()
-    local layers = Game.GetInkSystem():GetLayers()
+    local layers = Game.VRInkLayers()
     for i = 1, #layers do
       local vw = nil
       pcall(function() vw = layers[i]:GetVirtualWindow() end)
@@ -529,7 +529,7 @@ local function publishRemoteCamera()
     -- Measured live on that camera, 2026-09-05, with both components listed and named.
     pcall(function()
       local anyCam = nil
-      for _, c in ipairs(obj:GetComponents()) do
+      for _, c in ipairs(Game.VREntityComponents(obj)) do
         local cls = tostring(c:GetClassName().value)
         if string.find(cls, "CameraComponent") then
           if tostring(c:GetName().value) == "cameraComponent" then
@@ -625,6 +625,9 @@ local function publishBraindance()
   local on = false
   local okB, bd = pcall(inBraindance)
   if okB then on = bd end
+  -- The braindance alone, apart from the scene gate below: the plugin gives the grips its LB/RB and keeps the VR
+  -- menu shut while it runs.
+  if type(VRInBraindance) == "function" then pcall(VRInBraindance, (okB and bd) and 1 or 0) end
 
   -- ORDINARY SCENES TOO, and this is the whole point of the change: a braindance is not the only place
   -- where the scene takes the camera. In a plain dialogue the game renders through a camera nothing of
@@ -871,14 +874,14 @@ registerForEvent("onDraw", function()
         local tos = Game.GetScriptableSystemsContainer():Get(CName.new("TakeOverControlSystem"))
         local o = tos and tos:GetControlledObject()
         if o ~= nil then
-          for _, c in ipairs(o:GetComponents()) do
+          for _, c in ipairs(Game.VREntityComponents(o)) do
             local cl = tostring(c:GetClassName().value)
             if cl:find("CameraComponent") then tc = c break end
           end
         end
       end)
       pcall(function()
-        for _, c in ipairs(Game.GetPlayer():GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(Game.GetPlayer())) do
           if tostring(c:GetClassName().value) == "entRenderToTextureCameraComponent" and c:IsEnabled() then
             vc = c break
           end

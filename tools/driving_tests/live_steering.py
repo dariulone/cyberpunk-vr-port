@@ -52,7 +52,7 @@ shared=read('g_pSharedHands','Q')[0]
 def grip_values():return [struct.unpack('<f',r.read(shared+k*4,4))[0] for k in (155,49)]
 rows=[];original=[];run=uuid.uuid4().hex;start=time.monotonic();phase='baseline';commanded=0;testing=False
 offsets=json.loads(a.offsets.read_text(encoding='utf-8-sig')) if a.offsets else None
-ini=Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\vrport.ini')
+ini=Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\red4ext\plugins\cyberpunkvrport\config\vrport.ini')
 iniBefore=None;iniApplied=None;configReport={}
 def config(key,fmt):return struct.unpack('<'+fmt,r.read(int(syms['g_liveControls'],16)+offsets[key],struct.calcsize('<'+fmt)))[0]
 def atomic_settings(data):

@@ -16,6 +16,7 @@
 #include <xinput.h>
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
 #include "Camera/CameraState.hpp"   // PatchFastPath, PatchFastDisarm
+#include "Stereo/EngineStereo.hpp"  // SecondViewWanted
 // The per-camera recognition counters, read by the fast-path recovery below.
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugPatchCamMain;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugPatchCamVrcam;
@@ -160,7 +161,9 @@ DWORD WINAPI WorkerThread(LPVOID) {
             static bool     prevCamValid = false;
             const uint64_t m = CyberpunkVR_DebugPatchCamMain;
             const uint64_t v = CyberpunkVR_DebugPatchCamVrcam;
-            if (prevCamValid && (m == prevCamMain || v == prevCamVrcam)) PatchFastDisarm();
+            // Without a second view (engine stereo, a mono launch) no second camera is latched to advance.
+            const bool vrcamStalled = cvr::engine_stereo::SecondViewWanted() && v == prevCamVrcam;
+            if (prevCamValid && (m == prevCamMain || vrcamStalled)) PatchFastDisarm();
             prevCamMain = m;
             prevCamVrcam = v;
             prevCamValid = true;

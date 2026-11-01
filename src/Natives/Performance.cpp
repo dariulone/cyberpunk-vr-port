@@ -16,7 +16,9 @@ void VRShouldScanBodyCapsules(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,
     *out=true;
     if(!CyberpunkVR_BodyCapsulePrefilter)return;
     if(!entity){*out=false;return;}
-    if(g_menuModeValue || entity->status!=RED4ext::EntityStatus::Attached)return;
+    // Menus too: the main menu's puppet is attached and has no capsules, and sending it down the Lua path made that
+    // path walk every component name each frame (the menu's periodic GC freeze, 2026-10-28).
+    if(entity->status!=RED4ext::EntityStatus::Attached)return;
     // CET invokes this on the game thread. Codeware's GetComponents returns a
     // copy of this same Entity::components array. Read it in place: no nested
     // script invocation, array allocation, ownership transfer or retained cache.

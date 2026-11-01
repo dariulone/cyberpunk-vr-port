@@ -70,7 +70,7 @@ def main():
     symbols = resolve(pid, game / live.DLL, list(cost.NAMES) + ['CyberpunkVR_DebugVrcamNodeHits'])
     reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     probe = cost.LiveProbe(reader, symbols, pid, check)
-    ini = game / 'bin/x64/vrport.ini'
+    ini = game / 'red4ext/plugins/cyberpunkvrport/config/vrport.ini'
     original_ini = ini.read_bytes()
     overlay = next(line for line in original_ini.splitlines() if line.startswith(b'xr_framegen_overlay='))
     modified = original_ini.replace(overlay, b'xr_framegen_overlay=1', 1)

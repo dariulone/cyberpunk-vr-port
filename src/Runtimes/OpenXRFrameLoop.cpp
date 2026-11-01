@@ -1,5 +1,6 @@
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
+#include "Runtimes/Psvr2HapticChannel.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
 // openxr_frameloop.cpp - the XR frame loop (PumpInlineFrame / FrameThreadMain).
@@ -9,6 +10,7 @@
 #include "Runtimes/Haptics.hpp"
 #include "Natives/VrMenu.hpp"
 #include "Runtimes/WristBase.hpp"
+#include "Hooks/Psvr2Input.hpp"
 #include "Camera/ImagePoseIdentity.hpp"
 #include "Runtimes/RoomscaleTracking.hpp"
 #include "Runtimes/SimulatorRecenter.hpp"
@@ -37,6 +39,7 @@
 #include <atomic>
 #include <dxgi1_4.h>
 #include "Utils/LogThrottle.hpp"
+#include "Lobby/MenuLobby.hpp"
 
 // Shared physical-body heading in tracking space; the getter refreshes suspension state.
 extern float BodyYawFollowOffset();
@@ -199,6 +202,8 @@ extern "C" __declspec(dllexport) int CyberpunkVR_ThreadedMonoSubmit = -1;
 // Display cycles driven versus frames actually submitted; the difference is the freeze.
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugXrCycles = 0;
 extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugMonoSubmits = 0;
+// Of those, the submits that carried a game frame not shown before; cycles minus this are repeats.
+extern "C" __declspec(dllexport) unsigned long long CyberpunkVR_DebugFreshSubmits = 0;
 
 // ---- THE FRAME LOOP'S CONTRACT, COUNTED WHERE THE CALLS ARE MADE ----------------------------
 //
@@ -1120,6 +1125,8 @@ DWORD OpenXRManager::FrameThreadMain() {
         // ping-pong the synth scratch slot + stride logs). The blendFactor itself
         // is computed from QPC capture timestamps, not this counter.
         ++displayFrameIndex;
+        // the PSVR2 Toolkit bridge reads the port's haptic channel only while it is beating
+        if (IsRuntimePsvr2()) cvr::psvr2::Haptics().Heartbeat();
         if (frameState.predictedDisplayPeriod > 0) {
             cvr::framegen::DisplayPeriod(frameState.predictedDisplayPeriod);
             m_predictedDisplayPeriodNs.store(frameState.predictedDisplayPeriod, std::memory_order_relaxed);
@@ -1207,8 +1214,18 @@ DWORD OpenXRManager::FrameThreadMain() {
         const uint64_t externalResetSerial = m_externalPoseReset.Serial();
         uint32_t viewCountOutput = 0;
         const bool monoEnabled = m_monoSubmitEnabled.load(std::memory_order_relaxed);
-        // The loading screen and a frame rendered mono too (Stereo/EngineStereo.hpp OnePicture).
-        const bool menuRectActive = (GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture();
+        // The loading screen and a frame rendered mono too (Stereo/EngineStereo.hpp OnePicture). Not the main menu shown
+        // in its world: that is a scene (Lobby/MenuLobby.hpp WorldShown); nor a loading screen hung in the dark, whose
+        // eyes are drawn each through its own pose (LoadingInSpace); nor the boot's notice, which keeps the intro's
+        // heading (CapturedMonoFrame::oneTurn) -- latched as a menu it stayed put through small head turns and took the
+        // menu's FOV.
+        bool noticeFrame = false;
+        {
+            std::lock_guard<std::mutex> lock(m_presentMutex);
+            noticeFrame = m_monoCapturedFrame.oneTurn;
+        }
+        const bool menuRectActive = ((GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture()) &&
+            !cvr::lobby::WorldShown() && !cvr::lobby::LoadingInSpace() && !noticeFrame;
         // Menu closed -> drop the latched panel anchors so the NEXT menu re-anchors in
         // front of wherever the player is looking at open time.
         if (!menuRectActive) {
@@ -1255,7 +1272,6 @@ DWORD OpenXRManager::FrameThreadMain() {
                     (hfov0 + hfov1) * 0.5f,
                     (vfov0 + vfov1) * 0.5f,
                     ipd);
-
             }
         }
 
@@ -1493,6 +1509,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // HOLD the LEFT stick click, pick the direction with the RIGHT stick.
                 bool leftStickClicked  = false;
                 bool dpadUsedThisFrame = false;
+                bool triangleShift = false;
 
                 std::lock_guard<std::mutex> handLock(m_handMutex);
                 // ONE INSTANT: the head position that goes with these controller poses, plus the
@@ -1617,6 +1634,47 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 m_hands[i].valid = true;
                                 poseValid = true;
 
+                                // THE CONTROLLER'S OWN MOTION: the change of its room-space pose since the previous
+                                // locate, on this thread's uniform clock, in the head's axes like the pose above. A
+                                // flick of the hand is measured by this (VRHandMotion): a difference of MODEL
+                                // positions also carries every step of the body's yaw as a jump of the hand. Not the
+                                // runtime's XrSpaceVelocity: one runtime (the OpenXR Simulator) flags its velocity
+                                // valid and reports zero, and a measurement must not depend on which one it is.
+                                {
+                                    HandMotion& m = m_handMotion[i];
+                                    XrVector3f lin{}, ang{};
+                                    bool linOk = false, angOk = false;
+                                    // a recentre moves the room under the hand: no difference across it
+                                    const uint64_t origin = GetTrackingOriginSerial();
+                                    if (origin != m.origin) m.prevTime = 0;
+                                    m.origin = origin;
+                                    const float dt = m.prevTime && handLocateTime > m.prevTime
+                                        ? static_cast<float>(handLocateTime - m.prevTime) * 1e-9f : 0.0f;
+                                    if (dt > 0.0f && dt < 0.1f) {
+                                        lin = { (handLoc.pose.position.x - m.prevPose.position.x) / dt,
+                                                (handLoc.pose.position.y - m.prevPose.position.y) / dt,
+                                                (handLoc.pose.position.z - m.prevPose.position.z) / dt };
+                                        linOk = true;
+                                        // q = dq * prev: dq's axis-angle over dt, in the room's axes
+                                        XrQuaternionf dq = MultiplyQuat(handLoc.pose.orientation,
+                                                                        ConjugateQuat(m.prevPose.orientation));
+                                        if (dq.w < 0.0f) dq = { -dq.x, -dq.y, -dq.z, -dq.w };
+                                        const float s = std::sqrt(dq.x * dq.x + dq.y * dq.y + dq.z * dq.z);
+                                        const float rate = s > 1e-7f ? 2.0f * std::atan2(s, dq.w) / (s * dt) : 0.0f;
+                                        ang = { dq.x * rate, dq.y * rate, dq.z * rate };
+                                        angOk = true;
+                                    }
+                                    m.prevPose = handLoc.pose;
+                                    m.prevTime = handLocateTime;
+                                    m.valid = linOk && angOk;
+                                    if (m.valid) {
+                                        const XrVector3f linHead = RotateVector(headInv, lin);
+                                        const XrVector3f angHead = RotateVector(headInv, ang);
+                                        m.linear[0] = linHead.x; m.linear[1] = linHead.y; m.linear[2] = linHead.z;
+                                        m.angular[0] = angHead.x; m.angular[1] = angHead.y; m.angular[2] = angHead.z;
+                                    }
+                                }
+
                                 if (gameplayInputActive) {
                                     // Yaw of the controller relative to the recenter base
                                     // (= body forward). Used by hand-oriented locomotion.
@@ -1627,6 +1685,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                     if (!poseValid) {
                         m_handFilterState[i].initialized = false;
+                        m_handMotion[i].valid = false;
+                        m_handMotion[i].prevTime = 0;
                     }
 
                     if (!gameplayInputActive) continue; // legacy pose-only path, no new bookkeeping
@@ -1756,6 +1816,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // (sprint) is emitted DEFERRED, after the loop: only when the
                         // click is released without a D-Pad direction having been used.
                         leftStickClicked = sclick;
+                        triangleShift = IsRuntimePsvr2() && m_psvr2TriangleTouchAction != XR_NULL_HANDLE &&
+                            getBool(m_psvr2TriangleTouchAction);
+                        if (triangleShift) {
+                            static bool logged = false;
+                            if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Triangle-touch D-pad modifier active.\n"); }
+                        }
                     } else {
                         ctrl.rightTrigger = trig;
                         ctrl.rightGrip    = grip;
@@ -1769,7 +1835,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // D-PAD CHORD: while the LEFT stick click is held, the RIGHT
                         // stick picks the D-Pad direction. The right axes are zeroed for
                         // the whole hold so snap-turn/camera cannot fire during selection.
-                        if (leftStickClicked) {
+                        if (triangleShift) {
+                            dpadUsedThisFrame = cvr::input::TriangleDpad(true, ctrl.rightThumbX, ctrl.rightThumbY, ctrl.buttons);
+                        } else if (leftStickClicked) {
                             float threshold = CyberpunkVR_DpadChordStick;
                             if (!(threshold > 0.05f) || threshold > 1.0f) threshold = 0.90f;
                             if (sy > threshold)  { ctrl.buttons |= XB_DPAD_UP;    dpadUsedThisFrame = true; }
@@ -1831,7 +1899,19 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // as Touch controls. Menu/Start retains the existing escape path.
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
-                    if(getGlobalBool(m_menuButtonAction))ctrl.buttons|=0x0010; // XINPUT_GAMEPAD_START
+                    const bool menuPressed = getGlobalBool(m_menuButtonAction);
+                    if (IsRuntimePsvr2()) {
+                        // L3+R3 belongs to upstream's overlay, not our menu fallback.
+                        const bool chord = triangleShift && uiTracking.hands[1].stickClick && !leftStickClicked;
+                        ctrl.psvr2SystemAvailable = syncRes == XR_SUCCESS && m_sessionState == XR_SESSION_STATE_FOCUSED;
+                        ctrl.psvr2SystemPressed = menuPressed || (chord && !cvr::vrui::CapturesInput());
+                        ctrl.psvr2DpadShift = triangleShift && !cvr::vrui::CapturesInput();
+                        if (chord) ctrl.buttons &= static_cast<uint16_t>(~0x0080u);
+                        if (menuPressed) {
+                            static bool logged = false;
+                            if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Create SystemButton active (tap=Start, hold=Back).\n"); }
+                        }
+                    } else if(menuPressed)ctrl.buttons|=0x0010; // Other headsets unchanged.
 
                     // Publish the snapshot for the XInput hook.
                     std::lock_guard<std::mutex> inLock(m_inputMutex);
@@ -1873,6 +1953,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 XrPosef monoPoses[2]{};
                 uint64_t monoPoseIds[2]{};
                 double monoCaptureMs = 0.0;   // when the frame below was captured; see the age counters
+                bool monoDark = false;        // presented under a loading screen (Lobby/MenuLobby.hpp LoadingDark)
                 XrFovf monoFovs[2]{};
                 bool monoHasView[2] = {};
                 cvr::framegen::Frame fgFrame;
@@ -1890,6 +1971,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         monoSource->AddRef();
                         presentSerial = m_monoCapturedFrame.serial;
                         monoCaptureMs = m_monoCapturedFrame.captureMs;
+                        monoDark = m_monoCapturedFrame.dark;
                         for (int eye = 0; eye < 2; ++eye) {
                             if(!cvr::framegen::CaptureInputsEnabled())m_monoCapturedFrame.framegenInputs[eye].reset();
                             monoPoses[eye] = m_monoCapturedFrame.poses[eye];
@@ -1904,6 +1986,15 @@ DWORD OpenXRManager::FrameThreadMain() {
                             vrcamEye=AcquireCapturedVrcamLocked(presentSerial,CyberpunkVR_VrcamEyeReuseMax,
                                 &monoPoses[eye],&monoFovs[eye],&monoPoseIds[eye],&reused);
                             if(reused)CVR_DIAGNOSTIC(CyberpunkVR_DebugVrcamEyeReused.fetch_add(1,std::memory_order_relaxed));
+                        }
+                        // THE BOOT'S NOTICE (CapturedMonoFrame::oneTurn) is one picture in the dark, drawn into the main
+                        // eye's image at the intro's heading (Lobby/Intro.hpp Heading). Both eyes have it with the turn
+                        // it was drawn for, one turn for both as a captured pair has: the compositor then holds it where
+                        // it hangs through every display frame the game gives no new one for -- most of them, while it
+                        // boots. Each eye with its own turn would have it as far apart as a canted display's eyes look.
+                        if (m_monoCapturedFrame.oneTurn) {
+                            const int main = CyberpunkVR_MainIsRightEye ? 1 : 0;
+                            for (int eye = 0; eye < 2; ++eye) monoPoses[eye].orientation = monoPoses[main].orientation;
                         }
 
                     }
@@ -2008,7 +2099,11 @@ DWORD OpenXRManager::FrameThreadMain() {
                     bool copyReady = true;
                     // Sample once for both eyes, after frame generation. A repeated/generated
                     // source must not freeze the eyelids or interpolate a black capture into the world.
-                    const float menuBlink = cvr::vrmenu::BlinkClosure();
+                    // A frame presented under a loading screen shuts them (Lobby/MenuLobby.hpp LoadingDark). The
+                    // lobby's curtain, and its intro's picture in that dark, are in the frame itself
+                    // (Render/IntroOverlay.hpp): with the curtain shut only the separate quads go.
+                    const bool curtainShut = cvr::lobby::Curtain() >= 1.0f;
+                    const float menuBlink = monoDark ? 1.0f : cvr::vrmenu::BlinkClosure();
                     bool useDepthLayer = false;
                     std::vector<bool> acquiredEyes(viewCountOutput, false);
                     std::vector<bool> acquiredDepthEyes(viewCountOutput, false);
@@ -2458,11 +2553,14 @@ DWORD OpenXRManager::FrameThreadMain() {
                               if(m_basePoseSet) {const auto& q=m_basePose.orientation;
                                   hudBodyYaw=atan2f(2*(q.w*q.y+q.x*q.z),1-2*(q.x*q.x+q.y*q.y));} }
                             hudBodyYaw+=BodyYawFollowOffset();
-                            layers[1]=m_hudQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
+                            endInfo.layerCount = 1;
+                            const XrCompositionLayerBaseHeader* hudLayer=m_hudQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
                                 !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw);
-                            if(layers[1]) layers[2]=m_hudQuad.SecondEye();
-                            endInfo.layerCount = layers[2] ? 3 : (layers[1] ? 2 : 1);
+                            if(hudLayer) {
+                                layers[endInfo.layerCount++]=hudLayer;
+                                if(const auto* other=m_hudQuad.SecondEye())layers[endInfo.layerCount++]=other;
+                            }
                             if(const auto* interactions=m_interactionQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
                                 !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw)){
@@ -2516,7 +2614,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 if(const auto* ray=m_settingsPanel.Ray())layers[endInfo.layerCount++]=ray;
                             }
                             // Separate HUD/metrics quads must not remain visible through closed eyes.
-                            if (menuBlink > 0.0f) endInfo.layerCount = 1;
+                            if (menuBlink > 0.0f || curtainShut) endInfo.layerCount = 1;
                             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEnds.fetch_add(1, std::memory_order_relaxed));
                             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEndsWithLayer.fetch_add(1, std::memory_order_relaxed));
                             // HOW OLD IS THE IMAGE WE ARE SUBMITTING. Recorded here rather than at the
@@ -2570,7 +2668,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             XrAccumulateCycle(waitEnterMs, waitMs,
                                               frameState.predictedDisplayPeriod);
                             if (XR_SUCCEEDED(endRes)) {
-                                if(layers[1] && !menuRectActive)
+                                if(hudLayer && !menuRectActive)
                                     CVR_DIAGNOSTIC(CyberpunkVR_HudSubmittedFrames.fetch_add(1,std::memory_order_relaxed));
                                 for(int eye=0;eye<2;++eye)
                                     CVR_DIAGNOSTIC(CyberpunkVR_PoseIdLastSubmit[eye].store(monoPoseIds[eye],std::memory_order_relaxed));
@@ -2675,6 +2773,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 const bool realSubmission = !fgSelected || !fgSelection.synthetic;
                                 if (realSubmission && presentSerial != m_lastSubmittedSerial) {
                                     FitAddDisplayTime(presentSerial, frameState.predictedDisplayTime);
+                                    CVR_DIAGNOSTIC(++CyberpunkVR_DebugFreshSubmits);
                                 }
                                 if(fgSelected)m_framegen.Submitted(fgSelection,m_fence,capturedReadFence,true);
                                 else if(cvr::framegen::MetricsEnabled())cvr::framegen::OnSubmitted(presentSerial,false,presentSerial==m_lastSubmittedSerial,cvr::framegen::NowMs());

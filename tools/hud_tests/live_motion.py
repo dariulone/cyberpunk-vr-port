@@ -29,7 +29,7 @@ def main():
     a = p.parse_args()
     if a.out.exists() or not a.out.parent.is_dir():
         raise RuntimeError('Fresh output under an existing parent required')
-    log = (a.game/'bin/x64/cyberpunkvrport.log').read_text(encoding='utf-8', errors='replace')
+    log = (a.game/'red4ext/plugins/cyberpunkvrport/log/cyberpunkvrport.log').read_text(encoding='utf-8', errors='replace')
     if 'OpenXR runtime name="OpenXR Simulator Runtime"' not in log:
         raise RuntimeError('Current game must use OpenXR Simulator')
     symbols = resolve(a.pid, a.dll.resolve(), ['CyberpunkVR_HudPoseDebug', 'CyberpunkVR_HudPoseDebugSeq', 'CyberpunkVR_RuntimeDiagnostics'])

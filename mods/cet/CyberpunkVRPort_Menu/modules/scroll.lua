@@ -21,13 +21,15 @@ local function clamp(x, lo, hi) return math.max(lo, math.min(hi, x)) end
 function V.contentWidth(w) return w - BAR - 10 end
 
 -- parent: the canvas the view sits in, (px, py) its top-left there; (ax, ay) the same point in screen
--- canvas pixels, which is where the pointers report. w x h is the window onto the content.
-function V.new(parent, px, py, ax, ay, w, h)
+-- canvas pixels, which is where the pointers report. w x h is the window onto the content. style (optional,
+-- another menu's colours): { track, thumb, held } -- the scroll bar's track, its thumb, the thumb while dragged.
+function V.new(parent, px, py, ax, ay, w, h, style)
   local v = setmetatable({}, V)
+  v.style = style or { track = K.CYAN, thumb = K.CYAN, held = K.YELLOW }
   v.root = K.canvas(parent, px, py, w, h)
   v.content = K.canvas(v.root, 0, 0, w, h)
-  v.track = K.rect(v.root, w - BAR + 2, 0, BAR - 4, h, K.CYAN, 0.22)
-  v.thumb = K.rect(v.root, w - BAR, 0, BAR, h, K.CYAN, 0.9)
+  v.track = K.rect(v.root, w - BAR + 2, 0, BAR - 4, h, v.style.track, 0.22)
+  v.thumb = K.rect(v.root, w - BAR, 0, BAR, h, v.style.thumb, 0.9)
   v.track:SetVisible(false)
   v.thumb:SetVisible(false)
   v.x, v.y, v.w, v.h = ax, ay, w, h
@@ -219,7 +221,7 @@ function V:bar()
   local ty = (self.h - th) * (self.offset / math.max(self:maxOffset(), 1))
   K.move(self.thumb, self.w - BAR, ty)
   K.size(self.thumb, BAR, th)
-  local col = self.dragging and K.YELLOW or K.CYAN
+  local col = self.dragging and self.style.held or self.style.thumb
   self.thumb:SetTintColor(K.color(col))
 end
 

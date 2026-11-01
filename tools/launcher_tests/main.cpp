@@ -38,6 +38,8 @@ extern "C" void SetHmdTypeAndPersist(int value){savedHmd=value;}
 extern "C" int GetCurrentHmdType(){return savedHmd;}
 extern "C" void SetLauncherDebugAndPersist(int value){savedDebug=value;}
 extern "C" int GetLauncherDebug(){return savedDebug;}
+int engineStereo=1;
+extern "C" int GetLauncherEngineStereo(){return engineStereo;}
 void Check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 unsigned clips{},warps{};bool clipped{};
 BOOL WINAPI FakeClip(const RECT* rect){++clips;clipped=rect!=nullptr;return TRUE;}
@@ -72,7 +74,7 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
     try {
         Check(window && IsLauncherOpen(),"launcher never became available");
         wchar_t title[100]{};GetWindowTextW(window,title,100);
-        Check(std::wstring(title)==L"CyberpunkVRPort Configuration","Unicode title was truncated");
+        Check(std::wstring(title)==L"cyberpunk-vr-port","Unicode title was truncated");
         Check(IsWindowVisible(window) && (GetWindowLongPtrW(window,GWL_EXSTYLE)&WS_EX_TOPMOST),"launcher is not visible/topmost");
         Check(!IsWindowVisible(g_gameHwnd) && !IsIconic(g_gameHwnd),"fullscreen owner was not hidden without minimizing");
         RECT gameRect{};GetWindowRect(g_gameHwnd,&gameRect);
@@ -96,21 +98,29 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             Check(galaxy.size()==3 && galaxy.front()==L"4080 x 4768 (VD Rampage, native)" && galaxy.back()==L"3552 x 4144 (VD Monster)","Samsung Galaxy XR resolution ladder incorrect");
             Check(ComboText(headset,17)==L"HTC Vive" && ComboText(headset,18)==L"HTC Vive Pro / Pro Eye","HTC Vive entries missing");
             const auto vive=Resolutions(window,17),vivePro=Resolutions(window,18);
-            Check(vive.size()==5 && vive.front()==L"1080 x 1200 (panel)" && vive[2]==L"1512 x 1680 (SteamVR 100%)","HTC Vive resolution ladder incorrect");
-            Check(vivePro.size()==6 && vivePro.front()==L"1440 x 1600 (panel)" && vivePro[3]==L"2016 x 2240 (SteamVR 100%)","HTC Vive Pro resolution ladder incorrect");
+            Check(vive.size()==8 && vive.front()==L"1080 x 1200 (panel)" && vive[4]==L"1512 x 1680 (SteamVR 100%)","HTC Vive resolution ladder incorrect");
+            Check(vivePro.size()==10 && vivePro.front()==L"1440 x 1600 (panel)" && vivePro[6]==L"2016 x 2240 (SteamVR 100%)","HTC Vive Pro resolution ladder incorrect");
             // Steam Frame is selected last: the nearest-cost check below reads its ladder.
             const auto meganex=Resolutions(window,15),quest3=Resolutions(window,2);
-            Check(meganex.size()==8 && meganex.front()==L"3824 x 3568 (cost of the 3552 x 3840 panel)" && meganex.back()==L"6216 x 5792","MeganeX superlight 8K resolution ladder incorrect");
+            Check(meganex.size()==11 && meganex.front()==L"3824 x 3568 (cost of the 3552 x 3840 panel)" && meganex.back()==L"6216 x 5792","MeganeX superlight 8K resolution ladder incorrect");
             Check(quest3.size()==10 && quest3[4]==L"2648 x 2864","Quest 3 resolution ladder incorrect");
             const auto pico=Resolutions(window,3),reverb=Resolutions(window,14),frame=Resolutions(window,13);
-            Check(pico.size()==8 && pico.front()==L"2160 x 2160 (Native)","Pico 4 resolution ladder incorrect");
-            Check(reverb.size()==8 && reverb.front()==L"2192 x 2136 (cost of the 2160 x 2160 panel)" && reverb.back()==L"6080 x 5928","Reverb G2 resolution ladder incorrect");
-            Check(frame.size()==8 && frame.front()==L"2152 x 2168 (cost of the 2160 x 2160 panel)" && frame.back()==L"5984 x 6024","Steam Frame resolution ladder incorrect");
+            Check(pico.size()==11 && pico.front()==L"2160 x 2160 (Native)" && pico[3]==L"2352 x 2352" && pico[7]==L"3384 x 3384","Pico 4 resolution ladder incorrect");
+            Check(reverb.size()==11 && reverb.front()==L"2192 x 2136 (cost of the 2160 x 2160 panel)" && reverb.back()==L"6080 x 5928","Reverb G2 resolution ladder incorrect");
+            Check(frame.size()==11 && frame.front()==L"2152 x 2168 (cost of the 2160 x 2160 panel)" && frame.back()==L"5984 x 6024","Steam Frame resolution ladder incorrect");
             // a saved size no ladder of this headset offers selects the entry nearest in cost
             Check(SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==2,"retired 2048x2048 did not select the Steam Frame entry nearest in cost");
             int w=2464,h=2448;Check(SnapLauncherResolution(5,&w,&h)==1 && w==2256 && h==2672,"retired Crystal pick was not moved to the nearest cost");
             Check(SnapLauncherResolution(5,&w,&h)==0 && w==2256 && h==2672,"a ladder entry was moved");
             w=2648;h=2864;Check(SnapLauncherResolution(99,&w,&h)==0 && w==2648,"an unknown headset moved the pick");
+            // The steps only engine stereo offers (no VRCAM assets): listed and kept with it, gone without it.
+            w=2352;h=2352;Check(SnapLauncherResolution(3,&w,&h)==0 && w==2352,"an engine-stereo step was moved with engine stereo on");
+            w=4096;h=4096;Check(FitLauncherResolution(3,3400,3400,&w,&h)==1 && w==3384 && h==3384,"the runtime fit skipped an engine-stereo step");
+            engineStereo=0;
+            Check(Resolutions(window,3).size()==8,"engine-stereo steps listed without engine stereo");
+            w=2352;h=2352;Check(SnapLauncherResolution(3,&w,&h)==1 && w==2560 && h==2560,"an engine-stereo pick was kept without engine stereo");
+            w=4096;h=4096;Check(FitLauncherResolution(3,3400,3400,&w,&h)==1 && w==3072 && h==3072,"the runtime fit took an engine-stereo step without engine stereo");
+            engineStereo=1;
             SelectHmd(window,1);
             SendMessageW(GetDlgItem(window,105),BM_SETCHECK,BST_CHECKED,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
@@ -118,17 +128,17 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
         else if(mode==2)PostQuitMessage(19);
         else if(mode==3) {
             SelectHmd(window,13);
-            SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,4,0);
+            SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,6,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
             Check(savedHmd==13 && savedWidth==3064 && savedHeight==3080,"Steam Frame selection was not saved");
         } else if(mode==4) {
-            Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==13 && SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==4,"Steam Frame selection did not reload");
+            Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==13 && SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==6,"Steam Frame selection did not reload");
             SelectHmd(window,14);
-            SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,7,0);
+            SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,10,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
             Check(savedHmd==14 && savedWidth==6080 && savedHeight==5928,"Reverb G2 selection was not saved");
         } else {
-            Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==14 && SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==7,"Reverb G2 selection did not reload");
+            Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==14 && SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==10,"Reverb G2 selection did not reload");
             PostMessageW(window,WM_CLOSE,0,0);
         }
     }catch(const std::exception& e){failure=e.what();if(window)PostMessageW(window,WM_CLOSE,0,0);else PostQuitMessage(20);}
@@ -165,6 +175,6 @@ int main()try {
     UnregisterClassW(failed.lpszClassName,failed.hInstance);
     DestroyWindow(g_gameHwnd);g_gameHwnd=nullptr;UnregisterClassW(gameClass.lpszClassName,gameClass.hInstance);
     Check(SetThreadDesktop(originalDesktop),"cannot restore test thread desktop");CloseDesktop(desktop);
-    std::cout<<"PASS window-shaped Steam Frame/Reverb G2/MeganeX/Galaxy XR/Vive ladders, nearest-cost snap of retired picks, saved IDs, Unicode title, topmost, hidden fullscreen owner, input passthrough, start/close/quit, reentry and creation failure\n";
+    std::cout<<"PASS window-shaped Steam Frame/Reverb G2/MeganeX/Galaxy XR/Vive ladders, engine-stereo steps, nearest-cost snap of retired picks, saved IDs, Unicode title, topmost, hidden fullscreen owner, input passthrough, start/close/quit, reentry and creation failure\n";
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

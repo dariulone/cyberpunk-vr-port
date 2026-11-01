@@ -66,12 +66,27 @@ end)
 -- has grown by that factor -- the knob for a scene where the game thread, not the GPU, is the limit.
 -- Stereo.gc is this mod's table, so it can be tuned live: GetMod('CyberpunkVRPort_Stereo').gc.
 --
+-- IN THE MENUS THE STEP IS LARGER (menuStepKB): there the GC is not paced to the allocation but runs well ahead
+-- of it. A cycle paced to the allocation leaves as much garbage behind per cycle whatever the rate, and the main
+-- menu's is userdata (component references, names, vectors): ~800k of them per cycle on a ~150 MB heap, which
+-- the atomic phase walks -- a 100-140 ms freeze every 20-30 s, the menu's periodic freeze (2026-10-28, the
+-- lobby: stepKB 16 -> atomic 83-138 ms; 96 -> 27-30 ms every 7 s; 192 -> 12-15 ms every 3.5 s, frame median
+-- 11.13 -> 11.25 ms at 90 Hz). The menu is held at the headset's rate, not the game thread's, so the extra
+-- collector time costs no frames there; in the game the city is CPU-bound and keeps the paced step.
+--
 -- `stop` holds only until the next step re-arms the trigger, so it is set again after each one.
 -- onUpdate runs in the menus and on loading screens too, and a mod reload builds a new Lua state.
-Stereo.gc = { stepKB = 16, stepMaxKB = 1024, restGrowth = 0 }
+Stereo.gc = { stepKB = 16, stepMaxKB = 1024, restGrowth = 0, menuStepKB = 192 }
 local gcResumeAt, gcLastKB = nil, nil
 
 local function paceGc()
+    -- IN THE GAME THE PLUGIN'S LUA HOST PACES IT (src/Lua/HostGc.cpp): its steps run while the game thread waits
+    -- for the world tick, off the frame's path, and only the finalizers run before onUpdate. The menus keep the
+    -- pacing below (VRLuaHostGc(false)).
+    if type(VRLuaHostGc) == "function" and VRLuaHostGc(not VrcamSel.preGame) then
+        gcLastKB, gcResumeAt = nil, nil
+        return
+    end
     local cfg = Stereo.gc
     local heap = collectgarbage("count")
     local grown = gcLastKB and heap - gcLastKB or 0
@@ -80,7 +95,8 @@ local function paceGc()
         if heap < gcResumeAt then collectgarbage("stop") return end
         gcResumeAt = nil
     end
-    local step = cfg.stepKB
+    -- The menu as the VRCAM selector saw it last frame (it asks the game every frame).
+    local step = VrcamSel.preGame and cfg.menuStepKB or cfg.stepKB
     if grown > step then step = math.min(grown, cfg.stepMaxKB) end
     local finished = collectgarbage("step", step)
     collectgarbage("stop")

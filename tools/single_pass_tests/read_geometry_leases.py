@@ -58,7 +58,7 @@ def main():
     a = p.parse_args()
     capture, constants = [json.loads(path.read_text()) for path in (a.capture, a.constants)]
     game = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-    symbols = resolve(a.pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', ['CyberpunkVR_GeometryLease*'])
+    symbols = resolve(a.pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', ['CyberpunkVR_GeometryLease*'])
     if any(row['pid'] != a.pid or row['dll'] != symbols['sha256'] for row in (capture, constants)):
         raise ValueError('Geometry lease process/build differs')
     reader = Reader(a.pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)

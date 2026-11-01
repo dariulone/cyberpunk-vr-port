@@ -6,8 +6,9 @@
 //                        the selection, so nothing in the render path hardcodes a resolution.
 //   * launcher_dialog  — lists the authored components and writes the chosen one back.
 //
-// The file lives in the CET mod folder because CET sandboxes Lua file IO there and
-// modules/vrcam_select.lua must read the same file; native code can reach out, Lua cannot.
+// The file lives in the Stereo Lua mod's folder (PLUGIN\lua\CyberpunkVRPort_Stereo) because the
+// Lua host sandboxes a mod's file IO to its folder and modules/vrcam_select.lua must read the
+// same file; native code can reach out, Lua cannot.
 //
 // Header-only so both TUs share one implementation instead of two drifting copies.
 
@@ -18,6 +19,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "Core/Paths.hpp"
 #include "Stereo/EngineStereo.hpp"
 
 namespace cvr {
@@ -106,36 +108,11 @@ inline bool json_find_string_array(const std::string& text, const char* key,
     return false;
 }
 
-// <dir of the given module>\<rel>. module == nullptr gives the running exe (i.e. bin\x64).
-inline bool path_beside_module(HMODULE mod, const char* rel, char* out, size_t out_size) {
-    char dir[MAX_PATH] = {};
-    const DWORD n = GetModuleFileNameA(mod, dir, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return false;
-    char* slash = strrchr(dir, '\\');
-    if (!slash) return false;
-    *slash = '\0';
-    return _snprintf_s(out, out_size, _TRUNCATE, "%s\\%s", dir, rel) > 0;
-}
-
-inline HMODULE this_module() {
-    HMODULE hm = nullptr;
-    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                       reinterpret_cast<LPCSTR>(&this_module), &hm);
-    return hm;
-}
-
-// Canonical location first (CET mod folder, next to the exe's bin\x64), then a fallback next to
-// this DLL so the plugin still works in a layout without CET.
+// The Stereo mod's copy, the one vrcam_select.lua reads. Reported even when it does not exist yet, so callers
+// can create or log it.
 inline bool vrcam_config_path(char* out, size_t out_size) {
-    static const char* const kCetRel =
-        "plugins\\cyber_engine_tweaks\\mods\\CyberpunkVRPort_Stereo\\vrcam.json";
-    if (path_beside_module(nullptr, kCetRel, out, out_size) &&
-        GetFileAttributesA(out) != INVALID_FILE_ATTRIBUTES) return true;
-    if (path_beside_module(this_module(), "vrcam.json", out, out_size) &&
-        GetFileAttributesA(out) != INVALID_FILE_ATTRIBUTES) return true;
-    // Nothing exists yet: still report the canonical path so callers can create/log it.
-    return path_beside_module(nullptr, kCetRel, out, out_size);
+    const std::string path = cvr::paths::FileA(cvr::paths::Folder::Lua, "CyberpunkVRPort_Stereo\\vrcam.json");
+    return !path.empty() && strncpy_s(out, out_size, path.c_str(), _TRUNCATE) == 0;
 }
 
 // Reads the WHOLE file. It used to stop at 8 KiB, which is fine until the catalogue grows: a
@@ -205,7 +182,7 @@ inline bool vrcam_config_write_component(const char* component) {
     return n == text.size();
 }
 
-// <CET mods>\CyberpunkVRPort_Stereo\bridge\<name> — the folder the CET mod polls. Used for the
+// PLUGIN\lua\CyberpunkVRPort_Stereo\bridge\<name> — the folder the Lua mod polls. Used for the
 // one-way native -> Lua requests (component enable/disable) that RTTI can only do from Lua.
 inline bool vrcam_bridge_path(const char* name, char* out, size_t out_size) {
     char cfg[MAX_PATH] = {};

@@ -46,7 +46,7 @@ def main():
     p.add_argument('--pid',type=int,required=True)
     p.add_argument('--backend',type=int,choices=[0,1],required=True)
     p.add_argument('--out',type=Path,required=True)
-    p.add_argument('--dll',type=Path,default=ROOT/'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll')
+    p.add_argument('--dll',type=Path,default=ROOT/'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll')
     p.add_argument('--directory',type=Path,default=Path(os.environ['LOCALAPPDATA'])/'OpenXR-Simulator')
     a=p.parse_args()
     if a.out.exists() or not a.out.parent.is_dir():raise RuntimeError('Fresh output under an existing directory required')

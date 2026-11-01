@@ -65,7 +65,7 @@ def main():
     state = live.load_state(args.state)
     pid = state['pid']
     game = boot.DEFAULT_GAME
-    log_path = game / 'bin/x64/cyberpunkvrport.log'
+    log_path = game / 'red4ext/plugins/cyberpunkvrport/log/cyberpunkvrport.log'
     check = live.checker(pid, state['started'], state['baselineReporters'])
     symbols = resolve(pid, game / live.DLL, list(cost.NAMES) + list(NAMES))
     reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)

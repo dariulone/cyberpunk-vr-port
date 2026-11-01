@@ -152,7 +152,7 @@ local function slotModel(name)
     local w = pl and pl:GetActiveWeapon()
     if not w then return nil end
     if not REC.sc then
-        local ok, cs = pcall(function() return w:GetComponents() end)
+        local ok, cs = pcall(function() return Game.VREntityComponents(w) end)
         if ok and cs then
             for i = 1, #cs do
                 if string.find(tostring(cs[i]:GetClassName()), 'SlotComponent') then

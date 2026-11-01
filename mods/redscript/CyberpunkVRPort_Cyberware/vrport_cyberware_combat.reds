@@ -47,7 +47,7 @@ public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, stron
   let item: wref<ItemObject>;
   let number: Int32 = side == 0 ? 1 : 0;
   if side < 0 || side > 1 || !IsDefined(weapon) || this.VRHolsterIntentActive(1.00) { return false; };
-  item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, t"AttachmentSlots.WeaponRight");
+  item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this));
   if !IsDefined(item) || item.GetItemID() != weapon.GetItemID() { return false; };
   if strong { attack = weapon.GetAttack(StringToName("MeleeStrongAttack" + IntToString(number))) as Attack_GameEffect; };
   if strong && !IsDefined(attack) { attack = weapon.GetAttack(n"MeleeStrongAttack0") as Attack_GameEffect; };
@@ -100,7 +100,9 @@ public func VRCyberwareOrdinaryContact(weapon: wref<WeaponObject>, target: wref<
   // reversal can cut again without first leaving an oversized body capsule.
   if passive || touched { return 0; };
   if this.VRCyberwareAttack(swing, contact, hit, 1, target.GetEntityID(), 0.175) {
-    ArrayPush(swing.targets, target.GetEntityID()); return 1;
+    ArrayPush(swing.targets, target.GetEntityID());
+    VRHapticEvent(14, VRPortGuardHands(this));   // the blow landed: felt in the hand holding the weapon
+    return 1;
   };
   return 0;
 }
@@ -174,7 +176,7 @@ public func VRCyberwareContacts(weapon: wref<WeaponObject>, side: Int32, points:
   if side < 0 || side >= ArraySize(this.vrCyberwareSwings) || ArraySize(points) < 2 || ArraySize(points) > 46 { return 0; };
   swing = this.vrCyberwareSwings[side];
   if !IsDefined(swing) || !IsDefined(weapon) || swing.weapon != weapon || this.VRHolsterIntentActive(1.00) { return 0; };
-  item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, t"AttachmentSlots.WeaponRight");
+  item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this));
   if !IsDefined(item) || item.GetItemID() != weapon.GetItemID() { return 0; };
   radius = ClampF(radius, 0.02, 0.10);
   while i < ArraySize(points) { reach = MaxF(reach, Vector4.Distance(points[i], origin)); i += 1; };

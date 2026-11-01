@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include "Runtimes/BodyFollowZone.hpp"
 
 namespace cvr::roomscale {
@@ -34,6 +35,16 @@ class BodyTranslationFollow {
 public:
     void Reset() { m_following=false;m_velocity={}; }
     bool Following() const { return m_following; }
+    // The controller refused part of the last step: along that direction the body
+    // is at rest against the obstacle, not moving as the response assumed. Without
+    // this the response keeps gaining speed into a wall and, at a slant, throws the
+    // body along it in one step.
+    void Block(Vec2 refused) {
+        const float r2=Dot(refused,refused);
+        if(r2<1e-14f)return;
+        const float along=Dot(m_velocity,refused)/r2;
+        if(along>0)m_velocity=m_velocity-refused*along;
+    }
     Vec2 Step(Vec2 error,float radius,float dt) {
         if(!Finite(error) || !std::isfinite(radius) || !std::isfinite(dt) || dt<=0) {
             Reset();return {};
@@ -112,6 +123,7 @@ enum class Reason : uint32_t {
 struct Step {
     Vec2 raw{};
     Vec2 world{};
+    float yaw{}, scale{}; // world = Rotate(raw*scale, yaw)
     uint64_t origin{};
     uint64_t ticket{};
     Reason reason{Reason::Suspended};
@@ -123,7 +135,10 @@ public:
     static constexpr float MaxStepMetres = 0.5f;
 
     void Reset() { *this = {}; }
-    void Suspend() { m_active = false;m_pending={};m_follow.Reset(); }
+    // m_pending is the view's lead over the capsule, not motion still to replay:
+    // a suspension, a gap or a tracking jump keeps it for the body to follow
+    // later. Dropped, it would stay in the view as a permanent offset from the body.
+    void Suspend() { m_active = false;m_follow.Reset(); }
 
     Step Begin(const Sample& sample, uint64_t nowUs, float dt,
                float scale, float trackingYaw, bool allowed,float freeRadiusMetres=0) {
@@ -156,7 +171,7 @@ public:
             return step;
         }
         if (!m_active || gap) {
-            m_pending={};m_follow.Reset();
+            m_follow.Reset();
             m_previous = sample.head;
             m_sequence = sample.sequence;
             m_active = true;
@@ -182,7 +197,7 @@ public:
         m_runtimeKnown = sample.runtimeHeadKnown;
         if (runtimeJump) m_rebasingFilteredJump = true;
         if (Dot(metres, metres) > MaxStepMetres * MaxStepMetres || m_rebasingFilteredJump) {
-            m_pending={};m_follow.Reset();
+            m_follow.Reset();
             // A tracking jump must not teleport either the capsule or the camera.
             // Rebase the camera's tracking span, without saving a movement debt.
             m_consumed = m_consumed + delta;
@@ -198,20 +213,55 @@ public:
         m_pending=m_pending+delta;
         step.raw=m_follow.Step(m_pending*scale,freeRadiusMetres,dt)*(1.0f/scale);
         step.world = Rotate(step.raw*scale, trackingYaw);
+        step.yaw = trackingYaw;
+        step.scale = scale;
         step.reason = Reason::Applied;
         return step;
     }
 
-    void Complete(const Step& step) {
+    // Where the eye may be relative to the capsule's axis (world metres): eyeBase is
+    // the view's fixed offset from the axis (the camera's calibration), the tracking
+    // offset adds to it, and the sum stays within radius -- never tighter than where
+    // the eye already is without the lead, so the limit never pulls the view.
+    struct LeadLimit {
+        Vec2 eyeBase{};
+        float radius = std::numeric_limits<float>::infinity();
+    };
+
+    // The controller carried out the whole request.
+    void Complete(const Step& step) { Complete(step, step.world, LeadLimit{}); }
+
+    // acceptedWorld: what the controller carried out of step.world (world metres).
+    // The refused rest is not consumed: the head keeps it as a lead over the capsule,
+    // so at a wall the view stays on the headset and the body follows once the way
+    // is clear. Past the limit the lead is consumed as before, so a headset walked
+    // into a wall builds no debt and the view stops there; stepping back moves it at once.
+    void Complete(const Step& step, Vec2 acceptedWorld, LeadLimit limit) {
         if (step.origin != m_origin || step.ticket != m_ticket || m_completed == step.ticket) return;
         m_completed = step.ticket;
-        // Consume the REQUEST even at a wall. Retrying the rejected distance would
-        // make a stationary headset keep pushing/moving the character later.
-        m_consumed = m_consumed + step.raw;
-        if(step.reason==Reason::Applied)m_pending=m_pending-step.raw;
+        Vec2 accepted = step.raw;
+        const Vec2 refusedWorld = step.world - acceptedWorld;
+        if (Finite(acceptedWorld) && step.scale > 0 && Dot(refusedWorld, refusedWorld) > 1e-14f)
+            accepted = step.raw - Rotate(refusedWorld, -step.yaw) * (1.0f / step.scale);
+        m_consumed = m_consumed + accepted;
+        if (step.reason != Reason::Applied) return;
+        m_pending = m_pending - accepted;
+        m_follow.Block(step.raw - accepted);
+        if (!std::isfinite(limit.radius) || !Finite(limit.eyeBase) || step.scale <= 0) return;
+        const Vec2 base = limit.eyeBase + Rotate((m_previous - m_consumed - m_pending) * step.scale, step.yaw);
+        const Vec2 eye = base + Rotate(m_pending * step.scale, step.yaw);
+        const float reach = std::sqrt(Dot(eye, eye));
+        const float bound = std::max(std::max(limit.radius, 0.0f), std::sqrt(Dot(base, base)));
+        if (reach > bound) {
+            const Vec2 excess = Rotate(eye * (1.0f - bound / reach), -step.yaw) * (1.0f / step.scale);
+            m_consumed = m_consumed + excess;
+            m_pending = m_pending - excess;
+        }
     }
 
     Vec2 Consumed(uint64_t origin) const { return origin == m_origin ? m_consumed : Vec2{}; }
+    // The head's lead over the capsule that the body still has to follow (tracking units).
+    Vec2 Pending() const { return m_pending; }
 
 private:
     Vec2 m_previous{}, m_consumed{};
@@ -227,6 +277,18 @@ private:
 // space it is exact. At a wall use the rejected-motion normal as a projection;
 // for physical-only movement the measured velocity is the exact contribution.
 // Mixed-input/contact attribution needs the in-game wall/step tests as well.
+// The part of the physical displacement the controller carried out, for the ledger.
+// Only the refused component along the request is withheld: unlike the velocity
+// attribution above, motion the request did not ask for (a shove, a slide along
+// the wall from the stick) is never credited to the headset.
+inline Vec2 AcceptedDisplacement(Vec2 native, Vec2 physical, Vec2 resolved) {
+    if (!Finite(native) || !Finite(physical) || !Finite(resolved)) return physical;
+    const Vec2 lost = native + physical - resolved;
+    const float lost2 = Dot(lost, lost);
+    if (lost2 <= 1e-12f) return physical;
+    return physical - lost * std::max(0.0f, Dot(physical, lost) / lost2);
+}
+
 inline Vec2 PhysicalVelocity(Vec2 native, Vec2 physical, Vec2 resolvedVelocity, float dt) {
     if (!Finite(native) || !Finite(physical) || !Finite(resolvedVelocity) ||
         !std::isfinite(dt) || dt <= 0.000001f || Dot(physical, physical) < 1e-14f) return {};

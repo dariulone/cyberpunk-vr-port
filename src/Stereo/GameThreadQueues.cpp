@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <intrin.h>
 
 extern "C" {
 // 1 = the game thread leaves dispatcher queue 1 (render jobs) to the workers while it waits. Live for A/B.
@@ -30,9 +31,18 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GameThreadSkipRenderQueu
 // while queue 1 had jobs (left to the workers).
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GameThreadQueueStats[4]{};
 }
+// THE WAIT FOR THE WORLD TICK RUNS THE LUA HOST'S COLLECTOR. The world tick (sub_14069C788) hands its jobs to the
+// dispatcher and waits for them in sub_1405D3CFC, the game thread taking jobs too; ~9-12 ms of a frame in the city,
+// most of it with nothing to take. Inside that wait (and only there: the same dequeue serves every counter wait,
+// some of them inside a mod's call into the game), an empty dequeue lends the time to the host's collector, one
+// slice of ~60 us (src/Lua/HostGc.cpp: no finalizers, nothing while the VM runs, the state's lock taken or the slice
+// skipped).
 // Not done: PAUSE instructions in the game thread's empty path, to leave the core's other hardware thread
 // to the worker there (FlushCounter's idle loop of QPC reads and PeekMessage is ~50 % of the game thread's
 // samples). 0 / 64 / 256 PAUSEs per empty dequeue measured 13.66 / 13.63 / 13.65 ms (2026-10-17).
+
+// The Lua host's collector slice (src/Lua/HostGc.cpp).
+extern "C" void CvrLuaIdleWork();
 
 namespace cvr {
 namespace detail {
@@ -40,8 +50,25 @@ namespace {
 
 using DequeueFn = char (*)(uint8_t*, void*, uint8_t*);
 DequeueFn g_orig_dequeue = nullptr;
+using WorldTickWaitFn = char (*)(int64_t*);
+WorldTickWaitFn g_orig_world_tick_wait = nullptr;
 
 constexpr uintptr_t GT_DEQUEUE_RVA = 0x26DE10;
+// sub_1405D3CFC(counter): the game thread's wait for a counter, and the return address of its call in the world
+// tick sub_14069C788 (0x14069C8C7, 5 bytes).
+constexpr uintptr_t WORLD_TICK_WAIT_RVA = 0x5D3CFC;
+constexpr uintptr_t WORLD_TICK_WAIT_RETURN_RVA = 0x69C8CC;
+thread_local bool t_world_tick_wait = false;
+
+char Detour_WorldTickWait(int64_t* counter) {
+    const bool world_tick = g_exe_base &&
+        reinterpret_cast<uintptr_t>(_ReturnAddress()) == reinterpret_cast<uintptr_t>(g_exe_base) + WORLD_TICK_WAIT_RETURN_RVA;
+    if (!world_tick) return g_orig_world_tick_wait(counter);
+    t_world_tick_wait = true;
+    const char result = g_orig_world_tick_wait(counter);
+    t_world_tick_wait = false;
+    return result;
+}
 
 // The dispatcher's job queues as sub_14026DE10 reads them (relative to dispatcher+64): +1152 the count
 // of queued jobs, +1160 the workers' semaphore; queue n's ring at 128 + 256*n: +32 entries (40 bytes),
@@ -68,7 +95,15 @@ bool Queued(uint8_t* q, int queue) {
     return *reinterpret_cast<volatile uint64_t*>(ring + RING_READ) < *reinterpret_cast<volatile uint64_t*>(ring + RING_WRITE);
 }
 
+char Dequeue(uint8_t* q, void* out, uint8_t* queue);
+
 char Detour_GameThreadDequeue(uint8_t* q, void* out, uint8_t* queue) {
+    const char taken = Dequeue(q, out, queue);
+    if (!taken && t_world_tick_wait) CvrLuaIdleWork();
+    return taken;
+}
+
+char Dequeue(uint8_t* q, void* out, uint8_t* queue) {
     if (!CyberpunkVR_GameThreadSkipRenderQueue.load(std::memory_order_relaxed)) return g_orig_dequeue(q, out, queue);
     CyberpunkVR_GameThreadQueueStats[0].fetch_add(1, std::memory_order_relaxed);
     auto* available = reinterpret_cast<volatile LONG*>(q + AVAILABLE);
@@ -93,6 +128,7 @@ char Detour_GameThreadDequeue(uint8_t* q, void* out, uint8_t* queue) {
 }  // namespace
 
 CVR_DETOUR("[gt-queues] game thread dequeue sub_14026DE10", GT_DEQUEUE_RVA, Detour_GameThreadDequeue, g_orig_dequeue)
+CVR_DETOUR("[gt-queues] game thread counter wait sub_1405D3CFC", WORLD_TICK_WAIT_RVA, Detour_WorldTickWait, g_orig_world_tick_wait)
 
 }  // namespace detail
 }  // namespace cvr

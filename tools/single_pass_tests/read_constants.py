@@ -103,7 +103,7 @@ def main():
     p.add_argument('--compare-depth', action='store_true')
     a = p.parse_args()
     game = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-    symbols = resolve(a.pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', ['CyberpunkVR_Constant*', 'CyberpunkVR_RegisteredCopy*', 'CyberpunkVR_GeometryFreeze*'])
+    symbols = resolve(a.pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', ['CyberpunkVR_Constant*', 'CyberpunkVR_RegisteredCopy*', 'CyberpunkVR_GeometryFreeze*'])
     capture, family_report = [json.loads(path.read_text()) for path in (a.capture, a.families)]
     if a.compare_depth and not capture.get('frozenGeometry'):
         raise ValueError('Depth comparison requires GPU geometry snapshots')

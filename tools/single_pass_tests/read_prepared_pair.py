@@ -418,7 +418,7 @@ def main():
         parser.error('--observe-current requires --sequence')
     if args.source_frame is not None and (not args.observe_current or not 0<args.source_frame<2**64):
         parser.error('--source-frame requires --observe-current and a positive uint64 frame')
-    dll = args.game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll'
+    dll = args.game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll'
     names = ['CyberpunkVR_PreparedPair*', 'CyberpunkVR_PreparedBatch*', 'CyberpunkVR_PreparedCurrent*', 'CyberpunkVR_PreparedBaseline', 'CyberpunkVR_PreparedNativeExit*', 'CyberpunkVR_PreparedNativeExport*', 'CyberpunkVR_PreparedActualMembership*', 'CyberpunkVR_PreparedNativeRate', 'CyberpunkVR_PreparedVrsAttribution', 'CyberpunkVR_PreparedNativeAcceptance', 'CyberpunkVR_NativeStereoLiveBindings', 'CyberpunkVR_NativeStereoProbeState']
     symbols = resolve(args.pid, dll, names)
     reader = Reader(args.pid, args.game/'bin/x64/Cyberpunk2077.exe', 0, 0)

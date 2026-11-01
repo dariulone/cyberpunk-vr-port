@@ -321,7 +321,7 @@ static int ArmPlayerLocked() {
                 const char* files[2] = { "CyberpunkVR_SmokeGrip_right.ini", "CyberpunkVR_LighterGrip_Left.ini" };
                 int rFing = 0, lFing = 0; bool cigLoaded = false, ltrLoaded = false;
                 for (int fi = 0; fi < 2; ++fi) {
-                    std::ifstream f(VRDiagPath(files[fi]));
+                    std::ifstream f(VRGripPath(files[fi]));
                     if (!f.is_open()) continue;
                     std::string line;
                     while (std::getline(f, line)) {
@@ -388,7 +388,7 @@ static int ArmPlayerLocked() {
                     g_VRSmokeCigLPos[0]=g_VRSmokeLighterPos[0]; g_VRSmokeCigLPos[1]=g_VRSmokeLighterPos[1]; g_VRSmokeCigLPos[2]=g_VRSmokeLighterPos[2];
                     g_VRSmokeCigLRot[0]=g_VRSmokeLighterRot[0]; g_VRSmokeCigLRot[1]=g_VRSmokeLighterRot[1]; g_VRSmokeCigLRot[2]=g_VRSmokeLighterRot[2]; g_VRSmokeCigLRot[3]=g_VRSmokeLighterRot[3];
                     if (ltrLoaded) g_VRSmokeCigLHave = 1;   // fallback availability = lighter pose
-                    std::ifstream fc(VRDiagPath("CyberpunkVR_SmokeGrip_Left.ini"));
+                    std::ifstream fc(VRGripPath("CyberpunkVR_SmokeGrip_Left.ini"));
                     if (fc.is_open()) {
                         int lcFing = 0; bool lcSlot = false;
                         std::string line;

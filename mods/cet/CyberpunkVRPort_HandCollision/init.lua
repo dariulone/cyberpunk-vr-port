@@ -152,7 +152,7 @@ local function bodyCapsulesForVehicle(now)
             local pl = Game.GetPlayer()
             if not pl then return end
             if type(VRShouldScanBodyCapsules)=='function' and not VRShouldScanBodyCapsules(pl) then return end
-            local cs = pl:GetComponents()
+            local cs = Game.VREntityComponents(pl)
             for i = 1, #cs do
                 if string.find(tostring(cs[i]:GetName()), 'VRPortBody_') then found[#found + 1] = cs[i] end
             end
@@ -393,7 +393,7 @@ local function readWeapon(full)
     -- part failed to resolve, WGN came out 0, and the log printed gun=0 -- which reads as "no weapon in hand" and
     -- sent me looking at GetActiveWeapon, which was innocent. The log now separates the two.
     if not slotComp then
-        local cs = w:GetComponents()
+        local cs = Game.VREntityComponents(w)
         for i = 1, #cs do
             if string.find(tostring(cs[i]:GetClassName()), "SlotComponent") then
                 local o, found = pcall(function() return cs[i]:GetSlotTransform(CName.new(WCAPS[1].slot)) end)

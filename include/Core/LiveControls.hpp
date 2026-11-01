@@ -112,8 +112,15 @@ struct LiveControls {
     volatile int xrVehicleCutsceneSuspendTier = 3;
     volatile int xrBreaststrokeSwim = 1;
     volatile int xrLadderGripClimb = 1;
+    volatile int xrLeftHanded = 0;     // xr_left_handed: the controllers' roles traded (Hooks/Handedness.hpp)
     volatile int xrLadderAutoFinish = 1;
     volatile float xrLadderFinishDistance = 1.0f;
+    // 1 (default) = the right grip held and swept straight down opens or closes the VR menu (never while that
+    // hand holds the steering wheel). 0 = only L3 + R3 does.
+    volatile int xrMenuGesture = 1;
+    // 1 (default) = holding Y opens the port's weapon wheel in front of the body and the game keeps running; a
+    // tap is still the game's next weapon. 0 = the game's own wheel (it slows time). Hooks/WeaponWheelHold.hpp.
+    volatile int xrVrWeaponWheel = 1;
 };
 
 extern LiveControls g_liveControls;

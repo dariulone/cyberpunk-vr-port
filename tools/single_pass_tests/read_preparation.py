@@ -702,7 +702,7 @@ def main(argv=None):
     a.main_root_pair=a.main_root_pair or a.merge_root
     a.pair_prepare=a.pair_prepare or a.main_root_pair
     game = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-    symbols = resolve(a.pid, game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',
+    symbols = resolve(a.pid, game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
                       ['CyberpunkVR_Preparation*','CyberpunkVR_SinglePassTrace*','CyberpunkVR_EarlyDepth*','CyberpunkVR_NativeStereo*',
                        'CyberpunkVR_NativeStereoAllDraws','CyberpunkVR_GeometryPacket*','CyberpunkVR_GeometryOrigin*','CyberpunkVR_ConstantCaptureEnable',
                        'CyberpunkVR_DescriptorCaptureFailure','CyberpunkVR_DescriptorStoreStats','CyberpunkVR_DescriptorHeapSlots',

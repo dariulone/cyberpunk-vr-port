@@ -1,6 +1,7 @@
-# ArchiveXL: the port's only manifest, next to its only archive (cyberpunkvrport.archive, which
+# The port's only manifest, in ArchiveXL's format, for its only archive (cyberpunkvrport.archive, which
 # carries everything: player cameras and the optics catalogue, props, magazines, the basketball,
-# the monowire material and the physical-crouch animgraph).
+# the monowire material and the physical-crouch animgraph). The plugin applies it
+# (src/Core/ArchiveExtensions.cpp): factories, animations and resource patches.
 #
 # WITHOUT THE FACTORIES THE ITEM ROUTE IS SILENTLY DEAD. An item whose `entityName` is a factory
 # name -- Items.VRPortLoadOverture (the Overture's speedloader), Items.VRPortHlTest and
@@ -10,10 +11,1205 @@
 # a successful attach and `GetItemInSlot` came back null.
 #
 # The csvs must stay COOKED C2dArrays (that is how mods\archive\build\base\vrport\vrp_props.csv
-# is built): ArchiveXL reads a text csv as zero rows, logs "Loading factory", and the name again
-# resolves to nothing.
+# is built): the factory index reads a text csv as zero rows, and the name again resolves to nothing.
 #
-# This file belongs next to cyberpunkvrport.archive in archive\pc\mod\.
+# Installed as red4ext\plugins\cyberpunkvrport\config\archive.yaml -- never as *.xl beside the archive,
+# where ArchiveXL (if installed for other mods) would apply it a second time.
 factories:
   - base\vrport\vrp_props.csv
   - vrcigarette\vr_wheel.csv
+
+# The lobby's construct: one more appearance, vrport_construct (the gold hologram), on the body
+# meshes the main menu's puppet wears -- added from a patch mesh per mesh, each with that mesh's
+# chunk count; the game's meshes keep all they had. The arms and the figure in the lobby's pod
+# are not patched: their meshes preload every appearance's materials before a patch's material
+# is known, so the construct has its own copies of them instead. Built by
+# tools/vr_lobby_assets/make_construct.py, worn while the lobby is up (CyberpunkVRPort_Lobby).
+resource:
+  patch:
+    # The lobby's place: the game's own VR tutorial location -- Night City's q000 sectors (under Japantown),
+    # the game's files as they are -- merged as one more streaming block into the main menu's world, where they
+    # stream round the player the way they do in Night City's. Built by tools/vr_lobby_assets/tutorial_lobby.py.
+    vrport\tutorial\q000_tutorial.streamingblock:
+      - base\worlds\04_main_menu\_compiled\default\04_main_menu.streamingworld
+    vrport\construct\n0_000_pwa_fpp__neck.mesh:
+      props: [appearances]
+      targets:
+        - base\characters\common\player_base_bodies\player_female_average\fpp\n0_000_pwa_fpp__neck.mesh
+    vrport\construct\l0_000_pwa_base__cs_flat.mesh:
+      props: [appearances]
+      targets:
+        - base\characters\common\player_base_bodies\player_female_average\l0_000_pwa_base__cs_flat.mesh
+    vrport\construct\t0_000_pwa_base__full.mesh:
+      props: [appearances]
+      targets:
+        - base\characters\common\player_base_bodies\player_female_average\t0_000_pwa_base__full.mesh
+    # The man's body (the lobby's own: mods/tweaks/vrport/VRPort.LobbyBody.yaml) and the shoes it stands in.
+    vrport\construct\n0_000_pma_fpp__neck.mesh:
+      props: [appearances]
+      targets:
+        - base\characters\common\player_base_bodies\player_man_average\fpp\n0_000_pma_fpp__neck.mesh
+    vrport\construct\t0_000_pma_base__full.mesh:
+      props: [appearances]
+      targets:
+        - base\characters\common\player_base_bodies\player_man_average\t0_000_pma_base__full.mesh
+    vrport\construct\s1_010_pma_shoe__elegant.mesh:
+      props: [appearances]
+      targets:
+        - base\characters\garment\player_equipment\feet\s1_010_shoe__elegant\s1_010_pma_shoe__elegant.mesh
+
+# >>> left-handed weapon animations (tools/lefthanded_anims/generate.py)
+# The game's single-wield weapon animations mirrored onto the left hand, on the player's root component
+# while the weapon is alone in the left hand (vr_left_handed, w_<weapon>_left).
+animations:
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\default_weapon_left.anims
+    vars: [vr_left_handed]
+    priority: 196
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__arasaka_kenshin_left.anims
+    vars: [vr_left_handed, w_handgun_arasaka_kenshin_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__arasaka_kenshin_left.anims
+    vars: [vr_left_handed, w_handgun_arasaka_kenshin_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__arasaka_yukimura_left.anims
+    vars: [vr_left_handed, w_handgun_arasaka_yukimura_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__arasaka_yukimura_left.anims
+    vars: [vr_left_handed, w_handgun_arasaka_yukimura_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_handgun_left.anims
+    vars: [vr_left_handed, w_base_handgun]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_handgun_left.anims
+    vars: [vr_left_handed, w_base_handgun]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__budget_slaughtomatic_left.anims
+    vars: [vr_left_handed, w_handgun_budget_slaughtomatic_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__budget_slaughtomatic_left.anims
+    vars: [vr_left_handed, w_handgun_budget_slaughtomatic_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__constitutional_liberty_left.anims
+    vars: [vr_left_handed, w_handgun_constitutional_liberty_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__constitutional_liberty_left.anims
+    vars: [vr_left_handed, w_handgun_constitutional_liberty_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__constitutional_unity_left.anims
+    vars: [vr_left_handed, w_handgun_constitutional_unity_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__constitutional_unity_left.anims
+    vars: [vr_left_handed, w_handgun_constitutional_unity_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__kangtao_chao_left.anims
+    vars: [vr_left_handed, w_handgun_kangtao_chao_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__kangtao_chao_left.anims
+    vars: [vr_left_handed, w_handgun_kangtao_chao_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__malorian_silverhand_left.anims
+    vars: [vr_left_handed, w_handgun_malorian_silverhand_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__malorian_silverhand_left.anims
+    vars: [vr_left_handed, w_handgun_malorian_silverhand_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__militech_lexington_left.anims
+    vars: [vr_left_handed, w_handgun_militech_lexington_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__militech_lexington_left.anims
+    vars: [vr_left_handed, w_handgun_militech_lexington_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__militech_omaha_left.anims
+    vars: [vr_left_handed, w_handgun_militech_omaha_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__militech_omaha_left.anims
+    vars: [vr_left_handed, w_handgun_militech_omaha_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_handgun__tsunami_nue_left.anims
+    vars: [vr_left_handed, w_handgun_tsunami_nue_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_handgun__tsunami_nue_left.anims
+    vars: [vr_left_handed, w_handgun_tsunami_nue_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_lmg__constitutional_defender_left.anims
+    vars: [vr_left_handed, w_lmg_constitutional_defender_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_lmg__constitutional_defender_left.anims
+    vars: [vr_left_handed, w_lmg_constitutional_defender_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_revolver_left.anims
+    vars: [vr_left_handed, w_base_revolver]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_revolver_left.anims
+    vars: [vr_left_handed, w_base_revolver]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_revolver__darra_nova_left.anims
+    vars: [vr_left_handed, w_revolver_darra_nova_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_revolver__darra_nova_left.anims
+    vars: [vr_left_handed, w_revolver_darra_nova_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_revolver__darra_quasar_left.anims
+    vars: [vr_left_handed, w_revolver_darra_quasar_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_revolver__darra_quasar_left.anims
+    vars: [vr_left_handed, w_revolver_darra_quasar_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_revolver__malorian_overture_left.anims
+    vars: [vr_left_handed, w_revolver_malorian_overture_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_revolver__malorian_overture_left.anims
+    vars: [vr_left_handed, w_revolver_malorian_overture_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_revolver__militech_crusher_left.anims
+    vars: [vr_left_handed, w_revolver_militech_crusher_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_revolver__militech_crusher_left.anims
+    vars: [vr_left_handed, w_revolver_militech_crusher_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_revolver__techtronika_burya_left.anims
+    vars: [vr_left_handed, w_revolver_techtronika_burya_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_revolver__techtronika_burya_left.anims
+    vars: [vr_left_handed, w_revolver_techtronika_burya_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_assault__arasaka_masamune_left.anims
+    vars: [vr_left_handed, w_rifle_assault_arasaka_masamune_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_assault__arasaka_masamune_left.anims
+    vars: [vr_left_handed, w_rifle_assault_arasaka_masamune_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_rifle_assault_left.anims
+    vars: [vr_left_handed, w_base_rifle_assault]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_rifle_assault_left.anims
+    vars: [vr_left_handed, w_base_rifle_assault]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_assault__militech_ajax_left.anims
+    vars: [vr_left_handed, w_rifle_assault_militech_ajax_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_assault__militech_ajax_left.anims
+    vars: [vr_left_handed, w_rifle_assault_militech_ajax_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_assault__nokota_copperhead_left.anims
+    vars: [vr_left_handed, w_rifle_assault_nokota_copperhead_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_assault__nokota_copperhead_left.anims
+    vars: [vr_left_handed, w_rifle_assault_nokota_copperhead_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_assault__nokota_sidewinder_left.anims
+    vars: [vr_left_handed, w_rifle_assault_nokota_sidewinder_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_assault__nokota_sidewinder_left.anims
+    vars: [vr_left_handed, w_rifle_assault_nokota_sidewinder_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_rifle_precision_left.anims
+    vars: [vr_left_handed, w_base_rifle_precision]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_rifle_precision_left.anims
+    vars: [vr_left_handed, w_base_rifle_precision]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_precision_midnight_sor22_left.anims
+    vars: [vr_left_handed, w_rifle_precision_midnight_sor22_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_precision__midnight_sor22_left.anims
+    vars: [vr_left_handed, w_rifle_precision_midnight_sor22_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_precision__militech_achilles_left.anims
+    vars: [vr_left_handed, w_rifle_precision_militech_achilles_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_precision__militech_achilles_left.anims
+    vars: [vr_left_handed, w_rifle_precision_militech_achilles_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_precision__rostovic_kolac_left.anims
+    vars: [vr_left_handed, w_rifle_precision_rostovic_kolac_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_precision__rostovic_kolac_left.anims
+    vars: [vr_left_handed, w_rifle_precision_rostovic_kolac_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_precision__techtronika_pozhar_left.anims
+    vars: [vr_left_handed, w_rifle_precision__techtronika_pozhar_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_precision__techtronika_pozhar_left.anims
+    vars: [vr_left_handed, w_rifle_precision__techtronika_pozhar_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_rifle_sniper_left.anims
+    vars: [vr_left_handed, w_base_rifle_sniper]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_rifle_sniper_left.anims
+    vars: [vr_left_handed, w_base_rifle_sniper]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_sniper__techtronika_grad_left.anims
+    vars: [vr_left_handed, w_rifle_sniper_techtronika_grad_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_sniper__techtronika_grad_left.anims
+    vars: [vr_left_handed, w_rifle_sniper_techtronika_grad_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_sniper__tsunami_ashura_left.anims
+    vars: [vr_left_handed, w_rifle_sniper_tsunami_ashura_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_sniper__tsunami_ashura_left.anims
+    vars: [vr_left_handed, w_rifle_sniper_tsunami_ashura_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_rifle_sniper__tsunami_nekomata_left.anims
+    vars: [vr_left_handed, w_rifle_sniper_tsunami_nekomata_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_rifle_sniper__tsunami_nekomata_left.anims
+    vars: [vr_left_handed, w_rifle_sniper_tsunami_nekomata_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_shotgun_left.anims
+    vars: [vr_left_handed, w_base_shotgun]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_shotgun_left.anims
+    vars: [vr_left_handed, w_base_shotgun]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_shotgun__budget_carnage_left.anims
+    vars: [vr_left_handed, w_shotgun_budget_carnage_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_shotgun__budget_carnage_left.anims
+    vars: [vr_left_handed, w_shotgun_budget_carnage_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_shotgun__constitutional_arms_tactician_left.anims
+    vars: [vr_left_handed, w_shotgun_constitutional_tactician_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_shotgun__constitutional_arms_tactician_left.anims
+    vars: [vr_left_handed, w_shotgun_constitutional_tactician_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_shotgun_dual_left.anims
+    vars: [vr_left_handed, w_base_shotgun_dual]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_shotgun_dual_left.anims
+    vars: [vr_left_handed, w_base_shotgun_dual]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_shotgun_dual__rostovic_igla_left.anims
+    vars: [vr_left_handed, w_shotgun_dual_rostovic_igla_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_shotgun_dual__rostovic_igla_left.anims
+    vars: [vr_left_handed, w_shotgun_dual_rostovic_igla_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_shotgun_dual__rostovic_palica_left.anims
+    vars: [vr_left_handed, w_shotgun_dual_rostovic_palica_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_shotgun_dual__rostovic_palica_left.anims
+    vars: [vr_left_handed, w_shotgun_dual_rostovic_palica_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_shotgun_dual__rostovic_satara_left.anims
+    vars: [vr_left_handed, w_2020_shotgun_blunderbuss_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_shotgun_dual__rostovic_satara_left.anims
+    vars: [vr_left_handed, w_2020_shotgun_blunderbuss_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_shotgun_dual__rostovic_testera_left.anims
+    vars: [vr_left_handed, w_shotgun_dual_rostovic_testera_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_shotgun_dual__rostovic_testera_left.anims
+    vars: [vr_left_handed, w_shotgun_dual_rostovic_testera_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_smg__arasaka_shingen_left.anims
+    vars: [vr_left_handed, w_submachinegun_arasaka_shingen_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_smg__arasaka_shingen_left.anims
+    vars: [vr_left_handed, w_submachinegun_arasaka_shingen_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_base_smg_left.anims
+    vars: [vr_left_handed, w_base_submachinegun]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_base_smg_left.anims
+    vars: [vr_left_handed, w_base_submachinegun]
+    priority: 146
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_smg__darra_pulsar_left.anims
+    vars: [vr_left_handed, w_submachinegun_darra_pulsar_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_smg__darra_pulsar_left.anims
+    vars: [vr_left_handed, w_submachinegun_darra_pulsar_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_smg__militech_saratoga_left.anims
+    vars: [vr_left_handed, w_submachinegun_militech_saratoga_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_smg__militech_saratoga_left.anims
+    vars: [vr_left_handed, w_submachinegun_militech_saratoga_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_smg__senkoh_lx_left.anims
+    vars: [vr_left_handed, w_submachinegun_arasaka_senkoh_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_smg__senkoh_lx_left.anims
+    vars: [vr_left_handed, w_submachinegun_arasaka_senkoh_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_special_kangtao_dian_left.anims
+    vars: [vr_left_handed, w_smart_corp_rifle_21301_a_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_special_kangtao_dian_left.anims
+    vars: [vr_left_handed, w_special_kangtao_dian_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_special_kangtao_dian_left.anims
+    vars: [vr_left_handed, w_smart_corp_rifle_21301_a_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_special_kangtao_dian_left.anims
+    vars: [vr_left_handed, w_special_kangtao_dian_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_special__kangtao_zhuo_left.anims
+    vars: [vr_left_handed, w_shotgun_zhuo_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_special__kangtao_zhuo_left.anims
+    vars: [vr_left_handed, w_shotgun_zhuo_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_w_special__militech_hmg_left.anims
+    vars: [vr_left_handed, w_militech_hmg_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_wa_fpp.ent
+      - base\characters\entities\player\replacer\player_wa_fpp_replacer.ent
+      - ep1\characters\entities\player\player_wa_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_wa_replacer.ent
+      - ep1\characters\entities\player\replacer\bella_replacer.ent
+    component: root
+    set: vrport\lefthanded\pwa_w_special__militech_hmg_left.anims
+    vars: [vr_left_handed, w_militech_hmg_left]
+    priority: 124
+  - entity:
+      - base\characters\entities\player\player_ma_fpp.ent
+      - base\characters\entities\player\replacer\braindance_replacer.ent
+      - base\characters\entities\player\replacer\johnny_silverhand_replacer.ent
+      - base\characters\entities\player\replacer\tutorial_replacer.ent
+      - ep1\characters\entities\player\player_ma_fpp_ep1.ent
+      - ep1\characters\entities\player\replacer\assasin_ma_replacer.ent
+      - ep1\characters\entities\player\replacer\kurt_replacer.ent
+      - ep1\characters\entities\player\replacer\theo_replacer.ent
+    component: root
+    set: vrport\lefthanded\pma_default_weapon_left.anims
+    vars: [vr_left_handed]
+    priority: 196
+# <<< left-handed weapon animations

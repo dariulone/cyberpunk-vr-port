@@ -1,0 +1,223 @@
+{
+  "Header": {
+    "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+    "WKitJsonVersion": "0.0.9",
+    "GameVersion": 2310,
+    "ExportedDateTime": "2026-10-21T08:48:36.9812780Z",
+    "DataType": "CR2W",
+    "ArchiveFileName": ""
+  },
+  "Data": {
+    "Version": 195,
+    "BuildVersion": 0,
+    "EmbeddedFiles": [],
+    "RootChunk": {
+      "$type": "CMaterialInstance",
+      "audioTag": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+      },
+      "baseMaterial": {
+        "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "base\\fx\\shaders\\hologram.mt"
+        },
+        "Flags": "Default"
+      },
+      "cookingPlatform": "PLATFORM_PC",
+      "enableMask": 0,
+      "metadata": null,
+      "resourceVersion": 4,
+      "values": [
+        {
+          "$type": "Float",
+          "GlitchChance": 0.0
+        },
+        {
+          "$type": "Float",
+          "AdditiveAlphaBlend": 0.0
+        },
+        {
+          "$type": "Float",
+          "OpaqueScanlineDensity": 100.0
+        },
+        {
+          "$type": "rRef:ITexture",
+          "Scanline": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "vrport\\construct\\construct_grid_m.xbm"
+            },
+            "Flags": "Default"
+          }
+        },
+        {
+          "$type": "rRef:ITexture",
+          "Normal": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "engine\\textures\\editor\\normal.xbm"
+            },
+            "Flags": "Default"
+          }
+        },
+        {
+          "$type": "rRef:ITexture",
+          "DotsTexture": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "base\\fx\\_textures\\quests\\q105\\fx_pointcloud_dot.xbm"
+            },
+            "Flags": "Default"
+          }
+        },
+        {
+          "$type": "Float",
+          "DotsSize": 80.0
+        },
+        {
+          "$type": "Color",
+          "DotsColor": {
+            "$type": "Color",
+            "Red": 0,
+            "Green": 0,
+            "Blue": 0,
+            "Alpha": 255
+          }
+        },
+        {
+          "$type": "Vector4",
+          "Projector1Position": {
+            "$type": "Vector4",
+            "X": 0.0,
+            "Y": 0.0,
+            "Z": -1.0,
+            "W": 0.0
+          }
+        },
+        {
+          "$type": "Color",
+          "SurfaceColor": {
+            "$type": "Color",
+            "Red": 70,
+            "Green": 62,
+            "Blue": 12,
+            "Alpha": 255
+          }
+        },
+        {
+          "$type": "Color",
+          "SurfaceShadows": {
+            "$type": "Color",
+            "Red": 0,
+            "Green": 0,
+            "Blue": 0,
+            "Alpha": 255
+          }
+        },
+        {
+          "$type": "Color",
+          "FallofColor": {
+            "$type": "Color",
+            "Red": 200,
+            "Green": 160,
+            "Blue": 50,
+            "Alpha": 255
+          }
+        },
+        {
+          "$type": "rRef:ITexture",
+          "Diffuse": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "base\\materials\\placeholder\\black.xbm"
+            },
+            "Flags": "Default"
+          }
+        },
+        {
+          "$type": "Float",
+          "GradientOffset": -100.0
+        },
+        {
+          "$type": "Float",
+          "GradientLength": 1.0
+        },
+        {
+          "$type": "Float",
+          "FresnelStrength": 1.5
+        },
+        {
+          "$type": "Float",
+          "DotsFresnelStrength": 0.0
+        },
+        {
+          "$type": "Float",
+          "GlowStrength": 0.2
+        },
+        {
+          "$type": "Float",
+          "DesaturationStrength": 0.0
+        },
+        {
+          "$type": "Float",
+          "FlickerThreshold": 0.0
+        },
+        {
+          "$type": "Float",
+          "FlickerChance": 0.0
+        },
+        {
+          "$type": "Float",
+          "ArtifactsChance": 0.0
+        },
+        {
+          "$type": "Float",
+          "LightBleed": 0.0
+        },
+        {
+          "$type": "Float",
+          "NormalStrength": 0.0
+        },
+        {
+          "$type": "Float",
+          "ScreenSpaceFlicker": 0.0
+        },
+        {
+          "$type": "Float",
+          "UseIsobars": 0.0
+        },
+        {
+          "$type": "Float",
+          "EntropyThreshold": 0.0
+        },
+        {
+          "$type": "Float",
+          "UseMovingDots": 0.0
+        },
+        {
+          "$type": "Float",
+          "IsHair": 0.0
+        },
+        {
+          "$type": "Float",
+          "ScanlineThickness": 0.35
+        },
+        {
+          "$type": "Float",
+          "Opacity": 0.85
+        },
+        {
+          "$type": "Float",
+          "GlobalTint": 0.65
+        }
+      ]
+    }
+  }
+}

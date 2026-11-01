@@ -9,21 +9,29 @@
 // So the flags are read after it runs, on the real pipeline only (projectionPipeline is the damage
 // preview), and the plugin plays the matching vibration (src/Runtimes/Haptics.cpp).
 //
-// WHICH HANDS: the weapon hand (right); the plugin adds the left when the weapon is in a two-handed
-// grip. Fists, gorilla arms and mantis blades guard with both arms, so they always ask for both.
+// WHICH HANDS: the weapon hand -- the right, or left-handed the left one holding a weapon alone
+// (CyberpunkVRPort_LeftHanded); the plugin adds the other when the weapon is in a two-handed grip. Fists, gorilla
+// arms and mantis blades guard with both arms, so they always ask for both.
 //
 // This file intentionally stays in the global namespace: the plugin registers plain global natives.
 
 native func VRHapticEvent(kind: Int32, hands: Int32) -> Void;
 
 func VRPortGuardHands(player: ref<PlayerPuppet>) -> Int32 {
-  let weapon: ref<WeaponObject> = GameInstance.GetTransactionSystem(player.GetGame()).GetItemInSlot(player, t"AttachmentSlots.WeaponRight") as WeaponObject;
+  let ts: ref<TransactionSystem> = GameInstance.GetTransactionSystem(player.GetGame());
+  let weapon: ref<WeaponObject> = ts.GetItemInSlot(player, t"AttachmentSlots.WeaponRight") as WeaponObject;
+  let left: ref<WeaponObject>;
   if IsDefined(weapon) {
     let id: ItemID = weapon.GetItemID();
     if WeaponObject.IsOfType(id, gamedataItemType.Wea_Fists) || WeaponObject.IsOfType(id, gamedataItemType.Cyb_StrongArms)
       || WeaponObject.IsOfType(id, gamedataItemType.Cyb_MantisBlades) {
       return 3;
     };
+    return 2;
+  };
+  left = ts.GetItemInSlot(player, t"AttachmentSlots.WeaponLeft") as WeaponObject;
+  if IsDefined(left) && !WeaponObject.IsCyberwareWeapon(left.GetItemID()) {
+    return 1;
   };
   return 2;
 }

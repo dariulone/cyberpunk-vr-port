@@ -1,4 +1,4 @@
--- Codeware supplies the live HUD layer wrapper. All native widget access happens
+-- The plugin hands out the live HUD layer (Game.VRInkLayer). All native widget access happens
 -- here on the UI/script update thread, never on the OpenXR worker.
 local M = { count = 0, error = nil, phoneError = nil, lootVisible = false, refreshHiddenBounds = false }
 local phoneRoots = {}
@@ -23,7 +23,7 @@ local function exactPath(root, ...)
     local widget = root
     for _, name in ipairs({...}) do
         widget = widget and widget:GetWidgetByPathName(CName.new(name))
-        -- Codeware can return the root on a failed lookup.
+        -- A failed lookup can return the root.
         if not widget or NameToString(widget:GetName()) ~= name then return nil end
     end
     return widget
@@ -80,7 +80,8 @@ local function updatePhoneBounds(layer)
         subtitleRoots = {}
         for _, controller in ipairs(layer:GetGameControllers()) do
             local class = NameToString(controller:GetClassName())
-            if class == "CrosshairGameControllerPersistentDot" then
+            -- The braindance HUD is laid out about the screen's middle, as the dot is: both are moved onto the gaze.
+            if class == "CrosshairGameControllerPersistentDot" or class == "BraindanceGameController" then
                 table.insert(gazeRoots, controller:GetRootWidget())
             elseif class == "SubtitlesGameController" then
                 local root=controller:GetRootWidget()
@@ -158,7 +159,7 @@ local function updatePhoneBounds(layer)
             -- Resolve the child each update: game controllers may replace it.
             -- CET returns distinct handle wrappers for the same widget; Lua ==
             -- cannot identify ancestors. Resolve the two single-name children
-            -- explicitly (slash paths can return the root in Codeware).
+            -- explicitly (a slash path can return the root).
             local top=phone.root:GetWidgetByPathName(topPath)
             if top and NameToString(top:GetName())=="topWidgets" then
                 local loot=top:GetWidgetByPathName(lootPath)
@@ -263,8 +264,7 @@ end
 
 local function tickHud()
     hudLayerName = hudLayerName or CName.new("inkHUDLayer")
-    local system = Game.GetInkSystem()
-    local layer = system and system:GetLayer(hudLayerName)
+    local layer = Game.VRInkLayer(hudLayerName)
     local phoneOk, phoneError = pcall(updatePhoneBounds, layer)
     M.lootVisible = phoneOk and phoneError == true
     if phoneOk then M.phoneError = nil

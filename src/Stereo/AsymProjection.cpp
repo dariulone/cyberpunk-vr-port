@@ -295,6 +295,7 @@ void ReadBuilt(const uint8_t* view, int side) {
     o[5] = d0[0x190 / 4]; o[6] = d0[0x1A4 / 4]; o[7] = d0[0x1B0 / 4]; o[8] = d0[0x1B4 / 4];
     o[9] = d2[0x20 / 4]; o[10] = d2[0x30 / 4]; o[11] = d2[0x34 / 4];
     o[12] = d2[0x190 / 4]; o[13] = d2[0x1A4 / 4]; o[14] = d2[0x1B0 / 4]; o[15] = d2[0x1B4 / 4];
+    if (side == 0) cvr::engine_stereo::NoteViewEyes(view + kDesc, view + kDesc + 2 * kDescStride);
 }
 
 __int64 __fastcall Detour_ViewPrepare(void* ctx, void* spec, uint8_t* view) {

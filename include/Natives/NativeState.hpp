@@ -35,7 +35,9 @@ extern int32_t g_rootMetaRigTrackPersistentLastResult;
 extern int32_t g_rootMetaRigTrackPersistentPreset;
 extern volatile float     g_VRUserEyeHeight;
 extern volatile int       g_VRNeutralizeAnimGraph;
+// A diagnostic dump in the plugin's log folder; a recorded pose (grip, rest, smoke) in its grips folder.
 std::string VRDiagPath(const char* name);
+std::string VRGripPath(const char* name);
 extern bool g_chunkDebugWasEnabled;
 extern char               g_VRSmokeFingerNameL[32][48];
 extern char               g_VRSmokeFingerName[32][48];

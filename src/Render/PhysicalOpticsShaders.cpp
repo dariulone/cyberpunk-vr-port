@@ -1,4 +1,5 @@
 #include "Render/PhysicalOpticsShaders.hpp"
+#include "Core/Paths.hpp"
 #include "Render/PipelineVariants.hpp"
 #include <windows.h>
 #include <wrl/client.h>
@@ -12,6 +13,7 @@
 #include <cstring>
 
 extern void Log(const char*,...);
+extern volatile int g_verboseLog;
 namespace cvr::optics {
 namespace {
 using Microsoft::WRL::ComPtr;
@@ -41,13 +43,8 @@ uint64_t Hash(const D3D12_SHADER_BYTECODE& shader) {
     return value;
 }
 void Load(Shader& shader) {
-    HMODULE module{};wchar_t path[MAX_PATH]{};
-    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        reinterpret_cast<LPCWSTR>(&GlassShaderReplacement),&module))return;
-    const auto length=GetModuleFileNameW(module,path,MAX_PATH);
-    if(!length || length>=MAX_PATH)return;
-    auto* slash=wcsrchr(path,L'\\');if(!slash)return;slash[1]=0;
-    if(wcscat_s(path,shader.file))return;
+    wchar_t path[MAX_PATH]{};
+    if(wcscpy_s(path,cvr::paths::Dir(cvr::paths::Folder::Shaders).c_str()) || wcscat_s(path,shader.file))return;
     const auto file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
     if(file==INVALID_HANDLE_VALUE){Log("[optics] Missing glass shader %ls\n",shader.file);return;}
     LARGE_INTEGER size{};DWORD read{};
@@ -161,7 +158,8 @@ void MotionVectorsTagged(ID3D12Resource* resource) {
     velocity.rtv=velocity.heap->GetCPUDescriptorHandleForHeapStart();
     device->CreateRenderTargetView(resource,&view,velocity.rtv);
     velocity.resource=resource;velocity.ready=true;
-    Log("[optics] Lens velocity target %p %llux%u\n",static_cast<void*>(resource),static_cast<unsigned long long>(desc.Width),desc.Height);
+    // Re-tagged every time the game recreates its motion vectors: a line for the debug log only.
+    if(g_verboseLog)Log("[optics] Lens velocity target %p %llux%u\n",static_cast<void*>(resource),static_cast<unsigned long long>(desc.Width),desc.Height);
 }
 ComPtr<ID3D12Resource> MotionVectors() {
     std::lock_guard lock(velocityMutex);

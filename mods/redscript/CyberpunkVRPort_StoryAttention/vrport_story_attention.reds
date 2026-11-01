@@ -16,7 +16,7 @@ public func CyberpunkVRPortManualFocusClueIndex() -> Int32 {
     || this.m_scanningComponent.IsActiveClueUsingAutoInspect() {
     return -1;
   };
-  let components = this.GetComponents();
+  let components = VREntityComponents(this);
   while i < ArraySize(components) {
     if IsDefined(components[i]) && StrContains(NameToString(components[i].GetName()), "q110_haitian_book_a") {
       book = true;

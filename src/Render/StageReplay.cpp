@@ -13,6 +13,7 @@
 #include "Render/NativeCameraBindingState.hpp"
 #include "Render/NativeCameraFlushState.hpp"
 #include "Stereo/StereoInternal.hpp"
+#include "Stereo/VrcamConfig.hpp"
 #include "Utils/StereoLog.hpp"
 #include "Hooks/SwapChainInternal.hpp"
 #include "Hooks/Hook.hpp"
@@ -72,11 +73,16 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StageEventCount{0};
 // Its own setting (xr_vrcam_gbuffer_partitions), not part of stage replay: unpatched, VRCAM's
 // G-buffer is ONE job -- 2.15 ms on one thread in the city -- and the second view's whole graph,
 // which the engine runs before MAIN's, waits on it. Node timeline 2026-10-16.
+// The camera scope's view (vr_optics_feed) is the same kind of graph -- render-to-texture, run before
+// MAIN's bulk with MAIN idle -- and has its own setting (xr_scope_gbuffer_partitions, off by default:
+// measured slower, see LiveControlsPoll.cpp).
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_VrcamGbufferPartitions{0};
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_OpticsGbufferPartitions{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_VrcamGbufferPartitionsState{0};
-// Read by the trampoline at install-time address: VRCAM's camera-name hash while partitioned, 0
-// otherwise. Must stay a plain global (Hooks/Trampoline.hpp).
+// Read by the trampoline at install-time address: VRCAM's and the scope's camera-name hashes while
+// partitioned, 0 otherwise. Must stay plain globals (Hooks/Trampoline.hpp).
 __declspec(dllexport) volatile uint64_t CyberpunkVR_VrcamGbufferPartitionsKey = 0;
+__declspec(dllexport) volatile uint64_t CyberpunkVR_OpticsGbufferPartitionsKey = 0;
 // Replay: 1 lets a captured stream that contains resource barriers replay without them. Every
 // stage begins with one barrier on the source view's own resource (census 816); the target's own
 // consumer -- with its barrier -- is skipped as a whole, so the engine's state tracking stays
@@ -1520,7 +1526,7 @@ void Leave(Ticket& t) {
 // VRCAM GBuffer_Solid partitions. The 15 bytes at 0x2277A46 (2.5 scene builder sub_142276E60; 2.31 0x1D43B2B)
 //     cmp [rsi+0FA4h], ebx ; mov edi, cs:dword_143C14B50 ; cmovz edi, ebx
 // jump to a check that keeps the worker count when the view's AA mode is 1 only if the graph is
-// VRCAM's. r12 is the builder's fourth argument for the whole function (set once at 0x2276E8D):
+// VRCAM's or the scope's. r12 is the builder's fourth argument for the whole function (set once at 0x2276E8D):
 // its only caller (0x40A3E8) passes subview+0x25B0, and the subview's camera name is at +0x28
 // (the hash FlagCompute and RenderParity key on), so the name is [r12-2588h]. ebx is 1 there.
 // rax is free: the next instruction is `xor ecx, ecx; call`, which clobbers it, and resets flags.
@@ -1533,7 +1539,7 @@ bool InstallVrcamPartitions() {
         CyberpunkVR_VrcamGbufferPartitionsState.store(2);
         return false;
     }
-    auto* code = static_cast<uint8_t*>(AllocateTrampoline(site, 64));
+    auto* code = static_cast<uint8_t*>(AllocateTrampoline(site, 128));
     if (!code) { CyberpunkVR_VrcamGbufferPartitionsState.store(2); return false; }
     const uintptr_t workers = uintptr_t(site + 12) + *reinterpret_cast<const int32_t*>(site + 8);
     int pos = 0;
@@ -1541,16 +1547,20 @@ bool InstallVrcamPartitions() {
     for (uint8_t b : {0x8B, 0x38}) code[pos++] = b;                                 // mov edi, [rax]
     for (uint8_t b : {0x39, 0x9E, 0xA4, 0x0F, 0x00, 0x00}) code[pos++] = b;         // cmp [rsi+0FA4h], ebx
     code[pos++] = 0x75; const int toDone1 = pos++;                                  // jnz done
-    WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(&CyberpunkVR_VrcamGbufferPartitionsKey));
-    for (uint8_t b : {0x48, 0x8B, 0x00}) code[pos++] = b;                           // mov rax, [rax]
-    for (uint8_t b : {0x48, 0x85, 0xC0}) code[pos++] = b;                           // test rax, rax
-    code[pos++] = 0x74; const int toOne = pos++;                                    // jz one
-    for (uint8_t b : {0x49, 0x3B, 0x84, 0x24, 0x78, 0xDA, 0xFF, 0xFF}) code[pos++] = b;  // cmp rax, [r12-2588h]
-    code[pos++] = 0x74; const int toDone2 = pos++;                                  // jz done
-    code[toOne] = uint8_t(pos - (toOne + 1));
+    int toNext[2], toDone[2];
+    const volatile uint64_t* keys[2] = {&CyberpunkVR_VrcamGbufferPartitionsKey, &CyberpunkVR_OpticsGbufferPartitionsKey};
+    for (int k = 0; k < 2; ++k) {                                                   // per key:
+        WriteMovRaxImm64(code, pos, reinterpret_cast<uintptr_t>(keys[k]));
+        for (uint8_t b : {0x48, 0x8B, 0x00}) code[pos++] = b;                       //   mov rax, [rax]
+        for (uint8_t b : {0x48, 0x85, 0xC0}) code[pos++] = b;                       //   test rax, rax
+        code[pos++] = 0x74; toNext[k] = pos++;                                      //   jz next key
+        for (uint8_t b : {0x49, 0x3B, 0x84, 0x24, 0x78, 0xDA, 0xFF, 0xFF}) code[pos++] = b;  // cmp rax, [r12-2588h]
+        code[pos++] = 0x74; toDone[k] = pos++;                                      //   jz done
+        code[toNext[k]] = uint8_t(pos - (toNext[k] + 1));
+    }
     for (uint8_t b : {0x89, 0xDF}) code[pos++] = b;                                 // one: mov edi, ebx
     code[toDone1] = uint8_t(pos - (toDone1 + 1));
-    code[toDone2] = uint8_t(pos - (toDone2 + 1));
+    for (int k = 0; k < 2; ++k) code[toDone[k]] = uint8_t(pos - (toDone[k] + 1));
     code[pos++] = 0xE9;                                                             // done: jmp past the site
     *reinterpret_cast<int32_t*>(code + pos) = static_cast<int32_t>((site + sizeof(expected)) - (code + pos + 4));
     pos += 4;
@@ -1565,11 +1575,14 @@ bool InstallVrcamPartitions() {
 }
 CVR_HOOK("VrcamGbufferPartitions", ::cvr::hooks::Stage::Boot, 50, InstallVrcamPartitions);
 
-// Publishes VRCAM's camera name to the trampoline. The name can be re-resolved at runtime (vrcam
-// pick), so it is re-read on every poll rather than latched.
+// Publishes VRCAM's and the scope's camera names to the trampoline. VRCAM's can be re-resolved at
+// runtime (vrcam pick), so it is re-read on every poll rather than latched.
 void ApplyPartitions(uint32_t want) {
     static uint32_t applied = 0;
     if (CyberpunkVR_VrcamGbufferPartitionsState.load(std::memory_order_relaxed) == 2) return;
+    static const uint64_t optics = cvr::cname_hash("vr_optics_feed");
+    CyberpunkVR_OpticsGbufferPartitionsKey =
+        CyberpunkVR_OpticsGbufferPartitions.load(std::memory_order_relaxed) ? optics : 0;
     const uint64_t key = want ? cvr::detail::g_vrcam_ctx_key.load(std::memory_order_acquire) : 0;
     if (key == CyberpunkVR_VrcamGbufferPartitionsKey) return;
     CyberpunkVR_VrcamGbufferPartitionsKey = key;
@@ -1602,6 +1615,11 @@ extern "C" __declspec(dllexport) void CyberpunkVR_StageReplayConfigure(int enabl
 // without stage replay.
 extern "C" __declspec(dllexport) void CyberpunkVR_VrcamGbufferPartitionsConfigure(int enable) {
     CyberpunkVR_VrcamGbufferPartitions.store(enable ? 1u : 0u);
+}
+
+// xr_scope_gbuffer_partitions: likewise, applied by the next StageReplayPoll.
+extern "C" __declspec(dllexport) void CyberpunkVR_ScopeGbufferPartitionsConfigure(int enable) {
+    CyberpunkVR_OpticsGbufferPartitions.store(enable ? 1u : 0u);
 }
 
 extern "C" __declspec(dllexport) void CyberpunkVR_StageReplayPoll() {

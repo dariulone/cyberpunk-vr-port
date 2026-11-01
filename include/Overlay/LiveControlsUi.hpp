@@ -10,6 +10,7 @@
 #include "Render/MonoCascades.hpp"
 
 struct LiveControlsUiState {
+    bool xrWeaponLaserDot = false;
     float xrHeadOffsetX;
     float xrHeadOffsetY;
     float xrHeadOffsetZ;
@@ -44,6 +45,9 @@ struct LiveControlsUiState {
     int monoMode=0;          // xr_mono_mode: one picture for both eyes (Stereo/EngineStereo.hpp)
     int scopeStabilize=80;   // xr_scope_stabilize, percent history in a moving scope lens (0 = off)
     int nvidiaReflex = cvr::reflex::DefaultMode;
+    int fpsCap=1;            // xr_fps_cap: the game held to the headset's refresh rate (Framegen/Framegen.hpp)
+    int lobby=1;             // xr_lobby: the main menu shown in its world (Lobby/MenuLobby.hpp)
+    int lobbyAmbient=1;      // xr_lobby_ambient: the lobby's ambience plays (Lobby/MenuLobby.hpp)
     cvr::vrui::Settings overlay{};
     int xr3DofMovement;
     int xrFirstLaunch;      // not a control -- carried so a UI save does not drop the key
@@ -127,6 +131,10 @@ struct LiveControlsUiState {
     // close the hand has to be, in metres, before the grip means "grab" instead of its normal action.
     int xrWheelGrab;
     float xrWheelRadius;
+    // The VR menu's grip swipe (1 = on); L3 + R3 always opens it.
+    int xrMenuGesture = 1;
+    // The port's weapon wheel on a held Y (1 = on); off, the game's own.
+    int xrVrWeaponWheel = 1;
     // Controller tilt that means full lock, degrees. 90 (default) = hands vertical, the 1:1 reading of
     // a real wheel; lower = the same wrist movement steers more. The deadzone is the tilt around
     // centre that steers nothing: 1.5 (default) only swallows tremor.
@@ -151,6 +159,7 @@ struct LiveControlsUiState {
     int xrVehicleCutsceneSuspendTier;
     int xrBreaststrokeSwim;
     int xrLadderGripClimb;
+    int xrLeftHanded;
     int xrLadderAutoFinish;
     float xrLadderFinishDistance;
 };

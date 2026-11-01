@@ -151,7 +151,7 @@ local function glide(state,dt)
 end
 local function discover()
     components={}
-    for _,source in ipairs(Sources.resolve(Game.GetInkSystem(),VRViewWorldPos())) do
+    for _,source in ipairs(Sources.resolve(VRViewWorldPos())) do
         local component=source.component
         local root=component:GetWidget()
         local controller=component:GetGameController()

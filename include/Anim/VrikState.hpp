@@ -239,6 +239,7 @@ extern volatile float     g_VRSmokeThumbFlickL[4];
 extern volatile float     g_VRSmokeThumbPressManualL;
 extern int                g_VRSmokeThumbIsL[32];
 extern volatile int       g_VRSmokeLeftUseCig;
+extern volatile int       g_VRSmokeRightLighter;
 extern volatile int       g_VRSmokeCigLHave;
 extern float              g_VRSmokeFingerRotLC[32][4];
 extern float              g_VRSmokeCigLPos[3];
@@ -294,6 +295,10 @@ extern volatile float     g_VREntityQI, g_VREntityQJ, g_VREntityQK, g_VREntityQR
 // toggling the sprint back off. The state machine itself is unambiguous.
 extern volatile int       g_VRSprintActive;
 extern volatile int       g_VRLocomotionState;
+// The DETAILED locomotion state (gamePSMDetailedLocomotionStates: 5 Slide, 14 Fall, 18-22 the jumps, 23-25 the
+// landings), from the same blackboard and push. -1 = nobody has told us. The body under the view takes the clip's
+// own torso in those (VRIK_PlaceBodyUnderHMD); the plain state cannot tell a fall from standing (it stays Default).
+extern volatile int       g_VRLocomotionDetailed;
 // THE TAKEDOWN, BODY-CARRYING AND BODY-DISPOSAL STATES, published together by SetVRPairedAnimationState
 // from the VRIK CET mod beside the locomotion value (-1 = nobody has told us). gamePSMTakedown:
 // 1 EnteringGrapple, 2 Grapple, 3 Leap, 4 Takedown. gamePSMBodyCarrying: 1 PickUp, 2 Carry, 3 Dispose,

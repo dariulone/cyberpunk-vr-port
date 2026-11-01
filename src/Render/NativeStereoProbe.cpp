@@ -1,4 +1,5 @@
 #include "Render/NativeStereoProbe.hpp"
+#include "Core/Paths.hpp"
 #include "Render/NativeRetainedGeometry.hpp"
 #include "Render/NativePairedGeometry.hpp"
 #include "Render/NativeShaderSnapshot.hpp"
@@ -165,10 +166,7 @@ template<class F> void Edit(ID3D12GraphicsCommandList* list,F update) {
 bool Enabled() {
     std::call_once(initialization,[]{
         CyberpunkVR_NativeStereoProbeAssetStatus.store(1,std::memory_order_relaxed);
-        HMODULE module{};wchar_t path[32768]{};
-        if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCWSTR>(&Enabled),&module) ||
-           !GetModuleFileNameW(module,path,32768))return;
-        const auto directory=std::filesystem::path(path).parent_path();
+        const std::filesystem::path directory=cvr::paths::Dir(cvr::paths::Folder::Shaders);
         auto load=[&](const wchar_t* name,std::vector<uint8_t>& target,uint64_t expected) {
             std::ifstream file(directory/name,std::ios::binary|std::ios::ate);if(!file)return false;
             CyberpunkVR_NativeStereoProbeAssetStatus.store(2,std::memory_order_relaxed);

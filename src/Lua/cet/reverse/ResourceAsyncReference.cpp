@@ -1,0 +1,46 @@
+#include <stdafx.h>
+
+#include "ResourceAsyncReference.h"
+#include "RTTILocator.h"
+#include "Converter.h"
+
+ResourceAsyncReference::ResourceAsyncReference(
+    const TiltedPhoques::Locked<sol::state, std::recursive_mutex>& aView, RED4ext::rtti::IType* apType, RED4ext::ResourceAsyncReference<void>* apReference)
+    : ClassType(aView, reinterpret_cast<RED4ext::CRTTIResourceAsyncReferenceType*>(apType)->innerType)
+    , m_reference(*apReference)
+{
+}
+
+uint64_t ResourceAsyncReference::Hash(const std::string& aPath)
+{
+    return RED4ext::ResourcePath(aPath.c_str());
+}
+
+void* ResourceAsyncReference::GetHandle() const
+{
+    return nullptr;
+}
+
+void* ResourceAsyncReference::GetValuePtr() const
+{
+    return GetHandle();
+}
+
+uint64_t ResourceAsyncReference::GetHash() const
+{
+    return m_reference.path.hash;
+}
+
+// Manual uint64 to Lua conversion because sol + LuaJIT can't do it
+sol::object ResourceAsyncReference::GetLuaHash() const
+{
+    static RTTILocator s_uint64Type{RED4ext::FNV1a64("Uint64")};
+
+    auto lockedState = m_lua.Lock();
+
+    RED4ext::CStackType stackType;
+    stackType.type = s_uint64Type;
+    stackType.value = const_cast<RED4ext::ResourceAsyncReference<void>*>(&m_reference);
+
+    return Converter::ToLua(stackType, lockedState);
+}

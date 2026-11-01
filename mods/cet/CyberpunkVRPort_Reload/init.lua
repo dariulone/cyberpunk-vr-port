@@ -117,6 +117,18 @@ do
 end
 local dualYielded = false
 
+-- What the gun wants from the free hand, shown on it: an empty magazine pulsing, a missing one's shape, a bolt to
+-- work (reload/glow.lua).
+local Glow = nil
+do
+    local ok, t = pcall(function() return require('reload/glow') end)
+    if ok then
+        Glow = t
+    else
+        pcall(function() spdlog.info('[Reload] glow LOAD FAILED: ' .. tostring(t)) end)
+    end
+end
+
 -- ---- from init.lua 358-358: slotComp / slotEnt
 local slotComp, slotEnt = nil, nil
 
@@ -230,7 +242,7 @@ local function readWeapon()
     -- part failed to resolve, WGN came out 0, and the log printed gun=0 -- which reads as "no weapon in hand" and
     -- sent me looking at GetActiveWeapon, which was innocent. The log now separates the two.
     if not slotComp then
-        local cs = w:GetComponents()
+        local cs = Game.VREntityComponents(w)
         for i = 1, #cs do
             if string.find(tostring(cs[i]:GetClassName()), "SlotComponent") then
                 local o, found = pcall(function() return cs[i]:GetSlotTransform(CName.new(WCAPS[1].slot)) end)
@@ -462,6 +474,11 @@ registerForEvent('onUpdate', function(dt)
             dbgNote2 = okF and '-' or ('FRAME-ERR: ' .. tostring(errF))
         end
     end
+    -- Two guns in hand, or the game's own reload running: nothing is wanted of a free hand.
+    if Glow then
+        local mine = Reload and not dual and dbgNote2 == '-'
+        pcall(Glow.frame, mine and Reload or nil, lastW, (Reload and Reload.holderOk) or holder, slotComp, dt)
+    end
 
     -- Published every frame, releases included: the collision mod has to see a wrist let go as
     -- promptly as it sees it taken.
@@ -591,6 +608,7 @@ registerForEvent('onShutdown', function()
     pcall(function() VRHandStopRot(1, 0, 0, 0, 0, 1) end)
     -- a dual-wielded gun whose magazine is out would keep its empty well through a mod reload
     if DualWield and DualWield.release then pcall(DualWield.release) end
+    if Glow then pcall(Glow.clear) end
 end)
 
 -- HOT RELOAD, for development: reload/ read again off disk, no game restart. CET hides `package` (so the require
@@ -622,12 +640,17 @@ end
 return {
     reload = function() return Reload end,
     dualWield = function() return DualWield end,
+    glow = function() return Glow end,
     -- GetMod('CyberpunkVRPort_Reload').hot() -> 'ok' or the error; the old module stays if the new one fails
     hot = function()
         local ok, new = pcall(hotLoad, 'reload/reload')
         if not ok then return 'hot reload failed: ' .. tostring(new) end
         local okD, newD = pcall(hotLoad, 'dual_wield')
         if not okD then return 'hot reload failed: ' .. tostring(newD) end
+        local okG, newG = pcall(hotLoad, 'reload/glow')
+        if not okG then return 'hot reload failed: ' .. tostring(newG) end
+        if Glow then pcall(Glow.clear) end
+        Glow = newG
         if Reload and Reload.release then pcall(Reload.release, lastW) end
         Reload = new
         if DualWield and DualWield.release then pcall(DualWield.release) end

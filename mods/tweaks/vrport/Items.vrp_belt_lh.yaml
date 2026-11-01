@@ -1,0 +1,22 @@
+# THE PORT'S BELT FOR A LEFT-HANDED PLAYER.
+#
+# Items.vrp_belt with the magazines, the shells and the grenades on the other hips (tools/mirror_belt_elements.py):
+# the ammunition rides the support hand's side and the grenades the weapon hand's. A belt of its own and not an
+# appearance of the port's belt, because the garment is merged onto the player when the belt is attached -- naming
+# another appearance afterwards does not merge it again. CyberpunkVRPort_TacticalBelt puts this one on instead of
+# Items.vrp_belt while the player is left-handed.
+#
+#   entityName        the factory row in base\vrport\vrp_props.csv -> base\vrport\belt\vrp_belt_lh.ent
+#   appearanceName    the stem of that entity's four appearances, "vrp_belt_lh_&Male&FPP" and friends
+Items.vrp_belt_lh:
+  $base: Items.GenericInnerChestClothing
+  placementSlots:
+    - !append AttachmentSlots.VRPortWaist
+  entityName: vrp_belt_lh
+  appearanceName: vrp_belt_lh_
+  quality: Quality.Legendary
+  appearanceSuffixes:
+    - !append itemsFactoryAppearanceSuffix.Camera
+  statModifiers:
+    - !append Quality.IconicItem
+    - !append Character.ScaleToPlayerLevel

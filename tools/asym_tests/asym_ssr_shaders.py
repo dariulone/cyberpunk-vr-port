@@ -854,6 +854,75 @@ def planar_merge(ir):
     return add_declarations(grow_b6(ir)), 1
 
 
+HALVES_ROW = 32                 # b0 GlobalShaderConsts: .x the two-halves (side by side) mode
+EYE_KIND_ROW = 40               # b6: .w the eye the block was built for (2 = right, the right half of the frame)
+
+
+def eye_half_exit(ir):
+    """The planar trace in the engine's side-by-side mode: each thread outside the dispatch's own eye leaves at once.
+
+    Game 2.5 dispatches the trace once per eye, each with that eye's block and each over the WHOLE frame
+    (ScreenSpacePlanarReflections work, sub_14077D450: groups = ceil(width / 8) for both). The shader folds the
+    thread's x into its half and builds the ray with the block's camera, so the first dispatch traced both halves
+    with the left eye's camera and the second traced them both again with the right eye's: the left eye's water
+    showed the right eye's reflection, laid out in the right eye's window. A thread in the other eye's half now
+    returns before it reads or writes anything; the half it leaves is the other dispatch's. Off the two-halves
+    mode nothing changes. A shader without the mode (2.31) is left as it is."""
+    b0 = cbv_handle(ir, 0)
+    b6 = cbv_handle(ir, 6)
+    fold = re.search(r'(?m)^  (%\d+) = call %dx\.types\.CBufRet\.i32 @dx\.op\.cbufferLoadLegacy\.i32\(i32 59, '
+                     r'%dx\.types\.Handle ' + re.escape(b0) + r', i32 ' + str(HALVES_ROW) + r'\)', ir)
+    if not fold:
+        return ir, 0
+    kind = re.search(r'(?m)^  (%\d+) = call %dx\.types\.CBufRet\.i32 @dx\.op\.cbufferLoadLegacy\.i32\(i32 59, '
+                     r'%dx\.types\.Handle ' + re.escape(b6) + r', i32 ' + str(EYE_KIND_ROW) + r'\)[^\n]*\n'
+                     r'  (%\d+) = extractvalue %dx\.types\.CBufRet\.i32 \1, 3\n  %\d+ = icmp eq i32 \2, 2\n', ir)
+    if not kind:
+        raise ValueError('the two-halves mode without the eye test on b6 row %d.w' % EYE_KIND_ROW)
+    # the fold itself: x >= the frame width (a b6 row's .x) / 2 -> x - that
+    half = re.search(r'(?m)^  (%\d+) = call %dx\.types\.CBufRet\.f32 @dx\.op\.cbufferLoadLegacy\.f32\(i32 59, '
+                     r'%dx\.types\.Handle ' + re.escape(b6) + r', i32 (\d+)\)[^\n]*\n  (%\d+) = extractvalue %dx\.types\.CBufRet\.f32 \1, 0\n'
+                     r'  (%\d+) = fmul fast float \3, 5\.000000e-01\n  %\d+ = fcmp fast oge float (%\d+), \4\n', ir)
+    if not half:
+        raise ValueError('the two-halves mode without the fold of x')
+    width_row = int(half.group(2))
+    tx = re.search(r'(?m)^  ' + re.escape(half.group(5)) + r' = uitofp i32 (%\d+) to float$', ir)
+    ty = re.search(r'(?m)^  (%\d+) = call i32 @dx\.op\.threadId\.i32\(i32 93, i32 1\)', ir)
+    if not tx or not ty or not re.search(r'(?m)^  ' + re.escape(tx.group(1)) + r' = call i32 @dx\.op\.threadId\.i32\(i32 93, i32 0\)', ir):
+        raise ValueError('the fold does not take the thread id')
+    lines = ir.split('\n')
+    exits = [i for i, l in enumerate(lines) if l == '  ret void']
+    if len(exits) != 1 or not lines[exits[0] - 1].startswith('; <label>:'):
+        raise ValueError('expected one exit block holding only its return')
+    out = '%' + lines[exits[0] - 1].split()[1].split(':')[1]
+    at = next(i for i, l in enumerate(lines) if l.startswith('  %s = ' % ty.group(1)))
+    q, lab = '%asym.eh.', 'asym.eh.'
+    code = [
+        '  %smode = call %%dx.types.CBufRet.i32 @dx.op.cbufferLoadLegacy.i32(i32 59, %%dx.types.Handle %s, i32 %d)' % (q, b0, HALVES_ROW),
+        '  %son = extractvalue %%dx.types.CBufRet.i32 %smode, 0' % (q, q),
+        '  %ssbs = icmp ne i32 %son, 0' % (q, q),
+        '  %seye = call %%dx.types.CBufRet.i32 @dx.op.cbufferLoadLegacy.i32(i32 59, %%dx.types.Handle %s, i32 %d)' % (q, b6, EYE_KIND_ROW),
+        '  %skind = extractvalue %%dx.types.CBufRet.i32 %seye, 3' % (q, q),
+        '  %sright = icmp eq i32 %skind, 2' % (q, q),
+        '  %ssize = call %%dx.types.CBufRet.f32 @dx.op.cbufferLoadLegacy.f32(i32 59, %%dx.types.Handle %s, i32 %d)' % (q, b6, width_row),
+        '  %swidth = extractvalue %%dx.types.CBufRet.f32 %ssize, 0' % (q, q),
+        '  %shalf = fmul fast float %swidth, 5.000000e-01' % (q, q),
+        '  %sx = uitofp i32 %s to float' % (q, tx.group(1)),
+        '  %sinright = fcmp fast oge float %sx, %shalf' % (q, q, q),
+        '  %sother = xor i1 %sinright, %sright' % (q, q, q),
+        '  %sskip = and i1 %ssbs, %sother' % (q, q, q),
+        '  br i1 %sskip, label %s, label %%%sgo' % (q, out, lab),
+        '',
+        '%sgo:' % lab,
+    ]
+    lines[at + 1:at + 1] = code
+    # the entry's own terminator now ends asym.eh.go: phis that named the entry name it instead
+    for i, l in enumerate(lines):
+        if ' = phi ' in l:
+            lines[i] = re.sub(r'%0 \]', '%asym.eh.go ]', l)
+    return '\n'.join(lines), 1
+
+
 def fill_merge(ir):
     """The tiles without coarse hits (the engine only zeroes their confidence): the other eye's result where
     it has one. The twin declares what the trace before it left bound -- depth t1, colour u0, b6, b12 -- and
@@ -1298,7 +1367,7 @@ def build(original, key=None):
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
         ir = ham.disassemble(original, work)
-        count = fades = merges = 0
+        count = fades = merges = halves = 0
         if key == FILL:
             ir, merges = fill_merge(ir)
         else:
@@ -1309,12 +1378,13 @@ def build(original, key=None):
                 fades += crossed
             elif key == PLANAR:
                 ir, merges = planar_merge(ir)
+                ir, halves = eye_half_exit(ir)
             else:
                 ir, fades = shared_view_fade(ir)
         container = ham.assemble(ir, work)
     if dc.dxil_hash(container) != container[4:20]:
         raise RuntimeError('validator output hash mismatch')
-    return container, count, fades, merges
+    return container, count, fades, merges, halves
 
 
 def main():
@@ -1332,12 +1402,13 @@ def main():
         if ham.fnv1a(original) != key:
             raise RuntimeError('%s does not hash to its name' % source)
         try:
-            patched, count, fades, merges = build(original, key)
+            patched, count, fades, merges, halves = build(original, key)
         except Exception as error:
             print('FAILED %016x %s: %s' % (key, name, error)); failed += 1; continue
         (args.out / ('%016x.dxil' % key)).write_bytes(patched)
-        print('OK %016x %s: %d reconstruction site(s) shifted, %d shared-view fade(s), %d wide merge(s), %d -> %d bytes'
-              % (key, name, count, fades, merges, len(original), len(patched)))
+        print('OK %016x %s: %d reconstruction site(s) shifted, %d shared-view fade(s), %d wide merge(s), '
+              '%d eye-half exit(s), %d -> %d bytes'
+              % (key, name, count, fades, merges, halves, len(original), len(patched)))
     return 1 if failed else 0
 
 

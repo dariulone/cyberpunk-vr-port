@@ -54,7 +54,12 @@ extern volatile uintptr_t g_dlssResPtr;
 
 // Player state the movement hooks branch on, refreshed from RTTI once per frame by the hub.
 extern bool g_isAiming;
+// A weapon in hand: on AttachmentSlots.WeaponRight, or -- left-handed -- alone on WeaponLeft (cvr::anim::WeaponInLeftHand).
 extern bool g_hasWeaponEquipped;
+// ...and what each slot holds: a WeaponObject on WeaponRight / WeaponLeft (the left one is also the second of two guns
+// and the projectile launcher).
+extern bool g_hasRightWeaponEquipped;
+extern bool g_hasLeftWeaponEquipped;
 
 // The render size the launcher was told to use. The FOV hooks derive the vertical from the
 // horizontal through this aspect, so the two must be the SAME numbers the swapchain gets.

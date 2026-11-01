@@ -26,7 +26,8 @@ same ones the reload module already reads with GetSlotTransform, so every grip o
 carries over with no rework.
 
 Usage:  python tools/ent/add_hold_components.py <player.ent.json> [more.json ...]
-Idempotent: a file that already carries the carriers is left alone.
+Idempotent: a file that already carries the carriers is left alone. Other pairs of carriers on the same two slots
+come from `patch(path, left, right)` (tools/reload_glow: the reload's glow).
 """
 import copy
 import json
@@ -131,13 +132,17 @@ def named(comp):
     return n.get('$value') if isinstance(n, dict) else n
 
 
-def patch(path):
-    doc = json.load(io.open(path, encoding='utf-8'))
+def add(path, names, make):
+    """Components added to a template's JSON, unless one of `names` is already there: `make(handle, base_id)` returns
+    them, `handle` the first free handle id and `base_id` a free component id, each one used once per component."""
+    with io.open(path, encoding='utf-8', newline='') as handle_in:
+        text = handle_in.read()
+    doc = json.loads(text)
     root = doc['Data']['RootChunk']
     comps = root.get('components')
     if comps is None:
         return path, 'no components list'
-    if any(named(c) in (LEFT, RIGHT) for c in comps):
+    if any(named(c) in names for c in comps):
         return path, 'already carried'
 
     handle = max_handle(doc) + 1
@@ -146,10 +151,8 @@ def patch(path):
     ids = [int(c['id']) for c in comps if str(c.get('id', '')).isdigit()]
     base_id = (max(ids) if ids else 0) + 1000
 
-    left = carrier(LEFT, 'WeaponLeft', handle, str(base_id))
-    right = carrier(RIGHT, 'WeaponRight', handle + 1, str(base_id + 1))
-    comps.append(left)
-    comps.append(right)
+    added = make(handle, base_id)
+    comps.extend(added)
 
     # ...and the cooked package beside it, which is what the engine actually instantiates. Both lists
     # exist in a cooked template and they mirror each other; adding to only one is how a component
@@ -157,16 +160,30 @@ def patch(path):
     chunks = (root.get('compiledData') or {}).get('Data', {}).get('Chunks')
     added_to_chunks = False
     if isinstance(chunks, list):
-        chunks.append(copy.deepcopy(left))
-        chunks.append(copy.deepcopy(right))
+        chunks.extend(copy.deepcopy(c) for c in added)
         added_to_chunks = True
 
-    with io.open(path, 'w', encoding='utf-8') as handle_out:
-        json.dump(doc, handle_out, indent=1, ensure_ascii=False)
-    return path, 'added (handles %d/%d, ids %d/%d, chunks=%s)' % (
-        handle, handle + 1, base_id, base_id + 1, added_to_chunks)
+    # Written as the file was, its indent, line endings and final newline kept: the sources under
+    # mods/archive/source/raw are patched in place, and anything else would rewrite every line of them.
+    newline = '\r\n' if '\r\n' in text else '\n'
+    second = text.split('\n', 2)[1] if text.count('\n') >= 2 else ''
+    indent = (len(second) - len(second.lstrip(' '))) or 2
+    out = json.dumps(doc, indent=indent, ensure_ascii=False).replace('\n', newline)
+    if text.endswith('\n'):
+        out += newline
+    with io.open(path, 'w', encoding='utf-8', newline='') as handle_out:
+        handle_out.write(out)
+    return path, 'added %s (handles from %d, ids from %d, chunks=%s)' % (
+        ', '.join(names), handle, base_id, added_to_chunks)
 
 
-for target in sys.argv[1:]:
-    where, what = patch(target)
-    print('%-40s %s' % (where.split('\\')[-1], what))
+def patch(path, left_name=LEFT, right_name=RIGHT):
+    return add(path, (left_name, right_name), lambda handle, base_id: [
+        carrier(left_name, 'WeaponLeft', handle, str(base_id)),
+        carrier(right_name, 'WeaponRight', handle + 1, str(base_id + 1))])
+
+
+if __name__ == '__main__':
+    for target in sys.argv[1:]:
+        where, what = patch(target)
+        print('%-40s %s' % (where.split('\\')[-1], what))

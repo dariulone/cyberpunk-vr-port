@@ -31,6 +31,7 @@ local VrcamSelect = {
 }
 
 local RETRY_TICKS = 30      -- ~150 ms @ 200 fps; the player is not there during load
+local MENU_RELEASE_TICKS = 90   -- the main menu's player: its cameras kept off about once a second
 local NAME_PREFIX = "vrcam_"
 -- THE BRAINDANCE REPLACER'S OWN SET. A braindance swaps the player for braindance_replacer.ent, so the
 -- same components are authored there under this prefix -- same virtualCameraName, same dtex, so nothing
@@ -142,7 +143,7 @@ end
 -- place ours does, every other frame.
 local function releaseEntity(ent)
     if ent == nil then return 0 end
-    local okL, comps = safeCall(ent, "GetComponents")
+    local okL, comps = pcall(Game.VREntityComponents, ent)
     if not okL or not comps then return 0 end
     local n = 0
     pcall(function() n = #comps end)
@@ -162,9 +163,9 @@ end
 local function apply(player, wanted, want_on)
     if not wanted then return false end
 
-    local okL, comps = safeCall(player, "GetComponents")
+    local okL, comps = pcall(Game.VREntityComponents, player)
     if not okL or not comps then
-        VrcamSelect.lastError = "player:GetComponents() unavailable"
+        VrcamSelect.lastError = "the player's components are unavailable"
         return false
     end
     local n = 0
@@ -275,10 +276,8 @@ local function preGameActive()
 end
 
 local function loadingScreenActive()
-    local system=Game.GetInkSystem()
-    if not system then return false end
     loadingLayerName=loadingLayerName or CName.new("inkLoadingLayer")
-    local layer=system:GetLayer(loadingLayerName)
+    local layer=Game.VRInkLayer(loadingLayerName)
     if not layer then return false end
     for _,controller in ipairs(layer:GetGameControllers()) do
         local name=cnameToString(controller:GetClassName())
@@ -323,7 +322,11 @@ function VrcamSelect.tick(dt)
         if ok and id == VrcamSelect.appliedId and not enableAsked() then return end
     end
     local okSession,preGame=pcall(preGameActive)
-    local okLoading,loading=pcall(loadingScreenActive)
+    VrcamSelect.preGame=okSession and preGame==true   -- read by the GC pace (init.lua)
+    -- The loading layer is walked only when the menu does not already say so: in the main menu it was walked every
+    -- frame for an answer that changed nothing (its garbage fed the menu's periodic GC freeze, 2026-10-28).
+    local okLoading,loading=true,false
+    if okSession and not preGame then okLoading,loading=pcall(loadingScreenActive) end
     if not okLoading then loading=VrcamSelect.loadingActive end
     if not okSession or preGame or loading then
         if not VrcamSelect.loadingActive then
@@ -342,7 +345,9 @@ function VrcamSelect.tick(dt)
             -- Keep its authored/restored RTT disabled too, without retaining
             -- another player handle or changing the player's requested state.
             releaseEntity(player)
-            VrcamSelect.ticksToRetry=5
+            -- In the menu about once a second: the walk reads every component's name, and every 5 ticks it was
+            -- a steady stream of garbage there.
+            VrcamSelect.ticksToRetry=preGame and MENU_RELEASE_TICKS or 5
         else
             VrcamSelect.ticksToRetry=VrcamSelect.ticksToRetry-1
         end

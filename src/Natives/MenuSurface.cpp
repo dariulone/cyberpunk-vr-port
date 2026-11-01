@@ -53,7 +53,8 @@ Handle<WorldWidgetComponent> Component(void* entry) {
     auto wrapper=At<WeakPtr<ink::IWidgetComponentWrapper>>(entry,0x190).Lock();
     if(!wrapper)return {};
     auto component=At<WeakHandle<WorldWidgetComponent>>(wrapper.GetPtr(),8).Lock();
-    if(!component || component->name!=CName("vrp_menu_ui") ||
+    // The VR menu's screens, and the VR lobby's terminal (mods/cet/CyberpunkVRPort_Lobby modules/terminal.lua).
+    if(!component || (component->name!=CName("vrp_menu_ui") && component->name!=CName("vrp_lobby_ui")) ||
        !component->GetType()->IsA(CRTTISystem::Get()->GetClass("WorldWidgetComponent")))return {};
     return component;
 }
@@ -61,6 +62,10 @@ std::array<uint32_t,2> Size(const WorldWidgetComponent* c) {
     if(!c)return {};
     if(c->widgetResource.path==ResourcePath("vrport\\ui\\vr_menu.inkwidget"))return {3200,1600};
     if(c->widgetResource.path==ResourcePath("vrport\\ui\\vr_menu_beam.inkwidget"))return {16,2048};
+    // The lobby terminal's screen: tools/vr_lobby_assets/make_lobby_assets.py CANVAS.
+    if(c->widgetResource.path==ResourcePath("vrport\\ui\\vr_lobby.inkwidget"))return {2580,1980};
+    // The new game's window in the lobby: lobby_layout.HOLO_WINDOW_CANVAS.
+    if(c->widgetResource.path==ResourcePath("vrport\\ui\\vr_lobby_window.inkwidget"))return {3190,2900};
     return {};
 }
 void FitWindow(void* entry,const WorldWidgetComponent* component) {
@@ -82,6 +87,20 @@ void FitWindow(void* entry,const WorldWidgetComponent* component) {
         At<uint8_t>(const_cast<WorldWidgetComponent*>(component),0x2A4)|=1;
     }
 }
+// THE DISPLAY'S RENDER PROXY CAN BE REPLACED UNDER THE COMPONENT. Switching the display mesh off and on (or the engine
+// streaming it out and back) builds a new proxy, and a new one starts from the material's defaults: an opaque black
+// plane. The component (update 3C5944, 2.5) sends its texture only while dirty (+0x2A4 bit 0), and in full only when it
+// differs from the one it applied last (+0x250); a new proxy marks nothing dirty, the weak handle to the old one
+// (+0x220, its count block +0x228) just expires. So keep the invariant ourselves: with no live proxy, nothing of ours
+// is applied; while what is applied is not our texture (+0x230) and the component shows its texture (+0x8B), it is
+// dirty. The next update then finds the proxy and binds our texture to it.
+void Rebind(WorldWidgetComponent* component,DynamicTexture* texture) {
+    auto* c=reinterpret_cast<uint8_t*>(component);
+    if(!texture || At<DynamicTexture*>(c,0x230)!=texture)return;
+    const auto* alive=At<volatile int32_t*>(c,0x228);
+    if(!alive || !*alive)At<void*>(c,0x250)=nullptr;
+    if(At<void*>(c,0x250)!=texture && At<uint8_t>(c,0x8B))At<uint8_t>(c,0x2A4)|=1;
+}
 void Prune() {
     for(auto it=surfaces.begin();it!=surfaces.end();) {
         const auto& s=it->second;
@@ -100,6 +119,12 @@ std::shared_ptr<Surface> Get(const Handle<WorldWidgetComponent>& component) {
     Prune();
     auto s=std::make_shared<Surface>();s->component=component;
     surfaces[component.GetPtr()]=s;tracked=true;CyberpunkVR_MenuSurfaceStats[7]=surfaces.size();return s;
+}
+// Marks a widget and its ancestors changed (flag 0x10 at +0x1FD, 2.5 sub 2805FC): ink rebuilds the window's draw
+// data and paints it again.
+void Invalidate(ink::Widget* widget) {
+    using Fn=void(*)(ink::Widget*);
+    if(widget)reinterpret_cast<Fn>(base+0x2805FC)(widget);
 }
 bool Create(Surface& s,const std::array<uint32_t,2>& size) {
     if(s.texture)return true;
@@ -158,11 +183,18 @@ uintptr_t Update(void* entry,void* context) {
         auto wrapper=At<WeakPtr<ink::IWidgetComponentWrapper>>(entry,0x190).Lock();
         if(wrapper)At<uint8_t>(wrapper.GetPtr(),108)=1;
         FitWindow(entry,component.GetPtr());
+        Rebind(component.GetPtr(),SurfaceTexture(component.GetPtr()));
         ++CyberpunkVR_MenuSurfaceStats[1];
         // ink must paint while the display mesh is disabled during preparation. The
         // menu's tiny fixed set of targets remains live when looking away, too.
         At<float>(entry,56)=100.f;
         InterlockedExchange(reinterpret_cast<volatile LONG*>(static_cast<uint8_t*>(entry)+152),1);
+        // A window none of whose widgets changed is painted from ink's cached draw data, and in that state its
+        // atlas images (not its rects or text) drew at about half strength for a few frames every ~7 s: the lobby's
+        // logo and pointer dot, measured on the mirror; the same window changed in every frame never did. These
+        // screens are live and painted every frame, so their draw data is rebuilt every frame as well: the window
+        // is marked changed, as any widget change marks it.
+        Invalidate(At<ink::Widget*>(entry,128));
     }
     return result;
 }
@@ -175,6 +207,7 @@ bool Install() {
     };
     if(std::memcmp(reinterpret_cast<void*>(base+0x5EA8A4),"\x48\x89\x5c\x24\x08\x48\x89\x74\x24\x10\x57\x48\x83\xec\x30\x48",16))return false;
     if(std::memcmp(reinterpret_cast<void*>(base+0x54A748),"\x40\x53\x48\x83\xec\x20\xf3\x0f\x10\x0a\x48\x8b\xd9\x0f\x2e\x89",16))return false;
+    if(std::memcmp(reinterpret_cast<void*>(base+0x2805FC),"\x48\x89\x5c\x24\x18\x55\x48\x8b\xec\x48\x83\xec\x60\x80\x89\xfd\x01\x00\x00\x10",20))return false;
     for(const auto& h:hooks)if(std::memcmp(reinterpret_cast<void*>(base+h.rva),h.bytes,h.size))return false;
     size_t created=0;
     for(const auto& h:hooks) {
@@ -231,8 +264,7 @@ bool Ready(const RED4ext::Handle<RED4ext::WorldWidgetComponent>& component,
     ++CyberpunkVR_MenuSurfaceStats[3];
     // Called after Lua has constructed the canvas. Request a real ink repaint; readiness
     // below requires that target's write to finish on its actual GPU queue.
-    using Invalidate=void(*)(ink::Widget*);
-    reinterpret_cast<Invalidate>(base+0x2805FC)(root.GetPtr());
+    Invalidate(root.GetPtr());
     return false;
 }
 void Barriers(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RESOURCE_BARRIER* barriers) {
@@ -268,6 +300,12 @@ void Written(ID3D12GraphicsCommandList* list,ID3D12Resource* resource) {
     }
 }
 bool Waiting(){return observing.load(std::memory_order_relaxed);}
+RED4ext::DynamicTexture* SurfaceTexture(RED4ext::WorldWidgetComponent* component) {
+    if(!installed || !component)return nullptr;
+    std::lock_guard lock(mutex);
+    const auto it=surfaces.find(component);
+    return it!=surfaces.end() && it->second->component.Lock().GetPtr()==component ? it->second->texture.GetPtr() : nullptr;
+}
 void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists) {
     if(!tracked.load(std::memory_order_relaxed) || !queue || !lists)return;
     std::lock_guard lock(mutex);

@@ -32,7 +32,7 @@ p.add_argument('--depth-prepass',action='store_true',help='Compare the opaque de
 p.add_argument('--start-indices',type=int,default=0,help='Select a later depth prefix by its first mesh index count; MAIN must match that exact anchor')
 p.add_argument('--depth-run',type=int,default=0,help='Select a complete source run of the supported depth PSO (1-based, 0 means first available)')
 args=p.parse_args()
-symbols=resolve(args.pid,root/'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll',
+symbols=resolve(args.pid,root/'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll',
     ['CyberpunkVR_SinglePass*','CyberpunkVR_NativeStereo*','CyberpunkVR_StereoGpu*','CyberpunkVR_GeometryPacket*','g_menuModeValue'])
 reader=Reader(args.pid,r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe',0,0)
 k=reader.k;k.WriteProcessMemory.argtypes=[w.HANDLE,c.c_void_p,c.c_void_p,c.c_size_t,c.POINTER(c.c_size_t)];k.WriteProcessMemory.restype=w.BOOL

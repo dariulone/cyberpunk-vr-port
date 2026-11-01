@@ -10,6 +10,7 @@
 // default. A file that exists with defaults in it is inspectable; an absent one is not.
 
 #include <windows.h>
+#include "Core/Paths.hpp"
 #include <psapi.h>
 #include <xinput.h>
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
@@ -51,16 +52,14 @@ void InitRuntimePaths() {
         *lastSlash = '\0';
     }
 
-    strcpy_s(g_liveControlPath, g_gameDir);
-    strcat_s(g_liveControlPath, "\\vrport.ini");
+    // The settings files live in the plugin's config folder (Core/Paths.hpp); an earlier release's copies next to
+    // the exe were moved there at load (MigrateLegacyLayout).
+    strcpy_s(g_liveControlPath, cvr::paths::FileA(cvr::paths::Folder::Config, "vrport.ini").c_str());
+    strcpy_s(g_launcherConfigPath, cvr::paths::FileA(cvr::paths::Folder::Config, "vrport-launcher.ini").c_str());
 
-    strcpy_s(g_launcherConfigPath, g_gameDir);
-    strcat_s(g_launcherConfigPath, "\\vrport-launcher.ini");
-
-    strcpy_s(g_vrikSettingsPath, g_gameDir);
-    strcat_s(g_vrikSettingsPath, "\\plugins\\cyber_engine_tweaks\\mods\\CyberpunkVRPort_VRIK\\vrik_settings.ini");
-    strcpy_s(g_vrikRecenterPath, g_gameDir);
-    strcat_s(g_vrikRecenterPath, "\\plugins\\cyber_engine_tweaks\\mods\\CyberpunkVRPort_VRIK\\vrik_recenter.ini");
+    // The VRIK mod's own files, in its folder under the plugin's Lua mods (the host sandboxes its IO there).
+    strcpy_s(g_vrikSettingsPath, cvr::paths::FileA(cvr::paths::Folder::Lua, "CyberpunkVRPort_VRIK\\vrik_settings.ini").c_str());
+    strcpy_s(g_vrikRecenterPath, cvr::paths::FileA(cvr::paths::Folder::Lua, "CyberpunkVRPort_VRIK\\vrik_recenter.ini").c_str());
 
     // Default: mouse pitch suppressed (VR uses the HMD for pitch).
     g_liveControls.xrDisableMouseY = 1;
@@ -152,7 +151,7 @@ void EnsureLiveControlFileExists() {
     // Who owns the XR frame loop: -1 auto (submit thread on SteamVR, inline pump on Virtual
     // Desktop), 0 force inline, 1 force the thread.
     fprintf(file, "xr_threaded_submit=-1\n");
-    fprintf(file, "xr_stage_replay=0\nxr_submit_chain=0\nxr_defer_present=0\nxr_gt_skip_render_queue=0\n");
+    fprintf(file, "xr_stage_replay=0\nxr_submit_chain=1\nxr_defer_present=1\nxr_gt_skip_render_queue=0\nxr_submit_chain_rev=1\n");
     fprintf(file, "xr_force_fov=0\n");
     fprintf(file, "xr_menu_rect=0\n");
     fprintf(file, "xr_menu_fov=65.0\n");
@@ -167,6 +166,7 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_body_move_radius=0.10\n");
     fprintf(file, "xr_breaststroke_swim=1\n");
     fprintf(file, "xr_ladder_grip_climb=1\n");
+    fprintf(file, "xr_left_handed=0\n");
     fprintf(file, "xr_ladder_auto_finish=1\nxr_ladder_finish_distance=1.0\n");
     fprintf(file, "xr_body_free_look_swim_deg=5\n");
     fprintf(file, "first_launch=1\n");

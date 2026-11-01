@@ -1,4 +1,5 @@
 #include "Render/CommandResources.hpp"
+#include "Render/IdleDlssContext.hpp"
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <atomic>
@@ -94,6 +95,46 @@ int main() try {
     const auto completed = WaitForSingleObject(done, 5000); CloseHandle(done); Check(completed == WAIT_OBJECT_0, "reader timeout");
     CollectCommandResources(); Check(destroyed == 6, "reader resources leaked");
 
-    std::cout << "PASS reset cancellation, GPU-delayed resize, prepare/reset race, replay, list destruction, two queues and retirement\n";
+    // A settings/size change can replace more than eight right-eye DLSS
+    // operands before the GPU catches up. Neither a fixed retirement array
+    // nor CPU evaluate counts can safely govern their lifetime.
+    Hr(device->CreateCommandList(0, desc.Type, allocator(), nullptr, IID_PPV_ARGS(&list)));
+    Hr(queue->Wait(gate.Get(), 2));
+    for (unsigned i = 0; i < 32; ++i) {
+        keep();
+        Hr(list->Close());
+        ID3D12CommandList* batchLists[]{list.Get()};
+        auto batch = PrepareCommandResources(1, batchLists);
+        queue->ExecuteCommandLists(1, batchLists);
+        SubmitCommandResources(queue.Get(), std::move(batch));
+        reset();
+    }
+    CollectCommandResources(); Check(destroyed == 6, "replacement burst retired before GPU completion");
+    Hr(gate->Signal(2)); wait();
+    Check(destroyed == 38, "replacement burst leaked after GPU completion");
+
+    IdleDlssContext context;
+    Check(!context.Ready(10000), "unused context eligible");
+    context.Used(list.Get(),100);
+    context.SplitSucceeded();context.SplitSucceeded();
+    Check(!context.Ready(10000), "recorded context retired before submission");
+    Hr(list->Close());ID3D12CommandList* contextLists[]{list.Get()};
+    Hr(queue->Wait(gate.Get(),3));
+    auto contextBatch=PrepareCommandResources(1,contextLists);
+    queue->ExecuteCommandLists(1,contextLists);SubmitCommandResources(queue.Get(),std::move(contextBatch));
+    Check(!context.Ready(10000), "blocked GPU allowed context release");
+    Hr(gate->Signal(3));wait();
+    Check(!context.Ready(10000), "replayable recording allowed context release");
+    reset();
+    Check(!context.Ready(101), "idle grace ignored");
+    Check(context.Ready(10000), "completed reset context cannot retire");
+    context.Released();Check(!context.Ready(10000), "context retired twice");
+    context.Used(list.Get(),11000);context.SplitSucceeded();context.SplitSucceeded();
+    Hr(list->Close());reset();
+    Check(context.Ready(14000), "recreated context cannot retire after cancellation");
+    context.Used(nullptr,15000);context.SplitSucceeded();context.SplitSucceeded();
+    Check(!context.Ready(18000), "failed tracking permitted context release");
+
+    std::cout << "PASS reset cancellation, GPU-delayed resize, prepare/reset race, replay, list destruction, two queues, 32 replacements, and idle DLSS context GPU/replay guards\n";
     return 0;
 } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

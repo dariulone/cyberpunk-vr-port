@@ -441,7 +441,7 @@ int main(int argc,char** argv) try {
         Check(c.Select(3,true,false)==Cadence::Next::PendingReal,"toggle dropped endpoint");c.Accepted(Cadence::Next::PendingReal,2);
         Check(c.Select(2,true,true)==Cadence::Next::Repeat,"repeat counted as new");c.Reset();Check(c.Pending()==0,"reset retained old endpoint");
     } else if(test=="settings") {
-        Settings s;Check(s.backend==Backend::DlssG && s.flowScale==0,"defaults are not DLSS-G / FidelityFX without optical flow");
+        Settings s;Check(s.backend==Backend::Nvidia && s.flowScale==50,"defaults are not NVIDIA OFA + FidelityFX at half-resolution flow");
         Check(ParseSetting("xr_framegen_flow_scale=0",s) && s.flowScale==0,"optical flow off parse");
         Check(ParseSetting("xr_framegen_backend=2",s) && s.backend==Backend::DlssG,"DLSS-G parse");
         Check(ParseSetting("xr_framegen=1",s) && s.enabled,"enable parse");

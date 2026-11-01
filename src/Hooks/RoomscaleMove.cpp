@@ -11,16 +11,25 @@
 #include "Hooks/Hook.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Camera/CameraState.hpp"
+#include "Camera/CameraLink.hpp"
 #include "Core/LiveControls.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Anim/VrikState.hpp"
 #include "Anim/HeadAimWeapon.hpp"
+#include "Lobby/MenuLobby.hpp"
+#include "Core/TweakRecords.hpp"
 #include <MinHook.h>
+#include <RED4ext/RTTISystem.hpp>
+#include <RED4ext/TweakDB.hpp>
 #include <intrin.h>
 #include <atomic>
+#include <limits>
 #include <mutex>
+#include <shared_mutex>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
+#include <string>
 
 extern void Log(const char* fmt, ...);
 
@@ -33,8 +42,13 @@ struct RoomscaleDebug {
     uint32_t reason{}, gates{}; // native binding / CCT enabled / gameplay / tracking
     float dt{}, yaw{}, native[3]{}, requested[3]{}, before[3]{}, after[3]{}, velocity[3]{};
     float consumed[2]{}, feedback[2]{};
+    float accepted[2]{}, lead[2]{}; // controller's share of the physical step; view lead over the capsule (m)
+    float leadRadius{}, eyeBase[2]{};
 };
 extern "C" {
+// 1: the view keeps the headset's lead over a blocked capsule (up to the capsule's free footprint);
+// 0: the old ledger, the refused distance is consumed and the view is held on the capsule.
+__declspec(dllexport) int CyberpunkVR_HeadLeadsCapsule = 1;
 __declspec(dllexport) RoomscaleDebug CyberpunkVR_RoomscaleDebug{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_RoomscaleDebugSeq{0};
 __declspec(dllexport) int CyberpunkVR_RoomscaleHooksReady = 0;
@@ -114,6 +128,93 @@ bool ReadNative(void* backend, NativeState* out) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+// How far from the capsule's axis the eye may lead it at an obstacle. Within the
+// capsule's own footprint the controller keeps space free, so the view cannot enter
+// geometry; the clearance and the controller's contact offset (7 cm measured: the
+// axis stops 0.47 m from a wall) keep the face and the near plane 12 cm off the
+// surface the capsule touches.
+constexpr float kLeadClearance = 0.05f;
+constexpr float kDefaultCapsuleRadius = 0.25f;
+
+// THE CAPSULE A HEADSET STANDS IN. Every on-foot locomotion state gives the player a 0.40 m radius, and the
+// controller keeps another 7 cm of contact offset: the body's axis stops 0.47 m from a wall, the shoulders with it,
+// and a hand on an arm measured from those shoulders could not reach a button on that wall. 0.25 m brings the axis to
+// 0.32 m, where the arm reaches past the surface, and the view's lead over a blocked capsule (below) shrinks with it.
+// The states on foot only; swimming, grapples and takedowns, braindances and scene tiers keep the game's radius.
+constexpr float kVrCapsuleRadius = 0.25f;
+struct StateGroup { const char* package; std::initializer_list<const char*> states; };
+const StateGroup kOnFootStates[] = {
+    {"playerStateMachineBaseLocomotion", {"baseLocomotionState", "locomotionAir", "locomotionDash", "locomotionGround"}},
+    {"playerStateMachineBaseLocomotionLowGravity",
+     {"baseLocomotionStateLowGravity", "locomotionAirLowGravity", "locomotionGroundLowGravity"}},
+    {"playerStateMachineLocomotion",
+     {"abstractStatusEffect", "aimWalk", "airHover", "airThrusters", "bodySlamJump", "chargeJump", "climb",
+      "coolExitJump", "crouch", "crouchSprint", "deathLand", "dodge", "dodgeAir", "doubleJump", "failedLandingAbstract",
+      "fall", "felled", "forceFreeze", "forceIdle", "forceWalk", "forcedKnockdown", "hardLand", "hoverJump", "jump",
+      "knockdown", "ladder", "ladderCrouch", "ladderJump", "ladderSlide", "ladderSprint", "landingAbstract",
+      "regularLand", "slide", "slideAfterFall", "slideFall", "sprint", "stand", "stunned", "superheroFall",
+      "superheroLand", "superheroLandRecovery", "unsecureFootingFall", "vault", "vehicleKnockdown", "veryHardLand",
+      "workspot"}},
+    {"playerStateMachineLocomotionLowGravity",
+     {"climbLowGravity", "crouchLowGravity", "dodgeAirLowGravity", "dodgeCrouchLowGravity", "dodgeLowGravity",
+      "fallLowGravity", "jumpLowGravity", "preCrouchLowGravity", "regularLandLowGravity", "slideLowGravity",
+      "sprintJumpLowGravity", "sprintLowGravity", "sprintWindupLowGravity", "standLowGravity"}},
+    {"playerStateMachineMelee", {"meleeGroundSlamAttack"}},
+};
+
+void ShrinkOnFootCapsules(RED4ext::TweakDB* db) {
+    auto* const floatType = RED4ext::CRTTISystem::Get()->GetType("Float");
+    cvr::tweak_records::FlatWrites writes(db);
+    int changed = 0, missing = 0;
+    for (const auto& group : kOnFootStates)
+        for (const char* state : group.states) {
+            const RED4ext::TweakDBID flat(std::string(group.package) + "." + state + ".capsuleRadius");
+            const RED4ext::CStackType value = writes.Get(flat);
+            if (value.type != floatType || !value.value) { ++missing; continue; }
+            if (!(*static_cast<const float*>(value.value) > kVrCapsuleRadius)) continue;
+            float radius = kVrCapsuleRadius;
+            if (writes.Set(flat, floatType, &radius)) ++changed;
+        }
+    Log("[tweaks] on-foot capsule radius %.2f m: %d states set, %d not found\n", kVrCapsuleRadius, changed, missing);
+}
+const bool kCapsuleTweak = (cvr::tweak_records::AddNativeTweak(&ShrinkOnFootCapsules), true);
+
+float ReadCapsuleRadius() {
+    auto* db = RED4ext::TweakDB::Get();
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    if (!db || !rtti) return 0;
+    static auto* const floatType = rtti->GetType("Float");
+    // The locomotion states all set this one radius (stand, crouch, sprint, slide, jump, fall...).
+    std::shared_lock<RED4ext::SharedSpinLock> guard(db->mutex00);
+    auto* flat = db->GetFlatValue(RED4ext::TweakDBID("playerStateMachineLocomotion.stand.capsuleRadius"));
+    if (!flat) return 0;
+    const RED4ext::CStackType value = flat->GetValue();
+    if (value.type != floatType || !value.value) return 0;
+    const float radius = *static_cast<const float*>(value.value);
+    return std::isfinite(radius) && radius > 0.1f && radius < 2.0f ? radius : 0;
+}
+
+Movement::LeadLimit HeadLeadLimit() {
+    static std::atomic<float> radius{0};
+    static std::atomic<int> attempts{0};
+    float r = radius.load(std::memory_order_relaxed);
+    if (r <= 0) {
+        r = attempts.fetch_add(1, std::memory_order_relaxed) < 600 ? ReadCapsuleRadius() : 0;
+        if (r > 0) { radius.store(r, std::memory_order_relaxed); Log("[roomscale] capsule radius %.3f\n", r); }
+        else r = kDefaultCapsuleRadius;
+    }
+    Movement::LeadLimit limit{};
+    limit.radius = std::max(r - kLeadClearance, 0.0f);
+    // The view's offset from the entity before any tracking offset: the camera's
+    // calibration, as the view composes it (ComposeViewTranslation with no residual).
+    cvr::camera::AnchorRecipe recipe{};
+    if (cvr::camera::AnchorRecipeRead(&recipe)) {
+        const auto base = cvr::camera::ComposeViewTranslation({}, recipe, recipe.trackingYaw, recipe.modelYaw);
+        if (std::isfinite(base.x) && std::isfinite(base.y)) limit.eyeBase = {base.x, base.y};
+    }
+    return limit;
+}
+
 bool IsBackendPlayer(void* backend) {
     __try {
         const auto player = s_player.load(std::memory_order_acquire);
@@ -155,13 +256,20 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
     CyberpunkVR_SwimmingRedirect[2]=redirected.z-original.z;
     }
     const uintptr_t result = s_move(backend, combined, dt);
+    const auto leadLimit = CyberpunkVR_HeadLeadsCapsule ? HeadLeadLimit() : Movement::LeadLimit{};
     NativeState after{};
     const bool resultOk = nativeOk && ReadNative(backend, &after);
     Vec2 completedConsumed{};
     {
         std::lock_guard lock(s_mutex);
         if (s_player.load(std::memory_order_acquire) != player) return result;
-        s_motion.Complete(step);
+        // What the controller did with the headset's part of the move; the stick's
+        // and the swim redirect's share is the rest of the request.
+        const Vec2 accepted = resultOk && CyberpunkVR_HeadLeadsCapsule
+            ? AcceptedDisplacement({redirected.x,redirected.y},step.world,
+                                   {after.velocity[0]*dt,after.velocity[1]*dt})
+            : step.world;
+        s_motion.Complete(step,accepted,leadLimit);
         completedConsumed=s_motion.Consumed(sample.origin);
         s_feedback = resultOk ? PhysicalVelocity({native[0],native[1]},{added.x,added.y},
             {after.velocity[0],after.velocity[1]},dt) : Vec2{};
@@ -192,6 +300,10 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
         const auto consumed = s_motion.Consumed(sample.origin);
         d.consumed[0] = consumed.x; d.consumed[1] = consumed.y;
         d.feedback[0] = s_feedback.x; d.feedback[1] = s_feedback.y;
+        const auto lead = s_motion.Pending() * GetWorldScale();
+        d.accepted[0] = accepted.x; d.accepted[1] = accepted.y;
+        d.lead[0] = lead.x; d.lead[1] = lead.y; d.leadRadius = leadLimit.radius;
+        d.eyeBase[0] = leadLimit.eyeBase.x; d.eyeBase[1] = leadLimit.eyeBase.y;
         CyberpunkVR_RoomscaleDebugSeq.fetch_add(1, std::memory_order_release);
         static uint64_t lastLogUs = 0;
         if (s_feedbackUs - lastLogUs >= 1000000) {
@@ -341,7 +453,10 @@ bool GameplayAllowed() {
 }
 
 static bool OnFootViewAllowed() {
-    return g_menuModeValue == 0 && !DeviceCamActive() &&
+    // The lobby is a place, as for PhysicalBodyAllowed: its body walks and turns through the native move, so its view
+    // takes that move's frame too. Left to the menu's sources there, the camera and the hands read the head from
+    // other instants than the move the body was drawn with -- the body shook against the view on a turn.
+    return (g_menuModeValue == 0 || cvr::lobby::WorldShown()) && !DeviceCamActive() &&
         !g_bdActive.load(std::memory_order_relaxed);
 }
 
@@ -365,7 +480,9 @@ bool PhysicalBodyHeadingOwned() {
 }
 
 bool PhysicalBodyAllowed() {
-    return g_menuModeValue==0 && PhysicalBodyEnabled();
+    // The main menu is a menu (Hooks/MenuMode.cpp keeps it one under the lobby), but the lobby is a place: the
+    // player stands in its world, so the body walks with the room there as it does in the game.
+    return (g_menuModeValue==0 || cvr::lobby::WorldShown()) && PhysicalBodyEnabled();
 }
 
 bool PoseFrameAllowed() {

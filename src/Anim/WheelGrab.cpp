@@ -34,6 +34,7 @@
 #include "Runtimes/OpenXRManager.hpp"
 
 #include "Anim/CharacterRig.hpp"
+#include "Anim/LeftHanded.hpp"
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
 #include "Core/LiveControls.hpp"
@@ -163,14 +164,15 @@ void WheelUpdate(float dtSec) {
     // also take hold of the wheel: no proximity, no grab, no arming (which leaves its grip as the
     // normal gameplay button the holster system expects). Holster the weapon and the right hand gets
     // the wheel back. The LEFT hand is never gated: driving one-handed with a gun out is the entire
-    // point of the mode.
+    // point of the mode. (Left-handed the gun hand is the left one and the right hand drives.)
     const bool weaponOut = g_hasWeaponEquipped;
+    const int gunHand = cvr::anim::WeaponInLeftHand() ? 1 : 0;
 
     int armedMask = 0;
     for (int h = 0; h < 2; ++h) {
         WheelHand& w = g_wheel[h];
         const bool tracked=SharedPose(h==0 ? 8:0)>0;
-        const bool handBlocked = ((h == 0) && weaponOut) || !tracked;
+        const bool handBlocked = ((h == gunHand) && weaponOut) || !tracked;
         if(!tracked)w.targetValid=false;
         // [49] is the right grip, [155] the left -- both binary, both published every XInput poll,
         // neither inside the hands seqlock.
@@ -255,7 +257,7 @@ void WheelUpdate(float dtSec) {
             bool at = false;
             // The gun hand does not honk: with a weapon drawn the right hand is held out in front of
             // the driver all the time, and the hub sphere sits exactly where it passes.
-            const bool hornBlocked = (h == 0) && weaponOut;
+            const bool hornBlocked = (h == gunHand) && weaponOut;
             if (hornEnabled && driving && !hornBlocked
                 && g_wheelCenterValid && w.targetValid && !w.engaged) {
                 const float dx = w.target[0] - g_wheelCenter[0];
@@ -299,11 +301,12 @@ void WheelMaintainGrab() {
     // mid-turn even though controllers were fresh. New grabs still require a
     // normal proximity solve; this path can only retain or release old grabs.
     const bool allowed=g_liveControls.xrWheelGrab && g_isDriving.load(std::memory_order_relaxed);
+    const int gunHand=cvr::anim::WeaponInLeftHand() ? 1 : 0;
     for(int h=0;h<2;++h) {
         auto& w=g_wheel[h];
         const bool grip=WheelSlot(h==0 ? 49:vrshared::kLeftGripPressed)>.5f;
         const bool tracked=SharedPose(h==0 ? 8:0)>0;
-        if(!allowed || !grip || !tracked || (h==0 && g_hasWeaponEquipped))w.engaged=false;
+        if(!allowed || !grip || !tracked || (h==gunHand && g_hasWeaponEquipped))w.engaged=false;
         w.gripPrev=grip;
         if(!w.engaged)w.blend=0;
     }

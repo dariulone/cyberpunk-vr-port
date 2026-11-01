@@ -1,5 +1,6 @@
 // Hidden-area shader patches and the shader census (Render/HiddenAreaShaders.hpp).
 #include "Render/HiddenAreaShaders.hpp"
+#include "Core/Paths.hpp"
 #include "Render/DxilPatch.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include <windows.h>
@@ -163,16 +164,20 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoDistantLightPatchL
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoDistantLightPatchBuilt{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoDistantLightPatchFailed{0};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_StereoDistantLightPatchBinds{0};
+// Group 14: the clustered probe/decal culler, which also writes the ambient pass's per-tile probe
+// mask, scales its bounds by the union camera like the light culler did. Each eye's scale instead;
+// a probe dropped from a tile it covers left a 32-pixel border that slid with the head.
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoProbeCullPatch{1};
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoProbeCullPatchLoaded{0};
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoProbeCullPatchBuilt{0};
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoProbeCullPatchFailed{0};
+__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_StereoProbeCullPatchBinds{0};
 }
 
 namespace cvr::hidden_area::shaders {
 namespace {
-std::string Folder() {
-    char path[MAX_PATH]{};
-    if(!GetModuleFileNameA(nullptr,path,MAX_PATH))return {};
-    if(char* slash=strrchr(path,'\\'))slash[1]=0;
-    return path;
-}
+// The census switch file and its dumps: the plugin's log folder.
+std::string Folder() { return cvr::paths::DirA(cvr::paths::Folder::Log); }
 bool Recording() {
     static const bool on=[]{
         const auto folder=Folder();
@@ -204,13 +209,8 @@ void Write(uint64_t hash,const std::vector<uint8_t>& bytes) {
 }
 
 namespace {
-std::wstring PluginFolder() {
-    HMODULE module{};wchar_t path[MAX_PATH]{};
-    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(&PluginFolder),&module) || !GetModuleFileNameW(module,path,MAX_PATH))return {};
-    if(wchar_t* slash=wcsrchr(path,L'\\'))slash[1]=0;
-    return path;
-}
+// The twins' folders (hidden_area\, asym\, ...) are in the plugin's shaders folder.
+std::wstring PluginFolder() { return cvr::paths::Dir(cvr::paths::Folder::Shaders); }
 // A signed container followed by 'HAM1', u32 count and the bit offset of each placeholder; or, for a
 // FIXED patch (asym\), the signed container alone, used as it is.
 // group: 0 = volumetric fog (asym\), 1 = screen-space reflections (asym_ssr\), 2 = cone AO (asym_ao\),
@@ -219,14 +219,15 @@ std::wstring PluginFolder() {
 // merges (stereo_merge\), 9 = engine stereo eye-of-pixel fixes (stereo_eye\),
 // 10 = stereo bloom prefilter (stereo_bloom\), 11 = shared particle-lighting visibility
 // (stereo_particle_lighting\), 12 = per-eye light-culling bounds (stereo_light_cull\),
-// 13 = per-eye distant-light HiZ occlusion (stereo_distant_light\).
+// 13 = per-eye distant-light HiZ occlusion (stereo_distant_light\), 14 = per-eye probe/decal culling bounds
+// (stereo_probe_cull\).
 // Each fixed group has its switch. A hidden-area patch whose
 // shader also has a fixed twin keeps that twin as `fallback`, bound while the mask is not.
 struct Patch { std::vector<uint8_t> container; uint32_t offsets[4]{}; bool fixed=false; int group=0;
                std::vector<uint8_t> fallback; int fallbackGroup=-1; };
 // eager: the twin is created with the original pipeline instead of at its first bind.
 struct FixedGroup { std::atomic<uint32_t>* enabled; std::atomic<uint32_t>* built; std::atomic<uint32_t>* failed; std::atomic<uint64_t>* binds; bool eager; };
-const FixedGroup kFixedGroups[14]={
+const FixedGroup kFixedGroups[15]={
     {&CyberpunkVR_AsymFogPatch,&CyberpunkVR_AsymFogPatchBuilt,&CyberpunkVR_AsymFogPatchFailed,&CyberpunkVR_AsymFogPatchBinds,false},
     {&CyberpunkVR_AsymSsrPatch,&CyberpunkVR_AsymSsrPatchBuilt,&CyberpunkVR_AsymSsrPatchFailed,&CyberpunkVR_AsymSsrPatchBinds,false},
     {&CyberpunkVR_AsymAoPatch,&CyberpunkVR_AsymAoPatchBuilt,&CyberpunkVR_AsymAoPatchFailed,&CyberpunkVR_AsymAoPatchBinds,false},
@@ -241,6 +242,7 @@ const FixedGroup kFixedGroups[14]={
     {&CyberpunkVR_StereoParticleLightingPatch,&CyberpunkVR_StereoParticleLightingPatchBuilt,&CyberpunkVR_StereoParticleLightingPatchFailed,&CyberpunkVR_StereoParticleLightingPatchBinds,false},
     {&CyberpunkVR_StereoLightCullPatch,&CyberpunkVR_StereoLightCullPatchBuilt,&CyberpunkVR_StereoLightCullPatchFailed,&CyberpunkVR_StereoLightCullPatchBinds,false},
     {&CyberpunkVR_StereoDistantLightPatch,&CyberpunkVR_StereoDistantLightPatchBuilt,&CyberpunkVR_StereoDistantLightPatchFailed,&CyberpunkVR_StereoDistantLightPatchBinds,false},
+    {&CyberpunkVR_StereoProbeCullPatch,&CyberpunkVR_StereoProbeCullPatchBuilt,&CyberpunkVR_StereoProbeCullPatchFailed,&CyberpunkVR_StereoProbeCullPatchBinds,false},
 };
 const std::unordered_map<uint64_t,Patch>& Patches() {
     static const std::unordered_map<uint64_t,Patch> library=[]{
@@ -313,6 +315,7 @@ const std::unordered_map<uint64_t,Patch>& Patches() {
         CyberpunkVR_StereoParticleLightingPatchLoaded.store(loadFixed(L"stereo_particle_lighting\\",11),std::memory_order_relaxed);
         CyberpunkVR_StereoLightCullPatchLoaded.store(loadFixed(L"stereo_light_cull\\",12),std::memory_order_relaxed);
         CyberpunkVR_StereoDistantLightPatchLoaded.store(loadFixed(L"stereo_distant_light\\",13),std::memory_order_relaxed);
+        CyberpunkVR_StereoProbeCullPatchLoaded.store(loadFixed(L"stereo_probe_cull\\",14),std::memory_order_relaxed);
         return l;
     }();
     return library;
@@ -444,7 +447,7 @@ namespace {
 ID3D12PipelineState* BindFixed(Entry& e,const std::vector<uint8_t>& container,int group,ID3D12PipelineState* pso) {
     const FixedGroup& g=kFixedGroups[group];
     if(!g.enabled->load(std::memory_order_relaxed))return pso;
-    if((group>=10 && group<=13) && !cvr::engine_stereo::Enabled())return pso;
+    if((group>=10 && group<=14) && !cvr::engine_stereo::Enabled())return pso;
     ID3D12PipelineState* twin=FixedTwin(e,container,g);
     if(!twin)return pso;
     g.binds->fetch_add(1,std::memory_order_relaxed);

@@ -1,5 +1,6 @@
 // CyberpunkVRPort -- FIREARMS STAY IN YOUR HANDS. Folded into this mod on 2026-08-20; everything below
-// the second banner is Rivarez's original file, byte for byte, authorship banner included.
+// the second banner is Rivarez's original file, authorship banner included, with two changes of the port's:
+// the 2.5 per-hand timestamp, and the hand the firearm is in (VRPortFirearm: the left one, left-handed).
 //
 // WHY THE PORT NEEDS IT. The game lowers a drawn firearm after a while of no weapon input, and then
 // unequips it entirely. The port's aiming and firing go through the controllers, so from the state
@@ -27,7 +28,7 @@
 // THIRD-PARTY CODE. Written by Rivarez, not by this project. The banner and the contact address below
 // are left exactly as they were; if the port is redistributed, that is the author to ask.
 //
-// ============================== ORIGINAL FILE FOLLOWS, UNMODIFIED ==============================
+// ============================== ORIGINAL FILE FOLLOWS (2.5 TIMESTAMP + FIREARM HAND) ==============================
 
 /* ============== Control lower and holster weapons for Cyberpunk 2077 ==============
                                       v.1.1
@@ -44,42 +45,54 @@
 // 2.5 (dual wielding): each hand's weapon state machine keeps its own timestamp, RightTurnOffPublicSafeTimeStamp /
 // LeftTurnOffPublicSafeTimeStamp (WeaponTransition.GetTurnOffPublicSafeTimeStamp), in the context both share. The
 // 2.31 name TurnOffPublicSafeTimeStamp is no longer read by anything but this file: the game lowered the weapon on
-// its own timer again and a manual lower never reached it. Everything here is about the right hand's firearm
-// (IsFirearms reads AttachmentSlots.WeaponRight), so it is the right hand's timestamp.
-public func VRPortSafeTimeStamp() -> CName {
-  return n"RightTurnOffPublicSafeTimeStamp";
+// its own timer again and a manual lower never reached it. Everything here is about THE firearm in hand -- the right
+// hand's, or with the left-handed controls a lone one in the left hand (CyberpunkVRPort_LeftHanded) -- so it is
+// that hand's timestamp. Two guns are the right one's, as before.
+public func VRPortFirearmIsLeft(scriptInterface: ref<StateGameScriptInterface>) -> Bool {
+  let ts: ref<TransactionSystem> = scriptInterface.GetTransactionSystem();
+  return !IsDefined(ts.GetItemInSlot(scriptInterface.executionOwner, t"AttachmentSlots.WeaponRight") as WeaponObject)
+    && IsDefined(ts.GetItemInSlot(scriptInterface.executionOwner, t"AttachmentSlots.WeaponLeft") as WeaponObject);
+}
+
+public func VRPortFirearm(scriptInterface: ref<StateGameScriptInterface>) -> ref<WeaponObject> {
+  let slot: TweakDBID = VRPortFirearmIsLeft(scriptInterface) ? t"AttachmentSlots.WeaponLeft" : t"AttachmentSlots.WeaponRight";
+  return scriptInterface.GetTransactionSystem().GetItemInSlot(scriptInterface.executionOwner, slot) as WeaponObject;
+}
+
+public func VRPortSafeTimeStamp(scriptInterface: ref<StateGameScriptInterface>) -> CName {
+  return VRPortFirearmIsLeft(scriptInterface) ? n"LeftTurnOffPublicSafeTimeStamp" : n"RightTurnOffPublicSafeTimeStamp";
 }
 // true if the weapon is lowered (or should be)
-public func IsWeaponLowered(stateContext: ref<StateContext>) -> Bool
+public func IsWeaponLowered(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Bool
 {
-  let safeTimeStamp: Float = stateContext.GetFloatParameter(VRPortSafeTimeStamp(), true);
+  let safeTimeStamp: Float = stateContext.GetFloatParameter(VRPortSafeTimeStamp(scriptInterface), true);
   return safeTimeStamp == 0.0;
 }
 
 // true if the weapon is raised (or should be)
-public func IsWeaponRaised(stateContext: ref<StateContext>) -> Bool
+public func IsWeaponRaised(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Bool
 {
-  let safeTimeStamp: Float = stateContext.GetFloatParameter(VRPortSafeTimeStamp(), true);
+  let safeTimeStamp: Float = stateContext.GetFloatParameter(VRPortSafeTimeStamp(scriptInterface), true);
   return safeTimeStamp == 9999999.0;
 }
 
 /* The weapon is lowered (not holstered) once an interval has passed since TurnOffPublicSafeTimeStamp, so the
    variable gets a value from which that interval never runs out.
    DontSetIfLowered - leave it alone if the weapon was lowered by hand (with the button) */
-public func SetWeaponRaised(stateContext: ref<StateContext>, DontSetIfLowered: Bool) -> Void
+public func SetWeaponRaised(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>, DontSetIfLowered: Bool) -> Void
 {
-  if DontSetIfLowered && IsWeaponLowered(stateContext)
+  if DontSetIfLowered && IsWeaponLowered(stateContext, scriptInterface)
   {
     return;
   };
-  stateContext.SetPermanentFloatParameter(VRPortSafeTimeStamp(), 9999999.0, true);
+  stateContext.SetPermanentFloatParameter(VRPortSafeTimeStamp(scriptInterface), 9999999.0, true);
 }
 
 /* The other way round: TurnOffPublicSafeTimeStamp is set to zero so the interval since it always exceeds the
    one after which the weapon is lowered. That is what lowers the weapon. */
-public func SetWeaponLowered(stateContext: ref<StateContext>) -> Void
+public func SetWeaponLowered(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void
 {
-  stateContext.SetPermanentFloatParameter(VRPortSafeTimeStamp(), 0.0, true);
+  stateContext.SetPermanentFloatParameter(VRPortSafeTimeStamp(scriptInterface), 0.0, true);
 }
 
 
@@ -89,35 +102,35 @@ public func SetWeaponLowered(stateContext: ref<StateContext>) -> Void
   protected final const func HandleWeaponEquip(scriptInterface: ref<StateGameScriptInterface>, stateContext: ref<StateContext>, stateMachineInstanceData: StateMachineInstanceData, item: ItemID, isLeftWeapon: Bool) -> Void
   {
     wrappedMethod(scriptInterface, stateContext, stateMachineInstanceData, item, isLeftWeapon);
-    SetWeaponRaised(stateContext, false);
+    SetWeaponRaised(stateContext, scriptInterface, false);
   }
 
 @wrapMethod(ReadyEvents)
   protected final func OnTick(timeDelta: Float, stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void
   {
     wrappedMethod(timeDelta, stateContext, scriptInterface);
-    SetWeaponRaised(stateContext, true);
+    SetWeaponRaised(stateContext, scriptInterface, true);
   }
 
 @wrapMethod(PublicSafeToReadyEvents)
   protected final func OnExit(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void
   {
     wrappedMethod(stateContext, scriptInterface);
-    SetWeaponRaised(stateContext, true);
+    SetWeaponRaised(stateContext, scriptInterface, true);
   }
 
 @wrapMethod(QuickMeleeEvents)
   protected final func OnEnter(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void
   {
     wrappedMethod(stateContext, scriptInterface);
-    SetWeaponRaised(stateContext, false);
+    SetWeaponRaised(stateContext, scriptInterface, false);
   }
 
 @wrapMethod(ShootEvents)
   protected final func OnEnter(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void
   {
     wrappedMethod(stateContext, scriptInterface);
-    SetWeaponRaised(stateContext, false);
+    SetWeaponRaised(stateContext, scriptInterface, false);
   }
 // ============================================================================================================================================
 
@@ -129,7 +142,7 @@ public func SetWeaponLowered(stateContext: ref<StateContext>) -> Void
 // true for a firearm
 public func IsFirearms(scriptInterface: ref<StateGameScriptInterface>) -> Bool
 {
-  let weapon: ref<WeaponObject> = scriptInterface.GetTransactionSystem().GetItemInSlot(scriptInterface.executionOwner, t"AttachmentSlots.WeaponRight") as WeaponObject;
+  let weapon: ref<WeaponObject> = VRPortFirearm(scriptInterface);
   return IsDefined(weapon) && weapon.IsRanged();
 }
 
@@ -137,6 +150,15 @@ public func IsFirearms(scriptInterface: ref<StateGameScriptInterface>) -> Bool
 @wrapMethod(UpperBodyEventsTransition)
   protected final func UpdateSwitchItem(timeDelta: Float, stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Bool
   {
+    let player = scriptInterface.executionOwner as PlayerPuppet;
+    if IsDefined(player) && player.vrLauncherConsumeSwitchRelease {
+      this.ResetEquipVars(stateContext);
+      if scriptInterface.GetActionValue(n"SwitchItem") <= 0.00 {
+        player.vrLauncherConsumeSwitchRelease = false;
+      };
+      return false;
+    };
+
     if IsFirearms(scriptInterface)
     {
       // raised by the fire or aim button
@@ -144,15 +166,15 @@ public func IsFirearms(scriptInterface: ref<StateGameScriptInterface>) -> Bool
       let AimBtnTapped: Bool = scriptInterface.GetActionValue(n"CameraAim") > 0.00;
       if FireBtnTapped || AimBtnTapped
       {
-        SetWeaponRaised(stateContext, false);
+        SetWeaponRaised(stateContext, scriptInterface, false);
         return false;
       };
 
       // a raised weapon is lowered by the holster/draw button
       let holsterBtnTapped: Bool = scriptInterface.IsActionJustTapped(n"HolsterWeapon");
-      if holsterBtnTapped && IsWeaponRaised(stateContext)
+      if holsterBtnTapped && IsWeaponRaised(stateContext, scriptInterface)
       {
-        SetWeaponLowered(stateContext);
+        SetWeaponLowered(stateContext, scriptInterface);
         return false;
       };
     };
@@ -167,11 +189,11 @@ public func IsFirearms(scriptInterface: ref<StateGameScriptInterface>) -> Bool
   {
     if IsFirearms(scriptInterface)
     {
-      if IsWeaponRaised(stateContext)  // the weapon should be raised
+      if IsWeaponRaised(stateContext, scriptInterface)  // the weapon should be raised
       {
         return true;                   // so it may leave the lowered state
       };
-      if IsWeaponLowered(stateContext)  // the weapon should be lowered
+      if IsWeaponLowered(stateContext, scriptInterface)  // the weapon should be lowered
       {
         return false;                   // so it may not leave the lowered state
       };
@@ -187,11 +209,11 @@ public func IsFirearms(scriptInterface: ref<StateGameScriptInterface>) -> Bool
   {
     if IsFirearms(scriptInterface)
     {
-      if IsWeaponRaised(stateContext)  // the weapon should be raised
+      if IsWeaponRaised(stateContext, scriptInterface)  // the weapon should be raised
       {
         return false;                  // so it may not be lowered
       };
-      if IsWeaponLowered(stateContext)  // the weapon should be lowered
+      if IsWeaponLowered(stateContext, scriptInterface)  // the weapon should be lowered
       {
         return true;                    // so it may enter the lowered state
       };

@@ -32242,6 +32242,224 @@
         "Y": 1,
         "Z": 1
        }
+      },
+      {
+       "$type": "entMeshComponent",
+       "castLocalShadows": "Never",
+       "castRayTracedGlobalShadows": "Never",
+       "castRayTracedLocalShadows": "Never",
+       "castShadows": "Never",
+       "chunkMask": "18446744073709551615",
+       "forcedLodDistance": "Default",
+       "id": "4237587880582916049",
+       "isEnabled": 0,
+       "isReplicable": 0,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "LODMode": "AlwaysVisible",
+       "mesh": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "string",
+         "$value": "vrbasketball\\vr_basketball.mesh"
+        },
+        "Flags": "Default"
+       },
+       "meshAppearance": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "default"
+       },
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "vrp_glow_left"
+       },
+       "navigationImpact": {
+        "$type": "NavGenNavigationSetting",
+        "navmeshImpact": "Ignored"
+       },
+       "order": 0,
+       "overrideMeshNavigationImpact": 1,
+       "parentTransform": {
+        "HandleId": "310",
+        "Data": {
+         "$type": "entHardTransformBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "ItemAttachmentSlots"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         },
+         "slotName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "WeaponLeft"
+         }
+        }
+       },
+       "renderingPlane": "RPl_Weapon",
+       "renderSceneLayerMask": "Default",
+       "version": 1,
+       "visualScale": {
+        "$type": "Vector3",
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+       }
+      },
+      {
+       "$type": "entMeshComponent",
+       "castLocalShadows": "Never",
+       "castRayTracedGlobalShadows": "Never",
+       "castRayTracedLocalShadows": "Never",
+       "castShadows": "Never",
+       "chunkMask": "18446744073709551615",
+       "forcedLodDistance": "Default",
+       "id": "4237587880582916050",
+       "isEnabled": 0,
+       "isReplicable": 0,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "LODMode": "AlwaysVisible",
+       "mesh": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "string",
+         "$value": "vrbasketball\\vr_basketball.mesh"
+        },
+        "Flags": "Default"
+       },
+       "meshAppearance": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "default"
+       },
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "vrp_glow_right"
+       },
+       "navigationImpact": {
+        "$type": "NavGenNavigationSetting",
+        "navmeshImpact": "Ignored"
+       },
+       "order": 0,
+       "overrideMeshNavigationImpact": 1,
+       "parentTransform": {
+        "HandleId": "311",
+        "Data": {
+         "$type": "entHardTransformBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "ItemAttachmentSlots"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         },
+         "slotName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "WeaponRight"
+         }
+        }
+       },
+       "renderingPlane": "RPl_Weapon",
+       "renderSceneLayerMask": "Default",
+       "version": 1,
+       "visualScale": {
+        "$type": "Vector3",
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+       }
       }
      ]
     }
@@ -43876,6 +44094,224 @@
      "overrideMeshNavigationImpact": 1,
      "parentTransform": {
       "HandleId": "309",
+      "Data": {
+       "$type": "entHardTransformBinding",
+       "bindName": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "ItemAttachmentSlots"
+       },
+       "enabled": 1,
+       "enableMask": {
+        "$type": "entTagMask",
+        "excludedTags": {
+         "$type": "redTagList",
+         "tags": [
+          {
+           "$type": "CName",
+           "$storage": "string",
+           "$value": "NoBinding"
+          }
+         ]
+        },
+        "hardTags": {
+         "$type": "redTagList",
+         "tags": []
+        },
+        "softTags": {
+         "$type": "redTagList",
+         "tags": []
+        }
+       },
+       "slotName": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "WeaponRight"
+       }
+      }
+     },
+     "renderingPlane": "RPl_Weapon",
+     "renderSceneLayerMask": "Default",
+     "version": 1,
+     "visualScale": {
+      "$type": "Vector3",
+      "X": 1,
+      "Y": 1,
+      "Z": 1
+     }
+    },
+    {
+     "$type": "entMeshComponent",
+     "castLocalShadows": "Never",
+     "castRayTracedGlobalShadows": "Never",
+     "castRayTracedLocalShadows": "Never",
+     "castShadows": "Never",
+     "chunkMask": "18446744073709551615",
+     "forcedLodDistance": "Default",
+     "id": "4237587880582916049",
+     "isEnabled": 0,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0,
+       "j": 0,
+       "k": 0,
+       "r": 1
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "LODMode": "AlwaysVisible",
+     "mesh": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrbasketball\\vr_basketball.mesh"
+      },
+      "Flags": "Default"
+     },
+     "meshAppearance": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "default"
+     },
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "vrp_glow_left"
+     },
+     "navigationImpact": {
+      "$type": "NavGenNavigationSetting",
+      "navmeshImpact": "Ignored"
+     },
+     "order": 0,
+     "overrideMeshNavigationImpact": 1,
+     "parentTransform": {
+      "HandleId": "310",
+      "Data": {
+       "$type": "entHardTransformBinding",
+       "bindName": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "ItemAttachmentSlots"
+       },
+       "enabled": 1,
+       "enableMask": {
+        "$type": "entTagMask",
+        "excludedTags": {
+         "$type": "redTagList",
+         "tags": [
+          {
+           "$type": "CName",
+           "$storage": "string",
+           "$value": "NoBinding"
+          }
+         ]
+        },
+        "hardTags": {
+         "$type": "redTagList",
+         "tags": []
+        },
+        "softTags": {
+         "$type": "redTagList",
+         "tags": []
+        }
+       },
+       "slotName": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "WeaponLeft"
+       }
+      }
+     },
+     "renderingPlane": "RPl_Weapon",
+     "renderSceneLayerMask": "Default",
+     "version": 1,
+     "visualScale": {
+      "$type": "Vector3",
+      "X": 1,
+      "Y": 1,
+      "Z": 1
+     }
+    },
+    {
+     "$type": "entMeshComponent",
+     "castLocalShadows": "Never",
+     "castRayTracedGlobalShadows": "Never",
+     "castRayTracedLocalShadows": "Never",
+     "castShadows": "Never",
+     "chunkMask": "18446744073709551615",
+     "forcedLodDistance": "Default",
+     "id": "4237587880582916050",
+     "isEnabled": 0,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0,
+       "j": 0,
+       "k": 0,
+       "r": 1
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "LODMode": "AlwaysVisible",
+     "mesh": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrbasketball\\vr_basketball.mesh"
+      },
+      "Flags": "Default"
+     },
+     "meshAppearance": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "default"
+     },
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "vrp_glow_right"
+     },
+     "navigationImpact": {
+      "$type": "NavGenNavigationSetting",
+      "navmeshImpact": "Ignored"
+     },
+     "order": 0,
+     "overrideMeshNavigationImpact": 1,
+     "parentTransform": {
+      "HandleId": "311",
       "Data": {
        "$type": "entHardTransformBinding",
        "bindName": {

@@ -10,6 +10,7 @@
 #include "Utils/AobScanner.hpp"
 #include "Utils/MemorySafe.hpp"
 #include "Stereo/DetourRegistry.hpp"
+#include "Lobby/MenuLobby.hpp"
 
 #include <windows.h>
 #include <cstdint>
@@ -109,6 +110,9 @@ CVR_DETOUR_IF("[startup] native menu source mode",0x4C278C,ObserveMenuModeGet,or
 }
 
 extern "C" void __fastcall OnMenuModeHookCallback(void* menuState, int newMode) {
+    // The written flag is the world's pause behind a menu. The main menu as a place keeps that world rendering, so the
+    // game writes 0 under an open main menu: it is still a menu (Lobby/MenuLobby.hpp HoldsRender).
+    if (newMode == 0 && cvr::lobby::HoldsRender(menuState)) newMode = 1;
     const int prevMode = g_menuModeValue;
     g_menuModeValue = newMode;
     static const bool diagnostics=GetEnvironmentVariableW(L"CVR_STEREO_FAMILY_MANIFEST",nullptr,0)>0 ||

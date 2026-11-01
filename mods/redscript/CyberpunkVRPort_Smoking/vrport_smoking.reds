@@ -33,6 +33,9 @@ native func SetVRSmokeFingersL(active: Int32) -> Int32;  // left hand (lighter)
 // Left hand holds the CIGARETTE (1) vs the lighter (0): picks the cig-left grip pose
 // (CyberpunkVR_SmokeGrip_Left.ini) and routes the left-hand capture/dump to that file.
 native func SetVRSmokeLeftCig(on: Int32) -> Int32;
+// Left-handed: the RIGHT hand holds the lighter (1) -- the left hand's lighter pose mirrored onto it, its thumb on the
+// right trigger -- vs the cigarette (0).
+native func SetVRSmokeRightLighter(on: Int32) -> Int32;
 // Model-space cig->mouth distance from the VRIK solve (head bone + view offset vs cig slot). Tracks
 // the real HMD + controller; the FPP camera can't (its world pos ignores HMD positional/lean tracking).
 native func VRSmokeMouthDist() -> Float;
@@ -82,18 +85,16 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
 @addField(PlayerPuppet) let m_vrSmokeLastMouthL: Float; // last LEFT hand -> mouth distance (plugin)
 @addField(PlayerPuppet) let m_vrSmokeCigId: ItemID;     // stored so we can re-slot the SAME cig entity
 @addField(PlayerPuppet) let m_vrSmokeMouthSlot: Int32;  // TEST slot: 0=Head, 1..4=HeadFabricEnhancer1..4
+@addField(PlayerPuppet) let m_vrSmokeLeftHanded: Bool; // lit left-handed: cig in the left hand, lighter in the right
 @addField(PlayerPuppet) let m_vrSmokeCigSlot: Int32;   // where the cig lives: 0=WeaponRight(RH),1=Splinter(mouth),2=WeaponLeft(LH)
 
 @addMethod(PlayerPuppet) private func VRSmokeTS() -> ref<TransactionSystem> {
   return GameInstance.GetTransactionSystem(this.GetGame());
 }
+// The cig is in the slot it was put in: left-handed the other hand's slot holds the lighter, so the slots are not
+// searched.
 @addMethod(PlayerPuppet) public func VRSmokeGetCig() -> ref<GameObject> {
-  let ts = this.VRSmokeTS();
-  let c = ts.GetItemInSlot(this, t"AttachmentSlots.WeaponRight");
-  if IsDefined(c) { return c; }
-  c = ts.GetItemInSlot(this, t"AttachmentSlots.Splinter");   // in the mouth (WeaponRight1)
-  if IsDefined(c) { return c; }
-  return ts.GetItemInSlot(this, t"AttachmentSlots.WeaponLeft"); // grabbed with the left hand
+  return this.VRSmokeTS().GetItemInSlot(this, this.VRSmokeCigSlotID(this.m_vrSmokeCigSlot));
 }
 // Slot the cig currently occupies (0=WeaponRight, 1=Splinter/mouth, 2=WeaponLeft).
 @addMethod(PlayerPuppet) private func VRSmokeCigSlotID(s: Int32) -> TweakDBID {
@@ -101,11 +102,18 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
   if s == 2 { return t"AttachmentSlots.WeaponLeft"; }
   return t"AttachmentSlots.WeaponRight";
 }
+@addMethod(PlayerPuppet) private func VRSmokeLighterSlot() -> TweakDBID {
+  return this.m_vrSmokeLeftHanded ? t"AttachmentSlots.WeaponRight" : t"AttachmentSlots.WeaponLeft";
+}
 @addMethod(PlayerPuppet) private func VRSmokeLighter() -> ref<GameObject> {
-  return this.VRSmokeTS().GetItemInSlot(this, t"AttachmentSlots.WeaponLeft");
+  return this.VRSmokeTS().GetItemInSlot(this, this.VRSmokeLighterSlot());
+}
+// The lighter left the hand holding it: that hand lets go.
+@addMethod(PlayerPuppet) private func VRSmokeReleaseLighterHand() -> Void {
+  if this.m_vrSmokeLeftHanded { SetVRSmokeFingers(0); SetVRSmokeRightLighter(0); } else { SetVRSmokeFingersL(0); }
 }
 
-// ---- spawn bind: lighter in LH, cigarette in RH (unlit) ----
+// ---- spawn bind: lighter in LH, cigarette in RH (unlit); left-handed the other way round ----
 @addMethod(PlayerPuppet) public func VRSmokeToggle() -> Void {
   if this.m_vrSmokeHas { this.VRSmokeExtinguish(); } else { this.VRSmokeSpawn(); }
 }
@@ -113,12 +121,13 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
   let ts = this.VRSmokeTS();
   let cig = ItemID.FromTDBID(t"Items.cigarette_i_stick");
   this.m_vrSmokeCigId = cig;
+  this.m_vrSmokeLeftHanded = VRLeftHanded();
+  this.m_vrSmokeCigSlot = this.m_vrSmokeLeftHanded ? 2 : 0;   // starts in the hand that does not hold the lighter
   ts.GiveItem(this, cig, 1);
-  ts.AddItemToSlot(this, t"AttachmentSlots.WeaponRight", cig, true);
-  this.m_vrSmokeCigSlot = 0;   // starts in the right hand
+  ts.AddItemToSlot(this, this.VRSmokeCigSlotID(this.m_vrSmokeCigSlot), cig, true);
   let lt = ItemID.FromTDBID(t"Items.apparel_lighter_a");
   ts.GiveItem(this, lt, 1);
-  ts.AddItemToSlot(this, t"AttachmentSlots.WeaponLeft", lt, true);
+  ts.AddItemToSlot(this, this.VRSmokeLighterSlot(), lt, true);
   this.m_vrSmokeHas = true;
   this.m_vrSmokeLit = false;
   this.m_vrSmokeMouth = false;
@@ -129,9 +138,11 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
   // then applies base*len = 1.3 each frame, resetting the mesh to full length.
   this.m_vrSmokeCigBase = 1.3;
   this.m_vrSmokeCigBaseKnown = true;
-  SetVRSmokeFingers(1);   // curl the right hand around the cigarette
-  SetVRSmokeLeftCig(0);   // the left hand holds the LIGHTER (not the cig) -> lighter grip pose
-  SetVRSmokeFingersL(1);  // curl the left hand around the lighter
+  // each hand's grip around what it holds: the cig pose in its hand, the lighter pose in the other
+  SetVRSmokeRightLighter(this.m_vrSmokeLeftHanded ? 1 : 0);
+  SetVRSmokeLeftCig(this.m_vrSmokeLeftHanded ? 1 : 0);
+  SetVRSmokeFingers(1);
+  SetVRSmokeFingersL(1);
 }
 
 // ---- TEST: swap the cig onto a HEAD slot on the fly (frees WeaponRight for a weapon) ----
@@ -261,8 +272,8 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
   GameObjectEffectHelper.StartEffectEvent(cig, n"smoke_trail", true);    // continuous smoke trail from the cig
   GameObject.PlaySound(cig, n"cmn_generic_male_inhale_smoking");
   this.VRSmokeDouse();
-  this.VRSmokeTS().RemoveItemFromSlot(this, t"AttachmentSlots.WeaponLeft", true); // lighter gone
-  SetVRSmokeFingersL(0); // lighter gone -> release the left-hand grip
+  this.VRSmokeTS().RemoveItemFromSlot(this, this.VRSmokeLighterSlot(), true); // lighter gone
+  this.VRSmokeReleaseLighterHand();
   if this.m_vrSmokeMouth { this.VRSmokeSchedulePuff(); } // lit while in the mouth -> start auto-puff
 }
 
@@ -408,6 +419,7 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
   SetVRSmokeFingers(0);
   SetVRSmokeFingersL(0);
   SetVRSmokeLeftCig(0);
+  SetVRSmokeRightLighter(0);
 }
 
 // World tip = origin + forward*len. The cig's long axis runs along its forward; if the prop's tip
@@ -421,10 +433,10 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
 @addMethod(PlayerPuppet) public func VRSmokeLastMouthDist() -> Float { return this.m_vrSmokeLastMouth; }
 @addMethod(PlayerPuppet) public func VRSmokeLastMouthDistL() -> Float { return this.m_vrSmokeLastMouthL; }
 
-// Per-frame gesture driver. CET feeds the VR left trigger (0..1) and BOTH grips (bool). Proximity is
+// Per-frame gesture driver. CET feeds both VR triggers (0..1; the lighter's hand strikes it) and BOTH grips (bool). Proximity is
 // computed from the REAL world positions of the cig tip (cigar_tip slot), the lighter, and the head
 // (FPP camera) -- not the coarse controller distance -- so lighting/puffing fire when the props meet.
-@addMethod(PlayerPuppet) public func VRSmokeTick(lt: Float, gripR: Bool, gripL: Bool, dt: Float) -> Void {
+@addMethod(PlayerPuppet) public func VRSmokeTick(leftTrigger: Float, rightTrigger: Float, gripR: Bool, gripL: Bool, dt: Float) -> Void {
   if !this.m_vrSmokeHas {
     this.m_vrSmokeIgniting = false;
     this.m_vrSmokeWasMouth = false;
@@ -477,6 +489,7 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
   this.m_vrSmokeGripPrevL = gripL;
 
   if !this.m_vrSmokeLit {
+    let lt = this.m_vrSmokeLeftHanded ? rightTrigger : leftTrigger;
     if lt >= 0.95 && !this.m_vrSmokeIgniting {
       this.VRSmokeIgnite(); this.m_vrSmokeIgniting = true;
     } else {
@@ -516,6 +529,28 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
     this.m_vrSmokeLen -= burn * dt;
     if this.m_vrSmokeLen <= 0.4 { this.VRSmokeExtinguish(); }
   }
+}
+
+// A weapon, a gadget or a consumable taken into a hand, or the weapons put away, ends the smoke: the cigarette
+// and the lighter sit in both hands' weapon slots and hold both grips, and a weapon drawn over them left the
+// two props and the poses behind. Every way the game draws, switches or holsters comes through here -- the Y
+// tap and the cycling inputs (the state machine's SendEquipmentSystemWeaponManipulationRequest), DrawItem (the
+// wheels), UnequipAll -- so the end of a left-hand action (UnequipConsumable, UnequipGadget,
+// UnequipLeftHandCyberware) is the only request that leaves the cigarette in.
+@addMethod(PlayerPuppet) public func VRSmokeEndedBy(action: EquipmentManipulationAction) -> Bool {
+  return NotEquals(action, EquipmentManipulationAction.Undefined)
+    && NotEquals(action, EquipmentManipulationAction.UnequipConsumable)
+    && NotEquals(action, EquipmentManipulationAction.UnequipGadget)
+    && NotEquals(action, EquipmentManipulationAction.UnequipLeftHandCyberware);
+}
+
+@wrapMethod(EquipmentSystemPlayerData)
+public final func OnEquipmentSystemWeaponManipulationRequest(request: ref<EquipmentSystemWeaponManipulationRequest>) -> Void {
+  let player = this.m_owner as PlayerPuppet;
+  if IsDefined(player) && player.VRSmokeHasCig() && player.VRSmokeEndedBy(request.requestType) {
+    player.VRSmokeExtinguish();
+  }
+  wrappedMethod(request);
 }
 
 public class VRSmokePuffCallback extends DelayCallback {

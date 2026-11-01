@@ -11,6 +11,8 @@
 extern "C" {
 __declspec(dllexport) char CyberpunkVR_FramegenReport[2048]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FramegenReportSeq{};
+// The frame cap (CapToDisplay): [0] frames held, [1] frames let through (the game at or below the refresh).
+__declspec(dllexport) uint64_t CyberpunkVR_DebugFpsCap[2]{};
 }
 
 namespace cvr::framegen {
@@ -22,6 +24,9 @@ std::atomic<bool> enabled{false},metrics{false};
 std::atomic<bool> depthCapture{false};
 std::atomic<bool> autoPace{true},pacingReady{false};
 std::atomic<int64_t> displayPeriod{0};
+// When xrWaitFrame last returned (NowMs): the phase of the display cycle the frame cap aims at.
+std::atomic<double> displayCycleMs{0};
+std::atomic<bool> fpsCap{true};
 std::atomic<double> pacingIntervalMs{0};
 std::atomic<bool> resetPacing{true};
 Statistics stats;
@@ -188,7 +193,44 @@ void OnInput(unsigned eye,uint32_t w,uint32_t h) {
 }
 void OnSkip() {if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay)++stats.skipped;}
 void SetVram(uint64_t bytes) {if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay)stats.vramBytes=bytes;}
-void DisplayPeriod(int64_t ns) {if(ns>=4000000 && ns<=40000000)displayPeriod.store(ns,std::memory_order_relaxed);}
+void DisplayPeriod(int64_t ns) {
+    if(ns<4000000 || ns>40000000)return;
+    displayPeriod.store(ns,std::memory_order_relaxed);displayCycleMs.store(NowMs(),std::memory_order_relaxed);
+}
+bool FpsCap() {return fpsCap.load(std::memory_order_relaxed);}
+void SetFpsCap(bool on) {fpsCap.store(on,std::memory_order_relaxed);}
+namespace {
+// THE GAME RUNS AT THE HEADSET'S RATE AT MOST (xr_fps_cap). A frame past the refresh is never shown, it only loads
+// the GPU, and a game a little faster than the headset beats against it: every few seconds two frames land in one
+// display cycle and the cycle after repeats one. So the producer is held after its Present until the instant that
+// puts its NEXT Present in the middle of a display cycle, the farthest point from where the XR thread takes the
+// newest frame (xrWaitFrame's return, DisplayPeriod). A game that cannot reach the refresh is never held.
+// Caller holds the pacing lock.
+void CapToDisplay(int64_t period) {
+    struct State {HANDLE timer{};double released{},work{};~State(){if(timer)CloseHandle(timer);}};
+    static State s;
+    const double now=NowMs(),cycle=displayCycleMs.load(std::memory_order_relaxed),per=double(period)*1e-6;
+    // No XR cycle for a while (session idle or lost): nothing to pace against.
+    if(!fpsCap.load(std::memory_order_relaxed) || !period || now-cycle>100) {s.released=s.work=0;return;}
+    // The game's own time from release to the end of its Present, smoothed over about eight frames.
+    if(s.released>0) {const double w=now-s.released;if(w>0 && w<100)s.work=s.work>0 ? s.work+(w-s.work)*.125 : w;}
+    double wait=0;
+    if(s.work>0 && s.work<per*.9) {
+        // The first mid-cycle instant at least half a period away: one period on from a Present already there.
+        const double next=cycle+per*(.5+std::ceil((now-cycle)/per));
+        wait=std::min(next-s.work-now,per*2);
+    }
+    if(wait>.2) {
+        if(!s.timer)s.timer=CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS);
+        if(s.timer) {
+            LARGE_INTEGER due{};due.QuadPart=-static_cast<LONGLONG>(wait*10000.0);
+            if(SetWaitableTimerEx(s.timer,&due,0,nullptr,nullptr,nullptr,0))WaitForSingleObject(s.timer,100);
+        }
+        ++CyberpunkVR_DebugFpsCap[0];
+    } else ++CyberpunkVR_DebugFpsCap[1];
+    s.released=NowMs();
+}
+}
 void PacingReady(bool ready) {
     pacingReady.store(ready,std::memory_order_relaxed);
     if(!ready){pacingIntervalMs.store(0,std::memory_order_relaxed);resetPacing.store(true,std::memory_order_relaxed);}
@@ -208,7 +250,10 @@ void PaceRenderedFrame() {
     static std::mutex paceMutex;
     std::lock_guard paceLock(paceMutex);
     const auto period=displayPeriod.load(std::memory_order_relaxed);
-    if(!Enabled() || !autoPace.load(std::memory_order_relaxed) || !pacingReady.load(std::memory_order_relaxed) || !period) {timer.last=0;return;}
+    // Framegen's pacing (two display periods a real frame) when it runs; the plain refresh cap otherwise.
+    if(!Enabled() || !autoPace.load(std::memory_order_relaxed) || !pacingReady.load(std::memory_order_relaxed) || !period) {
+        timer.last=0;CapToDisplay(period);return;
+    }
     const double now=NowMs(),interval=std::max(double(period)*2e-6,pacingIntervalMs.load(std::memory_order_relaxed));
     const double remaining=timer.last+interval-now;
     if(remaining>.2 && remaining<=80) {

@@ -4,7 +4,7 @@
     py -3.13 -B tools/patchday/check_logs.py --save-baseline             # record this launch as good
 
 Reads the newest of each log the port's start writes:
-  bin/x64/cyberpunkvrport.log          [build] verdict, every [hooks] / [detour] line, guard refusals
+  red4ext/plugins/cyberpunkvrport/log/cyberpunkvrport.log          [build] verdict, every [hooks] / [detour] line, guard refusals
   red4ext/logs/red4ext-*.log           loader version, game version, plugins loaded / refused
   r6/logs/redscript_rCURRENT.log       script compile errors
   red4ext/plugins/TweakXL/TweakXL-*.log, ArchiveXL/ArchiveXL-*.log   errors and warnings

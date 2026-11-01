@@ -1,4 +1,5 @@
 #include "Hooks/Hook.hpp"
+#include "Core/Paths.hpp"
 #include "Hooks/AftermathDiagnostics.hpp"
 #include <MinHook.h>
 #include <windows.h>
@@ -116,11 +117,7 @@ void ObserveCreation(ID3D12Resource* resource, const D3D12_RESOURCE_DESC& desc) 
 
 bool Requested() {
     char path[MAX_PATH]{};
-    if (!GetModuleFileNameA(nullptr, path, MAX_PATH)) return false;
-    char* slash = strrchr(path, '\\');
-    if (!slash) return false;
-    slash[1] = 0;
-    if (strcat_s(path, "vrport_aftermath_debug.txt") != 0) return false;
+    if (strcpy_s(path, cvr::paths::FileA(cvr::paths::Folder::Config, "vrport_aftermath_debug.txt").c_str()) != 0) return false;
     FILE* file = nullptr;
     if (fopen_s(&file, path, "r") != 0 || !file) return false;
     int mode = 1;

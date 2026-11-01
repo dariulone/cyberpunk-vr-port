@@ -23,7 +23,7 @@
 -- a redscript file that fails to compile switches off every redscript mod in the game, not just itself.
 -- From here the outfit system is looked up by name and a missing EquipmentEx is simply a nil. Lua also
 -- reaches the two things this needs and redscript does not: a component's RTTI properties, and
--- Codeware's per-component ChangeAppearance.
+-- the plugin's per-component appearance change (Game.VRComponentChangeAppearance).
 --
 -- HOW THE PIECES MOVE (read off the asset, not guessed):
 --
@@ -666,20 +666,19 @@ local CFG = {
     grenade_pin_off = { x = 0.0, y = 0.0, z = 0.012 },
 
     highlight = true,
-    -- true: only the port's own elements can be marked -- anything with a `_lit` twin or an entry in
-    -- CFG.elements. false restores the original behaviour, where the nearest belt component of any
-    -- kind was recoloured, the strap and the mod's own pouches included.
+    -- true: only the port's own elements can be marked -- a magazine, a grenade, a shell (their meshes carry
+    -- the amber mark) or an entry in CFG.elements. false restores the original behaviour, where the nearest
+    -- belt component of any kind was recoloured, the strap and the mod's own pouches included.
     highlight_only_ours = true,
-    -- WHICH OF OUR EIGHT COLOURS a `lit` element is marked with. Only applies to elements whose `hl`
-    -- names one of ours; a host wearing the belt's own mesh falls back to highlight_appearance below,
-    -- which is one of that mesh's own 62 sets.
-    --   1 magenta  2 white  3 cyan  4 green  5 amber  6 red  7 blue  8 violet
-    belt_mark_colour = 1,
     highlight_rate_hz = 20,
     -- Also the reach: a magazine or a shell is taken from the belt inside it (magRadius / shellRadius).
     -- 0.14 until 2026-10-26, a little too tight to find a pouch by feel; see upgradeHighlightRadiusCfg.
     highlight_radius_m = 0.17,
     highlight_radius_v = 0,
+    -- CROUCHED, THE REACH IS WIDER. Down on the knees the belt is where the body bends rather than where the
+    -- arm falls, and a hand feeling for a pouch there misses it at the standing radius; this multiplies the
+    -- reach (and so the mark, which is the same test) while the game has the player crouched.
+    crouch_reach_scale = 1.5,
     -- Leaves at a wider radius than it enters, so a hand held on the boundary cannot make the surface
     -- flicker between the two material sets.
     highlight_release = 1.35,
@@ -943,6 +942,7 @@ local CFG = {
 local CFG_FILE = "belt.cfg"
 
 local S = {
+    ringAt = {},           -- per hand (0 left, 1 right): the lit element's reach-marker point, hips frame
     ready = false,
     acc = 0.0,
     belt = nil,          -- the ItemObject in the waist slot
@@ -951,6 +951,7 @@ local S = {
     dumped = false,
     lastEquipTry = 0.0,
     attachPendingAt = nil, -- when the attach still in flight was accepted; nil when none is
+    detachedAt = nil,      -- when a belt of ours was last taken off; the next one waits SWAP_SETTLE after it
     outfitMissing = false,
     route = "-",
     recheck = nil,
@@ -981,7 +982,6 @@ local S = {
 
 local memo = {}
 local startupClothing = require("startup_clothing").new()
-local markComponent = require("mark_component")
 
 local function log(fmt, ...)
     local line = string.format(fmt, ...)
@@ -1102,7 +1102,7 @@ local MAG_CENTRES = {
     nova         = { -0.1045,  0.1327,  1.0796 },
     nue          = { -0.1086,  0.1191,  1.0496 },
     omaha        = { -0.0981,  0.1155,  1.0450 },
-    overture     = { -0.1082,  0.1404,  1.0756 },
+    overture     = { -0.1104,  0.1396,  1.0756 },
     palica       = { -0.0907,  0.1363,  1.0951 },
     pozhar       = { -0.1272,  0.0997,  1.0753 },
     pulsar       = { -0.1222,  0.1155,  1.1099 },
@@ -1129,6 +1129,19 @@ local OFFSET_GROUP = {
     ucbeltammo_shell2 = "ucbeltammo_shell1",
     ucbeltammo_shell3 = "ucbeltammo_shell1",
 }
+
+-- A MAGAZINE DRAWN AS SEVERAL MESHES. The Overture's is its speedloader -- the handle and six rounds, seven meshes
+-- (tools/build_belt_mags.py SPECIAL), which one component cannot draw. The handle is the element; the rounds are
+-- its row, `_p2` .. `_p7`, placed with it at bake time, shown by its rule, moved by its offset, lit with it and
+-- reached for as it.
+local MAG_PARTS = { overture = 7 }
+for k, n in pairs(MAG_PARTS) do
+    for i = 2, n do
+        local part = "ucbeltmag_" .. k .. "_p" .. i
+        CFG.rules[part] = "weaponmag=" .. k
+        OFFSET_GROUP[part] = "ucbeltmag_" .. k
+    end
+end
 
 -- The sliders of the element this component follows: its row's leader, and for a mark twin the
 -- element it marks. A twin that does not follow its element during tuning is a mark left behind.
@@ -1158,6 +1171,35 @@ local function offsetFor(name)
     -- sniper magazine is fifteen centimetres of curved box and a revolver round is four, and the
     -- angle each has to hang at differs with its shape. The sharing was an assumption, not a requirement.
     return offsetTable()[OFFSET_GROUP[base] or base]
+end
+
+-- THE LEFT-HANDED BELT. The ammunition rides the support hand's hip and the grenades the weapon hand's, so
+-- for a left-handed player both change sides: the port's belt is replaced by its mirror (Items.vrp_belt_lh,
+-- built by tools/mirror_belt_elements.py) -- the same components under the same names, each element's mesh
+-- mirrored across the body. A belt of its own, not an appearance: the garment is merged onto the player when
+-- the belt is attached, and naming another appearance later does not merge it again. What was tuned for an
+-- element stays true for its mirror, read mirrored: x and the turns about Y and Z change sign. -1 for such an
+-- element while the belt worn is the mirror, else 1.
+local MIRRORED = { "ucbeltmag_", "ucbeltammo_shell", "ucbeltgrenade" }
+local LEFT_HANDED_BELT = { ["Items.vrp_belt"] = "Items.vrp_belt_lh" }
+local function mirrorSign(name)
+    if not S.beltMirrored then return 1 end
+    for _, p in ipairs(MIRRORED) do
+        if string.sub(name, 1, #p) == p then return -1 end
+    end
+    return 1
+end
+
+local function leftHanded()
+    local ok, yes = pcall(function() return VRLeftHanded() end)
+    return ok and yes == true
+end
+
+-- The belt this player wears: the variant chosen, or its mirror for a left-handed player where it has one.
+local function wantedRecord()
+    local rec = CFG.variants[CFG.variant]
+    if rec ~= nil and LEFT_HANDED_BELT[rec] ~= nil and leftHanded() then return LEFT_HANDED_BELT[rec] end
+    return rec
 end
 
 -- Everyone who lights when this one does: the leader and the whole row under it.
@@ -1293,7 +1335,11 @@ end
 
 local function memoDrop()
     memo = {}
-    S.attachPendingAt = nil -- a request from the previous session will never land
+    -- S.attachPendingAt IS KEPT. A request in flight is the engine's, not this cache's: the player reads nil for a
+    -- frame and is attached again around a load, and clearing it there let the next tick ask again -- the second
+    -- request superseded the first and the item factory freed its half-loaded belt mesh (read 0x0 at
+    -- exe+0xB0C787, 2026-10-29, vrp_belt_gren_ozob). It ends when the belt lands, on detach, or after ATTACH_WAIT;
+    -- a request lost with the previous session costs at most that wait.
     startupClothing:Reset()
     S.compsFor = nil
     clearGarmentCache()
@@ -1376,9 +1422,10 @@ end
 local function variantID()
     local i = CFG.variant
     if i < 1 or i > #CFG.variants then i = 1 end
-    local key = "variant_" .. tostring(i)
+    local rec = wantedRecord() or CFG.variants[i]
+    local key = "variant_" .. rec
     if memo[key] == nil then
-        pcall(function() memo[key] = TweakDBID.new(CFG.variants[i]) end)
+        pcall(function() memo[key] = TweakDBID.new(rec) end)
     end
     return memo[key]
 end
@@ -1416,7 +1463,7 @@ end
 -- CALLS MADE EVERY FRAME, WITHOUT A CLOSURE EACH. `pcall(function() ... end)` allocates a closure per
 -- call, and the mods' per-frame garbage is what CET's collector has to keep up with (see the GC step in
 -- CyberpunkVRPort_Stereo). pcall takes these plain functions and their arguments instead.
-local function hashOf(obj) return tostring(EntityID.ToHash(obj:GetEntityID())) end
+local function hashOf(obj) return tostring(obj:GetEntityID().hash) end
 local function isEnabled(c) return c:IsEnabled() end
 local function gamePaused() return Game.GetSystemRequestsHandler():IsGamePaused() end
 local function localPosition(c) local v = c:GetLocalPosition() return v.x, v.y, v.z end
@@ -1482,9 +1529,9 @@ local function beltComponents()
     S.settleAt = os.clock()
     local found = {}
     local list = nil
-    pcall(function() list = pl:GetComponents() end)
+    pcall(function() list = Game.VREntityComponents(pl) end)
     if list == nil then
-        -- Codeware absent: the names are known from the asset, so ask for them one at a time.
+        -- No list: the names are known from the asset, so ask for them one at a time.
         for name, _ in pairs(CFG.rules) do
             local c = nil
             pcall(function() c = pl:FindComponentByName(CName.new(name)) end)
@@ -1576,9 +1623,9 @@ local function dressElements()
             else
                 local path = string.gsub(el.mesh, "{g}", bodyTag())
                 local okMesh, okApp = nil, nil
-                pcall(function() okMesh = host:ChangeResource(ResRef.FromString(path)) end)
+                pcall(function() okMesh = Game.VRComponentChangeResource(host, path, false) end)
                 if el.appearance ~= nil and el.appearance ~= "" then
-                    pcall(function() okApp = host:ChangeAppearance(CName.new(el.appearance)) end)
+                    pcall(function() okApp = Game.VRComponentChangeAppearance(host, CName.new(el.appearance), false) end)
                 end
                 if okMesh == true then S.dressed[el.host] = el.name end
                 pcall(function()
@@ -1613,10 +1660,10 @@ local function forceBeltAppearance(pl, ts)
     -- The stem is the item's own name plus an underscore -- `Items.vrp_belt` -> `vrp_belt_`,
     -- `Items.ucbelt_d` -> `ucbelt_d_` -- which holds for all four variants and needs no TweakDB read
     -- whose debug formatting would have to be parsed back.
-    local rec = CFG.variants[CFG.variant] or ""
+    local rec = wantedRecord() or ""
     local stem = string.match(rec, "^Items%.(.+)$")
     if stem == nil then return end
-    stem = stem .. "_" 
+    stem = stem .. "_"
     local body = (bodyTag() == "wa") and "Female" or "Male"
     -- ONE OF OURS OR NOT, and the test is exactly that. Keying it on the single value `default` was
     -- a guess about how it fails, and it made the whole thing silent the moment it failed some other
@@ -1625,6 +1672,8 @@ local function forceBeltAppearance(pl, ts)
     local now = nil
     pcall(function() now = tostring(o:GetCurrentAppearanceName().value) end)
     now = now or ""
+    -- What the belt wears, not what was asked: its elements are where its appearance put them.
+    S.beltMirrored = string.find(now, "_lh_&", 1, true) ~= nil
     local want = string.format("%s&%s&TPP", stem, body)
     if now == want then
         if S.appSaid ~= now then
@@ -1752,7 +1801,7 @@ local function beltParts(pl, who)
     S.beltComp, S.beltCompName = nil, nil
     local map = {}
     pcall(function()
-        for _, c in ipairs(pl:GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(pl)) do
             local nm = tostring(c:GetName().value)
             if string.sub(nm, 1, 8) == "vrp_belt" then map[nm] = c end
         end
@@ -1861,6 +1910,12 @@ end
 
 -- Seconds an accepted belt attach is given to land before it is asked for again.
 local ATTACH_WAIT = 30.0
+-- ONE BELT ON THE PLAYER AT A TIME. Taking a belt off and putting another on are both asynchronous, and asked
+-- in the same tick the player's appearance change took both belts' garments at once. The game's garment pass
+-- numbers the player's garment elements in one byte (256 at most, tools/belt_lit_shell.py), and a change counts
+-- the worn set plus the changing item, so two belts in one pass is the case that runs out first. The next belt
+-- goes on once the slot is empty and this long after the last one came off.
+local SWAP_SETTLE = 1.5
 
 local function ensureEquipped(now)
     if not CFG.auto_equip then return end
@@ -1881,7 +1936,7 @@ local function ensureEquipped(now)
     pcall(function() have = ts:GetItemInSlot(pl, slotID()) end)
     if have ~= nil then
         S.attachPendingAt = nil
-        local want = CFG.variants[CFG.variant]
+        local want = wantedRecord()
         local worn = nil
         pcall(function() worn = tostring(TDBID.ToStringDEBUG(ItemID.GetTDBID(have:GetItemID()))) end)
         if worn == nil or worn == want then
@@ -1909,6 +1964,13 @@ local function ensureEquipped(now)
         if off ~= true then
             pcall(function() ts:RemoveItemFromSlot(pl, slotID(), false) end)
         end
+        -- ...and the right one on a later tick, once this one is off (SWAP_SETTLE).
+        S.detachedAt = now
+        return
+    end
+    if S.detachedAt ~= nil then
+        if now - S.detachedAt < SWAP_SETTLE then return end
+        S.detachedAt = nil
     end
 
     -- ONE REQUEST IN FLIGHT. An accepted attach can take far longer than this 2 s tick while a save
@@ -1924,7 +1986,7 @@ local function ensureEquipped(now)
             -- slot here must not activate EquipmentEX and hide base clothing.
             S.attachPendingAt = now
             S.route = "attach"
-            log("queued direct attachment of %s into %s", CFG.variants[CFG.variant], slotName())
+            log("queued direct attachment of %s into %s", wantedRecord(), slotName())
             return
         end
     end
@@ -1936,7 +1998,7 @@ local function ensureEquipped(now)
     if slotName() ~= CFG.outfit_slot then return end
     local outfit = outfitSystem()
     if outfit == nil then return end
-    local rec = CFG.variants[CFG.variant]
+    local rec = wantedRecord()
     local iid = inventoryItemID(pl, ts, rec)
     if iid == nil then
         pcall(function() Game.AddToInventory(rec, 1) end)
@@ -1972,6 +2034,7 @@ detach = function()
                 local outfit = (name == CFG.outfit_slot) and memo.outfit or nil
                 if outfit ~= nil then pcall(function() off = outfit:UnequipSlot(id) end) end
                 if off ~= true then pcall(function() ts:RemoveItemFromSlot(pl, id, true) end) end
+                S.detachedAt = os.clock()
             end
         end
     end
@@ -2006,22 +2069,38 @@ end
 --
 -- An unmapped type -- melee, the grenade launcher, a cyberarm -- simply has no holder, which is the
 -- right answer for it.
-local WEAPON_CLASS = {
-    [81] = "pistol",   -- Wea_Handgun
-    [91] = "pistol",   -- Wea_Revolver
-    [94] = "shotgun",  -- Wea_Shotgun
-    [95] = "shotgun",  -- Wea_ShotgunDual
-    [75] = "rifle",    -- Wea_AssaultRifle
-    [92] = "rifle",    -- Wea_Rifle
-    [90] = "rifle",    -- Wea_PrecisionRifle
-    [96] = "rifle",    -- Wea_SniperRifle
+-- BY NAME: the enum's numbers are the build's, and 2.5 moved them all by one (Wea_Rifle 92 -> 93), which made a
+-- revolver a rifle and an assault rifle nothing. They are read off the running game once (weaponClassOf).
+local WEAPON_CLASS_BY_NAME = {
+    Wea_Handgun = "pistol",
+    Wea_Revolver = "pistol",
+    Wea_Shotgun = "shotgun",
+    Wea_ShotgunDual = "shotgun",
+    Wea_AssaultRifle = "rifle",
+    Wea_Rifle = "rifle",
+    Wea_PrecisionRifle = "rifle",
+    Wea_SniperRifle = "rifle",
     -- A submachine gun feeds from a stick magazine and reads as one on a belt, so it rides the rifle
     -- pouch rather than the pistol one even though its round is a pistol round. Same for the two
     -- machine guns. Move a line if the picture disagrees -- that is all this table is.
-    [97] = "rifle",    -- Wea_SubmachineGun
-    [85] = "rifle",    -- Wea_LightMachineGun
-    [82] = "rifle",    -- Wea_HeavyMachineGun
+    Wea_SubmachineGun = "rifle",
+    Wea_LightMachineGun = "rifle",
+    Wea_HeavyMachineGun = "rifle",
 }
+local WEAPON_CLASS = nil
+
+-- tonumber: CET hands EnumInt back as a 64-bit cdata (94ULL), and a cdata is never equal to the plain number key it
+-- prints as -- so a lookup by it missed on every weapon and no `weapon=<class>` holder was ever shown.
+local function weaponClassOf(itemType)
+    if WEAPON_CLASS == nil then
+        WEAPON_CLASS = {}
+        for name, cls in pairs(WEAPON_CLASS_BY_NAME) do
+            local ok, v = pcall(function() return tonumber(EnumInt(gamedataItemType[name])) end)
+            if ok and v ~= nil then WEAPON_CLASS[v] = cls end
+        end
+    end
+    return WEAPON_CLASS[tonumber(EnumInt(itemType))]
+end
 
 -- THE GRENADE KINDS, as substrings of the record name. One list, used both to pick the belt element
 -- that is shown and, further down, to pick the prop entity -- they must not drift apart.
@@ -2092,7 +2171,7 @@ local function magKeyOfWeapon(obj)
     -- `__mag_` parts name the gun the magazine belongs to; anything else only when no magazine part names one.
     local key = nil
     pcall(function()
-        local cs = obj:GetComponents()
+        local cs = Game.VREntityComponents(obj)
         for pass = 1, 2 do
             for _, c in ipairs(cs) do
                 local n = tostring(c:GetName().value)
@@ -2106,6 +2185,19 @@ local function magKeyOfWeapon(obj)
     end)
     if key ~= nil and h ~= nil then memo.magByEnt[h] = key end
     return key
+end
+
+-- The `weapon=<class>` holders one weapon puts on the belt: its class, and `pump` for a pump gun (`mk`, its magazine
+-- key, says which).
+local function weaponClasses(id, mk)
+    local cls = {}
+    local rec = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(id))
+    if rec ~= nil then
+        local c = weaponClassOf(rec:ItemType():Type())
+        if c ~= nil then cls[c] = true end
+    end
+    if mk == PUMP then cls.pump = true end
+    return cls
 end
 
 local function readState()
@@ -2153,29 +2245,21 @@ local function readState()
                 end)
             end
         end
-        -- ALL THREE WEAPON SLOTS, not just the one in hand: a belt carries ammunition for what the
-        -- player is CARRYING, so three weapons of three kinds put three holders on it and a loadout
-        -- of three pistols puts one.
+        -- THE BELT CARRIES ONE WEAPON'S AMMUNITION: the one in hand (below), or with everything holstered the
+        -- loadout's first. Every weapon of the loadout at once put a shotgun's shells and a pistol's magazine on it
+        -- together, and drawing one of them changed nothing.
         for slot = 0, 2 do
+            if st.weapon then break end
             pcall(function()
                 local id = es:GetItemInEquipSlot(pl, "Weapon", slot)
                 if ItemID.IsValid(id) then
                     st.weapon = true
-                    local rec = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(id))
-                    if rec ~= nil then
-                        -- tonumber: CET hands EnumInt back as a 64-bit cdata (94ULL), and a cdata is never
-                        -- equal to the plain number key it prints as -- so this lookup missed on every weapon and
-                        -- no `weapon=<class>` holder (the shotgun shells among them) was ever shown
-                        local cls = WEAPON_CLASS[tonumber(EnumInt(rec:ItemType():Type()))]
-                        if cls ~= nil then st.wclass[cls] = true end
-                    end
                     -- A HOLSTERED WEAPON IS ONLY AN ItemID, with no object to read components off,
                     -- so all that is left for it is the record name. That works for a gun bought in a
                     -- shop and fails for one looted off the world -- but it can only ever produce the
                     -- right answer or none, so it stands in until the weapon is actually drawn.
-                    local mk = magKeyIn(TDBID.ToStringDEBUG(ItemID.GetTDBID(id)))
-                    if mk == PUMP then st.wclass.pump = true end
-                    if st.wmag == nil then st.wmag = mk end
+                    st.wmag = magKeyIn(TDBID.ToStringDEBUG(ItemID.GetTDBID(id)))
+                    st.wclass = weaponClasses(id, st.wmag)
                 end
             end)
         end
@@ -2188,16 +2272,19 @@ local function readState()
         pcall(function()
             if memo.slotWeaponRight == nil then
                 memo.slotWeaponRight = TweakDBID.new("AttachmentSlots.WeaponRight")
+                memo.slotWeaponLeft = TweakDBID.new("AttachmentSlots.WeaponLeft")
             end
-            local w = ts:GetItemInSlot(pl, memo.slotWeaponRight)
+            -- The left-handed hold carries a single weapon in WeaponLeft.
+            local w = ts:GetItemInSlot(pl, memo.slotWeaponRight) or ts:GetItemInSlot(pl, memo.slotWeaponLeft)
             st.inhand = w ~= nil
             -- THE WEAPON IN HAND WINS. It is the one about to be reloaded, and it is the one the belt
             -- should be carrying ammunition for; the loadout's first weapon is only the fallback for
-            -- when everything is holstered.
+            -- when everything is holstered. Its magazine from the record name when its parts name none.
             if w ~= nil then
-                local k = magKeyOfWeapon(w)
-                if k ~= nil then st.wmag = k end
-                if k == PUMP then st.wclass.pump = true end
+                local id = w:GetItemID()
+                local k = magKeyOfWeapon(w) or magKeyIn(TDBID.ToStringDEBUG(ItemID.GetTDBID(id)))
+                st.wmag = k
+                st.wclass = weaponClasses(id, k)
             end
         end)
     end
@@ -2244,7 +2331,8 @@ local function wanted(rule, st)
     local none = (st.gcount ~= nil and st.gcount <= 0)
     local kind = string.match(rule or "", "^grenade=(.+)$")
     if kind ~= nil then return (not none) and st.grenade and st.gtype == kind end
-    -- "weapon=shotgun" shows the element while a weapon of that class is in ANY of the three slots.
+    -- "weapon=shotgun" shows the element while the belt carries a weapon of that class (readState: the one in
+    -- hand, or with everything holstered the loadout's first).
     -- The plain "weapon" rule still means any weapon at all, which is what a general-purpose pouch
     -- wants and what a holder for one kind of ammunition does not.
     local cls = string.match(rule or "", "^weapon=(.+)$")
@@ -2327,7 +2415,8 @@ local function applyElements(st)
         -- when it differs, exactly like the element offsets below.
         local off = offsetFor(name)
         if off ~= nil then
-            local wx, wy, wz = off.x or 0.0, off.y or 0.0, off.z or 0.0
+            local sx = mirrorSign(name)
+            local wx, wy, wz = sx * (off.x or 0.0), off.y or 0.0, off.z or 0.0
             local okL, cx, cy, cz = pcall(localPosition, comp)
             if not okL then cx, cy, cz = nil, nil, nil end
             if cx == nil or math.abs(cx - wx) > 0.0002
@@ -2337,7 +2426,7 @@ local function applyElements(st)
             -- AND THE ROTATION, on the same terms. Degrees in the panel because that is what a person
             -- can aim with; the quaternion is what the engine takes, and it is also what gets baked
             -- into the asset afterwards, so the log prints both.
-            local qi, qj, qk, qr = eulerQuat(off.rx, off.ry, off.rz)
+            local qi, qj, qk, qr = eulerQuat(off.rx, sx * (off.ry or 0.0), sx * (off.rz or 0.0))
             local okQ, ai, aj, ak, ar = pcall(localOrientation, comp)
             if not okQ then ai, aj, ak, ar = nil, nil, nil, nil end
             if ai == nil or math.abs(ai - qi) > 0.0004 or math.abs(aj - qj) > 0.0004
@@ -2386,7 +2475,7 @@ local function applyColor()
         local done = 0
         for _, comp in pairs(comps) do
             local ok = nil
-            pcall(function() ok = comp:ChangeAppearance(CName.new(app)) end)
+            pcall(function() ok = Game.VRComponentChangeAppearance(comp, CName.new(app), false) end)
             if ok == true then done = done + 1 end
         end
         log("colour -> %s (%s) on %d component(s)", CFG.variant_names[i] or "?", app, done)
@@ -2454,9 +2543,11 @@ local function hipsModelFrame()
 end
 
 local function elementCentre(host)
+    -- On the left-handed belt the element hangs mirrored, and so does its centre.
+    local sx = mirrorSign(host)
     local el = elementOn(host)
     if el ~= nil and el.cx ~= nil then
-        return el.cx + (el.ox or 0.0), el.cy + (el.oy or 0.0), el.cz + (el.oz or 0.0)
+        return sx * (el.cx + (el.ox or 0.0)), el.cy + (el.oy or 0.0), el.cz + (el.oz or 0.0)
     end
     local c = CFG.centres[host]
     if c == nil then return nil end
@@ -2469,28 +2560,34 @@ local function elementCentre(host)
     -- ONLY THE TRANSLATION. A rotation in that offset turns the piece about its own origin, not about
     -- the belt, so it does not move the centre; adding it here would swing the reach point metres.
     local o = offsetFor(host)
-    if o == nil then return c[1], c[2], c[3] end
-    return c[1] + (o.x or 0.0), c[2] + (o.y or 0.0), c[3] + (o.z or 0.0)
+    if o == nil then return sx * c[1], c[2], c[3] end
+    return sx * (c[1] + (o.x or 0.0)), c[2] + (o.y or 0.0), c[3] + (o.z or 0.0)
 end
 
-local function litAppearanceFor(host)
-    -- A MAGAZINE IS MARKED BY ITS OWN `lit` SET. It has no entry in CFG.elements and no `_lit` twin,
-    -- so without this the fallback below handed it `highlight_appearance` -- a name from the PROPS
-    -- system that no belt mesh of ours has, which is a swap to nothing and a magazine that never lit.
-    -- Every copy the builder makes carries lit .. lit8, so the colour setting is all that is needed.
-    if string.sub(host, 1, #MAG_PREFIX) == MAG_PREFIX then
-        local n = CFG.belt_mark_colour or 1
-        return (n <= 1) and "lit" or ("lit" .. tostring(n))
+-- The port's own elements: a magazine, a grenade, a shell. Each mesh carries its own mark (below).
+local OURS = { MAG_PREFIX, "ucbeltgrenade", "ucbeltammo_shell" }
+local function ours(host)
+    for _, p in ipairs(OURS) do
+        if string.sub(host, 1, #p) == p then return true end
     end
+    return false
+end
+
+-- THE MARK IS IN THE ELEMENT'S OWN MESH (tools/belt_lit_shell.py): every appearance A it has comes with `A_lit`,
+-- the same materials on the object and the amber mark on a shell drawn over the same geometry. So a mark is the
+-- appearance it wears now with `_lit` after it -- a grenade keeps its gang's decals, a magazine its skin.
+local LIT = "_lit"
+local function litAppearanceFor(host, cur)
+    local function marked(name)
+        if name == nil or name == "" then return nil end
+        if string.sub(name, -#LIT) == LIT then return name end
+        return name .. LIT
+    end
+    if ours(host) then return marked(cur) end
     local el = elementOn(host)
     if el ~= nil and el.hl ~= nil and el.hl ~= "" then
-        -- `hl = "lit"` means OUR marking, and which of the eight colours is a live setting rather than
-        -- something baked into the element. Any other name is passed through untouched, so an element
-        -- can still be marked with one of its own mesh's sets.
-        if string.sub(el.hl, 1, 3) == "lit" then
-            local n = CFG.belt_mark_colour or 1
-            return (n <= 1) and "lit" or ("lit" .. tostring(n))
-        end
+        -- `hl = "lit"` means OUR marking; any other name is one of the element's own mesh's sets, passed through.
+        if string.sub(el.hl, 1, 3) == "lit" then return marked(cur) end
         return el.hl
     end
     return CFG.highlight_appearance
@@ -2581,49 +2678,30 @@ end
 -- No scaling is involved and none is possible: a skinned component has no visualScale field. What
 -- keeps the two apart is the material itself -- loot_drop_highlight.mt carries OFFSET_NormalBias in
 -- its rasterizer state, which is the game's own way of pushing a highlight off the surface it marks.
-local function twinOf(host)
-    if host == nil then return nil end
-    return S.comps[host .. "_lit"]
-end
-
 -- ONLY WHAT THE PORT PUT THERE IS MARKED.
 --
 -- The proximity scan walks every ucbelt* component the belt has, and marking the nearest one means
 -- the strap and the mod's own pouches change colour too, and only the listed
--- elements may. A host qualifies only if it is ours: either it has a `_lit`
--- twin baked beside it, or it is declared in CFG.elements.
+-- elements may. A host qualifies only if it is ours (a magazine, a grenade, a shell: its mesh carries
+-- the mark) or it is declared in CFG.elements.
 --
 -- The switch is kept so the old behaviour is one click away, but it is off.
 local function markable(host)
     if host == nil then return false end
     if CFG.highlight_only_ours == false then return true end
-    -- A magazine has no `_lit` twin -- fifty-one of them would have doubled the component count for
-    -- nothing -- so it is marked the other way, by swapping its own appearance, and every belt copy
-    -- ships the eight `lit` appearances that makes possible.
     if string.sub(host, 1, #MAG_PREFIX) == MAG_PREFIX then
-        -- ...and a pouch whose magazine is in the player's hand is not markable at all, or the scan
-        -- would light it again the moment it is unmarked below.
+        -- A pouch whose magazine is in the player's hand is not markable at all, or the scan would light it
+        -- again the moment it is unmarked below.
         return not (S.magTaken and host == S.magHost)
     end
-    return twinOf(host) ~= nil or elementOn(host) ~= nil
+    return ours(host) or elementOn(host) ~= nil
 end
 
--- WHICH OF THE EIGHT COLOURS, live rather than baked: the twin ships wearing `lit` and any of the
--- others can replace it before it is shown.
-local function markColour()
-    local n = CFG.belt_mark_colour or 1
-    return (n <= 1) and "lit" or ("lit" .. tostring(n))
-end
-
--- Light or put out one host and everything that lights with it.
---
--- A TWIN IS THE MECHANISM, and swapping the host's own appearance is only the last resort. They are
--- not equivalent: an appearance names a material for EVERY chunk, so a `lit` appearance on the
--- element itself REPLACES what the object is made of -- the magazine stops being drawn and only the
--- mark is left, which is exactly a magazine that vanishes with a highlight in its place, as seen,
--- describes. The twin draws the same geometry a second time, so the object stays and the mark is
--- added to it. That is why the grenades looked right and the magazines did not, and why every
--- magazine now has a twin of its own.
+-- Light or put out one host and everything that lights with it: each one swapped to its appearance's `_lit` set
+-- and back (litAppearanceFor). The mark used to be a twin component per element drawing the mesh again in the
+-- mark's material; 51 twins made the belt 123 garments, and an item that changes counts twice in the game's
+-- garment pass, whose element numbers are one byte -- 25 + 123 + 123 crashed it whenever the belt came off or
+-- went on in the world. In the mesh the mark costs no component.
 local function markSet(host, on)
     local complete = true
     local pl = Game.GetPlayer()
@@ -2633,35 +2711,24 @@ local function markSet(host, on)
         return c ~= nil and IsDefined(c) and c or nil
     end
     for _, m in ipairs(markFamily(host)) do
-        -- The cached map identifies authored twins; it is never dereferenced for
-        -- a visibility write. The live 2026-09-24 crash was Toggle on the cutting
-        -- grenade twin. Awaiting ChangeAppearance avoids racing its proxy rebuild.
-        if twinOf(m) ~= nil then
-            if not markComponent.apply(currentComponent, m .. "_lit", on, markColour(), CName.new) then
-                complete = false
+        local ok, component = pcall(currentComponent, m)
+        if not ok or component == nil then
+            if on then complete = false end
+        elseif on then
+            local cur = nil
+            pcall(function()
+                cur = tostring(component.meshAppearance.value or component.meshAppearance)
+            end)
+            local want = litAppearanceFor(m, cur)
+            if cur ~= nil and want ~= nil and cur ~= want then
+                S.litFrom[m] = cur
+                local changed, accepted = pcall(function() return Game.VRComponentChangeAppearance(component, CName.new(want), true) end)
+                if not changed or accepted ~= true then complete = false end
             end
-        else
-            local ok, component = pcall(currentComponent, m)
-            if not ok or component == nil then
-                if on then complete = false end
-            else
-            if on then
-                local cur = nil
-                pcall(function()
-                    cur = tostring(component.meshAppearance.value or component.meshAppearance)
-                end)
-                local want = litAppearanceFor(m)
-                if cur ~= nil and want ~= nil and cur ~= want then
-                    S.litFrom[m] = cur
-                    local changed, accepted = pcall(function() return component:ChangeAppearance(CName.new(want), true) end)
-                    if not changed or accepted ~= true then complete = false end
-                end
-            elseif S.litFrom[m] ~= nil then
-                local back = S.litFrom[m]
-                local changed, accepted = pcall(function() return component:ChangeAppearance(CName.new(back), true) end)
-                if changed and accepted == true then S.litFrom[m] = nil else complete = false end
-            end
-            end
+        elseif S.litFrom[m] ~= nil then
+            local back = S.litFrom[m]
+            local changed, accepted = pcall(function() return Game.VRComponentChangeAppearance(component, CName.new(back), true) end)
+            if changed and accepted == true then S.litFrom[m] = nil else complete = false end
         end
     end
     return complete
@@ -2681,7 +2748,7 @@ local function applyLit(want)
         if S.litOn[host] == nil then
             if markSet(host, true) then
                 S.litOn[host] = true
-                if CFG.verbose then log("lit %s (%s)", host, markColour()) end
+                if CFG.verbose then log("lit %s", host) end
             end
         end
     end
@@ -2754,7 +2821,7 @@ local function propMesh(i, obj)
     local c = propS.mesh[i]
     if c ~= nil then return c end
     pcall(function()
-        for _, x in ipairs(obj:GetComponents()) do
+        for _, x in ipairs(Game.VREntityComponents(obj)) do
             if string.find(tostring(x:GetClassName()), "MeshComponent") then c = x return end
         end
     end)
@@ -2778,7 +2845,7 @@ local function propPlace(p, obj)
     local qi, qj, qk, qr = propQuat(p)
     local n = 0
     pcall(function()
-        for _, c in ipairs(obj:GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(obj)) do
             if string.find(tostring(c:GetClassName()), "MeshComponent") then
                 pcall(function() c:SetLocalPosition(Vector4.new(p.up, p.back, p.right, 1.0)) end)
                 pcall(function() c:SetLocalOrientation(Quaternion.new(qi, qj, qk, qr)) end)
@@ -2873,7 +2940,7 @@ local function propGlowComp(i, obj)
     local c = propS.glowComp[i]
     if c ~= nil then return c end
     pcall(function()
-        for _, x in ipairs(obj:GetComponents()) do
+        for _, x in ipairs(Game.VREntityComponents(obj)) do
             local nm = tostring(x:GetName()):match("%-%-%[%[ (.-) %-%-%]%]") or ""
             if nm == "vrp_glow" then c = x return end
         end
@@ -2903,11 +2970,11 @@ local function propEmissive(i, obj, on)
     -- so the edge is its own set of components (vrp_lit_*, added by tools/ent/add_lit_twins.py) drawing
     -- the same geometry one per cent larger, and all that happens here is switching them on.
     pcall(function()
-        for _, c in ipairs(obj:GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(obj)) do
             local nm = tostring(c:GetName()):match("%-%-%[%[ (.-) %-%-%]%]") or ""
             if string.sub(nm, 1, 8) == "vrp_lit_" then
                 if on then
-                    pcall(function() c:ChangeAppearance(CName.new(want)) end)
+                    pcall(function() Game.VRComponentChangeAppearance(c, CName.new(want), false) end)
                     local k = CFG.prop_rim_scale or 1.05
                     pcall(function() c.visualScale = Vector3.new(k, k, k) end)
                 end
@@ -3262,7 +3329,7 @@ local function propPlaneApply(i, obj, plane)
     if obj == nil then return false end
     local n = 0
     pcall(function()
-        for _, c in ipairs(obj:GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(obj)) do
             if string.find(tostring(c:GetClassName()), "MeshComponent") then
                 -- BY NAME first: Enum.new takes the member name in every CET build, while the integer
                 -- form is not accepted by all of them. The value is NOT read back afterwards -- reading
@@ -3598,6 +3665,21 @@ local function updateShellReach(hx, hy, hz, qi, qj, qk, qr)
     end
 end
 
+-- The reach and the mark's radius, wider while crouched (CFG.crouch_reach_scale). Read with the highlight's
+-- own rate: the crouch flag comes from the player's persistent state, which is cheap but not free.
+local function reachRadius()
+    local r = CFG.highlight_radius_m
+    local now = os.clock()
+    if S.crouchAt == nil or now - S.crouchAt > 0.25 then
+        S.crouchAt = now
+        local pl = Game.GetPlayer()
+        local ok, crouched = pcall(function() return pl ~= nil and pl:GetPuppetPS():IsCrouch() end)
+        S.crouched = ok and crouched == true
+    end
+    if S.crouched then r = r * (CFG.crouch_reach_scale or 1.0) end
+    return r
+end
+
 local function updateMagReach()
     S.magD[0], S.magD[1] = nil, nil
     local st = S.state
@@ -3617,6 +3699,37 @@ local function updateMagReach()
         if p ~= nil then
             local dx, dy, dz = (hx + wx) - p.x, (hy + wy) - p.y, (hz + wz) - p.z
             S.magD[side] = math.sqrt(dx * dx + dy * dy + dz * dz)
+        end
+    end
+end
+
+-- THE REACH MARKER (CyberpunkVRPort_Reach, modules/marker.lua) on the element each hand has lit: the ring the world's
+-- things and the reload's parts get, so a pouch is marked the way everything else a hand can take is. Every frame --
+-- a frame without it lets the ring fade -- at the element's place in the hips frame as the last highlight tick found
+-- it, carried by the hips as they are now. Without that mod, nothing.
+local reachMod = nil
+local function markReach()
+    local at = S.ringAt
+    if at[0] == nil and at[1] == nil then return end
+    if reachMod == nil then reachMod = GetMod("CyberpunkVRPort_Reach") or false end
+    if not (reachMod and reachMod.mark) then return end
+    local hx, hy, hz, qi, qj, qk, qr = hipsModelFrame()
+    if hx == nil then return end
+    local ok, bx, by, bz, ci, cj, ck, cr = pcall(playerModelBasis, Game.GetPlayer())
+    if not ok or bx == nil then return end
+    for side = 0, 1 do
+        local a = at[side]
+        if a ~= nil and S.litHand[side] ~= nil then
+            local mx, my, mz = qrot(qi, qj, qk, qr, a[1], a[2], a[3])
+            local wx, wy, wz = qrot(-ci, -cj, -ck, cr, hx + mx, hy + my, hz + mz)
+            local from = nil
+            local pp = palmPoint(side)
+            if pp ~= nil then
+                local fx, fy, fz = qrot(-ci, -cj, -ck, cr, pp.x, pp.y, pp.z)
+                from = { bx + fx, by + fy, bz + fz }
+            end
+            pcall(reachMod.mark, side + 1, { pos = { bx + wx, by + wy, bz + wz }, radius = 0.03, lift = 0.03,
+                                             kind = "near", ready = true, from = from })
         end
     end
 end
@@ -3646,7 +3759,7 @@ local function updateHighlight(dt)
 
     -- EACH HAND KEEPS ITS OWN ELEMENT. The two are resolved independently and the results are unioned,
     -- so reaching for a grenade with one hand and a magazine with the other lights both.
-    local enter = CFG.highlight_radius_m
+    local enter = reachRadius()
     local leave = enter * (CFG.highlight_release or 1.35)
     local nearest = nil
     local targets = nil
@@ -3680,7 +3793,8 @@ local function updateHighlight(dt)
                     if eligible and on == true then
                         local ax, ay, az = toHipsFrame(ex, ey, ez)
                         local wx, wy, wz = qrot(qi, qj, qk, qr, ax, ay, az)
-                        targets[#targets + 1] = {host = host, x = hx + wx, y = hy + wy, z = hz + wz}
+                        targets[#targets + 1] = {host = host, x = hx + wx, y = hy + wy, z = hz + wz,
+                                                 ax = ax, ay = ay, az = az}
                     end
                 end
             end
@@ -3708,6 +3822,18 @@ local function updateHighlight(dt)
                 S.litHand[side] = best
             end
             if bestD ~= nil and (nearest == nil or bestD < nearest) then nearest = bestD end
+            -- Where the reach marker goes for this hand: the nearest piece of what it has lit, in the hips frame.
+            local lit, ring, ringD = S.litHand[side], nil, nil
+            if lit ~= nil then
+                for _, target in ipairs(targets) do
+                    if (OFFSET_GROUP[target.host] or target.host) == lit then
+                        local dx, dy, dz = target.x - p.x, target.y - p.y, target.z - p.z
+                        local d = dx * dx + dy * dy + dz * dz
+                        if ringD == nil or d < ringD then ring, ringD = target, d end
+                    end
+                end
+            end
+            S.ringAt[side] = ring and { ring.ax, ring.ay, ring.az } or nil
             S.handSide = S.handSide or {}
             local hs = S.handSide[side]
             if hs == nil then hs = {}; S.handSide[side] = hs end
@@ -3715,6 +3841,7 @@ local function updateHighlight(dt)
             S.hand = p
         else
             S.litHand[side] = nil
+            S.ringAt[side] = nil
         end
     end
     S.handDist = nearest
@@ -3848,6 +3975,11 @@ end
 
 registerForEvent("onUpdate", function(dt)
     if not S.ready or not CFG.enabled then return end
+    -- The main menu and character creation have a player of their own, the menu world's puppet, and the
+    -- belt is not worn there. Attaching to it crashed: a request superseded there had the item factory free the
+    -- half-loaded belt meshes (read 0x0 at exe+0xB0C787, the fault ATTACH_WAIT exists for).
+    local okG, preGame = pcall(function() return Game.GetSystemRequestsHandler():IsPreGame() end)
+    if okG and preGame then return end
 
     local pl = Game.GetPlayer()
     if pl == nil then
@@ -3888,6 +4020,7 @@ registerForEvent("onUpdate", function(dt)
 
     updateMagReach()
     updateHighlight(dt)
+    markReach()
 
     -- EVERY FRAME, deliberately. The belt's own housekeeping runs on CFG.rate_hz and that is right for
     -- it, but a prop has to answer a hand: the distance readout and the light both looked sluggish
@@ -3910,7 +4043,7 @@ registerForEvent("onUpdate", function(dt)
     -- The repair is for EquipmentEx's outfit mode, which a belt in its waist slot can switch on; the
     -- port's own slot is not one EquipmentEx manages.
     if CFG.auto_equip and not startupClothing.done and slotName() == CFG.outfit_slot then
-        local refresh = startupClothing:Tick(now, pl, transactions(), outfitSystem(), slotID(), CFG.variants[CFG.variant])
+        local refresh = startupClothing:Tick(now, pl, transactions(), outfitSystem(), slotID(), wantedRecord())
         if refresh then
             if refresh.ok and refresh.done then
                 log("startup clothing refreshed once: restored=%d slots=%d", refresh.restored, refresh.refreshed)
@@ -4185,6 +4318,7 @@ registerForEvent("onDraw", function()
                 (h and h.d) and string.format("%.3f", h.d) or "-"))
         end
         CFG.highlight_radius_m = ImGui.DragFloat("radius##hl", CFG.highlight_radius_m, 0.005, 0.03, 0.40, "%.3f")
+        CFG.crouch_reach_scale = ImGui.DragFloat("x crouched##hl", CFG.crouch_reach_scale or 1.5, 0.05, 1.0, 3.0, "%.2f")
 
         ImGui.Text("точка на руке: костяшка среднего пальца + смещение в осях ладони (м)")
         local ho = CFG.highlight_hand_off
@@ -4306,7 +4440,7 @@ registerForEvent("onDraw", function()
             -- the item object. Which of the two it is decides where every later step has to look.
             local pl = Game.GetPlayer()
             local list = nil
-            pcall(function() list = pl:GetComponents() end)
+            pcall(function() list = Game.VREntityComponents(pl) end)
             if list ~= nil then
                 local hits = {}
                 for i = 1, #list do
@@ -4316,7 +4450,7 @@ registerForEvent("onDraw", function()
                 end
                 log("player carries %d belt-ish component(s) of %d: %s", #hits, #list, table.concat(hits, ", "))
             else
-                log("player:GetComponents() unavailable (Codeware missing?)")
+                log("the player's components are unavailable")
             end
         end
 
@@ -4566,6 +4700,8 @@ end)
 -- Everything here is a read of state this module computes anyway; nothing starts work of its own.
 return {
     performance = PERFORMANCE,
+    -- What the belt last read of the player (readState): the weapon whose ammunition it carries, the grenade, ...
+    state = function() return S.state end,
     -- THE GRIP AT A LIT GRENADE HOLDER BELONGS TO THE GRENADE. The holster's right-hip zone reaches the
     -- grenade holders, so one squeeze there used to draw (or put away) a weapon AND take a grenade into
     -- the same hand slot. The holster asks this and stands down while it is true. It is false whenever
@@ -4610,7 +4746,7 @@ return {
     end,
     -- The radius the belt itself lights the pouch at, so the reach and the mark agree.
     magRadius = function()
-        return CFG.highlight_radius_m
+        return reachRadius()
     end,
     -- THE LOOSE SHELLS, for a pump gun: palm to the nearest one of the row, nil when the row is not on
     -- the belt or there is no hand; the same light-up radius; and "I am carrying one" -- the nearest
@@ -4619,7 +4755,7 @@ return {
         return S.shellD[side]
     end,
     shellRadius = function()
-        return CFG.highlight_radius_m
+        return reachRadius()
     end,
     shellTaken = function(on, side)
         if on then

@@ -138,11 +138,8 @@ local function buildCloseBox(hints)
 end
 
 local function pass()
-  local sys = nil
-  pcall(function() sys = Game.GetInkSystem() end)
-  if not sys then return end
   local layers = nil
-  pcall(function() layers = sys:GetLayers() end)
+  pcall(function() layers = Game.VRInkLayers() end)
   if not layers then return end
   local out = {}
   for i = 1, #layers do

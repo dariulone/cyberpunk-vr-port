@@ -42,6 +42,9 @@ K.NAVY = { 0.012, 0.012, 0.012 }
 K.DARKRED = { 0.30, 0.03, 0.04 }
 K.DARKCYAN = { 0.02, 0.22, 0.26 }
 K.DARKYELLOW = { 0.24, 0.21, 0.0 }
+-- item quality, as the inventory colours it
+K.QUALITY = { Common = K.GREY, Uncommon = { .25, .85, .53 }, Rare = { .25, .65, 1 }, Epic = { .75, .3, 1 },
+  Legendary = { 1, .62, .16 } }
 
 K.ATLAS = {
   phone = "base\\gameplay\\gui\\widgets\\phone\\new_phone_assets.inkatlas",
@@ -328,6 +331,45 @@ function K.upper(s)
     if up < 0x80 then return string.char(up) end
     return string.char(0xC0 + math.floor(up / 64), 0x80 + up % 64)
   end))
+end
+
+-- THE POINTER BEAM's strip (vr_menu_beam.ent: BEAM.cw x BEAM.ch px over BEAM.len m, the canvas's top at the
+-- hand): a glow and a core that are not there for the first BEAM.hide m from the hand and come in over the
+-- next BEAM.fade m in BEAM.steps rects of rising opacity, then run whole to where the ray lands -- the hand
+-- does not hold a bar of light, the light starts out in front of it.
+K.BEAM = { len = 1.5, cw = 16, ch = 2048, hide = 0.12, fade = 0.12, steps = 6 }
+
+function K.beamBuild(root, glowCol, glowOp, coreCol, coreOp)
+  local B = K.BEAM
+  local parts = { pieces = {}, px = -1 }
+  for k = 1, B.steps + 1 do
+    local f = k <= B.steps and k / (B.steps + 1) or 1
+    parts.pieces[#parts.pieces + 1] = { k = k, rect = K.rect(root, 0, 0, B.cw, 0, glowCol, glowOp * f), x = 0, w = B.cw }
+    parts.pieces[#parts.pieces + 1] = { k = k, rect = K.rect(root, (B.cw - 6) / 2, 0, 6, 0, coreCol, coreOp * f),
+      x = (B.cw - 6) / 2, w = 6 }
+  end
+  return parts
+end
+
+-- Laid out for a ray `length` m long (nothing to do while it stays within a pixel).
+function K.beamLength(parts, length)
+  local B = K.BEAM
+  local perM = B.ch / B.len
+  local px = math.max(0, math.min(B.len, length)) * perM
+  if math.abs(px - parts.px) < 1 then return end
+  parts.px = px
+  local hide, step = B.hide * perM, B.fade * perM / B.steps
+  for _, p in ipairs(parts.pieces) do
+    local top = hide + (p.k - 1) * step
+    local bottom = p.k <= B.steps and top + step or px
+    local h = math.max(0, math.min(bottom, px) - top)
+    K.move(p.rect, p.x, top)
+    K.size(p.rect, p.w, h)
+  end
+end
+
+function K.beamShow(parts, on)
+  for _, p in ipairs(parts.pieces) do p.rect:SetVisible(on) end
 end
 
 return K

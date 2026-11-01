@@ -1,9 +1,6 @@
--- The port's settings in the VR menu: the pages of the ImGui panel, read out by the plugin and drawn
--- here as the menu's own rows. VRSettingsPage(page) asks the plugin to record a page at its next present
--- and returns the newest recording; VRSettingsEdit(page, id, value) hands an item a new value, which the
--- panel's own code applies -- and saves to the ini -- the way a click or a drag on the panel would have.
--- So this file knows no setting by name: a new control in the panel shows up here by itself, with its
--- range, its tooltip and its disabled state. The page string is described in include/Overlay/UiRec.hpp.
+-- The port's settings in the VR menu: the pages of the ImGui panel, read out by the plugin (modules/settings_data.lua)
+-- and drawn here as the menu's own rows. So this file knows no setting by name: a new control in the panel shows up
+-- here by itself, with its range, its tooltip and its disabled state.
 --
 -- The page is polled while it is on the screen. A recording with the same rows as the one drawn only
 -- refreshes values and texts in place; rows coming or going (a section folded, a mode that shows other
@@ -11,12 +8,11 @@
 
 local K = require("modules/ink")
 local V = require("modules/scroll")
-local L = require("modules/locale")
+local D = require("modules/settings_data")
 
 local Set = {}
 
-local PAGES = { "GENERAL", "FRAMEGEN", "HUD", "CONTROLS", "STEREO", "AVATAR", "OVERLAY" }
-local PAGES_RU = { "ОБЩИЕ", "ГЕН. КАДРОВ", "HUD", "УПРАВЛЕНИЕ", "СТЕРЕО", "АВАТАР", "ОВЕРЛЕЙ" }
+local PAGES = D.PAGES
 
 
 -- The panel, in its own canvas pixels: header, page tabs, the list between its arrows, the tooltip box.
@@ -47,49 +43,10 @@ local ST = {
 }
 
 local function clamp(x, lo, hi) return math.max(lo, math.min(hi, x)) end
-local function has(flags, bit) return math.floor(flags / bit) % 2 == 1 end
-
-local function split(s, sep)
-  local out, i = {}, 1
-  while true do
-    local j = string.find(s, sep, i, true)
-    if j == nil then
-      out[#out + 1] = string.sub(s, i)
-      return out
-    end
-    out[#out + 1] = string.sub(s, i, j - 1)
-    i = j + 1
-  end
-end
+local has, split, parse = D.has, D.split, D.parse
+local stepOf, snap, fmt, ulen, wrap, fetch = D.stepOf, D.snap, D.fmt, D.ulen, D.wrap, D.fetch
 
 ---------------------------------------------------------------- the page string
-
--- The panel's English in the menu's language (L.setting): labels, tooltips, texts, and a combo's or tabs'
--- options one by one.
-local function translate(text, options)
-  if not options then return L.setting(text) end
-  local out = split(text, "\29")
-  for i, o in ipairs(out) do out[i] = L.setting(o) end
-  return table.concat(out, "\29")
-end
-
-local function parse(str)
-  if type(str) ~= "string" or str == "" then return nil end
-  local recs = split(str, "\30")
-  local head = split(recs[1], "\31")
-  if head[1] ~= "#" then return nil end
-  local pg = { name = head[3], page = tonumber(head[4]) or -1, seq = tonumber(head[5]) or 0, items = {} }
-  for i = 2, #recs do
-    local f = split(recs[i], "\31")
-    local kind = f[1]
-    pg.items[#pg.items + 1] = {
-      kind = kind, id = f[2] or "", label = translate(f[3] or ""), value = tonumber(f[4]) or 0,
-      min = tonumber(f[5]) or 0, max = tonumber(f[6]) or 0, text = translate(f[7] or "", kind == "O" or kind == "P"),
-      flags = tonumber(f[8]) or 0, tip = translate(f[9] or ""), indent = tonumber(f[10]) or 0, page = pg.page,
-    }
-  end
-  return pg
-end
 
 local function headerOpen(f)
   local o = ST.open[f.id]
@@ -98,17 +55,7 @@ local function headerOpen(f)
 end
 
 -- The rows a page shows: a folded section hides everything up to the next section of its level.
-local function visible(items)
-  local out, fold = {}, nil
-  for _, f in ipairs(items) do
-    if fold ~= nil and f.kind == "H" and f.indent <= fold then fold = nil end
-    if fold == nil then
-      out[#out + 1] = f
-      if f.kind == "H" and not headerOpen(f) then fold = f.indent end
-    end
-  end
-  return out
-end
+local function visible(items) return D.visible(items, headerOpen) end
 
 -- The push buttons a page opens with (Recenter, Save), which sit in the panel's header instead of the list.
 local function leading(items)
@@ -140,71 +87,7 @@ end
 
 ---------------------------------------------------------------- numbers and text
 
-local function decimals(s)
-  local frac = string.match(s or "", "%d%.(%d+)")
-  return frac and #frac or 0
-end
-
-local function nice(x)
-  if x <= 0 then return 1 end
-  local p = 10 ^ math.floor(math.log10(x))
-  local m = x / p
-  if m < 1.5 then return p elseif m < 3.5 then return 2 * p elseif m < 7.5 then return 5 * p end
-  return 10 * p
-end
-
--- A slider's grain: two hundred steps over its range, rounded to 1 / 2 / 5, never finer than the
--- panel shows the value (an int slider steps by whole numbers at least).
-local function stepOf(f)
-  local span = math.abs(f.max - f.min)
-  if f.kind == "I" then return math.max(1, math.floor(nice(span / 200) + 0.5)) end
-  return math.max(10 ^ -decimals(f.text), nice(span / 200))
-end
-
-local function snap(f, v, lo, step)
-  v = lo + math.floor((v - lo) / step + 0.5) * step
-  if f.kind == "I" then return math.floor(v + 0.5) end
-  return tonumber(string.format("%.6f", v))
-end
-
--- The value as the panel would show it: its number swapped into the panel's own text, so a unit or a
--- suffix the format carries stays.
-local function fmt(f, v)
-  local pre, num, post = string.match(f.text or "", "^(.-)(%-?%d+%.?%d*)(.*)$")
-  local s = f.kind == "I" and tostring(math.floor(v + 0.5)) or string.format("%." .. decimals(num or "0.00") .. "f", v)
-  if num == nil then return s end
-  return pre .. s .. post
-end
-
-local function ulen(s)
-  local n = 0
-  for _ in string.gmatch(s, "[%z\1-\127\194-\244][\128-\191]*") do n = n + 1 end
-  return n
-end
-
--- Lines of at most n characters, broken at spaces (a word longer than a line runs long). The screen's
--- text widget does not wrap by itself, so the rows are as tall as their lines.
-local function wrap(s, n)
-  local lines = {}
-  for para in string.gmatch((s or "") .. "\n", "(.-)\n") do
-    local line, len = "", 0
-    for word in string.gmatch(para, "%S+") do
-      local wl = ulen(word)
-      if len > 0 and len + 1 + wl > n then
-        lines[#lines + 1] = line
-        line, len = word, wl
-      elseif len > 0 then
-        line, len = line .. " " .. word, len + 1 + wl
-      else
-        line, len = word, wl
-      end
-    end
-    lines[#lines + 1] = line
-  end
-  while #lines > 1 and lines[#lines] == "" do lines[#lines] = nil end
-  return lines
-end
-
+-- The rows are as tall as their lines: the screen's text widget does not wrap by itself (D.wrap).
 local function charsFor(width, size) return math.max(10, math.floor(width / (size * 0.52))) end
 
 local function textColor(f, dim)
@@ -218,15 +101,8 @@ end
 
 ---------------------------------------------------------------- talking to the plugin
 
-local function fetch(page)
-  if type(VRSettingsPage) ~= "function" then return nil end
-  local ok, s = pcall(VRSettingsPage, page)
-  return ok and s or nil
-end
-
 local function send(f, value)
-  if type(VRSettingsEdit) ~= "function" then return end
-  pcall(VRSettingsEdit, f.page, f.id, value)
+  D.edit(f, value)
   local now = ST.kit and ST.kit.S.time or 0
   ST.sent[f.id] = now
   ST.fastUntil = now + 1.0
@@ -748,7 +624,7 @@ function Set.build(kit, p, sx, sy, w)
     local bg = K.roundFill(p, x, TAB_Y, tw, TAB_H, K.ICE, 0.04, TAB_H / 2)
     local edge = K.roundEdge(p, x, TAB_Y, tw, TAB_H, K.ICE, 0.0, TAB_H / 2)
     local under = K.rect(p, x + 12, TAB_Y + TAB_H - 10, tw - 24, 4, K.YELLOW, 0.0)
-    local txt = K.text(p, x, TAB_Y, tw, TAB_H, L.tr(PAGES_RU[i], PAGES[i]), 34, K.TEXT, "center")
+    local txt = K.text(p, x, TAB_Y, tw, TAB_H, D.pageName(i), 34, K.TEXT, "center")
     ST.tabs[i] = kit.button("set", kit.at(sx, sy), x, TAB_Y, tw, TAB_H, function()
       setPage(i - 1)
     end, function(hover)

@@ -1,0 +1,731 @@
+{
+ "Header": {
+  "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-21T08:48:36.9854284Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "C:\\Users\\dariulone\\Desktop\\CyberpunkVRPort\\build\\vr-menu-20261021\\game\\engine\\ink\\util\\ad_widget_component_capture.ent"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "entEntityTemplate",
+   "appearances": [],
+   "backendDataOverrides": [],
+   "bindingOverrides": [],
+   "compiledData": {
+    "BufferId": "0",
+    "Flags": 4063232,
+    "Type": "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4, Version=8.18.0.0, Culture=neutral, PublicKeyToken=null",
+    "Data": {
+     "Version": 4,
+     "Sections": 7,
+     "CruidIndex": 0,
+     "CruidDict": {
+      "0": "0",
+      "1": "2482346998624055296",
+      "2": "2482770868527067136",
+      "3": "2492811973113049088"
+     },
+     "Chunks": [
+      {
+       "$type": "entEntity",
+       "customCameraTarget": "ECCTV_All",
+       "renderSceneLayerMask": "Default"
+      },
+      {
+       "$type": "entMeshComponent",
+       "autoHideDistance": 0,
+       "castLocalShadows": "Always",
+       "castRayTracedGlobalShadows": "Always",
+       "castRayTracedLocalShadows": "Default",
+       "castShadows": "Always",
+       "chunkMask": "9223372036854775807",
+       "forcedLodDistance": "Default",
+       "forceLODLevel": -1,
+       "id": "2482346998624055296",
+       "isEnabled": 1,
+       "isReplicable": 0,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "LODMode": "AlwaysVisible",
+       "mesh": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "string",
+         "$value": "engine\\ink\\util\\advertisement_plane.mesh"
+        },
+        "Flags": "Default"
+       },
+       "meshAppearance": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "default"
+       },
+       "motionBlurScale": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "display"
+       },
+       "navigationImpact": {
+        "$type": "NavGenNavigationSetting",
+        "navmeshImpact": "Ignored"
+       },
+       "numInstances": 0,
+       "objectTypeID": "ROT_Static",
+       "order": 0,
+       "overrideMeshNavigationImpact": 1,
+       "parentTransform": null,
+       "renderingPlane": "RPl_Scene",
+       "renderSceneLayerMask": "Default",
+       "version": 0,
+       "visualScale": {
+        "$type": "Vector3",
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+       }
+      },
+      {
+       "$type": "AdvertisementWidgetComponent",
+       "adGroupTDBID": {
+        "$type": "TweakDBID",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "adOverrideTDBID": {
+        "$type": "TweakDBID",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "adVersion": 0,
+       "enableOverride": 0,
+       "format": "Format_0_7x1",
+       "glitchValue": 0,
+       "id": "2482770868527067136",
+       "isEnabled": 0,
+       "isReplicable": 0,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "meshTargetBinding": {
+        "HandleId": "0",
+        "Data": {
+         "$type": "worlduiMeshTargetBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         }
+        }
+       },
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "adWidget"
+       },
+       "parentTransform": {
+        "HandleId": "1",
+        "Data": {
+         "$type": "entHardTransformBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         },
+         "slotName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "None"
+         }
+        }
+       },
+       "screenAreaMultiplier": 1,
+       "textureMaxMipBias": 0,
+       "textureMinMipBias": 0,
+       "tintColor": {
+        "$type": "Color",
+        "Alpha": 0,
+        "Blue": 0,
+        "Green": 0,
+        "Red": 0
+       },
+       "useOnlyAttachedLights": 0
+      },
+      {
+       "$type": "WorldWidgetComponent",
+       "cursorResource": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "Flags": "Default"
+       },
+       "glitchValue": 0,
+       "id": "2492811973113049088",
+       "isEnabled": 0,
+       "isReplicable": 0,
+       "itemNameToSpawn": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "limitedSpawnDistanceFromVehicle": 1,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "meshTargetBinding": {
+        "HandleId": "2",
+        "Data": {
+         "$type": "worlduiMeshTargetBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         }
+        }
+       },
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "worldWidget"
+       },
+       "parentTransform": {
+        "HandleId": "3",
+        "Data": {
+         "$type": "entHardTransformBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         },
+         "slotName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "None"
+         }
+        }
+       },
+       "sceneWidgetProperties": {
+        "$type": "worlduiSceneWidgetProperties",
+        "faceVector": {
+         "$type": "Vector3",
+         "X": 0,
+         "Y": 0,
+         "Z": 0
+        },
+        "isAlwaysVisible": 0,
+        "isInteractable": 0,
+        "isInteractableFromBehind": 0,
+        "maxInteractionDistance": 0,
+        "overrideMaxInteractionDistance": 0,
+        "projectionPlaneSize": {
+         "$type": "Vector2",
+         "X": 1,
+         "Y": 1
+        },
+        "renderingPlane": "RPl_Scene",
+        "useCustomFaceVector": 0
+       },
+       "screenAreaMultiplier": 1,
+       "screenDefinition": {
+        "$type": "SUIScreenDefinition",
+        "screenDefinition": {
+         "$type": "TweakDBID",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "style": {
+         "$type": "TweakDBID",
+         "$storage": "uint64",
+         "$value": "0"
+        }
+       },
+       "spawnDistanceOverride": -1,
+       "staticTextureResource": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "Flags": "Soft"
+       },
+       "textureMaxMipBias": 0,
+       "textureMinMipBias": 0,
+       "tintColor": {
+        "$type": "Color",
+        "Alpha": 0,
+        "Blue": 0,
+        "Green": 0,
+        "Red": 0
+       },
+       "widgetResource": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "Flags": "Soft"
+       }
+      }
+     ]
+    }
+   },
+   "compiledEntityLODFlags": 0,
+   "componentResolveSettings": [],
+   "components": [
+    {
+     "$type": "entMeshComponent",
+     "autoHideDistance": 0,
+     "castLocalShadows": "Never",
+     "castRayTracedGlobalShadows": "Never",
+     "castRayTracedLocalShadows": "Never",
+     "castShadows": "Never",
+     "chunkMask": "9223372036854775807",
+     "forcedLodDistance": "Default",
+     "forceLODLevel": -1,
+     "id": "2482346998624055296",
+     "isEnabled": 0,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0,
+       "j": 0,
+       "k": 0,
+       "r": 1
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "LODMode": "AlwaysVisible",
+     "mesh": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\ui\\vr_lobby_plane.mesh"
+      },
+      "Flags": "Default"
+     },
+     "meshAppearance": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "default"
+     },
+     "motionBlurScale": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "display"
+     },
+     "navigationImpact": {
+      "$type": "NavGenNavigationSetting",
+      "navmeshImpact": "Ignored"
+     },
+     "numInstances": 0,
+     "objectTypeID": "ROT_Static",
+     "order": 0,
+     "overrideMeshNavigationImpact": 1,
+     "parentTransform": null,
+     "renderingPlane": "RPl_Scene",
+     "renderSceneLayerMask": "Default",
+     "version": 0,
+     "visualScale": {
+      "$type": "Vector3",
+      "X": 0.98,
+      "Y": 0.75,
+      "Z": 1
+     }
+    },
+    {
+     "$type": "AdvertisementWidgetComponent",
+     "adGroupTDBID": {
+      "$type": "TweakDBID",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "adOverrideTDBID": {
+      "$type": "TweakDBID",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "adVersion": 0,
+     "enableOverride": 0,
+     "format": "Format_0_7x1",
+     "glitchValue": 0,
+     "id": "2482770868527067136",
+     "isEnabled": 0,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0,
+       "j": 0,
+       "k": 0,
+       "r": 1
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "meshTargetBinding": {
+      "HandleRefId": "0"
+     },
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "adWidget"
+     },
+     "parentTransform": {
+      "HandleRefId": "1"
+     },
+     "screenAreaMultiplier": 1,
+     "textureMaxMipBias": 6,
+     "textureMinMipBias": 0,
+     "tintColor": {
+      "$type": "Color",
+      "Alpha": 0,
+      "Blue": 0,
+      "Green": 0,
+      "Red": 0
+     },
+     "useOnlyAttachedLights": 0
+    },
+    {
+     "$type": "WorldWidgetComponent",
+     "cursorResource": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "uint64",
+       "$value": "0"
+      },
+      "Flags": "Default"
+     },
+     "glitchValue": 0,
+     "id": "2492811973113049088",
+     "isEnabled": 1,
+     "isReplicable": 0,
+     "itemNameToSpawn": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "None"
+     },
+     "limitedSpawnDistanceFromVehicle": 1,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0,
+       "j": 0,
+       "k": 0,
+       "r": 1
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "meshTargetBinding": {
+      "HandleRefId": "2"
+     },
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "vrp_lobby_ui"
+     },
+     "parentTransform": {
+      "HandleRefId": "3"
+     },
+     "sceneWidgetProperties": {
+      "$type": "worlduiSceneWidgetProperties",
+      "faceVector": {
+       "$type": "Vector3",
+       "X": 0,
+       "Y": 0,
+       "Z": 0
+      },
+      "isAlwaysVisible": 1,
+      "isInteractable": 0,
+      "isInteractableFromBehind": 0,
+      "maxInteractionDistance": 0,
+      "overrideMaxInteractionDistance": 0,
+      "projectionPlaneSize": {
+       "$type": "Vector2",
+       "X": 0.98,
+       "Y": 0.75
+      },
+      "renderingPlane": "RPl_Scene",
+      "useCustomFaceVector": 0
+     },
+     "screenAreaMultiplier": 1,
+     "screenDefinition": {
+      "$type": "SUIScreenDefinition",
+      "screenDefinition": {
+       "$type": "TweakDBID",
+       "$storage": "uint64",
+       "$value": "0"
+      },
+      "style": {
+       "$type": "TweakDBID",
+       "$storage": "uint64",
+       "$value": "0"
+      }
+     },
+     "spawnDistanceOverride": -1,
+     "staticTextureResource": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "uint64",
+       "$value": "0"
+      },
+      "Flags": "Soft"
+     },
+     "textureMaxMipBias": 0,
+     "textureMinMipBias": 0,
+     "tintColor": {
+      "$type": "Color",
+      "Alpha": 255,
+      "Blue": 255,
+      "Green": 255,
+      "Red": 255
+     },
+     "widgetResource": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\ui\\vr_lobby.inkwidget"
+      },
+      "Flags": "Default"
+     }
+    }
+   ],
+   "cookingPlatform": "PLATFORM_PC",
+   "defaultAppearance": {
+    "$type": "CName",
+    "$storage": "string",
+    "$value": "default"
+   },
+   "entity": {
+    "HandleId": "4",
+    "Data": {
+     "$type": "entEntity",
+     "customCameraTarget": "ECCTV_All",
+     "renderSceneLayerMask": "Default"
+    }
+   },
+   "includeInstanceBuffer": null,
+   "includes": [],
+   "inplaceResources": [],
+   "localData": null,
+   "resolvedDependencies": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "engine\\ink\\util\\advertisement_plane.mesh"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "visualTagsSchema": null
+  },
+  "EmbeddedFiles": []
+ }
+}

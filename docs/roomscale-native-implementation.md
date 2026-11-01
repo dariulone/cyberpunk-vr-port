@@ -19,8 +19,15 @@
 3. Ownership is checked against `GetPlayer`, movement owner S+0x90, the active
    physical provider/adapter vtables and matching physics handles. Cinematic,
    vehicle, workspot, vault, slide, menu and invalid-tracking cases are gated.
-4. The tracking span sent to physics is consumed once, even at a wall. There is
-   no delayed position target and no retry of collision-rejected displacement.
+4. The ledger consumes what the controller carried out of the physical step
+   (the refused component along the request withheld, `AcceptedDisplacement`).
+   The refused rest stays as the view's lead over the capsule: at a wall the view
+   keeps the headset's pose and the body follows when the way is clear. The eye
+   (camera calibration offset + tracking offset) is held within the capsule
+   radius - 5 cm of the capsule's axis (0.35 m; the controller's contact offset
+   adds 7 cm), where the controller guarantees free space; past that the lead is
+   consumed and the view stops. `CyberpunkVR_HeadLeadsCapsule=0` restores the
+   old ledger (the request consumed whole, the view held on the capsule).
 5. Camera composition subtracts this span in tracking axes. MAIN, VRCAM and
    the coherent hand-anchor calculation use the same ledger. Both eyes obtain
    the shared frame's head sample even when only one won the composition gate.
@@ -86,7 +93,9 @@ The offline ABI check also verifies the whole EXE hash and dispatch slots.
 
 - twelve combinations of XR/physics rates, skipped and duplicate samples;
 - one-to-one camera displacement with simultaneous WASD and world scaling;
-- collision-blocked distance is not retried; stepping away responds immediately;
+- a blocked capsule leaves the view its lead, capped at the eye limit; a stationary headset never gains
+  speed into the wall, the body follows along it and closes up once it is gone; stepping away responds
+  immediately;
 - a native-like velocity/friction feedback loop stops after the physical step;
 - free-space, opposing-input and planar wall-slide velocity attribution;
 - recenter, disabled states, lost/stale/out-of-order tracking and invalid floats;

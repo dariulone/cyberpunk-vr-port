@@ -75,7 +75,9 @@ __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_SubmitChainStats[8]{};
 // the caller's (render nodes run from queue 1, the world tick's jobs from queue 2). Live for A/B tests.
 __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_SubmitChainPriority{-1};
 // 1 = the presenting view's Present node queues the present after the chain (see DEFERRED PRESENT); only
-// with the chain on. Off by default: pausing crashed with it on (see DEFERRED PRESENT). Live for A/B tests.
+// with the chain on. Set from xr_defer_present (default 1); the pause crash it was once switched off for is
+// closed (see DEFERRED PRESENT), and on 2.5 it passed 25 pause-menu round trips with a camera scope drawn.
+// Live for A/B tests.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_SubmitChainDeferPresent{0};
 // [0] presents deferred, [1] of them done, [2] Present nodes that waited for the previous one, [3] their
 // QPC ticks, [4] view jobs that waited for the deferred present, [5] their ticks, [6] presents run in the

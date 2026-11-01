@@ -1,0 +1,59 @@
+{
+  "Header": {
+    "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+    "WKitJsonVersion": "0.0.9",
+    "GameVersion": 2310,
+    "ExportedDateTime": "2026-10-21T08:48:36.9812780Z",
+    "DataType": "CR2W",
+    "ArchiveFileName": ""
+  },
+  "Data": {
+    "Version": 195,
+    "BuildVersion": 0,
+    "EmbeddedFiles": [],
+    "RootChunk": {
+      "$type": "CMaterialInstance",
+      "audioTag": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+      },
+      "baseMaterial": {
+        "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "base\\materials\\loot_drop_highlight.mt"
+        },
+        "Flags": "Default"
+      },
+      "cookingPlatform": "PLATFORM_PC",
+      "enableMask": 0,
+      "metadata": null,
+      "resourceVersion": 4,
+      "values": [
+        {
+          "$type": "Color",
+          "HighlightColor": {
+            "$type": "Color",
+            "Red": 255,
+            "Green": 170,
+            "Blue": 40,
+            "Alpha": 255
+          }
+        },
+        {
+          "$type": "Float",
+          "HighlightIntensity": 0.1
+        },
+        {
+          "$type": "Float",
+          "SolidBlendingDistanceStart": 0.0
+        },
+        {
+          "$type": "Float",
+          "SolidBlendingDistanceEnd": 0.01
+        }
+      ]
+    }
+  }
+}

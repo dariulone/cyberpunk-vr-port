@@ -1,4 +1,5 @@
 #include "Hooks/ScannerGesture.hpp"
+#include "Hooks/Handedness.hpp"
 #include "Camera/GazeCenter.hpp"
 #include "Camera/TakeoverTargeting.hpp"
 #include <array>
@@ -73,4 +74,24 @@ int main(){
     held=true;request.Update(held,-1,11000);request.Update(held,-1,11750);Check(!held);
     held=true;request.Update(held,1,12000);held=false;request.Update(held,1,12020);
     held=true;request.Update(held,0,12040);Check(held); // a new squeeze gets its own acceptance window
+    // Left-handed: the hands' buttons traded, the rest kept, and trading twice is no trade.
+    using cvr::input::MirroredButtons;using cvr::input::MirroredPart;
+    Check(MirroredButtons(0x1000)==0x4000 && MirroredButtons(0x4000)==0x1000);   // A <-> X
+    Check(MirroredButtons(0x2000)==0x8000 && MirroredButtons(0x8000)==0x2000);   // B <-> Y
+    Check(MirroredButtons(0x0040)==0x0080 && MirroredButtons(0x0080)==0x0040);   // stick clicks
+    Check(MirroredButtons(0x0300)==0x0300 && MirroredButtons(0x003F)==0x003F);   // shoulders, D-pad, Start, Back
+    for(uint32_t b=0;b<0x10000;++b)Check(MirroredButtons(MirroredButtons(uint16_t(b)))==b);
+    Check(MirroredPart("a")=="x" && MirroredPart("x_hold")=="a_hold" && MirroredPart("b_disabled")=="y_disabled");
+    Check(MirroredPart("left_trigger_hold")=="right_trigger_hold" && MirroredPart("right_axis_up")=="left_axis_up");
+    Check(MirroredPart("right_thumb")=="left_thumb" && MirroredPart("ls_filled")=="rs_filled");
+    Check(MirroredPart("left_shoulder")=="left_shoulder" && MirroredPart("right_shoulder_hold")=="right_shoulder_hold");
+    Check(MirroredPart("y_wide")=="y_wide" && MirroredPart("dpad_up")=="dpad_up" && MirroredPart("start")=="start");
+    Check(MirroredPart("arrow_up")=="arrow_up" && MirroredPart("")=="");
+    struct Pad{uint16_t buttons;float leftTrigger,rightTrigger,leftThumbX,leftThumbY,rightThumbX,rightThumbY,
+               leftGrip,rightGrip;bool leftHandValid,rightHandValid;};
+    const Pad pad{0x1040,.1f,.9f,.2f,.3f,-.4f,-.5f,.6f,0,true,false};
+    const Pad m=cvr::input::Mirrored(pad);
+    Check(m.buttons==0x4080 && m.leftTrigger==.9f && m.rightTrigger==.1f && m.leftThumbX==-.4f && m.leftThumbY==-.5f);
+    Check(m.rightThumbX==.2f && m.rightThumbY==.3f && m.leftGrip==0 && m.rightGrip==.6f);
+    Check(!m.leftHandValid && m.rightHandValid);
 }

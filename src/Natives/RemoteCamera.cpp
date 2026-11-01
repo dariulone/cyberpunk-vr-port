@@ -18,6 +18,9 @@
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Functions.hpp>
 
+#include <windows.h>
+
+#include <atomic>
 #include <cstdint>
 
 #include "Camera/CameraState.hpp"    // g_remoteCamOn, g_remoteCamPosFP
@@ -300,6 +303,23 @@ void VRBraindance(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, 
     PatchFastDisarm();                                   // see the note at the other arm site
     g_bdActive.store(1, std::memory_order_release);
     if (aOut) *aOut = 1;
+}
+
+namespace { std::atomic<uint64_t> s_inBraindanceUntil{0}; }
+
+bool InBraindance() { return GetTickCount64() < s_inBraindanceUntil.load(std::memory_order_relaxed); }
+
+void VRInBraindance(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
+{
+    RED4EXT_UNUSED_PARAMETER(aContext);
+    RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t active = 0;
+    RED4ext::GetParameter(aFrame, &active);
+    aFrame->code++;
+    const bool was = InBraindance();
+    s_inBraindanceUntil.store(active ? GetTickCount64() + 500 : 0, std::memory_order_relaxed);
+    if (was != (active != 0)) Log("VRInBraindance: braindance %s\n", active ? "started" : "ended");
+    if (aOut) *aOut = active ? 1 : 0;
 }
 
 void VRRemoteCamera(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)

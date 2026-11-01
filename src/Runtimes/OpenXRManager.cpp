@@ -1,3 +1,4 @@
+#include "Runtimes/PresenceRecenter.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
@@ -5,10 +6,12 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Render/FoveatedDlss.hpp"
 #include "Render/FixedVrs.hpp"
+#include "Hooks/Psvr2Input.hpp"
 #include "Hooks/RoomscaleMove.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Runtimes/SimulatorRecenter.hpp"
 #include "Runtimes/TrackingFilter.hpp"
+#include "Runtimes/TrackingReacquire.hpp"
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
 #include "Hooks/Ngx.hpp"
 #include "Runtimes/RuntimeFovCorrection.hpp"
@@ -677,8 +680,17 @@ bool OpenXRManager::Init() {
     }
 
     XrSystemProperties systemProps{XR_TYPE_SYSTEM_PROPERTIES};
+    m_runtimeIsPsvr2.store(false, std::memory_order_relaxed);
+    m_eyeImageLimit[0] = m_eyeImageLimit[1] = 0;
     if (XR_SUCCEEDED(xrGetSystemProperties(m_instance, m_systemId, &systemProps))) {
         strncpy_s(m_systemName, systemProps.systemName, _TRUNCATE);
+        m_eyeImageLimit[0] = systemProps.graphicsProperties.maxSwapchainImageWidth;
+        m_eyeImageLimit[1] = systemProps.graphicsProperties.maxSwapchainImageHeight;
+        m_runtimeIsPsvr2.store(cvr::input::IsPsvr2System(systemProps.systemName), std::memory_order_relaxed);
+        if (IsRuntimePsvr2()) {
+            Log("OpenXRManager[PSVR2]: Sense Triangle touch D-pad and Create SystemButton enabled. "
+                "Haptic actuator ownership remains with the external Toolkit bridge; no OpenXR vibration action.\n");
+        }
         Log("OpenXRManager: OpenXR system vendorId=0x%X systemName=\"%s\" maxSwapchain=%ux%u maxLayerCount=%u positionTracking=%d orientationTracking=%d\n",
             systemProps.vendorId,
             systemProps.systemName,
@@ -702,6 +714,11 @@ bool OpenXRManager::Init() {
                 view.maxImageRectWidth,
                 view.maxImageRectHeight,
                 view.recommendedSwapchainSampleCount);
+            // A runtime that leaves a maximum at 0 sets no limit there.
+            if (view.maxImageRectWidth && (!m_eyeImageLimit[0] || view.maxImageRectWidth < m_eyeImageLimit[0]))
+                m_eyeImageLimit[0] = view.maxImageRectWidth;
+            if (view.maxImageRectHeight && (!m_eyeImageLimit[1] || view.maxImageRectHeight < m_eyeImageLimit[1]))
+                m_eyeImageLimit[1] = view.maxImageRectHeight;
         }
     }
 
@@ -746,7 +763,13 @@ bool OpenXRManager::Init() {
             makeAction(m_thumbstickClickAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "thumbstick_click", "Thumbstick Click",     true);
             makeAction(m_primaryButtonAction,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "primary_button",   "Primary Button (A/X)", true);
             makeAction(m_secondaryButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "secondary_button", "Secondary Button (B/Y)", true);
-            makeAction(m_menuButtonAction,      XR_ACTION_TYPE_BOOLEAN_INPUT,  "menu",             "Menu Button",          false);
+            makeAction(m_menuButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,
+                IsRuntimePsvr2() ? "systembutton" : "menu",
+                IsRuntimePsvr2() ? "SystemButton (Sense Create)" : "Menu Button", false);
+            if (IsRuntimePsvr2()) {
+                makeAction(m_psvr2TriangleTouchAction, XR_ACTION_TYPE_BOOLEAN_INPUT,
+                    "secondary_button_touch", "Triangle Touch D-pad Shift", true);
+            }
             // HAPTICS: an OUTPUT action (Runtimes/Haptics.cpp). Bound inside each profile's one
             // suggest call below, because xrSuggestInteractionProfileBindings REPLACES a profile's
             // suggestions -- a second call for the haptic alone would drop every input binding.
@@ -767,6 +790,14 @@ bool OpenXRManager::Init() {
                 XrPath p = XR_NULL_PATH;
                 if (XR_SUCCEEDED(xrStringToPath(m_instance, b.path, &p))) {
                     v.push_back({ b.action, p });
+                }
+            }
+            if (IsRuntimePsvr2() && inputActionsEnabled &&
+                strcmp(profileStr, "/interaction_profiles/oculus/touch_controller") == 0) {
+                XrPath triangle = XR_NULL_PATH;
+                if (m_psvr2TriangleTouchAction != XR_NULL_HANDLE &&
+                    XR_SUCCEEDED(xrStringToPath(m_instance, "/user/hand/left/input/y/touch", &triangle))) {
+                    v.push_back({m_psvr2TriangleTouchAction, triangle});
                 }
             }
             XrInteractionProfileSuggestedBinding sb{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
@@ -1089,6 +1120,10 @@ void OpenXRManager::EndSession() {
     Log("OpenXRManager: Session ended.\n");
 }
 
+// 1 = recenter automatically when the player puts the headset back on (xr_auto_recenter, see
+// Runtimes/PresenceRecenter.hpp). 0 = only F7 / the controller gesture / the runtime's own recenter.
+extern "C" __declspec(dllexport) int CyberpunkVR_AutoRecenter = 1;
+
 void OpenXRManager::PollEvents() {
     if (m_instance == XR_NULL_HANDLE) return;
 
@@ -1096,8 +1131,26 @@ void OpenXRManager::PollEvents() {
     while (xrPollEvent(m_instance, &event) == XR_SUCCESS) {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* changed = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
+            const XrSessionState previous = m_sessionState;
             m_sessionState = changed->state;
+            if (m_sessionState != XR_SESSION_STATE_FOCUSED) {
+                // A stopped/nonfocused session may not publish another frame.
+                // Do not let a stale held Create become a Back event later.
+                std::lock_guard<std::mutex> lock(m_inputMutex);
+                m_controllerState.psvr2SystemAvailable = false;
+                m_controllerState.psvr2SystemPressed = false;
+                m_controllerState.psvr2DpadShift = false;
+            }
             Log("OpenXRManager: Session state -> %d\n", static_cast<int>(m_sessionState));
+            static cvr::presence::AwayTracker s_away;
+            if (cvr::presence::OnSessionState(s_away, previous, m_sessionState)) {
+                if (CyberpunkVR_AutoRecenter) {
+                    RequestRecenter();
+                    Log("OpenXRManager: headset back on after an absence -> automatic recenter.\n");
+                } else {
+                    Log("OpenXRManager: headset back on after an absence (xr_auto_recenter=0, not recentering).\n");
+                }
+            }
 
             if (m_sessionState == XR_SESSION_STATE_READY) {
                 BeginSession();
@@ -1172,6 +1225,18 @@ bool OpenXRManager::GetHandPose(int handIndex, OpenXRHeadPose* out) const {
     std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
     *out = m_hands[handIndex];
     return out->valid;
+}
+
+bool OpenXRManager::GetHandMotion(int handIndex, float linear[3], float angular[3]) const {
+    if (!linear || !angular || handIndex < 0 || handIndex > 1) return false;
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
+    const HandMotion& m = m_handMotion[handIndex];
+    if (!m.valid || !m_hands[handIndex].valid) return false;
+    for (int k = 0; k < 3; ++k) {
+        linear[k] = m.linear[k];
+        angular[k] = m.angular[k];
+    }
+    return true;
 }
 
 bool OpenXRManager::GetGestureHandFrame(OpenXRHeadPose* head,OpenXRHeadPose hands[2],uint64_t* sequence,uint64_t* stampUs,bool rawMelee) const {
@@ -1925,6 +1990,26 @@ void OpenXRManager::FlushHandsToShared(const OpenXRHeadPose* frameHead, XrTime f
     // Ordinary melee measures physical grip speed before visual smoothing.
     // Keep its coherent head basis, sample time and tracking validity.
     const OpenXRHeadPose rawMeleeHands[2]={srcHands[0],srcHands[1]};
+    // A hand coming back into tracking glides to where it is instead of jumping there (Runtimes/TrackingReacquire.hpp).
+    // Head-local, as published; a new tracking origin starts over.
+    {
+        static cvr::tracking::Reacquire s_reacquire[2];
+        static uint64_t s_origin=0, s_lastUs=0;
+        const uint64_t nowUs=XrDiagNowUs();
+        const float dt=(s_lastUs && nowUs>s_lastUs) ? static_cast<float>(static_cast<double>(nowUs-s_lastUs)*1e-6) : 0.0f;
+        s_lastUs=nowUs;
+        if(s_origin!=reference.originSerial) { for(auto& hand:s_reacquire) hand.Reset(); s_origin=reference.originSerial; }
+        for(int h=0;h<2;++h) {
+            auto& src=srcHands[h];
+            cvr::tracking::HandPose pose;
+            pose.p[0]=src.posX; pose.p[1]=src.posY; pose.p[2]=src.posZ;
+            pose.q[0]=src.oriX; pose.q[1]=src.oriY; pose.q[2]=src.oriZ; pose.q[3]=src.oriW;
+            pose=s_reacquire[h].Step(pose,src.valid,dt);
+            if(!src.valid) continue;
+            src.posX=pose.p[0]; src.posY=pose.p[1]; src.posZ=pose.p[2];
+            src.oriX=pose.q[0]; src.oriY=pose.q[1]; src.oriZ=pose.q[2]; src.oriW=pose.q[3];
+        }
+    }
     // Body inference must not see the head-local hand filter: that filter lags
     // during head turns and can turn stationary world-space hands into a false
     // torso turn. bodyFrame above retains its own coherent raw reference.
@@ -2235,6 +2320,8 @@ void OpenXRManager::Shutdown() {
     m_basiliskQuad.Shutdown();
     m_surveillanceQuad.Shutdown();
     m_hitMarkerQuad.Shutdown();
+    m_introOverlay.Shutdown();
+    m_loadingScreen.Shutdown();
     cvr::hud::Shutdown();
     cvr::hud::Shutdown(cvr::hud::Channel::Interaction);
     cvr::hud::Shutdown(cvr::hud::Channel::Basilisk);
@@ -2272,6 +2359,11 @@ void OpenXRManager::Shutdown() {
         xrDestroySpace(m_localSpace);
         m_localSpace = XR_NULL_HANDLE;
     }
+    if (m_stageSpace != XR_NULL_HANDLE) {
+        xrDestroySpace(m_stageSpace);
+        m_stageSpace = XR_NULL_HANDLE;
+    }
+    m_stageUnavailable = false;
 
     if (m_session != XR_NULL_HANDLE) {
         xrDestroySession(m_session);

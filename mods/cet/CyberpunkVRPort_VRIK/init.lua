@@ -335,6 +335,7 @@ local mouseDisableEnabled = true  -- Mouse/look pitch (Y) disabled by default fo
 -- own folder, which is exactly where dxgi reads/writes them (absolute path).
 local recenterCounter = os.time()   -- seed unique per session so dxgi sees a change
 local settingsPollTimer = 0.0
+local neckCapTimer = 0.0
 local observersRegistered = false
 local recenterPending = -1.0        -- seconds until a queued recenter fires; <0 = idle
 
@@ -526,11 +527,18 @@ local locomotionId = nil
 local takedownId, bodyCarryingId, bodyDisposalId = nil, nil, nil
 local hasPairedAnimNative = nil
 local scannerVisionId, hasScannerStateNative = nil, nil
+local locomotionDetailedId, hasLocomotionDetailedNative = nil, nil
 local function pushLocomotion(player)
     locomotionId = locomotionId or Game.GetAllBlackboardDefs().PlayerStateMachine.Locomotion
     local bb = player:GetPlayerStateMachineBlackboard()
     if bb then
         SetVRLocomotionState(bb:GetInt(locomotionId))
+        -- the detailed value: a fall, a jump, a landing (the plain one stays Default through them)
+        if hasLocomotionDetailedNative == nil then hasLocomotionDetailedNative = type(SetVRLocomotionDetailed) == 'function' end
+        if hasLocomotionDetailedNative then
+            locomotionDetailedId = locomotionDetailedId or Game.GetAllBlackboardDefs().PlayerStateMachine.LocomotionDetailed
+            SetVRLocomotionDetailed(bb:GetInt(locomotionDetailedId))
+        end
         if hasScannerStateNative == nil then hasScannerStateNative = type(SetVRScannerState) == 'function' end
         if hasScannerStateNative then
             scannerVisionId = scannerVisionId or Game.GetAllBlackboardDefs().PlayerStateMachine.Vision
@@ -582,6 +590,13 @@ registerForEvent('onUpdate', function(dt)
     if not okCyberware then
         finishCyberware("error: " .. tostring(cyberwareError))
         spdlog.error("[VRIK] " .. cyberwareStatus)
+    end
+    -- The first-person neck cap follows the body's skin tone (src/Natives/NeckCap.cpp) -- in the main menu's
+    -- lobby too, where the rest of this update waits for the rig.
+    neckCapTimer = neckCapTimer + (dt or 0.0)
+    if neckCapTimer >= 0.25 then
+        neckCapTimer = 0.0
+        if type(VRNeckCapSync) == 'function' then pcall(VRNeckCapSync) end
     end
     if not isReady then return end
 

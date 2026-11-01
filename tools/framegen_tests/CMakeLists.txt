@@ -2,13 +2,15 @@ cmake_minimum_required(VERSION 3.24)
 project(NativeFramegenTests LANGUAGES CXX)
 enable_testing()
 set(root "${CMAKE_CURRENT_SOURCE_DIR}/../..")
-set(sdk "${root}/build/fidelityfx-native/sdk")
+# The main build's pinned SDKs (cmake/NativeFramegen.cmake); pass -DCVR_SDK_BUILD=<its build dir> for another one.
+set(CVR_SDK_BUILD "${root}/build/patchday/sdk25-build" CACHE PATH "Main build folder holding fidelityfx-native and dlss-sdk")
+set(sdk "${CVR_SDK_BUILD}/fidelityfx-native/sdk")
 add_executable(framegen_tests main.cpp replay.cpp
     ${root}/src/Framegen/InputCopy.cpp
     ${root}/src/Render/StereoDepth.cpp
     ${root}/src/Framegen/Framegen.cpp ${root}/src/Framegen/Generator.cpp ${root}/src/Framegen/DlssFrameGen.cpp ${root}/src/Framegen/FrameCapture.cpp
     ${root}/src/Framegen/Presenter.cpp ${root}/src/Framegen/StatsOverlay.cpp ${root}/src/Framegen/GpuTimer.cpp
-    ${root}/src/Framegen/HardwareTelemetry.cpp)
+    ${root}/src/Framegen/HardwareTelemetry.cpp ${root}/src/Core/Paths.cpp)
 target_compile_features(framegen_tests PRIVATE cxx_std_20)
 target_compile_definitions(framegen_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
 target_include_directories(framegen_tests PRIVATE ${root}/include ${root}/build/_deps/openxr-src/include
@@ -19,7 +21,7 @@ target_link_libraries(framegen_tests PRIVATE d3d12 dxgi d3dcompiler dbghelp psap
     ${sdk}/bin/ffx_sdk/ffx_frameinterpolation_x64.lib
     ${sdk}/bin/ffx_sdk/ffx_opticalflow_x64.lib
     ${sdk}/bin/ffx_sdk/ffx_backend_dx12_x64.lib)
-set(dlss "${root}/build/dlss-sdk")
+set(dlss "${CVR_SDK_BUILD}/dlss-sdk")
 if(EXISTS "${dlss}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib")
     target_include_directories(framegen_tests PRIVATE "${dlss}/include")
     target_link_libraries(framegen_tests PRIVATE optimized "${dlss}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib"

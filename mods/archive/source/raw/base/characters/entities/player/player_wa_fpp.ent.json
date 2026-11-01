@@ -40317,6 +40317,386 @@
                 "Y": 1,
                 "Z": 1
               }
+            },
+            {
+              "$type": "entMeshComponent",
+              "castLocalShadows": "Never",
+              "castRayTracedGlobalShadows": "Never",
+              "castRayTracedLocalShadows": "Never",
+              "castShadows": "Never",
+              "chunkMask": "18446744073709551615",
+              "forcedLodDistance": "Default",
+              "id": "11836689520403655978",
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "LODMode": "AlwaysVisible",
+              "mesh": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "string",
+                  "$value": "vrbasketball\\vr_basketball.mesh"
+                },
+                "Flags": "Default"
+              },
+              "meshAppearance": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "default"
+              },
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vrp_glow_left"
+              },
+              "navigationImpact": {
+                "$type": "NavGenNavigationSetting",
+                "navmeshImpact": "Ignored"
+              },
+              "order": 0,
+              "overrideMeshNavigationImpact": 1,
+              "parentTransform": {
+                "HandleId": "314",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponLeft"
+                  }
+                }
+              },
+              "renderingPlane": "RPl_Weapon",
+              "renderSceneLayerMask": "Default",
+              "version": 1,
+              "visualScale": {
+                "$type": "Vector3",
+                "X": 1,
+                "Y": 1,
+                "Z": 1
+              }
+            },
+            {
+              "$type": "entMeshComponent",
+              "castLocalShadows": "Never",
+              "castRayTracedGlobalShadows": "Never",
+              "castRayTracedLocalShadows": "Never",
+              "castShadows": "Never",
+              "chunkMask": "18446744073709551615",
+              "forcedLodDistance": "Default",
+              "id": "11836689520403655979",
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "LODMode": "AlwaysVisible",
+              "mesh": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "string",
+                  "$value": "vrbasketball\\vr_basketball.mesh"
+                },
+                "Flags": "Default"
+              },
+              "meshAppearance": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "default"
+              },
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vrp_glow_right"
+              },
+              "navigationImpact": {
+                "$type": "NavGenNavigationSetting",
+                "navmeshImpact": "Ignored"
+              },
+              "order": 0,
+              "overrideMeshNavigationImpact": 1,
+              "parentTransform": {
+                "HandleId": "315",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponRight"
+                  }
+                }
+              },
+              "renderingPlane": "RPl_Weapon",
+              "renderSceneLayerMask": "Default",
+              "version": 1,
+              "visualScale": {
+                "$type": "Vector3",
+                "X": 1,
+                "Y": 1,
+                "Z": 1
+              }
+            },
+            {
+              "$type": "entRenderToTextureCameraComponent",
+              "albedoDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "aspectRatio": 1,
+              "backgroundColor": {
+                "$type": "Color",
+                "Alpha": 255,
+                "Blue": 0,
+                "Green": 0,
+                "Red": 0
+              },
+              "depthCutDistance": 0,
+              "depthDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "dynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "string",
+                  "$value": "base\\vrport\\optics\\scope_feed.dtex"
+                },
+                "Flags": "Default"
+              },
+              "env": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "farPlaneOverride": 16000,
+              "features": {
+                "$type": "entRenderToTextureFeatures",
+                "antiAliasing": "RTFP_PC",
+                "contactShadows": 1,
+                "localShadows": 1,
+                "reflections": "RTFP_PC",
+                "renderDecals": 1,
+                "renderForwardNoTXAA": 0,
+                "renderParticles": 1,
+                "SSAO": "RTFP_PC"
+              },
+              "fov": 8,
+              "id": "11836689520403656979",
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "motionBlurScale": 0,
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vr_optics_camera"
+              },
+              "nearPlaneOverride": 0.0500000007,
+              "normalsDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "overrideBackgroundColor": 0,
+              "params": {
+                "$type": "WorldRenderAreaSettings",
+                "areaParameters": []
+              },
+              "parentTransform": {
+                "HandleId": "316",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponRight"
+                  }
+                }
+              },
+              "particlesDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "renderingMode": "Shaded",
+              "renderSceneLayer": "Default",
+              "resolutionHeight": 1024,
+              "resolutionWidth": 1024,
+              "streamingDistance": 12500,
+              "virtualCameraName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vr_optics_feed"
+              },
+              "zoom": 1
             }
           ]
         }
@@ -60050,6 +60430,469 @@
               }
             }
           }
+        },
+        {
+          "$type": "entSkinnedMeshComponent",
+          "acceptDismemberment": 1,
+          "autoHideDistance": 0,
+          "castLocalShadows": "Never",
+          "castShadows": "Never",
+          "chunkMask": "9223372036854775807",
+          "forcedLodDistance": "Default",
+          "forceLODLevel": -1,
+          "id": "11836689520403654978",
+          "isEnabled": 1,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "LODMode": "AlwaysVisible",
+          "mesh": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "vrport\\body\\vrp_neck_cap_pwa.mesh"
+            },
+            "Flags": "Default"
+          },
+          "meshAppearance": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "02_ca_limestone"
+          },
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vrp_neck_cap"
+          },
+          "navigationImpact": {
+            "$type": "NavGenNavigationSetting",
+            "navmeshImpact": "Ignored"
+          },
+          "order": 0,
+          "overrideMeshNavigationImpact": 1,
+          "parentTransform": {
+            "HandleRefId": "23"
+          },
+          "renderingPlaneAnimationParam": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "None"
+          },
+          "renderSceneLayerMask": "Default",
+          "skinning": {
+            "HandleRefId": "24"
+          },
+          "useProxyMeshAsShadowMesh": 0,
+          "useSkinningLOD": 0,
+          "version": 1,
+          "visibilityAnimationParam": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "None"
+          }
+        },
+        {
+          "$type": "entMeshComponent",
+          "castLocalShadows": "Never",
+          "castRayTracedGlobalShadows": "Never",
+          "castRayTracedLocalShadows": "Never",
+          "castShadows": "Never",
+          "chunkMask": "18446744073709551615",
+          "forcedLodDistance": "Default",
+          "id": "11836689520403655978",
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "LODMode": "AlwaysVisible",
+          "mesh": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "vrbasketball\\vr_basketball.mesh"
+            },
+            "Flags": "Default"
+          },
+          "meshAppearance": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "default"
+          },
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vrp_glow_left"
+          },
+          "navigationImpact": {
+            "$type": "NavGenNavigationSetting",
+            "navmeshImpact": "Ignored"
+          },
+          "order": 0,
+          "overrideMeshNavigationImpact": 1,
+          "parentTransform": {
+            "HandleId": "314",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponLeft"
+              }
+            }
+          },
+          "renderingPlane": "RPl_Weapon",
+          "renderSceneLayerMask": "Default",
+          "version": 1,
+          "visualScale": {
+            "$type": "Vector3",
+            "X": 1,
+            "Y": 1,
+            "Z": 1
+          }
+        },
+        {
+          "$type": "entMeshComponent",
+          "castLocalShadows": "Never",
+          "castRayTracedGlobalShadows": "Never",
+          "castRayTracedLocalShadows": "Never",
+          "castShadows": "Never",
+          "chunkMask": "18446744073709551615",
+          "forcedLodDistance": "Default",
+          "id": "11836689520403655979",
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "LODMode": "AlwaysVisible",
+          "mesh": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "vrbasketball\\vr_basketball.mesh"
+            },
+            "Flags": "Default"
+          },
+          "meshAppearance": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "default"
+          },
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vrp_glow_right"
+          },
+          "navigationImpact": {
+            "$type": "NavGenNavigationSetting",
+            "navmeshImpact": "Ignored"
+          },
+          "order": 0,
+          "overrideMeshNavigationImpact": 1,
+          "parentTransform": {
+            "HandleId": "315",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponRight"
+              }
+            }
+          },
+          "renderingPlane": "RPl_Weapon",
+          "renderSceneLayerMask": "Default",
+          "version": 1,
+          "visualScale": {
+            "$type": "Vector3",
+            "X": 1,
+            "Y": 1,
+            "Z": 1
+          }
+        },
+        {
+          "$type": "entRenderToTextureCameraComponent",
+          "albedoDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "aspectRatio": 1,
+          "backgroundColor": {
+            "$type": "Color",
+            "Alpha": 255,
+            "Blue": 0,
+            "Green": 0,
+            "Red": 0
+          },
+          "depthCutDistance": 0,
+          "depthDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "dynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "base\\vrport\\optics\\scope_feed.dtex"
+            },
+            "Flags": "Default"
+          },
+          "env": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "farPlaneOverride": 16000,
+          "features": {
+            "$type": "entRenderToTextureFeatures",
+            "antiAliasing": "RTFP_PC",
+            "contactShadows": 1,
+            "localShadows": 1,
+            "reflections": "RTFP_PC",
+            "renderDecals": 1,
+            "renderForwardNoTXAA": 0,
+            "renderParticles": 1,
+            "SSAO": "RTFP_PC"
+          },
+          "fov": 8,
+          "id": "11836689520403656979",
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "motionBlurScale": 0,
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vr_optics_camera"
+          },
+          "nearPlaneOverride": 0.0500000007,
+          "normalsDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "overrideBackgroundColor": 0,
+          "params": {
+            "$type": "WorldRenderAreaSettings",
+            "areaParameters": []
+          },
+          "parentTransform": {
+            "HandleId": "316",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponRight"
+              }
+            }
+          },
+          "particlesDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "renderingMode": "Shaded",
+          "renderSceneLayer": "Default",
+          "resolutionHeight": 1024,
+          "resolutionWidth": 1024,
+          "streamingDistance": 12500,
+          "virtualCameraName": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vr_optics_feed"
+          },
+          "zoom": 1
         }
       ],
       "cookingPlatform": "PLATFORM_PC",
