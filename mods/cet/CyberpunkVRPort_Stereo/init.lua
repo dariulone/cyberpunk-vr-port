@@ -23,6 +23,8 @@ local VrOverlay = require("modules/vr_overlay")
 local KeypadInput = require("modules/keypad_input")
 local StoryAttention = require("modules/story_attention")
 local WorldTouch = require("modules/world_touch")
+local InteractionDepth = require("modules/interaction_depth")
+local HudClearance = require("modules/hud_clearance")
 
 local Stereo = { ready = false, VrcamSel = VrcamSel, HudPanel = HudPanel, VrOverlay = VrOverlay, KeypadInput = KeypadInput, StoryAttention = StoryAttention, WorldTouch = WorldTouch }
 
@@ -115,6 +117,8 @@ registerForEvent("onUpdate", function(dt)
     KeypadInput.tick(dt, VrOverlay.active)
     WorldTouch.tick(dt, VrOverlay.active)
     StoryAttention.tick(dt, VrOverlay.active)
+    InteractionDepth.tick(dt, VrOverlay.active)
+    HudClearance.tick(dt, VrOverlay.active)
 end)
 
 registerForEvent("onShutdown", function() WorldTouch.shutdown();StoryAttention.shutdown();KeypadInput.shutdown();VrOverlay.shutdown();HudPanel.shutdown() end)

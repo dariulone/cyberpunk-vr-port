@@ -1005,6 +1005,19 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             if (UI::IsItemHovered()) UI::SetTooltip("Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth.");
             UI::BeginDisabled(!state.xrHudStereoDepth);
             changed |= widgets::SliderFloat("Depth", &state.xrHudDistance, 0.5f, 5.0f, "%.2f m");
+            // In front of the world, never inside it (Runtimes/HudClearance.hpp).
+            changed |= CheckboxInt("Keep HUD in front of the world", &state.xrHudClearance);
+            if (UI::IsItemHovered()) UI::SetTooltip("The HUD comes closer when a wall or a person is nearer than Depth.\nOff: always at Depth.");
+            UI::BeginDisabled(!state.xrHudClearance);
+            changed |= widgets::SliderFloat("Grow when brought closer", &state.xrHudClearanceGrow, 0.0f, 1.0f, "%.2f");
+            if (UI::IsItemHovered()) UI::SetTooltip("0: same size on screen. 1: same size in the world.");
+            changed |= CheckboxInt("Hands push the HUD out of view", &state.xrHudClearanceHands);
+            if (UI::IsItemHovered()) UI::SetTooltip("While a hand is in front of the HUD, the HUD grows until its elements leave the view,\nso your hands are not covered by it.");
+            UI::BeginDisabled(!state.xrHudClearanceHands);
+            changed |= widgets::SliderFloat("Out-of-view amount", &state.xrHudClearanceHandsScale, 1.0f, 3.0f, "%.2fx");
+            if (UI::IsItemHovered()) UI::SetTooltip("How far the HUD moves out while a hand is in front of it.\n1: not at all. 2: to the edge of the view, a small head turn away. 3: fully out of view.");
+            UI::EndDisabled();
+            UI::EndDisabled();
             UI::EndDisabled();
             changed |= widgets::SliderFloat("Brightness", &state.xrHudBrightness, 0.25f, 3.0f, "%.2fx");
             changed |= widgets::SliderFloat("Shadow / outline", &state.xrHudShadow, 0.0f, 2.0f, "%.2fx");
@@ -1016,6 +1029,8 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 changed |= widgets::SliderFloat("Loot free-look cone",&state.xrLootFollowDeg,0.0f,90.0f,"%.1f deg");
                 if(UI::IsItemHovered())UI::SetTooltip("Used while the loot panel and item description are visible. Default: 10 degrees.");
                 changed |= widgets::SliderFloat("Interaction distance",&state.xrInteractionDistance,.5f,5.0f,"%.2f m");
+                changed |= CheckboxInt("Prompt at the object's depth",&state.xrInteractionAnchor);
+                if(UI::IsItemHovered())UI::SetTooltip("The prompt sits 10 cm in front of the object it names.\nInteraction distance is then used only when nothing is targeted.");
                 changed |= widgets::SliderFloat("Interaction FOV",&state.xrInteractionFov,30.0f,120.0f,"%.1f deg");
                 UI::TextWrapped("Interaction prompts and dialog choices share this panel. It follows only beyond the cone; no delayed catch-up at rest.");
             }

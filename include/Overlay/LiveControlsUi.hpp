@@ -33,6 +33,11 @@ struct LiveControlsUiState {
     float xrHudDistance = 1.5f;
     int xrHudFollowMode = 0;
     int xrHudStereoDepth = 1;
+    int xrHudClearance = 0;          // xr_hud_clearance: the HUD comes in front of nearer walls and people
+    float xrHudClearanceGrow = 0.5f; // xr_hud_clearance_grow: 0 = same size on screen, 1 = same size in the world
+    int xrHudClearanceHands = 0;     // xr_hud_clearance_hands: a tracked hand in front of the HUD pushes it out of view
+    float xrHudClearanceHandsScale = 2.0f; // xr_hud_clearance_hands_scale: how far (the HUD scale, 1..3)
+    int xrInteractionAnchor = 0;     // xr_interaction_anchor: the prompt at the depth of its object
     float xrHudBrightness = 1.0f;
     float xrHudShadow = 1.0f;
     float xrHudGlow = 1.0f;

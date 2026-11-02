@@ -1107,6 +1107,11 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     fCarryOff->SetReturnType("Float");
     rtti->RegisterFunction(fCarryOff);
 
+    auto fInteractionDepth = RED4ext::CGlobalFunction::Create("SetVRInteractionDepth", "SetVRInteractionDepth", &SetVRInteractionDepth);
+    fInteractionDepth->flags = flags; fInteractionDepth->AddParam("Float", "depth"); rtti->RegisterFunction(fInteractionDepth);
+    auto fHudClearance = RED4ext::CGlobalFunction::Create("SetVRHudClearance", "SetVRHudClearance", &SetVRHudClearance);
+    fHudClearance->flags = flags; fHudClearance->AddParam("Float", "depth"); rtti->RegisterFunction(fHudClearance);
+
     auto fAimHit = RED4ext::CGlobalFunction::Create("SetVRAimHit", "SetVRAimHit", &SetVRAimHit);
     fAimHit->flags = flags;
     fAimHit->AddParam("Float", "x"); fAimHit->AddParam("Float", "y"); fAimHit->AddParam("Float", "z");

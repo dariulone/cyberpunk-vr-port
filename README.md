@@ -448,7 +448,7 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 | `cyberpunkvrport.dll` | RED4ext plugin | OpenXR head tracking, the second engine view, HUD composite, sight shaders, F10 overlay, XInput merge |
 | `cyberpunkvrport.dll` | (same plugin) | Full-body avatar / hand IK, hand recoil, weapon-aim and muzzle override, smoking and reload poses, shared-memory bridge -- was `CyberpunkVR_Hands.dll` until the single-plugin build (the plugin itself was `CyberpunkVR_Stereo.dll` up to 0.1.9) |
 | `cyberpunkvrport.archive` | archive | Every packed asset: the magazine/prop carriers on the player templates and on every gameplay replacer, the weapon assets the reload drives, the case-ejection effects, the VRCAM camera components (one per supported resolution, 112) and the optics cameras, basketball, smoking, cyberware and crouch assets, on-screen effects with their picture displacement neutralised, and the UI layouts fitted to the square view — phone, vehicle panel, radio, subtitles, dialogue choices, tutorial popups |
-| `CyberpunkVRPort_Stereo` | Lua | Enables the VRCAM component the launcher picked; runs the Lua garbage collector in small per-frame steps |
+| `CyberpunkVRPort_Stereo` | Lua | Enables the VRCAM component the launcher picked; runs the Lua garbage collector in small per-frame steps; measures how near the world is in front of the HUD and how far the prompt's object is (HUD in front of the world, prompt at the object's depth) |
 | `CyberpunkVRPort_VRIK` | Lua | Starts hand tracking, bridges calibration, publishes the locomotion state |
 | `CyberpunkVRPort_Weapon` | Lua | Decoupled weapon aim, VR motion-melee detection, cyberware combat and physical throws |
 | `CyberpunkVRPort_Optics` | Lua + reds | Scope, collimator and sniper-camera optics: path policy, authored profiles, the sight display apart from flat ADS |
@@ -472,6 +472,7 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 | `CyberpunkVRPort_DeviceCam` | reds | Computers and monitors do not take the camera away from the head |
 | `CyberpunkVRPort_ScannerHud` | reds | Scanner layout editor (Right Shift, through Input Loader) |
 | `CyberpunkVRPort_StoryAttention` | reds | Manual transition of the Ofrenda clue (adapted from Ajson44's fork) |
+| `CyberpunkVRPort_HudClearance` | reds | People in front of the HUD: the nearest character inside the HUD's area, so the HUD comes in front of people as it does of walls |
 | `CyberpunkVRPort_WeaponUp` | reds | Stops auto-lower / auto-unequip of a drawn MELEE weapon |
 | `CyberpunkVRPort_NoAnims` | reds | Disables VR-fighting animations (keeps gameplay systems); also carries no-auto-reload and the firearm half of no-auto-lower |
 | `CyberpunkVRPort_BraindanceHud` | Lua | The braindance notification plate, whose slot is declared in a HUD asset the port does not ship |

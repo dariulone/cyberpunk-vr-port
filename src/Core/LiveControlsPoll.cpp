@@ -298,6 +298,12 @@ extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_FixLodEnable;
 // reaches that view through DrawComposition + CompositionPostProcess (xr_comp_lend_set), so this
 // path is a candidate for retirement and wants an A/B without a rebuild.
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudToSecondEye;
+// The HUD in front of the world and the prompt at its object's depth (Runtimes/HudClearance.hpp, InteractionDepth.hpp).
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_InteractionAnchor;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudClearance;
+extern "C" __declspec(dllexport) extern float    CyberpunkVR_HudClearanceGrow;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudClearanceHands;
+extern "C" __declspec(dllexport) extern float    CyberpunkVR_HudClearanceHandsScale;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_AutoRecenter;
 // 1 = each eye renders its own off-centre window and is submitted with it (src/Stereo/AsymProjection.cpp);
 // 0 = the old symmetric frustum sized to the widest half-angle. 2 = test values (CyberpunkVR_AsymTest).
@@ -562,6 +568,11 @@ void PollLiveControls() {
     int xrLightContent = CyberpunkVR_LightContent;
     int32_t  xrFixLod = CyberpunkVR_FixLodEnable;
     int      xrHudTo2 = CyberpunkVR_HudToSecondEye;
+    int      xrInteractionAnchor = CyberpunkVR_InteractionAnchor;
+    int      xrHudClearance = CyberpunkVR_HudClearance;
+    float    xrHudClearanceGrow = CyberpunkVR_HudClearanceGrow;
+    int      xrHudClearanceHands = CyberpunkVR_HudClearanceHands;
+    float    xrHudClearanceHandsScale = CyberpunkVR_HudClearanceHandsScale;
     int      xrAutoRecenter = CyberpunkVR_AutoRecenter;
     int32_t  xrAsym = CyberpunkVR_AsymProjection;
     float    xrAsymGuard = CyberpunkVR_AsymInnerGuard;
@@ -889,6 +900,31 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_auto_recenter=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_auto_recenter = %d", &intValue) == 1) {
             xrAutoRecenter = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_interaction_anchor=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_interaction_anchor = %d", &intValue) == 1) {
+            xrInteractionAnchor = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance_hands_scale=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hud_clearance_hands_scale = %f", &value) == 1) {
+            xrHudClearanceHandsScale = std::isfinite(value) ? std::clamp(value, 1.0f, 3.0f) : 2.0f;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance_hands=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hud_clearance_hands = %d", &intValue) == 1) {
+            xrHudClearanceHands = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance_grow=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hud_clearance_grow = %f", &value) == 1) {
+            xrHudClearanceGrow = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.5f;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hud_clearance = %d", &intValue) == 1) {
+            xrHudClearance = intValue ? 1 : 0;
             continue;
         }
         if (sscanf_s(line, "xr_hud_to_second_eye=%d", &intValue) == 1 ||
@@ -1861,6 +1897,11 @@ void PollLiveControls() {
     CyberpunkVR_LightContent = xrLightContent;
     CyberpunkVR_FixLodEnable = xrFixLod;
     CyberpunkVR_HudToSecondEye = xrHudTo2;
+    CyberpunkVR_InteractionAnchor = xrInteractionAnchor;
+    CyberpunkVR_HudClearance = xrHudClearance;
+    CyberpunkVR_HudClearanceGrow = xrHudClearanceGrow;
+    CyberpunkVR_HudClearanceHands = xrHudClearanceHands;
+    CyberpunkVR_HudClearanceHandsScale = xrHudClearanceHandsScale;
     CyberpunkVR_AutoRecenter = xrAutoRecenter;
     CyberpunkVR_AsymProjection = xrAsym;
     CyberpunkVR_AsymInnerGuard = xrAsymGuard;
@@ -1984,6 +2025,11 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrHudDistance=g_liveControls.xrHudDistance;
     state.xrHudFollowMode=g_liveControls.xrHudFollowMode;
     state.xrHudStereoDepth=g_liveControls.xrHudStereoDepth;
+    state.xrHudClearance=CyberpunkVR_HudClearance;
+    state.xrHudClearanceGrow=CyberpunkVR_HudClearanceGrow;
+    state.xrHudClearanceHands=CyberpunkVR_HudClearanceHands;
+    state.xrHudClearanceHandsScale=CyberpunkVR_HudClearanceHandsScale;
+    state.xrInteractionAnchor=CyberpunkVR_InteractionAnchor;
     state.xrHudBrightness=g_liveControls.xrHudBrightness;
     state.xrHudShadow=g_liveControls.xrHudShadow;
     state.xrHudGlow=g_liveControls.xrHudGlow;
@@ -2274,6 +2320,16 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_fix_lod=%d\n", CyberpunkVR_FixLodEnable);
     // The port's own HUD composite into the second eye, and whether it applies in a braindance.
     fprintf(file, "xr_hud_to_second_eye=%d\n", CyberpunkVR_HudToSecondEye);
+    // 1 = the interaction prompt sits at the depth of the object it is about; 0 = xr_interaction_distance.
+    fprintf(file, "xr_interaction_anchor=%d\n", state.xrInteractionAnchor ? 1 : 0);
+    // 1 = the HUD panels come in front of anything nearer than their configured distance.
+    fprintf(file, "xr_hud_clearance=%d\n", state.xrHudClearance ? 1 : 0);
+    // 0..1: how much a panel grows as it comes in (0 = same size on screen, 1 = same size in the world).
+    fprintf(file, "xr_hud_clearance_grow=%.2f\n", state.xrHudClearanceGrow);
+    // 1 = a tracked hand in front of a HUD panel pushes the panel out of view (with xr_hud_clearance).
+    fprintf(file, "xr_hud_clearance_hands=%d\n", state.xrHudClearanceHands ? 1 : 0);
+    // How far a hand pushes the HUD out: its scale while a hand is in front (1 = not at all, 3 = out of view).
+    fprintf(file, "xr_hud_clearance_hands_scale=%.2f\n", state.xrHudClearanceHandsScale);
     // 1 = recenter automatically when the headset is put back on after being taken off.
     fprintf(file, "xr_auto_recenter=%d\n", CyberpunkVR_AutoRecenter);
     // 1 = each eye renders exactly its own lens window (off-centre, the runtime's per-eye FOV, so a FOV
@@ -2455,6 +2511,11 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrHudPanel=state->xrHudPanel!=0;
     g_liveControls.xrHudFollowMode=state->xrHudFollowMode==1;
     g_liveControls.xrHudStereoDepth=state->xrHudStereoDepth!=0;
+    CyberpunkVR_HudClearance=state->xrHudClearance!=0;
+    CyberpunkVR_HudClearanceGrow=std::clamp(state->xrHudClearanceGrow,0.0f,1.0f);
+    CyberpunkVR_HudClearanceHands=state->xrHudClearanceHands!=0;
+    CyberpunkVR_HudClearanceHandsScale=std::clamp(state->xrHudClearanceHandsScale,1.0f,3.0f);
+    CyberpunkVR_InteractionAnchor=state->xrInteractionAnchor!=0;
     g_liveControls.xrHudBrightness=(state->xrHudBrightness>=0.25f && state->xrHudBrightness<=3) ? state->xrHudBrightness : 1;
     g_liveControls.xrHudShadow=(state->xrHudShadow>=0 && state->xrHudShadow<=2) ? state->xrHudShadow : 1;
     g_liveControls.xrHudGlow=(state->xrHudGlow>=0 && state->xrHudGlow<=2) ? state->xrHudGlow : 1;

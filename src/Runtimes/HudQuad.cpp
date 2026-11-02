@@ -4,6 +4,10 @@
 #include "Core/LiveControls.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Utils/XrMath.hpp"
+#include "Runtimes/InteractionDepth.hpp"
+#include "Runtimes/HudClearance.hpp"
+#include "Runtimes/OpenXRManager.hpp"
+#include <Windows.h>
 #include <algorithm>
 #include <cmath>
 #include <atomic>
@@ -17,6 +21,15 @@ __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HudSubmittedFrames{0};
 // Internal A/B: 0 preserves the prior per-panel fence wait; 1 rotates fenced
 // command allocators and reuses the last published HUD when all slots are busy.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HudSubmitRing{1};
+}
+extern "C" int CyberpunkVR_InteractionAnchor;
+namespace { float anchorDistance=0.0f; }   // the interaction panel's smoothed distance
+extern "C" int CyberpunkVR_HudClearance;
+extern "C" float CyberpunkVR_HudClearanceGrow;
+extern "C" int CyberpunkVR_HudClearanceHands;
+extern "C" float CyberpunkVR_HudClearanceHandsScale;
+namespace { float clearanceDistance[2]{};   // smoothed distances: main HUD, interaction prompt
+float handOutScale[2]{1.0f,1.0f};         // out-of-view scale while a hand is in front: main HUD, prompt
 }
 namespace cvr::hud {
 void Quad::RetireCompleted(uint64_t completed) {
@@ -182,7 +195,41 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
         const float cone=std::clamp(degrees,5.0f,90.0f)*0.01745329252f;
         const float yaw=headLocked?headYaw:(followMode==1 && std::isfinite(bodyYaw) ? bodyYaw : follow.Update(headYaw,cone,clock.elapsed,DelayedFollow(channel)));
         if(headLocked || followMode==1) {follow.yaw=yaw;follow.valid=true;follow.following=false;follow.ResetDelay();}
-        const float distance=std::clamp(static_cast<float>(channel==Channel::Interaction?g_liveControls.xrInteractionDistance:g_liveControls.xrHudDistance),0.5f,5.0f);
+        float distance=std::clamp(static_cast<float>(channel==Channel::Interaction?g_liveControls.xrInteractionDistance:g_liveControls.xrHudDistance),0.5f,5.0f);
+        // The prompt at the depth of its object (Runtimes/InteractionDepth.hpp). 10 cm in front of it so it
+        // never sinks into a door; clamped to what is comfortable to read.
+        if(channel==Channel::Interaction && CyberpunkVR_InteractionAnchor) {
+            const float depth=cvr::interaction::TargetDepth(GetTickCount64());
+            if(depth>0.0f) {
+                anchorDistance=cvr::interaction::StepDistance(anchorDistance,std::clamp(depth-0.10f,0.35f,6.0f),dt);
+                distance=anchorDistance;
+            } else anchorDistance=0.0f;
+        }
+        float configuredDistance=0.0f;   // set when the clearance moved this panel (an anchored prompt keeps its size)
+        // The nearest tracked hand inside this panel's field of view (Runtimes/HudClearance.hpp, HandFront).
+        float handFront=cvr::hud::clearance::kFree;
+        if(CyberpunkVR_HudClearance && CyberpunkVR_HudClearanceHands && (channel==Channel::Main || channel==Channel::Interaction)) {
+            const float panelFov=std::clamp(static_cast<float>(channel==Channel::Interaction?g_liveControls.xrInteractionFov:g_liveControls.xrHudFov),30.0f,120.0f)*0.01745329252f;
+            const float tanV=tanf(panelFov*0.5f),tanH=tanV*float(width)/float(height);
+            for(int h=0;h<2;++h) {
+                OpenXRHeadPose hand{};
+                if(OpenXRManager::Get().GetHandPose(h,&hand))
+                    handFront=std::min(handFront,cvr::hud::clearance::HandFront(hand.posX,hand.posY,hand.posZ,tanH,tanV));
+            }
+        }
+        // Then in front of the world, never inside it (Runtimes/HudClearance.hpp): the main HUD and the prompt.
+        // An anchored prompt already glides with its object, so it only takes the limit, unsmoothed: something
+        // nearer than its object still wins, and the clearance's slow way out cannot hold it back.
+        if(channel==Channel::Interaction && anchorDistance>0.0f && CyberpunkVR_HudClearance) {
+            distance=cvr::hud::clearance::Limit(distance,cvr::hud::clearance::Published(GetTickCount64()));
+            clearanceDistance[1]=distance;
+        } else if((channel==Channel::Main || channel==Channel::Interaction) && CyberpunkVR_HudClearance) {
+            configuredDistance=distance;
+            float& current=clearanceDistance[channel==Channel::Main?0:1];
+            const float limit=cvr::hud::clearance::Limit(distance,cvr::hud::clearance::Published(GetTickCount64()));
+            current=cvr::hud::clearance::Step(current,limit,dt);
+            distance=current;
+        }
         anchor.orientation={0,sinf(yaw*0.5f),0,cosf(yaw*0.5f)};
         anchor.position={head.position.x-sinf(yaw)*distance,head.position.y,head.position.z-cosf(yaw)*distance};
         if(headLocked) {
@@ -194,7 +241,16 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
             anchor.position={head.position.x+offset.x,head.position.y+offset.y,head.position.z+offset.z};
         }
         const float fov=std::clamp(static_cast<float>(channel==Channel::Interaction?g_liveControls.xrInteractionFov:g_liveControls.xrHudFov),30.0f,120.0f)*0.01745329252f;
-        const float h=2.0f*distance*tanf(fov*0.5f);
+        // Out of view while a hand is in front and nearer than the panel (Runtimes/HudClearance.hpp, OutStep).
+        float handOut=1.0f;
+        if(channel==Channel::Main || channel==Channel::Interaction) {
+            float& scale=handOutScale[channel==Channel::Main?0:1];
+            scale=cvr::hud::clearance::OutStep(scale,handFront<distance,dt,std::clamp(CyberpunkVR_HudClearanceHandsScale,1.0f,3.0f));
+            handOut=scale;
+        }
+        const float h=2.0f*distance*tanf(fov*0.5f)*
+            (configuredDistance>0.0f ? cvr::hud::clearance::GrowFactor(configuredDistance,distance,CyberpunkVR_HudClearanceGrow) : 1.0f)*
+            handOut;
         layer.size={h*width/height,h};
     } else { follow.ResetDelay(); clock.Reset(); }
     if (!follow.valid) return nullptr;

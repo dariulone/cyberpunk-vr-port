@@ -219,6 +219,9 @@ void VRKeypadUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int6
 void SetVRMuzzlePos(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 // The aim line's hit point and surface normal, from the weapon module's own raycast.
 void SetVRAimHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+// The interaction prompt's object depth and the HUD's clearance (Runtimes/InteractionDepth.hpp, HudClearance.hpp).
+void SetVRInteractionDepth(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
+void SetVRHudClearance(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 // The equipped weapon's class, from its record: 0 unknown, 1 handgun/revolver, 2 rifle, 3 shotgun.
 void SetVRWeaponClass(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 void VRHapticEvent(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
