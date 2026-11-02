@@ -211,8 +211,11 @@ constexpr int kDeviceScreenOpen   = 164;
 // 1 while the XInput merge turns both triggers into the one fire action for two guns in hand
 // (CyberpunkVR_DualWieldUntil). plugin -> redscript: CyberpunkVRPort_DualWield routes the game's
 // ShootState machine by the two physical triggers only while this is up, so the routing and the
-// merge are always on or off together.
+// merge are always on or off together. The value carries the two hands too, as bits on top of the 1:
+// which triggers have broken, each with a lone firearm's two stages (Hooks/WeaponTrigger.hpp).
 constexpr int kDualWieldActive    = 165;
+constexpr int kDualWieldLeftFires  = 2;
+constexpr int kDualWieldRightFires = 4;
 // The LEFT gun's barrel while two guns are in hand, world space: position [166..168], forward
 // [169..171], [172] = valid. CET -> plugin (SetVRLeftMuzzle from the reload mod's dual_wield.lua);
 // the hitscan hook sends a shot whose own muzzlePosition is nearer this barrel out of it.

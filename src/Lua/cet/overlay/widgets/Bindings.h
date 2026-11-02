@@ -4,7 +4,7 @@
 void ToggleOverlay();
 
 // CET's bindings widget (src/overlay/widgets/Bindings.h) as far as VKBindings and ScriptStore ask: the bind that
-// toggles the overlay, "cet.overlay_key" in config\lua_bindings.json (seeded from CET's own bindings.json).
+// toggles the overlay, "cet.overlay_key" in config\lua_bindings.json (never CET's own key: src/Lua/Migration.hpp).
 struct Bindings
 {
     static const VKModBind& GetOverlayToggleModBind() noexcept

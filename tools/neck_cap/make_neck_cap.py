@@ -3,7 +3,9 @@
     py -3.13 -B tools/neck_cap/make_neck_cap.py            all of it
     py -3.13 -B tools/neck_cap/make_neck_cap.py export     the game's two FPP necks -> glb (build/neck-cap/source)
     py -3.13 -B tools/neck_cap/make_neck_cap.py weights    the cap made rigid on the chest -> build/neck-cap/import
+    py -3.13 -B tools/neck_cap/make_neck_cap.py uvs        the body's texture coordinates onto the caps (uv_transfer.exe)
     py -3.13 -B tools/neck_cap/make_neck_cap.py import     WolvenKit import onto copies of the game's meshes
+    py -3.13 -B tools/neck_cap/make_neck_cap.py materials  the caps given the body's own skin materials
     py -3.13 -B tools/neck_cap/make_neck_cap.py entity     the vrp_neck_cap component in the player entities (raw JSON)
     py -3.13 -B tools/neck_cap/make_neck_cap.py pack       meshes + entities into the pack folder, the archive packed
 
@@ -22,6 +24,22 @@ and added to the player entities as a
 plain skinned mesh component, vrp_neck_cap, bound to the skeleton the way the wrist screen (vrp_latd_screen) is. Not a
 garment, so it is drawn and removes nothing. It has the game cone's appearances, one per skin tone; the plugin gives it
 the body's (Natives/NeckCap.cpp). The game's own cone and the game's meshes stay as they are.
+
+The cone's materials are the HEAD's skin (character_mat_instance\\<sex>\\head\\<sex>_head_<tone>.mi, no texture of its
+own), and on the chest that read as a darker oval of another skin. The materials step gives each of the cap's tones the
+body mesh's own material of that tone: the body's .mi and the body's albedo and normal textures. A tone's colour is in
+its .mi (every tone of a body samples the same albedo). On the cone's own UVs that albedo came out as blotches, and the
+cone's own normals lit it as a cone, darker than the chest round it. So the uvs step gives each cap vertex a texture
+coordinate AND a normal of the body's skin (uv_transfer.exe). At the rim, welded to the body, it is the body's surface
+right there (the closest point of the body's triangles, interpolated), so the skin runs on across the seam. Inside, over
+the hole, the body has no surface, and the closest point is the rim again: mapped that way the whole cap spread along
+the opening's edge, which on the texture is the island's border, padded with smeared texels, and its triangles across
+the hole drew streaks. So inside the cap is a flat patch of plain skin (PATCH, below the neck on the texture) with the
+normal of that skin, lit as the upper chest is; the two meet over 2 cm from the rim. One UV island only -- the body's
+seam runs down the chest, and points matched across it drew a zigzag. The second texture coordinate and the tangent go
+with them (the cone's own tangents were left far from perpendicular to the new normals). The vertex colour stays the
+cone's: with the body's (alpha 0) the cap was not drawn over the hole at all. The materials step gives it a flat normal
+map, the body's own being made for the body's tangent layout.
 """
 import collections
 import copy
@@ -50,6 +68,18 @@ MESHES = {
                      'n0_000_pma_fpp__neck.mesh']), BS.join(['vrport', 'body', 'vrp_neck_cap_pma.mesh'])),
     'pwa': (BS.join(['base', 'characters', 'common', 'player_base_bodies', 'player_female_average', 'fpp',
                      'n0_000_pwa_fpp__neck.mesh']), BS.join(['vrport', 'body', 'vrp_neck_cap_pwa.mesh'])),
+}
+FLAT_NORMAL = BS.join(['engine', 'textures', 'editor', 'normal.xbm'])
+# Where the inside of each cap takes the body's skin: a texture coordinate of plain skin on the front of the body's
+# albedo, between the collarbones (both bodies lay the front of the torso out the same way, the neck at the top
+# centre), and how many texture coordinates one metre of the cap covers (about half the chest's own density, so the
+# ~12 cm cap stays within the plain skin there).
+PATCH = {'pma': (0.398, 0.085), 'pwa': (0.398, 0.085)}
+PATCH_SCALE = 0.5
+# The body mesh whose skin materials each cap takes.
+BODY_MESHES = {
+    'pma': BS.join(['base', 'characters', 'common', 'player_base_bodies', 'player_man_average', 't0_000_pma_base__full.mesh']),
+    'pwa': BS.join(['base', 'characters', 'common', 'player_base_bodies', 'player_female_average', 't0_000_pwa_base__full.mesh']),
 }
 # The player entities the port ships (the ones carrying vrp_latd_screen), and the body each is.
 ENTITY_FILES = {
@@ -308,6 +338,128 @@ def cmd_import():
     print('import:', done.group(0))
 
 
+# ---------------------------------------------------------------- uvs
+
+def glb_vertices(data, doc, base, with_skin):
+    """Every vertex of a glb, primitive after primitive: (x, y, z), or with `with_skin`
+    (x, y, z, u, v, u1, v1, nx, ny, nz, tx, ty, tz, tw); and where each vertex's UV, second UV, normal and tangent
+    are stored."""
+    out, slots = [], []
+    for mesh in doc['meshes']:
+        for prim in mesh['primitives']:
+            attrs = prim['attributes']
+            count, _, pf, ps, po = view(doc, base, attrs['POSITION'])
+            uv, uv1, nrm, tan = (view(doc, base, attrs[k]) if k in attrs else None
+                                 for k in ('TEXCOORD_0', 'TEXCOORD_1', 'NORMAL', 'TANGENT'))
+            if not uv or not uv1 or not nrm or not tan or {uv[2], uv1[2], nrm[2], tan[2]} != {'f'} or tan[1] != 4:
+                raise SystemExit('a primitive without float texture coordinates, normals and tangents')
+            for i in range(count):
+                p = struct.unpack_from('<3' + pf, data, po + i * ps)
+                at = (uv[4] + i * uv[3], uv1[4] + i * uv1[3], nrm[4] + i * nrm[3], tan[4] + i * tan[3])
+                if with_skin:
+                    out.append(p + struct.unpack_from('<2f', data, at[0]) + struct.unpack_from('<2f', data, at[1]) +
+                               struct.unpack_from('<3f', data, at[2]) + struct.unpack_from('<4f', data, at[3]))
+                else:
+                    out.append(p)
+                    slots.append(at)
+    return out, slots
+
+
+def cmd_uvs():
+    """Each cap vertex given a texture coordinate and a normal of the body's skin (uv_transfer.exe,
+    tools/neck_cap/build.bat): at the rim the body's under it, inside a flat patch of plain skin (PATCH), in place of
+    the cone's head UVs and its own normals."""
+    tool = Path(__file__).with_name('uv_transfer.exe')
+    if not tool.exists():
+        raise SystemExit('build tools/neck_cap/uv_transfer.exe first (build.bat)')
+    work = WORK / 'uvs'
+    work.mkdir(parents=True, exist_ok=True)
+    for body, (_, ours) in MESHES.items():
+        game_body = BODY_MESHES[body]
+        body_glb = SOURCE / posix(game_body).replace('.mesh', '.glb')
+        if not body_glb.exists():
+            pattern = '^%s$' % re.escape(game_body)
+            run(CLI, 'uncook', GAME / 'archive/pc/content' / ARCHIVE, '-o', SOURCE, '-gp', GAME, '-r', pattern)
+        bdata, bdoc, bbase = read_glb(body_glb)
+        skin, _ = glb_vertices(bdata, bdoc, bbase, True)
+        triangles, first = [], 0      # every primitive's triangles, as indices into `skin`
+        for mesh in bdoc['meshes']:
+            for prim in mesh['primitives']:
+                icount, _, idf, ids, ido = view(bdoc, bbase, prim['indices'])
+                triangles.extend(first + struct.unpack_from('<' + idf, bdata, ido + k * ids)[0] for k in range(icount))
+                first += bdoc['accessors'][prim['attributes']['POSITION']]['count']
+        cap_glb = IMPORT / posix(ours).replace('.mesh', '.glb')
+        data, doc, base = read_glb(cap_glb)
+        cap, slots = glb_vertices(data, doc, base, False)
+        cap_bin, body_bin, out_bin = work / (body + '_cap.bin'), work / (body + '_body.bin'), work / (body + '_out.bin')
+        cap_bin.write_bytes(struct.pack('<I', len(cap)) + b''.join(struct.pack('<3f', *p) for p in cap))
+        body_bin.write_bytes(struct.pack('<I', len(skin)) + b''.join(struct.pack('<14f', *v) for v in skin) +
+                             struct.pack('<I%dI' % len(triangles), len(triangles) // 3, *triangles))
+        pu, pv = PATCH[body]
+        r = subprocess.run([str(tool), str(cap_bin), str(body_bin), str(out_bin), str(pu), str(pv), str(PATCH_SCALE)],
+                           capture_output=True, text=True)
+        if r.returncode:
+            raise SystemExit('uv_transfer: %s' % (r.stdout + r.stderr))
+        got = struct.unpack('<%df' % (11 * len(cap)), out_bin.read_bytes())
+        # The vertex colour stays the cone's own (0, 0, 0, 1). Given the body's (0, 0, 0, 0), the cap was not drawn
+        # over the hole any more (measured in the game: the shirt's inside showed through).
+        for i, (uv_at, uv1_at, n_at, t_at) in enumerate(slots):
+            g = got[11 * i:11 * i + 11]
+            struct.pack_into('<2f', data, uv_at, *g[0:2])
+            struct.pack_into('<2f', data, uv1_at, *g[2:4])
+            struct.pack_into('<3f', data, n_at, *g[4:7])
+            struct.pack_into('<4f', data, t_at, *g[7:11])
+        cap_glb.write_bytes(bytes(data))
+        print('uvs: %s -- %s' % (cap_glb.name, r.stderr.strip()))
+
+
+# ---------------------------------------------------------------- materials
+
+def serialized(mesh, stage):
+    """A mesh's JSON: the file copied into `stage` and serialized beside itself (the converter's own layout)."""
+    copy_path = stage / Path(posix(str(mesh))).name
+    shutil.copyfile(mesh, copy_path)
+    run(CLI, 'convert', 'serialize', copy_path, '-o', stage)
+    return json.loads((stage / (copy_path.name + '.json')).read_text(encoding='utf-8'))
+
+
+def cmd_materials():
+    stage = WORK / 'materials'
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    for body, (_, ours) in MESHES.items():
+        game_body = BODY_MESHES[body]
+        run(CLI, 'unbundle', GAME / 'archive/pc/content' / ARCHIVE, '-o', SOURCE, '-r', '^%s$' % re.escape(game_body))
+        skin = serialized(SOURCE / posix(game_body), stage)['Data']['RootChunk']
+        skin_by_tone = {e['name']['$value']: skin['localMaterialBuffer']['materials'][e['index']]
+                        for e in skin['materialEntries'] if e.get('isLocalInstance')}
+        cap_file = IMPORT / posix(ours)
+        doc = serialized(cap_file, stage)
+        cap = doc['Data']['RootChunk']
+        materials = cap['localMaterialBuffer']['materials']
+        taken = 0
+        for entry in cap['materialEntries']:
+            tone = entry['name']['$value']
+            if entry.get('isLocalInstance') and tone in skin_by_tone:
+                material = copy.deepcopy(skin_by_tone[tone])
+                for value in material.get('values', []):
+                    if 'Normal' in value and isinstance(value['Normal'], dict):
+                        value['Normal']['DepotPath']['$value'] = FLAT_NORMAL
+                materials[entry['index']] = material
+                taken += 1
+        if not taken:
+            raise SystemExit('%s: no tone of the body found' % cap_file.name)
+        out = stage / (cap_file.name + '.json')
+        out.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding='utf-8')
+        built = stage / 'built'
+        built.mkdir(exist_ok=True)
+        run(CLI, 'convert', 'deserialize', out, '-o', built)
+        shutil.copyfile(built / cap_file.name, cap_file)
+        print('materials: %s takes %d of %d tones from %s' % (cap_file.name, taken, len(cap['materialEntries']),
+                                                              Path(posix(game_body)).name))
+
+
 # ---------------------------------------------------------------- entities
 
 def component_id(entity):
@@ -378,7 +530,7 @@ def cmd_pack():
 
 
 if __name__ == '__main__':
-    steps = sys.argv[1:] or ['export', 'weights', 'import', 'entity', 'pack']
+    steps = sys.argv[1:] or ['export', 'weights', 'uvs', 'import', 'materials', 'entity', 'pack']
     for step in steps:
-        {'export': cmd_export, 'weights': cmd_weights, 'import': cmd_import, 'entity': cmd_entity,
-         'pack': cmd_pack}[step]()
+        {'export': cmd_export, 'weights': cmd_weights, 'uvs': cmd_uvs, 'import': cmd_import,
+         'materials': cmd_materials, 'entity': cmd_entity, 'pack': cmd_pack}[step]()

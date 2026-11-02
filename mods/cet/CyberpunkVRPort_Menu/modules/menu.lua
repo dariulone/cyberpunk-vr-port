@@ -183,6 +183,19 @@ local function sceneTier()
   return tier
 end
 
+-- Every weapon put away, the way the weapon wheel's holster wedge does it (modules/wheel.lua).
+local function holsterAll()
+  local pl = Game.GetPlayer()
+  if pl == nil then return end
+  pcall(function()
+    local r = NewObject("EquipmentSystemWeaponManipulationRequest")
+    r.owner = pl
+    r.requestType = EquipmentManipulationAction.UnequipAll
+    r.equipAnimType = gameEquipAnimationType.Default
+    Game.GetScriptableSystemsContainer():Get(CName.new("EquipmentSystem")):QueueRequest(r)
+  end)
+end
+
 local function paused()
   local p = false
   pcall(function() p = Game.GetSystemRequestsHandler():IsGamePaused() end)
@@ -1936,8 +1949,25 @@ local function tick(dt)
       -- A physical grip swipe must not interrupt a list grabbed with R3. The explicit
       -- L3 + R3 chord still closes it; discard any incidental swipe during the grab.
       if g[1].x>1.5 or not Stick.blocksSwipe(S.hands[2],S.time) then M.close() end
-    elseif not armed() and sceneTier() < 3 and not paused() then
-      M.open(camera())
+    elseif sceneTier() < 3 and not paused() then
+      if not armed() then
+        M.open(camera())
+      elseif g[1].x > 1.5 then
+        -- A weapon in the hand stops only the swipe: a grip pulled down while holding a gun is easily an
+        -- accident. The L3 + R3 chord is held on purpose, and with a gun out it did nothing at all -- the one
+        -- way back into the menu (the menu closes itself while a weapon is drawn). So the chord puts the
+        -- weapons away, as the wheel's holster does, and the menu opens once the hands are empty.
+        holsterAll()
+        S.openWhenUnarmed = S.time + 2.0
+      end
+    end
+  end
+  if S.openWhenUnarmed ~= nil and not S.open then
+    if not armed() then
+      S.openWhenUnarmed = nil
+      if sceneTier() < 3 and not paused() then M.open(camera()) end
+    elseif S.time > S.openWhenUnarmed then
+      S.openWhenUnarmed = nil
     end
   end
   if not S.open then return end

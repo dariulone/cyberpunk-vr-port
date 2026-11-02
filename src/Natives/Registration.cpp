@@ -107,6 +107,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     handEquipment->flags=flags;handEquipment->AddParam("Int32","occupiedMask");rtti->RegisterFunction(handEquipment);
     auto launcherAim=RED4ext::CGlobalFunction::Create("VRLauncherControllerAim","VRLauncherControllerAim",&VRLauncherControllerAim);
     launcherAim->flags=flags;launcherAim->SetReturnType("Bool");rtti->RegisterFunction(launcherAim);
+    auto chordTake=RED4ext::CGlobalFunction::Create("VRCyberwareChordTake","VRCyberwareChordTake",&VRCyberwareChordTake);
+    chordTake->flags=flags;chordTake->SetReturnType("Bool");rtti->RegisterFunction(chordTake);
     // Natives/EngineObjects.cpp: what Codeware added to engine classes, under the port's names.
     {
         auto add = [&](const char* name, auto* fn, const char* returns, std::initializer_list<NativeParam> params) {
@@ -297,6 +299,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     lobbyLooks->flags=flags;lobbyLooks->SetReturnType("String");rtti->RegisterFunction(lobbyLooks);
     auto creationTarget=RED4ext::CGlobalFunction::Create("VRCreationTarget","VRCreationTarget",&VRCreationTarget);
     creationTarget->flags=flags;AddNative("VRCreationTarget",creationTarget,"Bool",{{"handle:entEntity","entity",true}});
+    auto lobbyResolveAs=RED4ext::CGlobalFunction::Create("VRLobbyResolveAs","VRLobbyResolveAs",&VRLobbyResolveAs);
+    lobbyResolveAs->flags=flags;lobbyResolveAs->AddParam("Bool","male");rtti->RegisterFunction(lobbyResolveAs);
 
     auto fHudPanel=RED4ext::CGlobalFunction::Create("VRHudPanelUpdate","VRHudPanelUpdate",&VRHudPanelUpdate);
     fHudPanel->flags=flags; AddNative("VRHudPanelUpdate",fHudPanel,"Int32",{{"handle:inkWidget","root"},{"Bool","lootVisible"}});

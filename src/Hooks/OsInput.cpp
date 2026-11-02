@@ -23,6 +23,7 @@
 #include "Hooks/SwapChain.hpp"
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LauncherDialog.hpp"
+#include "Lua/Host.hpp"
 #include "Hooks/Ngx.hpp"
 #include <cstdint>
 #include <cstdio>
@@ -257,7 +258,8 @@ static BOOL WINAPI HookedGetCursorPos(LPPOINT lpPoint) {
 static BOOL WINAPI HookedSetCursorPos(int X, int Y) {
     // The settings panel leaves simulation running. Do not let the game's
     // relative-mouse recenter fight desktop pointing or steal the VR cursor.
-    if(IsLauncherOpen() || OverlayIsVisible())return TRUE;
+    // The Lua mods' windows run over the same simulation and point with the same mouse.
+    if(IsLauncherOpen() || OverlayIsVisible() || cvr::lua::OverlayOpen())return TRUE;
     static int callCount = 0;
     if (g_verboseLog && callCount++ % 100 == 0) {
         Log("HookedSetCursorPos: called %d times, target=(%d,%d) g_gameHwnd=%p\n", callCount, X, Y, g_gameHwnd);
@@ -300,7 +302,7 @@ static BOOL WINAPI HookedClipCursor(const RECT* lpRect) {
         int w = lpRect->right - lpRect->left;
         int h = lpRect->bottom - lpRect->top;
         if (w <= 1 && h <= 1) {
-            bool isMenuVisible = (GetMenuMode() != 0) || OverlayIsVisible();
+            bool isMenuVisible = (GetMenuMode() != 0) || OverlayIsVisible() || cvr::lua::OverlayOpen();
             if (isMenuVisible) {
                 if (g_verboseLog) Log("HookedClipCursor: Ignored centering clip (%ld,%ld) because menu mode is active\n", lpRect->left, lpRect->top);
                 return g_origClipCursor ? g_origClipCursor(nullptr) : ClipCursor(nullptr);

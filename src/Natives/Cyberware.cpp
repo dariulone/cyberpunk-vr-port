@@ -8,6 +8,7 @@
 #include "Hooks/WeaponTrigger.hpp"
 #include "Anim/LeftHanded.hpp"
 #include "Core/LiveControls.hpp"
+#include "Hooks/CyberwareChord.hpp"
 #include <RED4ext/Scripting/Utils.hpp>
 
 extern "C" int CyberpunkVR_TwoHandActive;
@@ -144,6 +145,11 @@ void VRCyberwareSelect(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,void*,i
 void VRHandEquipment(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,void*,int64_t) {
     int32_t mask{};RED4ext::GetParameter(stack,&mask);stack->code++;
     cvr::gestures::PublishEquipment(mask);
+}
+void VRCyberwareChordTake(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
+    stack->code++;
+    const bool taken=cvr::input::TakeCyberwareChord();
+    if(out)*out=taken;
 }
 void VRLauncherControllerAim(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
     stack->code++;

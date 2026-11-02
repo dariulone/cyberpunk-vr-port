@@ -37,6 +37,9 @@ struct HostState
 
 HostState* g_host = nullptr;
 
+// An installed CET's overlay key (MigrateFromCet); 0 without one.
+uint64_t g_cetOverlayKey = 0;
+
 }  // namespace
 
 CET& CET::Get()
@@ -113,7 +116,7 @@ void Install()
     // The host's and the mods' logs reach the disk every second, a game that is ended included.
     spdlog::flush_every(std::chrono::seconds(1));
     MH_Initialize();
-    MigrateFromCet();
+    g_cetOverlayKey = MigrateFromCet();
     g_host = new HostState;
     g_host->vm.Prepare();
     PluginLog("[lua] the host is up: mods from {}\n", UTF16ToUTF8(g_host->paths.ModsRoot().native()));
@@ -128,6 +131,46 @@ void OnWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 bool OverlayOpen()
 {
     return g_host && g_host->overlay.IsEnabled();
+}
+
+bool PassRawInput(LPARAM lParam)
+{
+    RAWINPUT raw{};
+    UINT size = sizeof(raw);
+    if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
+        return true; // bigger than a key or a mouse event: another device's
+    if (raw.header.dwType == RIM_TYPEMOUSE)
+    {
+        constexpr USHORT kReleases = RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_RIGHT_BUTTON_UP | RI_MOUSE_MIDDLE_BUTTON_UP |
+                                     RI_MOUSE_BUTTON_4_UP | RI_MOUSE_BUTTON_5_UP;
+        return (raw.data.mouse.usButtonFlags & kReleases) != 0;
+    }
+    if (raw.header.dwType != RIM_TYPEKEYBOARD)
+        return true;
+
+    const USHORT pressed = raw.data.keyboard.VKey;
+    const bool released = (raw.data.keyboard.Flags & RI_KEY_BREAK) != 0;
+    if (g_cetOverlayKey && GetModuleHandleW(L"cyber_engine_tweaks.asi"))
+    {
+        // VKBindings' encoding: up to four keys, the first in the top 16 bits. CET fires its bind as the keys go up.
+        bool part = false;
+        USHORT last = 0;
+        for (int shift = 48; shift >= 0; shift -= 16)
+        {
+            const auto key = static_cast<USHORT>(g_cetOverlayKey >> shift);
+            if (!key)
+                break;
+            part = part || key == pressed;
+            last = key;
+        }
+        if (part)
+        {
+            if (released && pressed == last)
+                ToggleOverlay();
+            return true;
+        }
+    }
+    return released;
 }
 
 void Draw(float width, float height)

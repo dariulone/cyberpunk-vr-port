@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <chrono>
 
-int16_t g_VRBoneParent[800];
+int16_t g_VRBoneParent[2048];   // VRIK_MAX_BONES (include/Anim/VrikState.hpp)
 volatile int g_VRBoneCount = 0, g_VRRightBoneIdx = -1, g_VRLeftBoneIdx = -1, g_VRSmokeCigIdx = -1, g_VRSmokeLighterIdx = -1;
 
 void VRIK_QuatRotateVec(const float* q, const float* v, float* o) {

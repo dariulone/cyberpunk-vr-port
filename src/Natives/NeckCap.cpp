@@ -31,6 +31,9 @@ namespace {
 constexpr const char* kCap = "vrp_neck_cap";
 // The full body mesh component, one per body.
 constexpr const char* kBodies[] = {"t0_000_pma_base__full", "t0_000_pwa_base__full"};
+// The port's body in its place while the game has taken a woman's away (tools/body_stand_in/make_body_stand_in.py):
+// the ForceFPP Lua gives it the skin's tone before turning it on. Without it the cap kept the tone it was built with.
+constexpr const char* kStandIn = "vrp_body_stand_in";
 
 RED4ext::CName Appearance(RED4ext::ent::IComponent* component) {
     auto* type = component->GetType();
@@ -97,7 +100,7 @@ void VRNeckCapSync(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* 
     stack->code++;
     int32_t result = 0;
     auto* player = FindPlayerEntity();
-    RED4ext::ent::IComponent *cap = nullptr, *body = nullptr;
+    RED4ext::ent::IComponent *cap = nullptr, *body = nullptr, *standIn = nullptr;
     if (player) {
         for (auto& handle : player->components) {
             auto* component = handle.instance;
@@ -105,10 +108,12 @@ void VRNeckCapSync(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* 
             const char* name = component->name.ToString();
             if (!name) continue;
             if (!cap && EqualsInsensitive(name, kCap)) cap = component;
+            if (!standIn && EqualsInsensitive(name, kStandIn)) standIn = component;
             for (const char* candidate : kBodies)
                 if (!body && EqualsInsensitive(name, candidate)) body = component;
         }
     }
+    if (!body && standIn && Enabled(standIn)) body = standIn;
     if (!player) result = -1;
     else if (!body) result = -2;
     else if (!cap) result = -3;

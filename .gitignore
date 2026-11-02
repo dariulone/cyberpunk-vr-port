@@ -210,10 +210,19 @@ tools/reload_glow/*
 !tools/lobby_toys/
 tools/lobby_toys/*
 !tools/lobby_toys/*.py
-# The first-person neck cap: its generator builds the cap meshes and the player entities' component.
+# The first-person neck cap: its generator builds the cap meshes and the player entities' component; the C++ tool
+# that gives the caps the body's skin coordinates, and its build script (not the built exe).
 !tools/neck_cap/
 tools/neck_cap/*
 !tools/neck_cap/*.py
+!tools/neck_cap/*.cpp
+!tools/neck_cap/build.bat
+# The body the first person draws when the game takes a woman's away (vrp_body_stand_in in the player entities).
+!tools/body_stand_in/
+tools/body_stand_in/*
+!tools/body_stand_in/*.py
+!tools/body_stand_in/*.cpp
+!tools/body_stand_in/build.bat
 
 # The Lua host's A/B frame cost (src/Lua, stage 6 of docs/native-frameworks-plan-20261030.md).
 !tools/lua_host_tests/

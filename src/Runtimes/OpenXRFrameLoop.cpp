@@ -1346,7 +1346,11 @@ DWORD OpenXRManager::FrameThreadMain() {
                     m_basePoseSet = true;
                     m_trackingOriginSerial.fetch_add(1, std::memory_order_acq_rel);
                     baseReset = true;
-                    Log("OpenXRManager: Base pose captured (yaw-only, %.1f deg).\n", yaw * 57.29578f);
+                    // up.y is the head's up axis against the space's: about +1 for a level space, about -1
+                    // for one that is upside down (see the tracking space in OpenXRManager::InitGraphics).
+                    const XrVector3f headUp = RotateVector(q, XrVector3f{0.0f, 1.0f, 0.0f});
+                    Log("OpenXRManager: Base pose captured (yaw-only, %.1f deg; head up.y %.2f, y %.2f m).\n",
+                        yaw * 57.29578f, headUp.y, location.pose.position.y);
                 }
                 basePose = m_basePose;
             }

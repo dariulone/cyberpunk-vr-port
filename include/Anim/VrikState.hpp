@@ -44,7 +44,11 @@ inline constexpr float    VRRIG_OFF_MAX = 0.80f;
 inline constexpr int VRPOSE_CENSUS_MAX = 96;
 inline constexpr int VRIK_TRANS_OFF = 0;   // Translation (Vector4)
 inline constexpr int VRIK_ROT_OFF   = 16;  // Rotation (Quaternion x,y,z,w)
-inline constexpr int VRIK_MAX_BONES = 800;  // was 256; raised so custom rig bones (WeaponRight1 ~767) fit
+// The player's meta-rig grows with what is worn and drawn: clothing with its own dangle bones plus drawn arm
+// cyberware took a woman's rig past the old 800 (686 holstered, more with the mantis blades out), and a rig over
+// the limit is refused -- VRIK let go of the arms, which stayed in the game's flat idle, and the implants'
+// swings never started. Fixed-size arrays below are this long; the configure-time scratch is static, not stack.
+inline constexpr int VRIK_MAX_BONES = 2048;
 
 // One player solve or rebind owns the shared bone indices, FK scratch and solve
 // cache. Weapon/cyberware changes can replace a768-bone meta-rig with a620-bone
@@ -370,7 +374,7 @@ extern "C" __declspec(dllexport) extern volatile int CyberpunkVR_VrikHandFrameOn
 extern volatile int       CyberpunkVR_VrikHandFrameAlign;
 extern volatile float     g_VRIKDbgClav[2][8];
 extern volatile float     g_VRIKDbgChestTgt[3];
-extern int16_t            g_VRBoneParent[800];     // metaRig parent index per bone
+extern int16_t            g_VRBoneParent[VRIK_MAX_BONES]; // metaRig parent index per bone
 extern volatile int       g_VRBoneCount;           // bone count (0 = not resolved)
 extern volatile int       g_VRFKCount;             // solver-touched bone prefix (0 = full count)
 extern volatile int       g_VRRightUpperArmIdx;    // RightArm  (shoulder joint / upper-arm start)

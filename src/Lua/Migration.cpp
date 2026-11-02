@@ -104,23 +104,53 @@ void RetireMod(const fs::path& aCetMod, const fs::path& aOwn, const fs::path& aL
               stuck ? fmt::format(", {} NOT MOVED (CET runs it too)", stuck) : std::string());
 }
 
-void SeedBindings(const fs::path& aCetBindings, const fs::path& aBindings, const std::vector<std::string>& acMods)
+// VKBindings' encoding: the first key in the top 16 bits.
+constexpr uint64_t kHome = static_cast<uint64_t>(VK_HOME) << 48;
+constexpr uint64_t kScrollLock = static_cast<uint64_t>(VK_SCROLL) << 48;
+constexpr uint64_t kPause = static_cast<uint64_t>(VK_PAUSE) << 48;
+
+uint64_t KeyBesideCet(const uint64_t aCetKey)
+{
+    return aCetKey == kScrollLock ? kPause : kScrollLock;
+}
+
+// The "overlay_key" of a bindings file's "cet" entry; nullptr when the JSON has none.
+nlohmann::json* OverlayKeyEntry(nlohmann::json& aBindings)
+{
+    if (!aBindings.is_object())
+        return nullptr;
+    const auto cet = aBindings.find("cet");
+    if (cet == aBindings.end() || !cet->is_object())
+        return nullptr;
+    const auto key = cet->find("overlay_key");
+    return key != cet->end() && key->is_number_unsigned() ? &*key : nullptr;
+}
+
+nlohmann::json ReadJson(const fs::path& aPath)
+{
+    if (std::ifstream in{aPath})
+        return nlohmann::json::parse(in, nullptr, false);
+    return nlohmann::json::object();
+}
+
+uint64_t ReadCetOverlayKey(const fs::path& aCetBindings)
+{
+    auto cet = ReadJson(aCetBindings);
+    const auto* key = OverlayKeyEntry(cet);
+    return key ? key->get<uint64_t>() : 0;
+}
+
+void SeedBindings(const fs::path& aCetBindings, const fs::path& aBindings, const uint64_t aCetKey,
+                  const std::vector<std::string>& acMods)
 {
     std::error_code error;
     if (fs::exists(aBindings, error))
         return;
-    nlohmann::json cet;
-    if (std::ifstream in{aCetBindings})
-        cet = nlohmann::json::parse(in, nullptr, false);
+    nlohmann::json cet = ReadJson(aCetBindings);
     if (cet.is_discarded() || !cet.is_object())
         cet = nlohmann::json::object();
 
-    // VKBindings' encoding: the first key in the top 16 bits.
-    constexpr uint64_t kHome = static_cast<uint64_t>(VK_HOME) << 48;
-    uint64_t overlayKey = kHome;
-    if (const auto it = cet.find("cet"); it != cet.end() && it->is_object())
-        if (const uint64_t key = it->value("overlay_key", uint64_t{0}))
-            overlayKey = key;
+    const uint64_t overlayKey = aCetKey ? KeyBesideCet(aCetKey) : kHome;
 
     nlohmann::json own = nlohmann::json::object();
     own["cet"]["overlay_key"] = overlayKey;
@@ -135,13 +165,30 @@ void SeedBindings(const fs::path& aCetBindings, const fs::path& aBindings, const
     }
     fs::create_directories(aBindings.parent_path(), error);
     std::ofstream(aBindings) << own.dump(4);
-    PluginLog("[lua] key binds made: overlay key {:#x}{}, {} mod bind(s) from CET's bindings.json\n", overlayKey,
-              overlayKey == kHome ? " (Home)" : " (CET's)", binds);
+    PluginLog("[lua] key binds made: overlay key {:#x}, {} mod bind(s) from CET's bindings.json\n", overlayKey, binds);
+}
+
+// Bindings made by 0.2.0 hold CET's key, or Home when CET came later. Another key was chosen on purpose: it stays.
+void MoveOverlayKeyOffCet(const fs::path& aBindings, const uint64_t aCetKey)
+{
+    if (!aCetKey)
+        return;
+    auto own = ReadJson(aBindings);
+    auto* key = OverlayKeyEntry(own);
+    if (!key)
+        return;
+    const uint64_t current = key->get<uint64_t>();
+    if (current != aCetKey && current != kHome)
+        return;
+    const uint64_t moved = KeyBesideCet(aCetKey);
+    *key = moved;
+    std::ofstream(aBindings) << own.dump(4);
+    PluginLog("[lua] overlay key {:#x} -> {:#x}: CET's own overlay keeps its key and its input\n", current, moved);
 }
 
 }  // namespace
 
-void MigrateFromCet()
+uint64_t MigrateFromCet()
 {
     std::vector<wchar_t> exe(32768);
     const DWORD length = GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
@@ -160,8 +207,12 @@ void MigrateFromCet()
         if (fs::is_directory(cetMod, error))
             RetireMod(cetMod, entry.path(), root / L"legacy" / L"cet" / entry.path().filename());
     }
-    SeedBindings(cetRoot / L"bindings.json", fs::path(paths::Dir(paths::Folder::Config)).parent_path() / L"lua_bindings.json",
-                 names);
+    const fs::path cetBindings = cetRoot / L"bindings.json";
+    const fs::path bindings = fs::path(paths::Dir(paths::Folder::Config)).parent_path() / L"lua_bindings.json";
+    const uint64_t cetKey = ReadCetOverlayKey(cetBindings);
+    SeedBindings(cetBindings, bindings, cetKey, names);
+    MoveOverlayKeyOffCet(bindings, cetKey);
+    return cetKey;
 }
 
 }  // namespace cvr::lua

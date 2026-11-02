@@ -645,6 +645,14 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
         SteerReset();
         return;
     }
+    // NOR WITH A GUN IN EACH HAND: the left hand holds its own. The hold would open its fingers off that gun as soon
+    // as the hands came close, and a squeeze would weld the hand to the right gun with the left one hanging off it.
+    if (cvr::anim::TwoGunsInHand()) {
+        CyberpunkVR_TwoHandActive = 0;
+        CyberpunkVR_TwoHandBlend = 0.0f;
+        SteerReset();
+        return;
+    }
     SelectHold();
     if (!CyberpunkVR_TwoHandGrip || !g_cur || !g_hasWeaponEquipped || !targetR || !hm) {
         CyberpunkVR_TwoHandActive = 0;

@@ -298,7 +298,9 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
         if(EqualBoneName(names[i],"l_J_eye_JNT") || (leftEye<0 && EqualBoneName(names[i],"LeftEye")))leftEye=i;
         if(EqualBoneName(names[i],"r_J_eye_JNT") || (rightEye<0 && EqualBoneName(names[i],"RightEye")))rightEye=i;
     }
-    float neutralPos[VRIK_MAX_BONES][3]{},neutralRot[VRIK_MAX_BONES][4]{};
+    // Static rather than stack (VRIK_MAX_BONES entries, ~57 KB): rig policy runs under the rebind's exclusive lock.
+    static float neutralPos[VRIK_MAX_BONES][3],neutralRot[VRIK_MAX_BONES][4];
+    std::memset(neutralPos,0,sizeof(neutralPos));std::memset(neutralRot,0,sizeof(neutralRot));
     for(int i=0;i<referenceCount;++i)if(s_referenceValid[i]) {
         const int parent=g_VRBoneParent[i];
         if(parent>=0) {

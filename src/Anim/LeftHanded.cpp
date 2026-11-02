@@ -48,6 +48,8 @@ extern "C" __declspec(dllexport) float CyberpunkVR_DebugLeftHandedResidual = 0.0
 // How far each hand's fingers are curled off the reference pose, mean degrees: [0..1] left/right as the animation
 // left them, [2..3] as drawn after every finger layer.
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugFingerFlex[4] = {};
+// Held up by the reload mod while the game reports a gun in each hand (src/Hooks/XInput.cpp).
+extern "C" volatile uint64_t CyberpunkVR_DualWieldUntil;
 
 namespace cvr::anim {
 namespace {
@@ -313,6 +315,10 @@ bool MirrorWeaponSlotToRight(const float* pos, const float* rot, float* outPos, 
     Apply(parent, pos, outPos);
     Conjugated(parent, rot, Transposed(g_weapons.s), outRot);
     return true;
+}
+
+bool TwoGunsInHand() {
+    return g_hasLeftWeaponEquipped && g_hasRightWeaponEquipped && GetTickCount64() < CyberpunkVR_DualWieldUntil;
 }
 
 }  // namespace cvr::anim

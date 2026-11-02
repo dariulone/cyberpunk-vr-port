@@ -6,11 +6,11 @@
 #
 # Usage:
 #   pwsh scripts\build_dist.ps1
-#   pwsh scripts\build_dist.ps1 -Version 0.2.0 -Zip
+#   pwsh scripts\build_dist.ps1 -Version 0.2.1 -Zip
 
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$')]
-    [string]$Version = "0.2.0",
+    [string]$Version = "0.2.1",
     # The game 2.5 build tree (RED4ext.SDK game-2.5); build\ is the old 2.31 tree and its DLL is stale.
     [string]$BuildDir = "build\patchday\sdk25-build",
     [switch]$Zip,

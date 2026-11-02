@@ -891,6 +891,8 @@ public:
 
     bool IsInitialized() const { return m_initialized; }
     bool IsSessionRunning() const { return m_sessionRunning.load(std::memory_order_relaxed); }
+    // The session has the headset's input: XR_SESSION_STATE_FOCUSED (any thread).
+    bool IsSessionFocused() const { return m_sessionFocused.load(std::memory_order_relaxed); }
 
 private:
     static DWORD WINAPI FrameThreadThunk(LPVOID param);
@@ -1349,6 +1351,7 @@ private:
     std::condition_variable m_frameLoopCv;
     FrameLoopOwner m_frameLoopOwner = FrameLoopOwner::None;
     std::atomic<bool> m_sessionRunning = false;
+    std::atomic<bool> m_sessionFocused = false;
     std::atomic<bool> m_monoSubmitEnabled = false;
     std::atomic<int> m_renderEyeIndex = 0;
     std::atomic<bool> m_poseValid = false;

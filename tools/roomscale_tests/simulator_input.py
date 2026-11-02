@@ -26,7 +26,11 @@ class PadGate:
          'd36e74c47592e9c656ae250078cb40b2be63c782af5bfbeff2280d43e653fab4':0x20849c6}  # 2.5
   assert ex['sha256'] in sites,'Unsupported game input ABI'
   self.site=int(ex['module_base'],16)+sites[ex['sha256']]
-  self.saved=self.r.read(self.site,2);assert self.saved==bytes.fromhex('750F'),self.saved.hex()
+  self.saved=self.r.read(self.site,2)
+  # The port's own BackgroundPad hook (src/Hooks/BackgroundPad.cpp) replaces this compare with a jump while the
+  # OpenXR session is focused, so the bytes are its NOPs: nothing to open then, and nothing to put back.
+  self.ported=self.saved==bytes.fromhex('9090')
+  assert self.ported or self.saved==bytes.fromhex('750F'),self.saved.hex()
   # The game loads whichever simulator the OpenXR loader picked (active_runtime.json), not
   # necessarily the copy a caller passed; another copy failed the exact-image check and the
   # Continue press never happened. Pad offsets come from the loaded image itself.
@@ -41,6 +45,7 @@ class PadGate:
  def write(self,address,data):
   b=c.create_string_buffer(bytes(data));done=c.c_size_t();assert self.k.WriteProcessMemory(self.h,address,b,len(data),c.byref(done)) and done.value==len(data)
  def code(self,data):
+  if self.ported:return
   assert self.n.NtSuspendProcess(self.h)==0
   try:
    protection=c.c_ulong();assert self.k.VirtualProtectEx(self.h,self.site,2,0x40,c.byref(protection))

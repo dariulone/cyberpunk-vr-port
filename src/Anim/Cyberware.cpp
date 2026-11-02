@@ -126,10 +126,12 @@ void VRIK_ConfigureCyberwareRig(const char* const* names,int count,const uint8_t
             if(Valid(source)&&Valid(target)&&skinFingerCount<int(skinFingers.size()))skinFingers[skinFingerCount++]={source,target,side};
         }
     }
-    // Arming cannot borrow the animation job's working FK arrays.
-    std::array<std::array<float,3>,VRIK_MAX_BONES> rp{};
-    std::array<std::array<float,4>,VRIK_MAX_BONES> rq{};
-    std::array<bool,VRIK_MAX_BONES> valid{};
+    // Arming cannot borrow the animation job's working FK arrays. Static rather than stack (VRIK_MAX_BONES
+    // entries, ~60 KB): arming runs under g_PlayerPoseStateLock held exclusively.
+    static std::array<std::array<float,3>,VRIK_MAX_BONES> rp;
+    static std::array<std::array<float,4>,VRIK_MAX_BONES> rq;
+    static std::array<bool,VRIK_MAX_BONES> valid;
+    rp.fill({});rq.fill({});valid.fill(false);
     for(int i=0;reference && i<std::min({count,referenceCount,VRIK_MAX_BONES});++i) {
         const auto* p=reinterpret_cast<const float*>(reference+i*48);const int parent=g_VRBoneParent[i];
         if(parent>=i || (parent>=0 && !valid[parent]))continue;

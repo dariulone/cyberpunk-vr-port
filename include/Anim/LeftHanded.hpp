@@ -34,4 +34,8 @@ bool MirrorFingerToRight(int leftBone, const float* rot, int* rightBone, float* 
 // held in the left hand is in the right one. False while the rig has no weapon twin.
 bool MirrorWeaponSlotToRight(const float* pos, const float* rot, float* outPos, float* outRot);
 
+// A gun in each hand, the game's own dual wielding: both weapon slots hold a weapon while the reload mod reports the
+// pair (CyberpunkVR_DualWieldUntil).
+bool TwoGunsInHand();
+
 }  // namespace cvr::anim

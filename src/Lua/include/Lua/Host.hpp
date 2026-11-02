@@ -25,6 +25,11 @@ void OnWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 // The mods' windows are open: they take the mouse and keyboard.
 bool OverlayOpen();
 
+// A WM_INPUT message while those windows are open: true when it goes on down the window's chain. What goes on is what
+// must: key and button releases, or a key held as the windows opened would stay held in the game; another device's
+// input; and an installed CET's overlay key, whose bind closes these windows so that CET's overlay has the input alone.
+bool PassRawInput(LPARAM lParam);
+
 // Inside the plugin's desktop ImGui frame (render thread), with the output's size: the mods' windows while the
 // overlay is open (onDraw).
 void Draw(float width, float height);

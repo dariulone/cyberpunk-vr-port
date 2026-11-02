@@ -63,6 +63,12 @@ extern "C" __declspec(dllexport) float CyberpunkVR_EngineStereoDlssJitterTest[3]
 // Test only, live: bit N set = the eyes' DLSS gets no resource for the engine's tag of type N (29 = the bias
 // current colour mask).
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoDlssDropTags{0};
+// Test only, live: 1 = the right eye's output target is taken as not made (as with the GPU's memory full),
+// 2 = the right eye's evaluate is taken as failed.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoDlssFailTest{0};
+// Back to the engine's one evaluate: [0] frames without the right eye's output target, [1] 1 once the eyes'
+// evaluates failed for good this session.
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoDlssFallback[2] = {};
 
 namespace cvr::engine_stereo::dlss {
 namespace {
@@ -96,6 +102,10 @@ SetOptionsFn setOptions = nullptr;        // unhooked slDLSSSetOptions (the tram
 std::atomic<bool> optionsHooked{false};
 
 bool OwnViewport(uint32_t v) { return v == kEyeViewport[0] || v == kEyeViewport[1]; }
+bool FailTest(uint32_t bit) { return (CyberpunkVR_EngineStereoDlssFailTest.load(std::memory_order_relaxed) & bit) != 0; }
+uint64_t outputRetryAt = 0;          // no right-eye output target: the engine's evaluate until then
+bool outputMissingLogged = false;
+uint32_t failedFrames = 0;           // frames in a row with an eye's evaluate failed
 
 // THE RIGHT EYE'S OWN RESOURCES. DLSS takes the right eye's colour from its half at an offset, but writes nothing
 // at an output offset (aimed at x = 2648 of the engine's 5296-wide target the right half stayed black; the same
@@ -399,6 +409,23 @@ sl::Extent Half(const sl::Extent& e, int eye) {
     return sl::Extent{e.top, e.left + (eye ? w : 0), w, e.height};
 }
 
+// Whether the right eye has its own output target, made and kept for this command list. Without one its evaluate
+// would be pointed at the right half of the engine's output, where DLSS draws nothing.
+bool RightOutputReady(const sl::Extent& out, void* commandList) {
+    for (uint32_t i = 0; i < tags.count; ++i) {
+        sl::Extent a{};
+        if (tags.tag[i].type != sl::kBufferTypeScalingOutputColor || !tags.tag[i].resource || !Area(tags.tag[i], &a) ||
+            a.width != out.width || a.height != out.height) continue;
+        auto* native = static_cast<ID3D12Resource*>(tags.tag[i].resource->native);
+        for (uint32_t j = 0; j < tags.count; ++j)
+            if (j != i && tags.tag[j].resource && tags.tag[j].resource->native == native) return false;
+        const sl::Extent half = Half(a, 1);
+        EyeCopy* own = native && !FailTest(1) ? OwnCopy(tags.tag[i].type, native, half.width, half.height, true) : nullptr;
+        return own && KeepCopy(static_cast<ID3D12GraphicsCommandList*>(commandList), *own);
+    }
+    return false;
+}
+
 // Options when the engine set its own before the hook went in: the mode from the scale, the rest the defaults
 // of an HDR colour pipeline that tags its exposure.
 sl::DLSSOptions Derived(const sl::Extent& in, const sl::Extent& out, bool exposureTagged) {
@@ -515,6 +542,23 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         else if (tags.tag[i].type == sl::kBufferTypeExposure) exposureTagged = true;
     }
     if (!haveIn || !haveOut || in.width < 2 || out.width < 2 || in.width % 2 || out.width % 2) { ++debug[4]; return false; }
+    const uint32_t mode = CyberpunkVR_EngineStereoDlssMode.load(std::memory_order_relaxed);
+    // THE RIGHT EYE'S OUTPUT TARGET BEFORE ANY EYE IS EVALUATED. When it cannot be made (the GPU's memory full at a
+    // large eye size) or kept, the frame goes to the engine's one evaluate over both eyes -- both eyes drawn, one
+    // history -- and the target is tried again 10 s later, instead of a black right eye.
+    if (!(mode & (2 | 4 | 16))) {
+        const uint64_t now = GetTickCount64();
+        if (now < outputRetryAt) { ++debug[1]; return false; }
+        if (!RightOutputReady(out, commandList)) {
+            outputRetryAt = now + 10000;
+            ++CyberpunkVR_DebugEngineStereoDlssFallback[0];
+            if (!outputMissingLogged) Log("[engine-stereo-dlss] no output target of the right eye's own: both eyes go "
+                                          "through the engine's one evaluate, another try every 10 s\n");
+            outputMissingLogged = true;
+            ++debug[1];
+            return false;
+        }
+    }
     const bool recorded = engineOptions.valid && engineOptions.viewport == viewport;
     const sl::DLSSOptions base = recorded ? engineOptions.values : Derived(in, out, exposureTagged);
     LogOnce(tags, constants, base, recorded, in, out);
@@ -530,7 +574,6 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         else originalContext.Disable(); // no repeated attempts or render-loop stalls
     }
 
-    const uint32_t mode = CyberpunkVR_EngineStereoDlssMode.load(std::memory_order_relaxed);
     static std::atomic<uint32_t> logged{0};
     const bool log = logged.fetch_add(1) < 3;
     if (log) {
@@ -587,9 +630,11 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
             eyeTags[i] = tags.tag[i];
             sl::Extent a{};
             if (!Area(tags.tag[i], &a)) continue;
-            const bool input = a.width == in.width && a.height == in.height;
-            const bool isOutput = !input && tags.tag[i].type == sl::kBufferTypeScalingOutputColor &&
+            // The scaling output is told by its type first: under DLAA it is the input's size, and taken for an input
+            // its eye copy was what the evaluate drew into, never copied back -- the right eye stayed black.
+            const bool isOutput = tags.tag[i].type == sl::kBufferTypeScalingOutputColor &&
                                   a.width == out.width && a.height == out.height;
+            const bool input = !isOutput && a.width == in.width && a.height == in.height;
             if (input) eyeTags[i].extent = Half(a, eye);
             else if (isOutput) eyeTags[i].extent = Half(a, (mode & 2) ? 0 : eye);
             if (eye != 1 || (!input && !isOutput) || (isOutput && (mode & 18)) || (input && (mode & 32))) continue;
@@ -598,7 +643,8 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
             bool shared = false;                           // one resource under two tags: copied once, offset kept
             for (uint32_t j = 0; j < tags.count; ++j)
                 if (j != i && tags.tag[j].resource && tags.tag[j].resource->native == native) shared = true;
-            EyeCopy* own = native && !shared ? OwnCopy(tags.tag[i].type, native, half.width, half.height, isOutput) : nullptr;
+            EyeCopy* own = native && !shared && !(isOutput && FailTest(1))
+                ? OwnCopy(tags.tag[i].type, native, half.width, half.height, isOutput) : nullptr;
             if (!own) continue;
             if (!KeepCopy(static_cast<ID3D12GraphicsCommandList*>(commandList), *own)) {
                 // Do not record references whose lifetime we cannot protect.
@@ -627,8 +673,9 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         if (mode & 8)
             for (uint32_t i = 0; i < tags.count; ++i) eyeInputs[n++] = &eyeTags[i];
         evaluatingEye = eye;
-        const auto r = evaluate(feature, frame, eyeInputs, n, commandList);
+        auto r = evaluate(feature, frame, eyeInputs, n, commandList);
         evaluatingEye = -1;
+        if (eye == 1 && FailTest(2)) r = sl::Result::eErrorInvalidParameter;
         res[3] = int32_t(r);
         if (r == sl::Result::eOk && nAfter) {
             RunCopies(commandList, after, nAfter, true);
@@ -643,6 +690,16 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         }
     }
     ++debug[0];
+    // AN EYE WHOSE EVALUATE FAILS IS AN EYE LEFT UNDRAWN (its feature could not be created: the GPU's memory again).
+    // Three frames in a row and DLSS goes back to the engine's one evaluate over both eyes for this session.
+    if (worst != sl::Result::eOk) {
+        if (++failedFrames >= 3) {
+            CyberpunkVR_EngineStereoDlssPerEye.store(0, std::memory_order_relaxed);
+            CyberpunkVR_DebugEngineStereoDlssFallback[1] = 1;
+            Log("[engine-stereo-dlss] the eyes' evaluates keep failing (%d): DLSS goes back to the engine's one "
+                "evaluate over both eyes for this session\n", int(worst));
+        }
+    } else failedFrames = 0;
     if(worst==sl::Result::eOk && viewport==0)originalContext.SplitSucceeded();
     *result = worst;
     return true;

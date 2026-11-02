@@ -433,10 +433,12 @@ static int ArmPlayerLocked() {
             const uint32_t pc = metaRig->parentIndeces.Size();
             const uint32_t copyN = (pc < boneCount ? pc : boneCount);
             int written = 0;
-            for (uint32_t i = 0; i < copyN && i < 800; ++i) { g_VRBoneParent[i] = metaRig->parentIndeces[i]; ++written; }
+            for (uint32_t i = 0; i < copyN && i < static_cast<uint32_t>(VRIK_MAX_BONES); ++i) { g_VRBoneParent[i] = metaRig->parentIndeces[i]; ++written; }
             g_VRBoneCount = written;
 
-            const char* policyNames[VRIK_MAX_BONES]{};
+            // Static: the rebind holds g_PlayerPoseStateLock exclusively, and VRIK_MAX_BONES pointers are 16 KB.
+            static const char* policyNames[VRIK_MAX_BONES];
+            std::fill(std::begin(policyNames), std::end(policyNames), nullptr);
             for(int i=0;i<written;++i)policyNames[i]=metaRig->boneNames[i].ToString();
             const int referenceCount=static_cast<int>(metaRig->boneTransforms.Size());
             const auto* reference=referenceCount>0

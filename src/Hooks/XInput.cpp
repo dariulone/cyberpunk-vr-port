@@ -935,6 +935,8 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // CyberpunkVRPort_DualWield script routes that machine from the two physical triggers instead, and only
     // while kDualWieldActive says this merge is on. Here both triggers become the one fire action, so the
     // left trigger no longer aims.
+    // EACH GUN BREAKS WHERE THE OTHER DOES: the two-stage trigger a lone firearm has (Hooks/WeaponTrigger.hpp), per
+    // physical hand. The hands are published with the switch, and the script routes the shot by them.
     // A NEW SQUEEZE HOLDS THE ACTION RELEASED FOR A MOMENT. The routing has to reach the other gun before the
     // press edge does: a semi-automatic fires on the edge, and the gun that sees it while the other hand still
     // owns the shot never fires. With the other trigger already held there would be no edge at all.
@@ -943,19 +945,20 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     {
         static bool s_dualLeft = false, s_dualRight = false;
         static uint64_t s_dualHoldUntil = 0;
-        const auto squeezed = [](bool was, float v) { return was ? v > 0.20f : v > 0.35f; };
-        const bool left = dualWield && squeezed(s_dualLeft, vr.leftTrigger);
-        const bool right = dualWield && squeezed(s_dualRight, vr.rightTrigger);
+        static cvr::input::WeaponTrigger s_dualBreak[2];
+        const bool left = s_dualBreak[0].Update(dualWield, physical.leftTrigger);
+        const bool right = s_dualBreak[1].Update(dualWield, physical.rightTrigger);
         if ((left && !s_dualLeft) || (right && !s_dualRight))
             s_dualHoldUntil = GetTickCount64() + static_cast<uint64_t>((std::max)(0, CyberpunkVR_DualWieldPressDelayMs));
         s_dualLeft = left;
         s_dualRight = right;
         if (dualWield) {
             pState->Gamepad.bLeftTrigger = 0;
-            const BYTE fire = (std::max)(pState->Gamepad.bRightTrigger, lt);
+            const BYTE fire = (left || right) ? BYTE{255} : pState->Gamepad.bRightTrigger;
             pState->Gamepad.bRightTrigger = GetTickCount64() < s_dualHoldUntil ? 0 : fire;
         }
-        OpenXRManager::Get().SetSharedSlot(vrshared::kDualWieldActive, dualWield ? 1.0f : 0.0f);
+        OpenXRManager::Get().SetSharedSlot(vrshared::kDualWieldActive,
+            dualWield ? static_cast<float>(1 | (left ? vrshared::kDualWieldLeftFires : 0) | (right ? vrshared::kDualWieldRightFires : 0)) : 0.0f);
     }
 
     // Left stick = locomotion (always merged when magnitude exceeds the

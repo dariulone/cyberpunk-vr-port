@@ -351,6 +351,9 @@ end
 registerForEvent('onDraw', function()
     if not overlayOpen then return end
     pcall(function()
+        local w, h = GetDisplayResolution()
+        ImGui.SetNextWindowPos(w * 0.71, h * 0.04, ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(w * 0.24, h * 0.91, ImGuiCond.FirstUseEver)
         ImGui.Begin('VR Reload Recorder')
         if type(VRRecordFK) ~= 'function' then
             ImGui.Text('OLD PLUGIN - VRRecordFK missing, bones will freeze')

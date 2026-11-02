@@ -403,10 +403,14 @@ void VRHandHolds(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRLobbySaveLooks(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
 // VRCreationTarget(entity) -> Bool: the character customization dresses this entity, null = its own puppet (Lobby/CreationTarget.cpp).
 void VRCreationTarget(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+// VRLobbyResolveAs(male): the game takes the main menu's puppet for that body; nothing outside it (Lobby/PlayerBody.cpp).
+void VRLobbyResolveAs(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRWorldMarkerAnchor(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRWorldMarkerProjection(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRHandEquipment(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRLauncherControllerAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+// VRCyberwareChordTake() -> Bool: once per cyberware chord that fired with the game window behind (Hooks/CyberwareChord.cpp).
+void VRCyberwareChordTake(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 // Natives/EngineObjects.cpp: what Codeware added to engine classes, under the port's names.
 namespace RED4ext::ent { struct IComponent; }
 void VREntityComponents(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Handle<RED4ext::ent::IComponent>>*,int64_t);

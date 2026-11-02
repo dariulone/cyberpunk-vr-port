@@ -3129,9 +3129,425 @@
                     },
                     "priority": 128,
                     "variableNames": []
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\base\\pma_w_handgun_dual_wield_base.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 100,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\pma_w_default_weapon_dual_wield.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 200,
+                    "variableNames": []
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_left__constitutional_liberty.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_liberty_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_right__constitutional_liberty.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_liberty"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_left__militech_lexington.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_militech_lexington_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_right__militech_lexington.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_militech_lexington"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_left__darra_nova.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_darra_nova_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_right__darra_nova.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_darra_nova"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_left__malorian_overture.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_malorian_overture_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_right__malorian_overture.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_malorian_overture"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_left__constitutional_unity.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_unity_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_right__constitutional_unity.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_unity"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_left__tsunami_nue.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_tsunami_nue_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_right__tsunami_nue.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_tsunami_nue"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_left__budget_slaughtomatic.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_budget_slaughtomatic_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_right__budget_slaughtomatic.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_budget_slaughtomatic"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_left__malorian_silverhand.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_malorian_silverhand_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_right__malorian_silverhand.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_malorian_silverhand"
+                      }
+                    ]
                   }
                 ],
-                "hash": "6413304938307504174"
+                "hash": "16386969458207657898"
               },
               "animParameters": [
                 {
@@ -6353,7 +6769,7 @@
                     "DepotPath": {
                       "$type": "ResourcePath",
                       "$storage": "string",
-                      "$value": "base\\gameplay\\anim_graphs\\player_ranged.animgraph"
+                      "$value": "base\\gameplay\\anim_graphs\\player_dualwield.animgraph"
                     },
                     "Flags": "Obligatory"
                   },
@@ -16869,7 +17285,7 @@
                   "queryFilter": {
                     "$type": "physicsQueryFilter",
                     "mask1": "0",
-                    "mask2": "4194305"
+                    "mask2": "8388609"
                   },
                   "simulationFilter": {
                     "$type": "physicsSimulationFilter",
@@ -42514,9 +42930,425 @@
                 },
                 "priority": 128,
                 "variableNames": []
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\base\\pma_w_handgun_dual_wield_base.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 100,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\pma_w_default_weapon_dual_wield.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 200,
+                "variableNames": []
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_left__constitutional_liberty.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_liberty_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_right__constitutional_liberty.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_liberty"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_left__militech_lexington.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_militech_lexington_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_right__militech_lexington.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_militech_lexington"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_left__darra_nova.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_darra_nova_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_right__darra_nova.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_darra_nova"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_left__malorian_overture.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_malorian_overture_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_right__malorian_overture.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_malorian_overture"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_left__constitutional_unity.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_unity_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_right__constitutional_unity.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_unity"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_left__tsunami_nue.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_tsunami_nue_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_right__tsunami_nue.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_tsunami_nue"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_left__budget_slaughtomatic.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_budget_slaughtomatic_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_right__budget_slaughtomatic.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_budget_slaughtomatic"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_left__malorian_silverhand.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_malorian_silverhand_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_right__malorian_silverhand.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_malorian_silverhand"
+                  }
+                ]
               }
             ],
-            "hash": "6413304938307504174"
+            "hash": "16386969458207657898"
           },
           "animParameters": [
             {
@@ -44762,7 +45594,7 @@
                 "DepotPath": {
                   "$type": "ResourcePath",
                   "$storage": "string",
-                  "$value": "base\\gameplay\\anim_graphs\\player_ranged.animgraph"
+                  "$value": "base\\gameplay\\anim_graphs\\player_dualwield.animgraph"
                 },
                 "Flags": "Obligatory"
               },
@@ -61478,6 +62310,150 @@
             "$type": "ResourcePath",
             "$storage": "string",
             "$value": "base\\fx\\quest\\_common\\blood\\q_blood_mesh_decal.mesh"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\base\\pma_w_handgun_dual_wield_base.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\pma_w_default_weapon_dual_wield.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_left__constitutional_liberty.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_right__constitutional_liberty.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_left__militech_lexington.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_right__militech_lexington.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_left__darra_nova.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_right__darra_nova.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_left__malorian_overture.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_right__malorian_overture.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_left__constitutional_unity.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_right__constitutional_unity.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_left__tsunami_nue.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_right__tsunami_nue.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_left__budget_slaughtomatic.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_right__budget_slaughtomatic.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_left__malorian_silverhand.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_right__malorian_silverhand.anims"
           },
           "Flags": "Soft"
         }

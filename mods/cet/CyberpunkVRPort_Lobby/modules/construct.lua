@@ -19,10 +19,10 @@
 -- What the engrams brought is every component that came while one went on, told apart by its address
 -- (Game.VRComponentKey): names repeat, and the system's copies of a component carry the puppet's own one's id.
 --
--- AN ENGRAM OF THE OTHER BODY. The puppet is the body the main menu spawned (a man's, mods/tweaks/vrport/
--- VRPort.LobbyBody.yaml) and a woman's V goes on it as a woman: the game takes the puppet for her body while the engram
--- is in (M.resolveAs: the items given to it come in that body's variant), the system puts that body's meshes on it
--- and the meshes the puppet was spawned with are switched off (M.dressBody). The bones stay the spawned body's.
+-- AN ENGRAM OF THE OTHER BODY. The puppet is the body the main menu spawned (a man's, src/Lobby/PlayerBody.cpp) and a
+-- woman's V goes on it as a woman: the game takes the puppet for her body while the engram is in (M.resolveAs: the
+-- items given to it come in that body's variant), the system puts that body's meshes on it and the meshes the puppet
+-- was spawned with are switched off (M.dressBody). The bones stay the spawned body's.
 local M = {}
 
 local LIST = require("modules/construct_list")
@@ -31,18 +31,15 @@ local LIST = require("modules/construct_list")
 -- left off -- a toggle on that mesh loses its screen's picture for good, and the load out of the lobby builds the
 -- player anew.
 local WRIST = "vrp_latd_screen"
--- Character.Player_Puppet_Base's gender entities, a man's and a woman's: the one marked initial is the body the game
--- takes the main menu's puppet for (GetResolvedGenderName reads the flag as it is asked).
-local GENDERS = { [true] = "Character.Player_Puppet_Base_inline1", [false] = "Character.Player_Puppet_Base_inline0" }
 -- An engram out, how long the puppet is held every frame: the main menu's clothes come back on it then (s).
 local SETTLE = 2.0
 
--- Per component name: what it wore before ({ app, entry, mask }), or that it was switched off; the gender entities'
--- own flags. By component key: those the engrams brought (engram, kept for the lobby: the system takes some of them
+-- Per component name: what it wore before ({ app, entry, mask }), or that it was switched off; whether the game
+-- takes the puppet for another body than its own. By component key: those the engrams brought (engram, kept for the lobby: the system takes some of them
 -- up again), the construct's an engram's body switched off (covered), the puppet's before the look goes on and whether
 -- each was on (before), those held out of sight while it goes on (staged), and the look the system gave a construct
 -- mesh meanwhile (restyled).
-local S = { worn = {}, hidden = {}, clock = 0, settle = 0, enabled = true, ownBody = false, initial = nil,
+local S = { worn = {}, hidden = {}, clock = 0, settle = 0, enabled = true, ownBody = false, resolved = false,
             engram = {}, covered = {}, staging = false, before = {}, staged = {}, restyled = {} }
 
 local function resourceOf(c)
@@ -166,18 +163,12 @@ local function undo(bodyOnly)
   if not bodyOnly then S.hidden = {} end
 end
 
--- The game takes the puppet for a man's body (true) or a woman's (false); nil: the one it was spawned as again.
+-- The game takes the puppet for a man's body (true) or a woman's (false); nil: the man's it was spawned as again.
+-- Never by the gender entities' `initial` flag: saves are written against it (src/Lobby/PlayerBody.cpp).
 function M.resolveAs(male)
-  if male == nil and S.initial == nil then return end
-  if S.initial == nil then
-    S.initial = {}
-    for g, record in pairs(GENDERS) do S.initial[g] = TweakDB:GetFlat(record .. ".initial") == true end
-  end
-  for g, record in pairs(GENDERS) do
-    local on = S.initial[g]
-    if male ~= nil then on = g == male end
-    TweakDB:SetFlat(record .. ".initial", on)
-  end
+  if male == nil and not S.resolved then return end
+  S.resolved = male ~= nil
+  VRLobbyResolveAs(male ~= false)
 end
 
 -- What the engrams brought off the puppet and what their bodies covered of the construct back on.

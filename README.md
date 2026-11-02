@@ -259,8 +259,9 @@ red4ext\plugins\cyberpunkvrport\redscript\                   # redscript's compi
                                                               # r6\scripts\CyberpunkVRPort_*; the plugin takes them
                                                               # out at its first start.
 red4ext\plugins\cyberpunkvrport\lua\CyberpunkVRPort_*\         # the Lua mods, run by the plugin -- see the table
-                                                              # below; their windows open with CET's overlay key
-                                                              # (config\lua_bindings.json, Home without CET)
+                                                              # below; their windows open with their own key
+                                                              # (config\lua_bindings.json: Home, or Scroll Lock when
+                                                              # CET is installed; CET keeps its key and console)
                                                               # NOTE: earlier releases put them in CET's mods
                                                               # folder; the plugin takes them out at its first
                                                               # start (settings move over, the rest is kept in
@@ -317,7 +318,7 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | Right grip | Hand-to-holster equip / unequip; melee power modifier |
 | Left grip | **Grab the magazine** during a reload (at the ear it is the scanner) |
 | **L3 + R3, held 0.5 s** | Open / close the VR menu |
-| **L3 + left Grip, held 0.5 s** | Activate iconic cyberware in gameplay; requires Input Loader |
+| **L3 + left Grip, held 0.5 s** | Activate the cyberware operating system (Sandevistan, Berserk, overclock) in gameplay |
 | Left stick **up / down, to the stop** | Page the quickhack list *while the scanner is open* |
 | A | Jump (double jump and charge jump unchanged) |
 | B, **weapon in hand** | **Drop the magazine** (physical reload) — not dodge |

@@ -44,7 +44,7 @@ resource:
       props: [appearances]
       targets:
         - base\characters\common\player_base_bodies\player_female_average\t0_000_pwa_base__full.mesh
-    # The man's body (the lobby's own: mods/tweaks/vrport/VRPort.LobbyBody.yaml) and the shoes it stands in.
+    # The man's body (the lobby's own: src/Lobby/PlayerBody.cpp) and the shoes it stands in.
     vrport\construct\n0_000_pma_fpp__neck.mesh:
       props: [appearances]
       targets:

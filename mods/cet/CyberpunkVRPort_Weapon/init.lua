@@ -1198,6 +1198,8 @@ local function combatFrame(dt)
     -- Runtime weapon hooks need a live player, not the front-end/loading
     -- scene while the game is still constructing script/resource types.
     if pl then pcall(updateWeapon,dt) end
+    -- The cyberware chord with the game window behind: the plugin cannot press the key then (Hooks/CyberwareChord.cpp).
+    if pl and pl.VRActivateIconicCyberware and Game.VRCyberwareChordTake() then pl:VRActivateIconicCyberware() end
     local kind=cyberware.kind(wpn,pl)
     Game.VRCyberwareSelect(cyberware.inputKind())
     cyberware.handEquipment(pl)

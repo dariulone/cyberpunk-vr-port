@@ -48,8 +48,15 @@ using RED4ext::EntityID;
 using RED4ext::Handle;
 using RED4ext::TweakDBID;
 
-constexpr uint32_t kRegisterEntityHash = 2840271332;  // worldRuntimeEntityRegistry: enters an entity
-constexpr size_t kEntityRegistrySlot = 13;            // the registry among the runtime scene's systems
+// worldRuntimeEntityRegistry is a table by entity id that keeps what it has: entering an id it knows changes nothing
+// (sub_14074AD78), and it outlives the session. The game takes its game objects out as they detach; a prop entered
+// here has to be taken out here, or its dead entry stays. The dynamic ids start over with every session, so a prop of a
+// later session could get the id of an earlier one and FindEntityByID answered null for an entity standing in the
+// world. Back from a save the lobby's menu panel was one (2026-11-02): it never built, and with it nothing could be
+// done any more. An entity of the game's own with such an id would have been just as lost.
+constexpr uint32_t kRegisterEntityHash = 2840271332;    // enters an entity
+constexpr uint32_t kUnregisterEntityHash = 3878623943;  // takes it out (sub_14074A848)
+constexpr size_t kEntityRegistrySlot = 13;              // the registry among the runtime scene's systems
 
 struct Spawned {
     EntityID id;
@@ -58,6 +65,9 @@ struct Spawned {
     std::vector<CName> tags;
     RED4ext::UniquePtr<RED4ext::EntityStub> stub;
     bool deleted = false;
+    // What was entered in the registry, and the registry: held until it is out again.
+    Handle<RED4ext::ent::Entity> entered;
+    Handle<RED4ext::IScriptable> registry;
 };
 
 struct SpawnSystem : RED4ext::game::IGameSystem {
@@ -70,6 +80,7 @@ struct SpawnSystem : RED4ext::game::IGameSystem {
     void Listen();
     void StopListening();
     void OnSpawnerEvent(RED4ext::game::EntitySpawnerEventType type, EntityID id);
+    void LeaveRegistry(Spawned& spawned);
 
     std::mutex lock;
     std::unordered_map<uint64_t, std::shared_ptr<Spawned>> byId;
@@ -112,10 +123,29 @@ void SpawnSystem::StopListening() {
     listener = 0;
 }
 
-// The world went: its stubs and entities with it.
+void SpawnSystem::LeaveRegistry(Spawned& spawned) {
+    Handle<RED4ext::ent::Entity> entity;
+    Handle<RED4ext::IScriptable> registry;
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        entity.Swap(spawned.entered);
+        registry.Swap(spawned.registry);
+    }
+    if (!entity || !registry) return;
+    using UnregisterFn = void (*)(void*, RED4ext::ent::Entity*);
+    static const auto unregisterEntity =
+        reinterpret_cast<UnregisterFn>(RED4ext::UniversalRelocBase::Resolve(kUnregisterEntityHash));
+    if (unregisterEntity) unregisterEntity(registry.instance, entity.instance);
+}
+
+// The world went: its stubs and entities with it, and what the registry was told of them.
 void SpawnSystem::OnAfterWorldDetach() {
-    std::lock_guard<std::mutex> guard(lock);
-    byId.clear();
+    std::unordered_map<uint64_t, std::shared_ptr<Spawned>> gone;
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        gone.swap(byId);
+    }
+    for (auto& [id, spawned] : gone) LeaveRegistry(*spawned);
 }
 
 void SpawnSystem::OnSpawnerEvent(RED4ext::game::EntitySpawnerEventType type, EntityID id) {
@@ -143,14 +173,23 @@ void SpawnSystem::OnSpawnerEvent(RED4ext::game::EntitySpawnerEventType type, Ent
                 reinterpret_cast<RegisterFn>(RED4ext::UniversalRelocBase::Resolve(kRegisterEntityHash));
             auto* engine = RED4ext::CGameEngine::Get();
             const uintptr_t scene = engine && engine->framework ? engine->framework->unk18 : 0;
-            void* registry = scene ? reinterpret_cast<Handle<RED4ext::IScriptable>*>(scene)[kEntityRegistrySlot].instance
-                                   : nullptr;
-            if (registry && registerEntity) registerEntity(registry, entity.instance);
-            else Log("[spawn] %016llX: no runtime entity registry to enter it in\n", id.hash);
+            Handle<RED4ext::IScriptable> registry;
+            if (scene) registry = reinterpret_cast<Handle<RED4ext::IScriptable>*>(scene)[kEntityRegistrySlot];
+            if (registry && registerEntity) {
+                registerEntity(registry.instance, entity.instance);
+                std::lock_guard<std::mutex> guard(lock);
+                spawned->entered = entity;
+                spawned->registry = registry;
+            } else {
+                Log("[spawn] %016llX: no runtime entity registry to enter it in\n", id.hash);
+            }
         }
-    } else if (type == RED4ext::game::EntitySpawnerEventType::Despawn && spawned->deleted) {
-        std::lock_guard<std::mutex> guard(lock);
-        byId.erase(id.hash);
+    } else if (type == RED4ext::game::EntitySpawnerEventType::Despawn) {
+        LeaveRegistry(*spawned);
+        if (spawned->deleted) {
+            std::lock_guard<std::mutex> guard(lock);
+            byId.erase(id.hash);
+        }
     }
 }
 

@@ -15,7 +15,7 @@ dataPath=args.out/'solved-model-stream.bin';metaPath=args.out/'solved-model-stre
 r=Reader(cfg['pid'],Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe'),a['CyberpunkVR_RoomscaleDebug'],a['CyberpunkVR_RoomscaleDebugSeq'])
 def raw(name,size):return r.read(a[name],size)
 def unpack(name,fmt):return struct.unpack(fmt,raw(name,struct.calcsize(fmt)))
-n=unpack('g_VRBoneCount','<i')[0];assert 25<n<=800
+n=unpack('g_VRBoneCount','<i')[0];assert 25<n<=2048
 owned=list(raw('g_VRUpperOwned',n));shadows=unpack('g_VRShadowSource','<'+str(n)+'i')
 expected=sum(bool(x) or y>=0 for x,y in zip(owned,shadows));rows=[];payload=bytearray();skipped=0
 started=time.monotonic();last=None

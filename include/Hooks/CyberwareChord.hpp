@@ -26,5 +26,8 @@ public:
 bool UpdateCyberwareChord(bool l3,float grip,bool r3,bool inputActive);
 // Called by the game's input poll. Delivers a single direct native-action key
 // only while this process owns the foreground; never types into another app.
+// With the window behind it leaves the activation to the script side instead.
 void DispatchCyberwareChord();
+// True once for a chord that fired while the game window was not in front (VRCyberwareChordTake).
+bool TakeCyberwareChord();
 }

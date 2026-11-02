@@ -20,7 +20,7 @@ original={**h['position'],'yaw':0.,'pitch':0.,'roll':0.};current=dict(original)
 r=Reader(cfg['pid'],Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe'),addr['CyberpunkVR_RoomscaleDebug'],addr['CyberpunkVR_RoomscaleDebugSeq'])
 def raw(name,n):return r.read(addr[name],n)
 def get(name,fmt):return struct.unpack(fmt,raw(name,struct.calcsize(fmt)))
-n=get('g_VRBoneCount','<i')[0];assert 25<n<=800
+n=get('g_VRBoneCount','<i')[0];assert 25<n<=2048
 names={int(line.split('\t')[0]):line.split('\t')[1] for line in (a.out.parent/'bone-names.txt').read_text().splitlines()[1:]};assert len(names)==n
 indices=sorted(set(range(25))|{i for i,name in names.items() if
  (name.startswith('shadow_') and name[7:] in {'Hips','Spine3','LeftUpLeg','LeftLeg','LeftFoot','RightUpLeg','RightLeg','RightFoot','LeftShoulder','RightShoulder','LeftArm','RightArm','LeftForeArm','RightForeArm','LeftHand','RightHand','Head'}) or

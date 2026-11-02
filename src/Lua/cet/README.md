@@ -55,6 +55,9 @@ Changes to the copied files themselves, each for the same reason -- nothing of t
 
 Next to an installed CET (both hosts in one game):
 
+- the two overlays never share a key (`src/Lua/Migration.hpp`), and CET's key closes this host's windows
+  (`cvr::lua::PassRawInput`): this host's window procedure is outside CET's, so while its windows are open CET sees
+  no mouse or keyboard;
 - the hooks that call the game's function on chain, and each host loads its own mods;
 - `FunctionOverride` hooks `rtti::Function::InternalCall` only with its first override, after CET's hook (made at
   CET's start), so it is the outer one: a native-marked function it does not own goes on to CET's hook. A function

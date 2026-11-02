@@ -529,10 +529,11 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     }
 
     // The Lua mods' key binds and their overlay key (raw input); while their windows are open, ImGui has the input.
+    // The game reads the mouse and keys from raw input: without this it also turned, walked and fired behind them.
     cvr::lua::OnWndProc(hwnd, msg, wParam, lParam);
     if (cvr::lua::OverlayOpen() && !cvr::vrui::Visible()) {
         if (g_imguiInitialized && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam)) return 1;
-        if (msg != WM_INPUT && IsBlockedInputMessage(msg)) return 0;
+        if (msg == WM_INPUT ? !cvr::lua::PassRawInput(lParam) : IsBlockedInputMessage(msg)) return 0;
     }
 
     // 2. Handle menu toggle
@@ -676,6 +677,12 @@ void OverlayRender(IDXGISwapChain* swapChain) {
     const bool luaOverlay=!g_menuVisible && cvr::lua::OverlayOpen();
     if(luaOverlay)ReleaseGameMouseCapture();
     io.MouseDrawCursor=luaOverlay;
+    if(luaOverlay){
+        // The frame is two eyes wide and the mirror shrinks it into the window: about 18 px of text on the monitor.
+        RECT client{};POINT clientOrigin{};
+        if(GetDesktopPhysicalClientRect(g_hwnd,client,clientOrigin) && client.right>client.left)
+            io.FontGlobalScale=std::max(1.0f,io.DisplaySize.x/float(client.right-client.left)*18.0f/28.0f);
+    }
 
     ImGui::NewFrame();
 

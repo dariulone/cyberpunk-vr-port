@@ -473,6 +473,14 @@ bool Detour_TryLoadTweakDB(void* a1, TweakDB* db, RED4ext::CString& path, void* 
 // An earlier release installed the same files in r6\tweaks, where TweakXL would apply them a second time: the copies
 // that are the port's are taken out (same bytes: deleted; different: renamed .legacy, which TweakXL does not read).
 void RetireLegacyCopies() {
+    // A file a release no longer carries stays behind when the next one is unpacked over it, and every file in the
+    // folder is applied. VRPort.LobbyBody.yaml (0.2.0) marked the man's entity `initial`: what that does to saves is
+    // in Lobby/PlayerBody.cpp.
+    {
+        std::error_code removed;
+        const fs::path retired = TweaksDir() / L"vrport" / L"VRPort.LobbyBody.yaml";
+        if (fs::remove(retired, removed)) Log("[tweaks] removed %ls: no release carries it any more\n", retired.c_str());
+    }
     std::vector<wchar_t> exe(32768);
     const DWORD length = GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
     if (!length || length >= exe.size()) return;

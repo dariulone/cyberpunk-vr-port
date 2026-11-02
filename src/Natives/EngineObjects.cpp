@@ -318,13 +318,16 @@ namespace {
 // ---- weather ------------------------------------------------------------------------------------------------------
 
 // The world's weather system behind the script interface GameInstance.GetWeatherSystem hands out (+0x40: 2.5, as
-// Codeware has it). The interface is no game system of the instance's map: the script getter is the way to it.
+// Codeware has it). The interface is no game system of the instance's map: the script getter is the way to it. The
+// getter (sub_1413A9A10) reads the weather off the runtime scene (instance +0x78) without asking whether there is one,
+// and between two sessions there is none: the lobby's once-a-second look at the weather while a new game took over
+// from the main menu read address 0x280 (crash 20261102-094655).
 uint8_t* WeatherSystem() {
     static RED4ext::CClass* const game = Class("ScriptGameInstance");
     Handle<RED4ext::IScriptable> iface;
     RED4ext::ScriptGameInstance instance;
-    if (!game || !RED4ext::ExecuteFunction(game, RED4ext::CName("GetWeatherSystem"), &iface, instance) || !iface)
-        return nullptr;
+    if (!game || !instance.instance || !instance.instance->unk78[0]) return nullptr;
+    if (!RED4ext::ExecuteFunction(game, RED4ext::CName("GetWeatherSystem"), &iface, instance) || !iface) return nullptr;
     return *reinterpret_cast<uint8_t**>(reinterpret_cast<uint8_t*>(iface.instance) + 0x40);
 }
 

@@ -4078,6 +4078,9 @@ registerForEvent("onOverlayClose", function() overlay = false; saveCfg() end)
 registerForEvent("onDraw", function()
     if not overlay then return end
     pcall(function()
+        local w, h = GetDisplayResolution()
+        ImGui.SetNextWindowPos(w * 0.21, h * 0.04, ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(w * 0.24, h * 0.91, ImGuiCond.FirstUseEver)
         ImGui.Begin("VR tactical belt")
 
         CFG.enabled = ImGui.Checkbox("enabled", CFG.enabled)
