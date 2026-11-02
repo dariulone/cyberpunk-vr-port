@@ -3,6 +3,7 @@
 local S={}
 -- An owner farther than this from the eyes cannot hold a screen within touch reach
 -- (screens sit at most ~4 m from their owner's origin); its components are not listed.
+-- A lift is exempt: its panel rides the car, measured 15.44 m from the origin at the top of a shaft.
 local OWNER_REACH_SQ=15*15
 function S.resolve(view)
     local result,seen={},{}
@@ -18,7 +19,7 @@ function S.resolve(view)
                 local key=tostring(owner:GetEntityID().hash)
                 local o=not seen[key] and owner:GetWorldPosition()
                 seen[key]=true
-                if o and (o.x-view.x)^2+(o.y-view.y)^2+(o.z-view.z)^2<OWNER_REACH_SQ then
+                if o and ((o.x-view.x)^2+(o.y-view.y)^2+(o.z-view.z)^2<OWNER_REACH_SQ or owner:IsA('LiftDevice')) then
                     for _,component in ipairs(Game.VREntityComponents(owner)) do
                         if component:IsA('WorldWidgetComponent') and component:IsEnabled() and component.sceneWidgetProperties.isInteractable then
                             local centre=component:GetLocalToWorld().W
