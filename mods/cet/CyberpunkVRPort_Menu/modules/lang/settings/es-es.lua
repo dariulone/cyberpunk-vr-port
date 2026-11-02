@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "Activar panel del HUD",
   ["Head / free-look cone"] = "Cabeza / cono de vista libre",
   ["Follow"] = "Seguimiento",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "Alcanza fuera del cono, o tras 3 segundos en reposo si el desvío de guiñada supera 10° dentro de él.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "Alcanza fuera del cono, o tras 3 segundos en reposo si el desvío de guiñada supera 10° dentro de él.\n0: fijado a la cabeza, como el panel de interacciones en 0.",
   ["HUD FOV"] = "FOV del HUD",
   ["Stereo depth"] = "Profundidad estéreo",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "Desactivado: el HUD tiene la misma dirección en ambos ojos.\nActivado: lo coloca a la profundidad física elegida.",

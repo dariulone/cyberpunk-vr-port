@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "HUD panelini etkinleştir",
   ["Head / free-look cone"] = "Baş / serbest bakış konisi",
   ["Follow"] = "Takip",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "Koninin ötesinde veya içindeki sapma farkı 10°'yi aştığında 3 saniyelik hareketsizlikten sonra yetişir.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "Koninin ötesinde veya içindeki sapma farkı 10°'yi aştığında 3 saniyelik hareketsizlikten sonra yetişir.\n0: başa kilitli, 0'daki etkileşim paneli gibi.",
   ["HUD FOV"] = "HUD FOV",
   ["Stereo depth"] = "Stereo derinlik",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "Kapalı: HUD iki gözde aynı yöndedir.\nAçık: seçilen fiziksel derinliğe yerleştirir.",

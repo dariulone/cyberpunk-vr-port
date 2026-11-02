@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "เปิดแผง HUD",
   ["Head / free-look cone"] = "ศีรษะ / กรวยมองอิสระ",
   ["Follow"] = "ติดตาม",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "ตามทันเมื่อเกินกรวย หรือหลังอยู่นิ่ง 3 วินาทีเมื่อยอว์เหลื่อมเกิน 10° ภายในกรวย",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "ตามทันเมื่อเกินกรวย หรือหลังอยู่นิ่ง 3 วินาทีเมื่อยอว์เหลื่อมเกิน 10° ภายในกรวย\n0: ล็อกกับศีรษะ เหมือนแผงการโต้ตอบที่ 0",
   ["HUD FOV"] = "HUD FOV",
   ["Stereo depth"] = "ความลึกสเตอริโอ",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "ปิด: HUD มีทิศเดียวกันในทั้งสองตา\nเปิด: วางไว้ที่ความลึกจริงที่เลือก",

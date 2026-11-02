@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "تفعيل لوحة HUD",
   ["Head / free-look cone"] = "الرأس / مخروط النظر الحر",
   ["Follow"] = "المتابعة",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "يلحق خارج المخروط، أو بعد 3 ثوانٍ من السكون إذا تجاوز فرق الانعراج 10° داخله.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "يلحق خارج المخروط، أو بعد 3 ثوانٍ من السكون إذا تجاوز فرق الانعراج 10° داخله.\n0: مثبّت على الرأس، مثل لوحة التفاعلات عند 0.",
   ["HUD FOV"] = "HUD FOV",
   ["Stereo depth"] = "عمق الستيريو",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "إيقاف: للواجهة الاتجاه نفسه في كلتا العينين.\nتشغيل: توضع على العمق الفعلي المحدد.",

@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "HUD panel bekapcsolása",
   ["Head / free-look cone"] = "Fej / szabad körülnézés kúpja",
   ["Follow"] = "Követés",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "A kúpon túl utoléri, vagy 3 másodperc nyugalom után, ha a legyezési eltérés benne 10° fölött van.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "A kúpon túl utoléri, vagy 3 másodperc nyugalom után, ha a legyezési eltérés benne 10° fölött van.\n0: a fejhez rögzítve, mint az interakciós panel 0-nál.",
   ["HUD FOV"] = "HUD FOV",
   ["Stereo depth"] = "Sztereó mélység",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "Ki: a HUD iránya mindkét szemben azonos.\nBe: a kiválasztott fizikai mélységbe helyezi.",

@@ -168,9 +168,11 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
     const float degrees=channel==Channel::Interaction
         ? (publishedLootVisible?g_liveControls.xrLootFollowDeg:g_liveControls.xrInteractionFollowDeg)
         : g_liveControls.xrHudFollowDeg;
-    // A zero interaction or loot cone is the head-locked panel, like the hit marker's.
+    // A zero interaction or loot cone is the head-locked panel, like the hit marker's; so is a zero main HUD cone in
+    // head-follow mode, so the main HUD can stay with head-locked prompts instead of lagging next to them.
     const bool headLocked=channel==Channel::Basilisk || channel==Channel::Surveillance || channel==Channel::HitMarker ||
-        (channel==Channel::Interaction && degrees<=0.0f);
+        (channel==Channel::Interaction && degrees<=0.0f) ||
+        (channel==Channel::Main && g_liveControls.xrHudFollowMode==0 && degrees<=0.0f);
     const int wantedMode=headLocked?2:(channel==Channel::Main?g_liveControls.xrHudFollowMode:0);
     if (originSerial!=origin || followMode!=wantedMode) {
         follow.Reset();clock.Reset();originSerial=origin;followMode=wantedMode;

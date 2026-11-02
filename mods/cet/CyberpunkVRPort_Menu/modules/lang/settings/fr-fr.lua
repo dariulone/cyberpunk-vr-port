@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "Activer le panneau HUD",
   ["Head / free-look cone"] = "Tête / cône de vue libre",
   ["Follow"] = "Suivi",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "Rattrape au-delà du cône, ou après 3 secondes d'immobilité si le décalage en lacet dépasse 10° à l'intérieur.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "Rattrape au-delà du cône, ou après 3 secondes d'immobilité si le décalage en lacet dépasse 10° à l'intérieur.\n0 : fixé à la tête, comme le panneau des interactions à 0.",
   ["HUD FOV"] = "FOV du HUD",
   ["Stereo depth"] = "Profondeur stéréo",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "Désactivé : le HUD a la même direction dans les deux yeux.\nActivé : le place à la profondeur physique choisie.",

@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "HUDパネルを有効化",
   ["Head / free-look cone"] = "頭 / フリールックコーン",
   ["Follow"] = "追従",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "コーンを超えたとき、またはコーン内でヨーのずれが10°を超えて3秒静止したときに追従します。",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "コーンを超えたとき、またはコーン内でヨーのずれが10°を超えて3秒静止したときに追従します。\n0：頭に固定（インタラクションパネルを0にしたときと同じ）。",
   ["HUD FOV"] = "HUD FOV",
   ["Stereo depth"] = "ステレオ深度",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "オフ：HUDは両目で同じ方向です。\nオン：選択した物理的な深度に配置します。",

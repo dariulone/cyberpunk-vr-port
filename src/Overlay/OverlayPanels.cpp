@@ -997,8 +997,8 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             const char* followModes[] = {"Head / free-look cone", "Body rotation"};
             changed |= widgets::Combo("Follow", &state.xrHudFollowMode, followModes, 2);
             UI::BeginDisabled(state.xrHudFollowMode != 0);
-            changed |= widgets::SliderFloat("Free-look cone", &state.xrHudFollowDeg, 5.0f, 90.0f, "%.1f deg");
-            if(UI::IsItemHovered())UI::SetTooltip("Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.");
+            changed |= widgets::SliderFloat("Free-look cone", &state.xrHudFollowDeg, 0.0f, 90.0f, "%.1f deg");
+            if(UI::IsItemHovered())UI::SetTooltip("Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0.");
             UI::EndDisabled();
             changed |= widgets::SliderFloat("HUD FOV", &state.xrHudFov, 30.0f, 120.0f, "%.1f deg");
             changed |= CheckboxInt("Stereo depth", &state.xrHudStereoDepth);

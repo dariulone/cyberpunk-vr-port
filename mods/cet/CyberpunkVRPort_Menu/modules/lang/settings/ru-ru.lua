@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "Включить панель HUD",
   ["Head / free-look cone"] = "Голова / конус свободного обзора",
   ["Follow"] = "Следование",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "Догоняет за пределами конуса или через 3 секунды покоя, если отклонение по рысканию больше 10° внутри него.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "Догоняет за пределами конуса или через 3 секунды покоя, если отклонение по рысканию больше 10° внутри него.\n0: привязан к голове, как панель взаимодействий при 0.",
   ["HUD FOV"] = "FOV HUD",
   ["Stereo depth"] = "Стереоглубина",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "Выкл.: HUD в одном направлении для обоих глаз.\nВкл.: размещает его на выбранной физической глубине.",

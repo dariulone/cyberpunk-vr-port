@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "Zapnout panel HUD",
   ["Head / free-look cone"] = "Hlava / kužel volného rozhledu",
   ["Follow"] = "Sledování",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "Dotahuje mimo kužel, nebo po 3 sekundách klidu, když je odchylka stáčení uvnitř nad 10°.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "Dotahuje mimo kužel, nebo po 3 sekundách klidu, když je odchylka stáčení uvnitř nad 10°.\n0: připevněno k hlavě, jako panel interakcí na 0.",
   ["HUD FOV"] = "FOV HUD",
   ["Stereo depth"] = "Stereo hloubka",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "Vyp.: HUD má v obou očích stejný směr.\nZap.: umístí ho do zvolené fyzické hloubky.",

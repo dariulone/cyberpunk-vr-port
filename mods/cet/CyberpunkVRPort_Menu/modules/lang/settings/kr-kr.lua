@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "HUD 패널 활성화",
   ["Head / free-look cone"] = "머리 / 자유 시야 원뿔",
   ["Follow"] = "따라가기",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "원뿔을 벗어나거나, 원뿔 안에서 요 차이가 10°를 넘은 채 3초간 정지하면 따라갑니다.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "원뿔을 벗어나거나, 원뿔 안에서 요 차이가 10°를 넘은 채 3초간 정지하면 따라갑니다.\n0: 머리에 고정, 상호작용 패널을 0으로 둔 것과 같음.",
   ["HUD FOV"] = "HUD FOV",
   ["Stereo depth"] = "스테레오 깊이",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "끔: HUD가 양쪽 눈에서 같은 방향입니다.\n켬: 선택한 물리적 깊이에 배치합니다.",

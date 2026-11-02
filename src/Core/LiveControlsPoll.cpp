@@ -1653,7 +1653,7 @@ void PollLiveControls() {
     g_liveControls.xrHudShadow=(xrHudShadow>=0 && xrHudShadow<=2) ? xrHudShadow : 1;
     g_liveControls.xrHudGlow=(xrHudGlow>=0 && xrHudGlow<=2) ? xrHudGlow : 1;
     cvr::hud::SetLayoutSettings(hudElements);
-    g_liveControls.xrHudFollowDeg=(xrHudFollowDeg>=5 && xrHudFollowDeg<=90) ? xrHudFollowDeg : 60.0f;
+    g_liveControls.xrHudFollowDeg=(xrHudFollowDeg>=0 && xrHudFollowDeg<=90) ? xrHudFollowDeg : 60.0f;   // 0 = head-locked
     g_liveControls.xrInteractionPanel=xrInteractionPanel!=0;
     g_liveControls.xrInteractionFollowDeg=(xrInteractionFollowDeg>=0 && xrInteractionFollowDeg<=90)?xrInteractionFollowDeg:0.0f;
     g_liveControls.xrLootFollowDeg=(xrLootFollowDeg>=0 && xrLootFollowDeg<=90)?xrLootFollowDeg:0.0f;
@@ -2459,7 +2459,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrHudShadow=(state->xrHudShadow>=0 && state->xrHudShadow<=2) ? state->xrHudShadow : 1;
     g_liveControls.xrHudGlow=(state->xrHudGlow>=0 && state->xrHudGlow<=2) ? state->xrHudGlow : 1;
     cvr::hud::SetLayoutSettings(state->hudElements);
-    g_liveControls.xrHudFollowDeg=(state->xrHudFollowDeg>=5 && state->xrHudFollowDeg<=90) ? state->xrHudFollowDeg : 60.0f;
+    g_liveControls.xrHudFollowDeg=(state->xrHudFollowDeg>=0 && state->xrHudFollowDeg<=90) ? state->xrHudFollowDeg : 60.0f;
     g_liveControls.xrInteractionPanel=state->xrInteractionPanel!=0;
     g_liveControls.xrInteractionFollowDeg=(state->xrInteractionFollowDeg>=0 && state->xrInteractionFollowDeg<=90)?state->xrInteractionFollowDeg:0.0f;
     g_liveControls.xrLootFollowDeg=(state->xrLootFollowDeg>=0 && state->xrLootFollowDeg<=90)?state->xrLootFollowDeg:0.0f;

@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "啟用 HUD 面板",
   ["Head / free-look cone"] = "頭部 / 自由視角錐",
   ["Follow"] = "跟隨",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "超出錐範圍時跟隨，或在錐內偏航偏差超過 10° 且靜止 3 秒後跟隨。",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "超出錐範圍時跟隨，或在錐內偏航偏差超過 10° 且靜止 3 秒後跟隨。\n0：鎖定在頭部，與互動面板設為 0 時相同。",
   ["HUD FOV"] = "HUD FOV",
   ["Stereo depth"] = "立體深度",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "關：HUD 在兩眼中方向相同。\n開：放置在所選的實際深度。",

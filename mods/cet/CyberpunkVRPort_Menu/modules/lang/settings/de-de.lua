@@ -279,7 +279,7 @@ return {
   ["Enable HUD panel"] = "HUD-Panel aktivieren",
   ["Head / free-look cone"] = "Kopf / Freisicht-Kegel",
   ["Follow"] = "Folgen",
-  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it."] = "Holt außerhalb des Kegels auf oder nach 3 Sekunden Ruhe, wenn der Gierversatz darin über 10° liegt.",
+  ["Catch up beyond the cone, or after 3 seconds at rest when the yaw offset is over 10 degrees inside it.\n0: head-locked, like the interaction panel at 0."] = "Holt außerhalb des Kegels auf oder nach 3 Sekunden Ruhe, wenn der Gierversatz darin über 10° liegt.\n0: am Kopf fixiert, wie das Interaktionspanel bei 0.",
   ["HUD FOV"] = "HUD-FOV",
   ["Stereo depth"] = "Stereotiefe",
   ["Off: the HUD has the same direction in both eyes.\nOn: place it at the selected physical depth."] = "Aus: Das HUD hat in beiden Augen dieselbe Richtung.\nAn: platziert es in der gewählten physischen Tiefe.",
