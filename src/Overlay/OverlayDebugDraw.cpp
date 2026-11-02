@@ -21,6 +21,7 @@
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
 #include "im3d.h"
+#include "Anim/Cyberware.hpp"
 #include "Camera/CameraLink.hpp"   // cvr::camera::BarrelFrameRead
 #include "Hooks/SightLine.hpp"
 #include "Stereo/EngineStereo.hpp"
@@ -376,7 +377,10 @@ void DrawBarrelCrosshair() {
     // Equipping melee must not leave the previous gun's dot alive for 250ms.
     CyberpunkVR_BarrelDotTick = 0;
     const float equipped = OpenXRManager::Get().GetSharedSlot(144);
-    if (!(g_drawBarrelCross || CyberpunkVR_SightDot) || !(equipped >= 0.9f) || CyberpunkVR_WeaponClass == 5) return;
+    // The arm launcher has no sight and no gun in the hand: selected, it always gets the dot, whatever the option says.
+    float launcherPos[3], launcherFwd[3];
+    const bool launcher = cvr::cyberware::LauncherLine(launcherPos, launcherFwd);
+    if (!launcher && (!(g_drawBarrelCross || CyberpunkVR_SightDot) || !(equipped >= 0.9f) || CyberpunkVR_WeaponClass == 5)) return;
     const float rad = 3.0f;
 
     // ONE INSTANT, BOTH QUANTITIES (dabinn, TofuExpress 821e8a4e). The camera quaternion and the
@@ -424,7 +428,9 @@ void DrawBarrelCrosshair() {
     float lift[3] = {0.0f, 0.0f, 0.0f};
     const float boreFwd[3] = {mfx, mfy, mfz};
     cvr::sight::SightLineOffset(boreFwd, lift);
-    const float mpx = s_mp[0] + lift[0], mpy = s_mp[1] + lift[1], mpz = s_mp[2] + lift[2];
+    const float mpx = launcher ? launcherPos[0] : s_mp[0] + lift[0];
+    const float mpy = launcher ? launcherPos[1] : s_mp[1] + lift[1];
+    const float mpz = launcher ? launcherPos[2] : s_mp[2] + lift[2];
     // Straight from the camera hook in this same DLL. Routing these two through shared memory
     // added two more ways to end up with nothing and no message -- which is exactly what happened.
     const float hcx = static_cast<float>(g_lastLocatePosFP[0]) / 131072.0f;

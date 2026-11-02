@@ -5,6 +5,7 @@
 #include "Anim/MantisDeployment.hpp"
 #include "Anim/CyberwareMuscles.hpp"
 #include "Anim/HandGestures.hpp"
+#include "Anim/HeadAimWeapon.hpp"
 #include <iterator>
 #include <algorithm>
 #include <cmath>
@@ -51,7 +52,7 @@ struct CombatSide {
 CombatSide combat[2];
 int wireTrack[2]={-1,-1};
 const float* wireTrackReference{};
-int launcherAmmo=-1,launcherMuzzle=-1;
+int launcherAmmo=-1,launcherMuzzle=-1,launcherBase=-1;
 struct WristBinding {int bone=-1;float position[3]{},rotation[4]{};};
 WristBinding launcherWrist[2];
 uint32_t wireEpoch=~0u;uint64_t wireStamp{};
@@ -106,7 +107,7 @@ void VRIK_ConfigureCyberwareRig(const char* const* names,int count,const uint8_t
     skinFingerCount=0;
     deploymentScale[0]=deploymentScale[1]=1;
     for(auto& c:combat){c={};c.wire.fill(-1);}
-    launcherAmmo=launcherMuzzle=-1;wireEpoch=~0u;wireStamp=0;wireOriginValid=false;
+    launcherAmmo=launcherMuzzle=launcherBase=-1;wireEpoch=~0u;wireStamp=0;wireOriginValid=false;
     for(auto& binding:launcherWrist)binding={};
     for(auto& pulse:musclePulse)pulse.store(0,std::memory_order_relaxed);
     std::fill(std::begin(muscleIndices),std::end(muscleIndices),-1);
@@ -205,7 +206,7 @@ void VRIK_ConfigureCyberwareRig(const char* const* names,int count,const uint8_t
     }
     for(size_t i=0;i<std::size(cvr::vrik::MantisDeployment);++i)
         deploymentIndices[i]=find(cvr::vrik::MantisDeployment[i].name);
-    launcherAmmo=find("launcher_ammo_base");launcherMuzzle=find("launcher_fragment_fire");
+    launcherAmmo=find("launcher_ammo_base");launcherMuzzle=find("launcher_fragment_fire");launcherBase=find("launcher_base");
     if(g_VRCyberwareFamily==4 && Valid(combat[0].hand) && valid[combat[0].hand]) {
         const int hand=combat[0].hand;float inverse[4];VRIK_QuatConj(rq[hand].data(),inverse);
         const char* roots[]={"LeftHand_setup","l_Wrist_2_JNT_setup"};
@@ -473,12 +474,12 @@ void VRIK_ApplyCyberwarePose(uint8_t* buffer,float* tracks,uint32_t trackCount) 
             if(Valid(s.bladeJoint)&&Valid(tip)){output.count[side]=2;output.points[side][0]=world(s.bladeJoint);output.points[side][1]=world(tip);}
         } else if(g_VRCyberwareFamily==1 && Valid(c.knuckle)) {
             output.count[side]=2;output.points[side][0]=world(c.hand);output.points[side][1]=world(c.knuckle);
-        } else if(g_VRCyberwareFamily==4 && side==0 && Valid(launcherAmmo)&&Valid(launcherMuzzle)) {
+        } else if(g_VRCyberwareFamily==4 && side==0 && Valid(launcherAmmo)&&Valid(launcherMuzzle)&&Valid(launcherBase)) {
             output.count[side]=2;output.points[side][0]=world(launcherMuzzle);
-            // The fire marker's authored +Z is the barrel axis. The cartridge
-            // joint rotates during the action/reload and can point at the floor
-            // even while the launcher housing is aimed forward.
-            const Vec3 direction=Rotated(worldRot,Rotated(g_fkRot[launcherMuzzle],{0,0,1}));
+            // The housing's +Z, not the barrel's: the fire mechanism and its marker sway
+            // through the idle animation and carried the shot with them, and the cartridge
+            // joint rotates during the action/reload. The housing lies along the forearm.
+            const Vec3 direction=Rotated(worldRot,Rotated(g_fkRot[launcherBase],{0,0,1}));
             output.points[side][1]=output.points[side][0]+direction*.4f;
         }
     }
@@ -492,6 +493,18 @@ bool cvr::cyberware::ReadFrame(Frame& out) {
     std::lock_guard lock(frameMutex);const uint64_t now=GetTickCount64();
     if(g_VRBind!=4 || !frame.family || frame.family!=g_VRCyberwareFamily || now<frame.stamp || now-frame.stamp>150)return false;
     out=frame;return true;
+}
+bool cvr::cyberware::LauncherLine(float* origin,float* direction) {
+    // The rig keeps the launcher's bones while it is installed: selected is what makes the left trigger fire it.
+    Frame value;
+    if(SelectedKind()!=4 || cvr::anim::IsHeadAimWeaponActive() || !ReadFrame(value) || value.family!=4 || value.count[0]!=2)return false;
+    const Vec3 start=value.points[0][0],end=value.points[0][1];
+    const float d[3]={end.x-start.x,end.y-start.y,end.z-start.z};
+    const float length=std::sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);
+    if(!(length>.01f))return false;
+    origin[0]=start.x;origin[1]=start.y;origin[2]=start.z;
+    for(int k=0;k<3;++k)direction[k]=d[k]/length;
+    return true;
 }
 float cvr::cyberware::WireDeployment(int side) {
     Frame value;

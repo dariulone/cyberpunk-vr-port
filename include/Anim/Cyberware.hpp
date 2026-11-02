@@ -27,6 +27,8 @@ struct Frame {
     uint64_t stamp{};
 };
 bool ReadFrame(Frame& out);
+// The line the selected launcher's shot leaves on, in the world (vrport_launcher_aim.reds fires along it).
+bool LauncherLine(float* origin,float* direction);
 void SetWirePlanes(int side,uint32_t epoch,const std::array<Plane,Wire::Count>& planes);
 void MusclePulse(int side,float duration);
 void Select(int kind);

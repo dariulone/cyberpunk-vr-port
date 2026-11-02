@@ -44,6 +44,7 @@ bool VRIK_ReadNativeTransformSnapshot(VrikTransformSnapshot* out) { if(!testNati
 OpenXRManager& OpenXRManager::Get() { std::abort(); }
 namespace cvr::swimming { bool Active() { return false; } }
 namespace cvr::ladder { bool Active() { return false; } }
+namespace cvr::anim { bool IsHeadAimWeaponActive() { return false; } }
 bool OpenXRManager::GetHeadPose(OpenXRHeadPose*) const { std::abort(); }
 bool OpenXRManager::GetNativeFrameHead(OpenXRHeadPose*,uint64_t*,uint64_t*,XrTime*,cvr::roomscale::Vec2*) const { std::abort(); }
 bool OpenXRManager::LocateHeadPoseAt(XrTime,OpenXRHeadPose*) { std::abort(); }
