@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation benötigt einen neueren NVIDIA-Treiber",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation wird auf dieser GPU nicht unterstützt (RTX 40/50 erforderlich)",
   ["NGX initialization failed (0x%08X)"] = "NGX-Initialisierung fehlgeschlagen (0x%08X)",
+  ["FINGER TRACKING"] = "FINGERTRACKING",
+  ["Enable finger tracking"] = "Fingertracking aktivieren",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "Jeder Finger von V folgt deinem, per Handtracking (Handschuhe mit Fingertracking, Index-Controller).\nDas Einschalten gilt ab dem nächsten Spielstart. Aus: Fingerposen über die Tasten.",
+  ["Grip input from finger position instead of the sensor"] = "Greifeingabe aus der Fingerstellung statt vom Sensor",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "Greifen ist eine Faust oder ein Daumen hoch, aus der Stellung der Finger,\nnicht vom Griffsensor des Controllers: eine entspannte Hand greift nie.",
+  ["Enable finger spread"] = "Fingerspreizung aktivieren",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "Vs Finger spreizen sich auch seitlich wie deine.\nAus: die Finger beugen sich nur, nach der Krümmung.",
+  ["Finger spread"] = "Fingerspreizung",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Vs Finger spreizen sich seitlich wie deine.\n0: aus, die Finger beugen sich nur. 1: Standard.",
 }

@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation에는 최신 NVIDIA 드라이버가 필요합니다",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "이 GPU에서는 DLSS Frame Generation이 지원되지 않습니다(RTX 40/50 필요)",
   ["NGX initialization failed (0x%08X)"] = "NGX 초기화 실패(0x%08X)",
+  ["FINGER TRACKING"] = "손가락 추적",
+  ["Enable finger tracking"] = "손가락 추적 사용",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "V의 손가락 하나하나가 당신의 손가락을 따라갑니다 (핸드 트래킹: 손가락 추적 장갑, Index 컨트롤러).\n켜기는 다음 게임 시작부터 적용됩니다. 끄기: 버튼에 따른 손가락 포즈.",
+  ["Grip input from finger position instead of the sensor"] = "센서 대신 손가락 위치로 그립 입력",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "그립은 손가락 위치로 판단하는 주먹 또는 엄지 척입니다.\n컨트롤러의 그립 센서가 아닙니다: 힘을 뺀 손은 절대 잡지 않습니다.",
+  ["Enable finger spread"] = "손가락 벌림 사용",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "V의 손가락이 당신처럼 옆으로도 벌어집니다.\n끄기: 손가락은 구부림에 따라 구부러지기만 합니다.",
+  ["Finger spread"] = "손가락 벌림",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "V의 손가락이 당신의 손가락처럼 옆으로 벌어집니다.\n0: 끔, 손가락이 굽혀지기만 함. 1: 기본값.",
 }

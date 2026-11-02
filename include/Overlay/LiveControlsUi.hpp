@@ -36,6 +36,10 @@ struct LiveControlsUiState {
     float xrHudBrightness = 1.0f;
     float xrHudShadow = 1.0f;
     float xrHudGlow = 1.0f;
+    int xrFingerBones = 0;           // xr_finger_bones: finger tracking, V's fingers follow the tracked ones (on: next start)
+    int xrGripFromFingers = 0;       // xr_grip_from_fingers: with it, the grip input from the fingers' position
+    int xrFingerSpreadOn = 1;        // xr_finger_spread_enabled: the fingers also spread sideways (off: they only bend)
+    float xrFingerSpread = 1.0f;     // xr_finger_spread: how far the fingers spread sideways, 0 = off
     cvr::hud::LayoutSettings hudElements{};
     cvr::framegen::Settings framegen{};
     cvr::foveated::Settings foveated{};

@@ -1055,6 +1055,21 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                                   "and the right stick click is the D-pad. Button prompts show these buttons.");
             }
             UI::Separator();
+            // Finger tracking from OpenXR hand tracking (Runtimes/FingerGrip.hpp, Anim/HandGestures.hpp).
+            if (UI::CollapsingHeader("FINGER TRACKING", ImGuiTreeNodeFlags_DefaultOpen)) {
+                changed |= CheckboxInt("Enable finger tracking", &state.xrFingerBones);
+                if (UI::IsItemHovered()) UI::SetTooltip("Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons.");
+                UI::BeginDisabled(!state.xrFingerBones);
+                changed |= CheckboxInt("Grip input from finger position instead of the sensor", &state.xrGripFromFingers);
+                if (UI::IsItemHovered()) UI::SetTooltip("The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips.");
+                changed |= CheckboxInt("Enable finger spread", &state.xrFingerSpreadOn);
+                if (UI::IsItemHovered()) UI::SetTooltip("V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl.");
+                UI::BeginDisabled(!state.xrFingerSpreadOn);
+                changed |= widgets::SliderFloat("Finger spread", &state.xrFingerSpread, 0.0f, 2.0f, "%.2fx");
+                if (UI::IsItemHovered()) UI::SetTooltip("V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default.");
+                UI::EndDisabled();
+                UI::EndDisabled();
+            }
 
             // Weapon aim: bullets/projectiles fly down the WEAPON BARREL (controller-pointed) instead
             // of the camera crosshair. Hooks the projectile launch orientation provider and feeds it

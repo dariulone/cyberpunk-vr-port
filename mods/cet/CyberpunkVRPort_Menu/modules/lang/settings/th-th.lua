@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation ต้องใช้ไดรเวอร์ NVIDIA ที่ใหม่กว่า",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "GPU นี้ไม่รองรับ DLSS Frame Generation (ต้องใช้ RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "การเริ่มต้น NGX ล้มเหลว (0x%08X)",
+  ["FINGER TRACKING"] = "การติดตามนิ้ว",
+  ["Enable finger tracking"] = "เปิดการติดตามนิ้ว",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "นิ้วแต่ละนิ้วของ V จะขยับตามนิ้วของคุณ จากการติดตามมือ (ถุงมือติดตามนิ้ว คอนโทรลเลอร์ Index)\nการเปิดจะมีผลเมื่อเริ่มเกมครั้งถัดไป ปิด: ท่านิ้วจากปุ่ม",
+  ["Grip input from finger position instead of the sensor"] = "การกำจากตำแหน่งนิ้วแทนเซ็นเซอร์",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "การกำคือกำหมัดหรือชูนิ้วโป้ง จากตำแหน่งของนิ้ว\nไม่ใช่เซ็นเซอร์กำของคอนโทรลเลอร์: มือที่ผ่อนคลายจะไม่กำเลย",
+  ["Enable finger spread"] = "เปิดการกางนิ้ว",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "นิ้วของ V จะกางออกด้านข้างเหมือนนิ้วของคุณด้วย\nปิด: นิ้วจะงอตามการงอเท่านั้น",
+  ["Finger spread"] = "การกางนิ้ว",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "นิ้วของ V จะกางออกด้านข้างเหมือนนิ้วของคุณ\n0: ปิด นิ้วงอได้อย่างเดียว 1: ค่าเริ่มต้น",
 }

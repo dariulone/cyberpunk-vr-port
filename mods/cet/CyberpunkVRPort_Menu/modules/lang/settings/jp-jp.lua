@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generationには新しいNVIDIAドライバーが必要です",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame GenerationはこのGPUではサポートされていません（RTX 40/50が必要）",
   ["NGX initialization failed (0x%08X)"] = "NGXの初期化に失敗しました（0x%08X）",
+  ["FINGER TRACKING"] = "フィンガートラッキング",
+  ["Enable finger tracking"] = "指のトラッキングを有効にする",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "Vの指一本一本があなたの指に追従します（ハンドトラッキング：指トラッキング対応グローブ、Indexコントローラー）。\nオンにすると次回のゲーム起動時から適用されます。オフ：ボタンによる指のポーズ。",
+  ["Grip input from finger position instead of the sensor"] = "センサーではなく指の位置からグリップ入力",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "グリップは指の位置から判定する握りこぶしまたはサムズアップです。\nコントローラーのグリップセンサーは使いません。力を抜いた手は決して掴みません。",
+  ["Enable finger spread"] = "指の開きを有効にする",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "Vの指はあなたの指と同じように横にも開きます。\nオフ：指は曲げ具合に合わせて曲がるだけです。",
+  ["Finger spread"] = "指の開き",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Vの指があなたの指と同じように横に開きます。\n0：オフ、指は曲がるだけ。1：標準。",
 }

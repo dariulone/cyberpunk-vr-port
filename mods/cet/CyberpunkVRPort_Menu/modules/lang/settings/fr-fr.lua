@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation nécessite un pilote NVIDIA plus récent",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation n'est pas pris en charge sur ce GPU (RTX 40/50 requis)",
   ["NGX initialization failed (0x%08X)"] = "Échec de l'initialisation NGX (0x%08X)",
+  ["FINGER TRACKING"] = "SUIVI DES DOIGTS",
+  ["Enable finger tracking"] = "Activer le suivi des doigts",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "Chaque doigt de V suit le vôtre, grâce au suivi des mains (gants à suivi des doigts, manettes Index).\nL'activation prend effet au prochain lancement du jeu. Désactivé : poses des doigts via les boutons.",
+  ["Grip input from finger position instead of the sensor"] = "Saisie à partir de la position des doigts plutôt que du capteur",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "La saisie est un poing ou un pouce levé, d'après la position des doigts,\net non le capteur de prise de la manette : une main détendue ne saisit jamais.",
+  ["Enable finger spread"] = "Activer l'écartement des doigts",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "Les doigts de V s'écartent aussi sur les côtés comme les vôtres.\nDésactivé : les doigts se plient seulement, selon la flexion.",
+  ["Finger spread"] = "Écartement des doigts",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Les doigts de V s'écartent sur le côté comme les vôtres.\n0 : désactivé, les doigts se plient seulement. 1 : par défaut.",
 }

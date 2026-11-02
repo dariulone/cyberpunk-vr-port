@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation wymaga nowszego sterownika NVIDIA",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation nie jest obsługiwane na tym GPU (wymagany RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Inicjalizacja NGX nie powiodła się (0x%08X)",
+  ["FINGER TRACKING"] = "ŚLEDZENIE PALCÓW",
+  ["Enable finger tracking"] = "Włącz śledzenie palców",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "Każdy palec V podąża za twoim, dzięki śledzeniu dłoni (rękawice ze śledzeniem palców, kontrolery Index).\nWłączenie działa od następnego uruchomienia gry. Wyłączone: pozy palców z przycisków.",
+  ["Grip input from finger position instead of the sensor"] = "Chwyt z położenia palców zamiast z czujnika",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "Chwyt to pięść lub kciuk w górę, z położenia palców,\na nie z czujnika chwytu kontrolera: rozluźniona dłoń nigdy nie chwyta.",
+  ["Enable finger spread"] = "Włącz rozstawianie palców",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "Palce V rozchylają się też na boki jak twoje.\nWyłączone: palce tylko się zginają, według zgięcia.",
+  ["Finger spread"] = "Rozstaw palców",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Palce V rozchylają się na boki jak twoje.\n0: wyłączone, palce tylko się zginają. 1: domyślnie.",
 }

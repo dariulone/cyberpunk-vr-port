@@ -1,4 +1,5 @@
 #include "Runtimes/PresenceRecenter.hpp"
+#include "Runtimes/FingerGrip.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
@@ -601,6 +602,11 @@ bool OpenXRManager::Init() {
     if (m_initialized) return true;
 
     Log("OpenXRManager: Initializing...\n");
+    // Workaround to disable unsupported HTC hand tracking: HTC's Vive software installs an implicit OpenXR API layer,
+    // XR_APILAYER_VIVE_hand_tracking, that implements XR_EXT_hand_tracking itself and reports the hands not active for
+    // seconds at a time, also with Valve Index controllers. This variable is the layer's own off switch; the OpenXR
+    // loader reads it when the instance is created, so it is set before that.
+    SetEnvironmentVariableW(L"DISABLE_XR_APILAYER_VIVE_HAND_TRACKING_1", L"1");
     ConfigurePreferredOpenXRRuntime();
 
     // Extensions we need
@@ -626,6 +632,7 @@ bool OpenXRManager::Init() {
                 }
             }
         }
+        cvr::fingergrip::ChooseExtensions(props, extensions);   // only with xr_grip_from_fingers=1
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
         Log("OpenXRManager: Steam Frame controller (%s) supported=%d\n",cvr::input::SteamFrameExtension,steamFrameEnabled?1:0);
     }
@@ -1014,6 +1021,7 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
         Log("OpenXRManager: Failed to create XrSession (res=%d)\n", res);
         return false;
     }
+    cvr::fingergrip::OnSessionCreated(m_instance, m_session);
 
     m_runtimeFovLogInitialized = false;
     m_loggedRuntimeEyeFovs[0] = {};
@@ -2366,6 +2374,7 @@ void OpenXRManager::Shutdown() {
     m_stageUnavailable = false;
 
     if (m_session != XR_NULL_HANDLE) {
+        cvr::fingergrip::OnSessionDestroying();
         xrDestroySession(m_session);
         m_session = XR_NULL_HANDLE;
     }

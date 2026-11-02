@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation 需要更新的 NVIDIA 驱动",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "此 GPU 不支持 DLSS Frame Generation（需要 RTX 40/50）",
   ["NGX initialization failed (0x%08X)"] = "NGX 初始化失败（0x%08X）",
+  ["FINGER TRACKING"] = "手指追踪",
+  ["Enable finger tracking"] = "启用手指追踪",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "V 的每根手指都跟随你的手指（手部追踪：手指追踪手套、Index 控制器）。\n开启后在下次启动游戏时生效。关闭：由按键决定手指姿势。",
+  ["Grip input from finger position instead of the sensor"] = "根据手指位置而非传感器输入握持",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "握持为握拳或竖起大拇指，由手指位置判断，\n而非控制器的握持传感器：放松的手永远不会握持。",
+  ["Enable finger spread"] = "启用手指张开",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "V 的手指也会像你的一样向两侧张开。\n关闭：手指只按弯曲程度弯曲。",
+  ["Finger spread"] = "手指张开",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "V 的手指会像你的手指一样向两侧张开。\n0：关闭，手指只会弯曲。1：默认。",
 }

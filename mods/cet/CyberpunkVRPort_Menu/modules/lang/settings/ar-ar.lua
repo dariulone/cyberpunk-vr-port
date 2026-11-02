@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "يحتاج DLSS Frame Generation إلى برنامج تشغيل NVIDIA أحدث",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation غير مدعوم على هذا GPU (يتطلب RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "فشلت تهيئة NGX (0x%08X)",
+  ["FINGER TRACKING"] = "تتبع الأصابع",
+  ["Enable finger tracking"] = "تفعيل تتبع الأصابع",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "كل إصبع من أصابع V يتبع إصبعك، عبر تتبع اليدين (قفازات تتبع الأصابع، أذرع تحكم Index).\nيسري التفعيل عند التشغيل التالي للعبة. معطّل: أوضاع الأصابع من الأزرار.",
+  ["Grip input from finger position instead of the sensor"] = "الإمساك من وضعية الأصابع بدلًا من المستشعر",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "الإمساك قبضة أو إبهام مرفوع، من وضعية الأصابع،\nلا من مستشعر الإمساك في ذراع التحكم: اليد المسترخية لا تمسك أبدًا.",
+  ["Enable finger spread"] = "تفعيل تباعد الأصابع",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "تتباعد أصابع V أيضًا إلى الجانبين مثل أصابعك.\nمعطّل: تنثني الأصابع فقط، حسب الانحناء.",
+  ["Finger spread"] = "تباعد الأصابع",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "تتباعد أصابع V جانبيًا كما تفعل أصابعك.\n0: معطّل، الأصابع تنثني فقط. 1: الافتراضي.",
 }

@@ -534,4 +534,13 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation richiede un driver NVIDIA più recente",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation non è supportata su questa GPU (richiede RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Inizializzazione NGX non riuscita (0x%08X)",
+  ["FINGER TRACKING"] = "TRACCIAMENTO DELLE DITA",
+  ["Enable finger tracking"] = "Abilita tracciamento delle dita",
+  ["Each of V's fingers follows your own, from hand tracking (finger-tracking gloves, Index controllers).\nTurning it on applies at the next game start. Off: finger poses from the buttons."] = "Ogni dito di V segue il tuo, dal tracciamento delle mani (guanti con tracciamento delle dita, controller Index).\nL'attivazione si applica al prossimo avvio del gioco. Disattivato: pose delle dita dai pulsanti.",
+  ["Grip input from finger position instead of the sensor"] = "Grip input dalla posizione delle dita piuttosto che dal sensore",
+  ["The grip is a fist or a thumbs-up, from the fingers' position,\nnot the controller's grip sensor: a relaxed hand never grips."] = "La presa è un pugno o un pollice in su, dalla posizione delle dita,\nnon dal sensore di presa del controller: una mano rilassata non afferra mai.",
+  ["Enable finger spread"] = "Abilita apertura delle dita",
+  ["V's fingers also spread sideways as yours do.\nOff: the fingers only bend, from the curl."] = "Le dita di V si allargano anche lateralmente come le tue.\nDisattivato: le dita si piegano soltanto, dalla flessione.",
+  ["Finger spread"] = "Apertura delle dita",
+  ["V's fingers spread sideways as yours do.\n0: off, the fingers only curl. 1: default."] = "Le dita di V si allargano lateralmente come le tue.\n0: disattivato, le dita si piegano soltanto. 1: predefinito.",
 }

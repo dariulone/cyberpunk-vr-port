@@ -31,6 +31,7 @@
 #include <share.h>
 #include "Utils/AobScanner.hpp"
 #include "Overlay/LiveControlsUi.hpp"
+#include "Runtimes/FingerGrip.hpp"   // xr_grip_from_fingers, live
 namespace overlay { extern bool g_drawBarrelCross; }
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Overlay/LauncherDialog.hpp"
@@ -299,6 +300,9 @@ extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_FixLodEnable;
 // path is a candidate for retirement and wants an A/B without a rebuild.
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudToSecondEye;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_AutoRecenter;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_FingerBones;
+extern "C" __declspec(dllexport) extern float    CyberpunkVR_FingerSpread;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_FingerSpreadOn;
 // 1 = each eye renders its own off-centre window and is submitted with it (src/Stereo/AsymProjection.cpp);
 // 0 = the old symmetric frustum sized to the widest half-angle. 2 = test values (CyberpunkVR_AsymTest).
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_AsymProjection;
@@ -563,6 +567,10 @@ void PollLiveControls() {
     int32_t  xrFixLod = CyberpunkVR_FixLodEnable;
     int      xrHudTo2 = CyberpunkVR_HudToSecondEye;
     int      xrAutoRecenter = CyberpunkVR_AutoRecenter;
+    int      xrFingerBones = CyberpunkVR_FingerBones;
+    int      xrGripFromFingers = cvr::fingergrip::GripFromFingers() ? 1 : 0;
+    float    xrFingerSpread = CyberpunkVR_FingerSpread;
+    int      xrFingerSpreadOn = CyberpunkVR_FingerSpreadOn;
     int32_t  xrAsym = CyberpunkVR_AsymProjection;
     float    xrAsymGuard = CyberpunkVR_AsymInnerGuard;
     int      xrVisionTo2 = CyberpunkVR_VisionToSecondEye;
@@ -889,6 +897,26 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_auto_recenter=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_auto_recenter = %d", &intValue) == 1) {
             xrAutoRecenter = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_grip_from_fingers=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_grip_from_fingers = %d", &intValue) == 1) {
+            xrGripFromFingers = intValue == 1 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_spread_enabled=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_finger_spread_enabled = %d", &intValue) == 1) {
+            xrFingerSpreadOn = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_spread=%f", &value) == 1 ||
+            sscanf_s(line, "xr_finger_spread = %f", &value) == 1) {
+            xrFingerSpread = std::isfinite(value) ? std::clamp(value, 0.0f, 2.0f) : 1.0f;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_bones=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_finger_bones = %d", &intValue) == 1) {
+            xrFingerBones = intValue ? 1 : 0;
             continue;
         }
         if (sscanf_s(line, "xr_hud_to_second_eye=%d", &intValue) == 1 ||
@@ -1862,6 +1890,10 @@ void PollLiveControls() {
     CyberpunkVR_FixLodEnable = xrFixLod;
     CyberpunkVR_HudToSecondEye = xrHudTo2;
     CyberpunkVR_AutoRecenter = xrAutoRecenter;
+    CyberpunkVR_FingerBones = xrFingerBones;
+    cvr::fingergrip::SetGripFromFingers(xrGripFromFingers != 0);
+    CyberpunkVR_FingerSpread = xrFingerSpread;
+    CyberpunkVR_FingerSpreadOn = xrFingerSpreadOn;
     CyberpunkVR_AsymProjection = xrAsym;
     CyberpunkVR_AsymInnerGuard = xrAsymGuard;
     CyberpunkVR_VisionToSecondEye = xrVisionTo2;
@@ -1984,6 +2016,10 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrHudDistance=g_liveControls.xrHudDistance;
     state.xrHudFollowMode=g_liveControls.xrHudFollowMode;
     state.xrHudStereoDepth=g_liveControls.xrHudStereoDepth;
+    state.xrGripFromFingers=cvr::fingergrip::GripFromFingers()?1:0;
+    state.xrFingerBones=CyberpunkVR_FingerBones;
+    state.xrFingerSpreadOn=CyberpunkVR_FingerSpreadOn;
+    state.xrFingerSpread=CyberpunkVR_FingerSpread;
     state.xrHudBrightness=g_liveControls.xrHudBrightness;
     state.xrHudShadow=g_liveControls.xrHudShadow;
     state.xrHudGlow=g_liveControls.xrHudGlow;
@@ -2276,6 +2312,15 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_hud_to_second_eye=%d\n", CyberpunkVR_HudToSecondEye);
     // 1 = recenter automatically when the headset is put back on after being taken off.
     fprintf(file, "xr_auto_recenter=%d\n", CyberpunkVR_AutoRecenter);
+    // 1 = finger tracking: V's fingers follow the player's (OpenXR hand tracking: gloves, Index controllers); turning it
+    // on applies at the next game start. 0 = finger poses from the buttons.
+    fprintf(file, "xr_finger_bones=%d\n", state.xrFingerBones ? 1 : 0);
+    // 1 = with finger tracking, the grip input from the fingers' position (a fist or thumbs-up) instead of the grip sensor.
+    fprintf(file, "xr_grip_from_fingers=%d\n", state.xrGripFromFingers ? 1 : 0);
+    // How far V's fingers spread sideways as the player's do: 0 = off (only curl), 1 = default, up to 2.
+    fprintf(file, "xr_finger_spread=%.2f\n", state.xrFingerSpread);
+    // 1 = with finger tracking, the fingers also spread sideways (xr_finger_spread sets how far); 0 = they only bend.
+    fprintf(file, "xr_finger_spread_enabled=%d\n", state.xrFingerSpreadOn ? 1 : 0);
     // 1 = each eye renders exactly its own lens window (off-centre, the runtime's per-eye FOV, so a FOV
     // cut set in the runtime is followed) and is submitted with it; 0 = the old symmetric frustum.
     fprintf(file, "xr_asym_projection=%d\n", CyberpunkVR_AsymProjection == 1 ? 1 : 0);
@@ -2455,6 +2500,10 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrHudPanel=state->xrHudPanel!=0;
     g_liveControls.xrHudFollowMode=state->xrHudFollowMode==1;
     g_liveControls.xrHudStereoDepth=state->xrHudStereoDepth!=0;
+    cvr::fingergrip::SetGripFromFingers(state->xrGripFromFingers!=0);
+    CyberpunkVR_FingerBones=state->xrFingerBones!=0;
+    CyberpunkVR_FingerSpread=std::clamp(state->xrFingerSpread,0.0f,2.0f);
+    CyberpunkVR_FingerSpreadOn=state->xrFingerSpreadOn!=0;
     g_liveControls.xrHudBrightness=(state->xrHudBrightness>=0.25f && state->xrHudBrightness<=3) ? state->xrHudBrightness : 1;
     g_liveControls.xrHudShadow=(state->xrHudShadow>=0 && state->xrHudShadow<=2) ? state->xrHudShadow : 1;
     g_liveControls.xrHudGlow=(state->xrHudGlow>=0 && state->xrHudGlow<=2) ? state->xrHudGlow : 1;
