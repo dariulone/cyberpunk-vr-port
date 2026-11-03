@@ -191,6 +191,24 @@ local function allowedNow(pl, menuOpen)
   return ok and verdict == true
 end
 
+-- A prompt on Y is the game's: forcing a door is Choice2_Hold, the same hold of the same button. It only keeps the
+-- wheel from taking a new press, so walking past one does not close a wheel already open.
+local function promptOnY()
+  local yes = false
+  pcall(function()
+    local d = Game.GetAllBlackboardDefs().UIInteractions
+    local hub = FromVariant(Game.GetBlackboardSystem():Get(d):GetVariant(d.InteractionChoiceHub))
+    if hub == nil or not hub.active then return end
+    for _, c in ipairs(hub.choices) do
+      local action, key = NameToString(c.inputAction), tostring(c.rawInputKey)
+      if action:find("Choice2", 1, true) == 1 or action == "PickUpBody" or key:find("IK_Pad_Y_TRIANGLE", 1, true) then
+        yes = true
+      end
+    end
+  end)
+  return yes
+end
+
 local function weaponsBlocked(pl)
   for _, tag in ipairs({ "NoCombat", "FirearmsNoSwitch", "ShootingRangeCompetition", "Fists", "FirearmsNoUnequipNoSwitch" }) do
     if tagged(pl, tag) then return true end
@@ -931,11 +949,12 @@ local function tick(dt, menuOpen)
   if S.time - S.allowedAt > 0.1 then
     S.allowedAt = S.time
     S.allowedValue = allowedNow(pl, menuOpen)
+    S.promptOnY = promptOnY()
   end
   local allowed = S.allowedValue
   local hold = 0
   if type(VRWeaponWheel) == "function" then
-    local ok, v = pcall(VRWeaponWheel, allowed or S.open)
+    local ok, v = pcall(VRWeaponWheel, (allowed and not S.promptOnY) or S.open)
     hold = ok and v or 0
   end
   -- a cigarette waiting for the weapons to be put away (smoke)
