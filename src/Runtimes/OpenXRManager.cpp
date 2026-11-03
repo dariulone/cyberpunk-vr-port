@@ -1,3 +1,4 @@
+#include "Fbt/Game/Trackers.hpp"
 #include "Runtimes/PresenceRecenter.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
@@ -684,6 +685,7 @@ bool OpenXRManager::Init() {
                 }
             }
         }
+        cvr::trackers::ChooseExtensions(props, extensions);     // only with xr_vive_trackers=1
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
         Log("OpenXRManager: Steam Frame controller (%s) supported=%d\n",cvr::input::SteamFrameExtension,steamFrameEnabled?1:0);
     }
@@ -699,6 +701,7 @@ bool OpenXRManager::Init() {
         Log("OpenXRManager: Failed to create XrInstance (res=%d)\n", res);
         return false;
     }
+    cvr::trackers::OnInstanceCreated(m_instance);
 
     XrInstanceProperties instanceProps{XR_TYPE_INSTANCE_PROPERTIES};
     if (XR_SUCCEEDED(xrGetInstanceProperties(m_instance, &instanceProps))) {
@@ -834,6 +837,7 @@ bool OpenXRManager::Init() {
             makeAction(m_hapticAction,          XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic",         "Haptic Feedback",      true);
             if(steamFrameEnabled)m_steamFrameActions.Create(makeAction);
         }
+        cvr::trackers::CreateActions(m_instance, m_actionSet);
         Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
             inputActionsEnabled ? "ENABLED" : "DISABLED (pose-only)", (int)inputActionsEnabled);
 
@@ -1155,6 +1159,7 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
                 xrCreateActionSpace(m_session, &aimSpaceInfo, &m_handAimSpaces[i]);
             }
         }
+        cvr::trackers::OnSessionCreated(m_session, m_handSpaces);
     }
 
     m_stopFrameThread.store(false, std::memory_order_relaxed);
@@ -2442,6 +2447,7 @@ void OpenXRManager::Shutdown() {
     m_stageUnavailable = false;
 
     if (m_session != XR_NULL_HANDLE) {
+        cvr::trackers::OnSessionDestroying();
         xrDestroySession(m_session);
         m_session = XR_NULL_HANDLE;
     }

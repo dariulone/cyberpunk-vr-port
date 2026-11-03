@@ -19,6 +19,7 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Fbt/Game/Menu.hpp"
 extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
 #include <cfloat>
@@ -1055,6 +1056,8 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                                   "and the right stick click is the D-pad. Button prompts show these buttons.");
             }
             UI::Separator();
+
+            cvr::fbt::game::DrawSettingsSection();   // Fbt/Game/Menu.cpp
 
             // Weapon aim: bullets/projectiles fly down the WEAPON BARREL (controller-pointed) instead
             // of the camera crosshair. Hooks the projectile launch orientation provider and feeds it

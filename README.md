@@ -91,6 +91,9 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   and elbows hang off the BODY rather than the head, and the solve is clocked by
   the engine's own animation batch. VRIK suspends itself during cutscenes so the
   avatar does not fight an authored scene.
+- **Full-body tracking** (optional) — three Vive Trackers (roles Waist, Left Foot,
+  Right Foot in SteamVR) drive V's legs, hips and spine, calibrated in game; setup
+  in [src/Fbt/Game/README.md](src/Fbt/Game/README.md).
 - **Roomscale movement, bending and hybrid body rotation** with paired headset,
   camera and avatar poses, anatomical shoulder reach and preserved foot contacts.
 - **Gesture swimming and grip-based ladder climbing**, including water-aware

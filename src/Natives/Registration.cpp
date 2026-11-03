@@ -5,6 +5,7 @@
 // living beside any one family.
 
 #include "Natives/NativeFunctions.hpp"
+#include "Fbt/Game/Natives.hpp"
 #include "Natives/RttiType.hpp"
 
 #include <RED4ext/RED4ext.hpp>
@@ -1284,6 +1285,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     f61b->flags = flags;
     f61b->SetReturnType("Int32");
     rtti->RegisterFunction(f61b);
+
+    cvr::fbt::game::RegisterNatives(rtti);   // Fbt/Game/Natives.cpp
 
     auto fMenu = RED4ext::CGlobalFunction::Create("SetVRMenuOpen", "SetVRMenuOpen", &SetVRMenuOpen);
     auto fDevScr = RED4ext::CGlobalFunction::Create("SetVRDeviceScreen", "SetVRDeviceScreen", &SetVRDeviceScreen);

@@ -33,6 +33,8 @@
 #include "Camera/NeckCameraMount.hpp"
 #include "Hooks/LadderInput.hpp"
 #include "Lobby/MenuLobby.hpp"
+#include "Fbt/Game/Body.hpp"
+#include "Fbt/Game/Calibration.hpp"
 #include "Camera/HandViewFrame.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Camera/PoseIdentity.hpp"
@@ -990,6 +992,7 @@ if (g_VRRecordFK) {
                             else VRIK_PlaceBodyUnderHMD(boneBuf,bodyCamModelPos,camModelRot,hIdx,fwdSigned,
                                 nativeHandFrame ? nativeHeadDeltaModel:nullptr,
                                 nativeHandFrame ? bodyOrbitModel:nullptr);
+                            if(!poseLadder && !cvr::swimming::Active())cvr::fbt::game::SolveLowerBody(boneBuf,nativeHandFrame ? nativeViewPos:camModelPos,camModelRot);   // Fbt/Game/Body.cpp: this frame's view, as the ladder's
                             // Re-taken AFTER the placement, so the frame reflects the body as it now
                             // stands rather than as the animation left it.
                             if (!(CyberpunkVR_VrikArmAnchorFromBody && VRIK_BodyAxesFromRig(bodyRight,bodyUp,bodyFwd))) {
@@ -1632,7 +1635,7 @@ if (g_VRRecordFK) {
                             // wins over both while it holds.
                             cvr::anim::ReloadHandOffBlendTarget(0, target, handRot);
                             if(poseLadder && nativeHandFrame)cvr::ladder::ConstrainHand(1,target,handRot,nativeEntityPos,nativeEntityRot);
-                            if (!armToAnimR) {
+                            if (!armToAnimR && !cvr::fbt::game::SolveArm(boneBuf, 1, target, handRot)) {   // Fbt/Game/Body.cpp
                                 VRIK_SolveArm(boneBuf, g_VRRightUpperArmIdx, g_VRRightForeArmIdx,
                                               g_VRRightBoneIdx, target, handRot,
                                               bodyRight, bodyUp, bodyFwd,
@@ -2046,7 +2049,7 @@ if (g_VRRecordFK) {
                             cvr::anim::WheelBlendTarget(1, target, handRot);
                             cvr::anim::ReloadHandOffBlendTarget(1, target, handRot);
                             if(poseLadder && nativeHandFrame)cvr::ladder::ConstrainHand(0,target,handRot,nativeEntityPos,nativeEntityRot);
-                            if (!armToAnimL) {
+                            if (!armToAnimL && !cvr::fbt::game::SolveArm(boneBuf, 0, target, handRot)) {   // Fbt/Game/Body.cpp
                                 VRIK_SolveArm(boneBuf, g_VRLeftUpperArmIdx, g_VRLeftForeArmIdx,
                                               g_VRLeftBoneIdx, target, handRot,
                                               bodyRight, bodyUp, bodyFwd,
@@ -2066,9 +2069,12 @@ if (g_VRRecordFK) {
                             g_VRPalmModelRotL[1] = handRot[1];
                             g_VRPalmModelRotL[2] = handRot[2];
                             g_VRPalmModelRotL[3] = handRot[3];
-                            g_VRCamModelPos[0] = camModelPos[0];
-                            g_VRCamModelPos[1] = camModelPos[1];
-                            g_VRCamModelPos[2] = camModelPos[2];
+                            {   // Fbt/Game/Body.cpp: the camera stands at V's eyes, so the view's own model point
+                                const float* cam=nativeHandFrame && cvr::fbt::game::BodyActive() ? nativeViewPos : camModelPos;
+                                g_VRCamModelPos[0] = cam[0];
+                                g_VRCamModelPos[1] = cam[1];
+                                g_VRCamModelPos[2] = cam[2];
+                            }
                             // Consumers combine this with the published view/controller frame for
                             // model<->world conversion, so it follows the hand rotation, not the
                             // fresh head-only rotation.
@@ -2091,11 +2097,15 @@ if (g_VRRecordFK) {
                             if (cvr::anim::TwoHandLeft(t, q)) {
                                 VRIK_ApplyHandStop(1, t, q);
                                 cvr::anim::ReloadHandOffBlendTarget(0, t, q);
+                                if (cvr::fbt::game::SolveArm(boneBuf, 1, t, q)) {   // Fbt/Game/Body.cpp: the hand on t
+                                    for (int k = 0; k < 3; ++k) g_VRPalmModelR[k] = t[k];
+                                } else {
                                 VRIK_SolveArm(boneBuf, g_VRRightUpperArmIdx, g_VRRightForeArmIdx,
                                               g_VRRightBoneIdx, t, q, bodyRight, bodyUp, bodyFwd,
                                               g_VRElbowPoleR * 0.01745329252f, g_VRElbowSwingR,
                                               /*isLeft*/false, /*storeDbg*/true, poseLadder);
                                 for (int k = 0; k < 3; ++k) g_VRPalmModelR[k] = g_VRIKHandPin[0][k];
+                                }
                                 for (int k = 0; k < 4; ++k) g_VRPalmModelRotR[k] = q[k];
                             }
                         }
@@ -2244,6 +2254,8 @@ if (g_VRRecordFK) {
                     }
                     }
                 }
+                // Full-body tracking calibration: V stands still in the reference pose (Fbt/Game/Calibration.hpp).
+                if (cvr::fbt::game::Calibrating()) VRIK_HoldReferencePose(boneBuf);
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}

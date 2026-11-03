@@ -16,6 +16,7 @@
 #include "Core/VrCoreShared.hpp"
 #include "Anim/VrikState.hpp"
 #include "Anim/HeadAimWeapon.hpp"
+#include "Fbt/Game/Body.hpp"
 #include "Lobby/MenuLobby.hpp"
 #include "Core/TweakRecords.hpp"
 #include <MinHook.h>
@@ -27,6 +28,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <cstdio>
+#include "Fbt/Game/Calibration.hpp"
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -256,7 +258,10 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
     CyberpunkVR_SwimmingRedirect[2]=redirected.z-original.z;
     }
     const uintptr_t result = s_move(backend, combined, dt);
-    const auto leadLimit = CyberpunkVR_HeadLeadsCapsule ? HeadLeadLimit() : Movement::LeadLimit{};
+    // Not under full-body tracking (Fbt/Game/Body.hpp): there the trackers place the body, and a lead estimated from the
+    // capsule's velocity kept growing on open floor too -- the body trailed the head and slid after it.
+    const bool headLeads = CyberpunkVR_HeadLeadsCapsule != 0 && !cvr::fbt::game::BodyActive();
+    const auto leadLimit = headLeads ? HeadLeadLimit() : Movement::LeadLimit{};
     NativeState after{};
     const bool resultOk = nativeOk && ReadNative(backend, &after);
     Vec2 completedConsumed{};
@@ -265,7 +270,7 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
         if (s_player.load(std::memory_order_acquire) != player) return result;
         // What the controller did with the headset's part of the move; the stick's
         // and the swim redirect's share is the rest of the request.
-        const Vec2 accepted = resultOk && CyberpunkVR_HeadLeadsCapsule
+        const Vec2 accepted = resultOk && headLeads
             ? AcceptedDisplacement({redirected.x,redirected.y},step.world,
                                    {after.velocity[0]*dt,after.velocity[1]*dt})
             : step.world;
@@ -448,7 +453,8 @@ void ObserveMovement(void* state) {
 
 bool GameplayAllowed() {
     const int loco=g_VRLocomotionState;
-    return g_liveControls.xrRoomscaleMovement != 0 && PhysicalBodyAllowed() &&
+    // Not while full-body tracking calibrates: V stays where it stands and the player walks into it.
+    return g_liveControls.xrRoomscaleMovement != 0 && PhysicalBodyAllowed() && !cvr::fbt::game::Calibrating() &&
         loco!=6 && loco!=9 && loco!=10 && loco!=11;
 }
 

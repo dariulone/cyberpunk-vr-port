@@ -1,3 +1,4 @@
+#include "Fbt/Game/Calibration.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/Psvr2HapticChannel.hpp"
@@ -1567,6 +1568,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     headForHands.orientation =
                         MultiplyQuat(basePose.orientation, filteredHeadPose.orientation);
                 }
+                // Body trackers (xr_vive_trackers): same space, instant and head as the hands.
+                cvr::trackers::Locate(m_localSpace, m_viewSpace, handLocateTime, headForHands);
 
                 for (int i = 0; i < 2; i++) {
                     XrActionStateGetInfo getInfo{XR_TYPE_ACTION_STATE_GET_INFO};
@@ -1771,6 +1774,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     };
 
                     const float trig = getFloat(m_triggerAction);
+                    // Full-body tracking calibration: its steps are a pull of both triggers.
+                    cvr::fbt::game::NoteTrigger(i, trig);
                     const float grip = getFloat(m_gripAction);
                     float sx = 0.0f, sy = 0.0f;
                     getVec2(m_thumbstickAction, sx, sy);

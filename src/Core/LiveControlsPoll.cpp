@@ -298,6 +298,8 @@ extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_FixLodEnable;
 // reaches that view through DrawComposition + CompositionPostProcess (xr_comp_lend_set), so this
 // path is a candidate for retirement and wants an A/B without a rebuild.
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudToSecondEye;
+// xr_vive_trackers: kept here so a save keeps it; Fbt/Game/Trackers.cpp reads it when the session starts.
+static int g_viveTrackersSetting = 0;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_AutoRecenter;
 // 1 = each eye renders its own off-centre window and is submitted with it (src/Stereo/AsymProjection.cpp);
 // 0 = the old symmetric frustum sized to the widest half-angle. 2 = test values (CyberpunkVR_AsymTest).
@@ -889,6 +891,11 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_auto_recenter=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_auto_recenter = %d", &intValue) == 1) {
             xrAutoRecenter = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_vive_trackers=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_vive_trackers = %d", &intValue) == 1) {
+            g_viveTrackersSetting = intValue == 1 ? 1 : 0;
             continue;
         }
         if (sscanf_s(line, "xr_hud_to_second_eye=%d", &intValue) == 1 ||
@@ -2274,6 +2281,8 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_fix_lod=%d\n", CyberpunkVR_FixLodEnable);
     // The port's own HUD composite into the second eye, and whether it applies in a braindance.
     fprintf(file, "xr_hud_to_second_eye=%d\n", CyberpunkVR_HudToSecondEye);
+    // 1 = full-body tracking: read the Vive trackers (waist, feet; Fbt/Game/Trackers.cpp). Next session.
+    fprintf(file, "xr_vive_trackers=%d\n", g_viveTrackersSetting);
     // 1 = recenter automatically when the headset is put back on after being taken off.
     fprintf(file, "xr_auto_recenter=%d\n", CyberpunkVR_AutoRecenter);
     // 1 = each eye renders exactly its own lens window (off-centre, the runtime's per-eye FOV, so a FOV

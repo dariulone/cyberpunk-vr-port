@@ -46,6 +46,7 @@
 #include <cstddef>
 #include <cstring>
 #include <mutex>
+#include "Fbt/Game/Body.hpp"
 
 extern "C" __declspec(dllexport) extern float CyberpunkVR_SceneStickYawDps;
 extern "C" __declspec(dllexport) extern int   CyberpunkVR_SceneStickYawTier;
@@ -1255,6 +1256,9 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
             // Published for MAIN only: it is the gameplay camera, and VRCAM is the same transform one
             // eye over.
             for (int i = 0; i < 3; ++i) p[i] += d[i];
+            // Full-body tracking: the camera at V's eyes (Fbt/Game/Body.hpp), an absolute height over the entity.
+            if (float eyeZ = 0.0f; cvr::fbt::game::CameraEyeHeight(&eyeZ))
+                p[2] = static_cast<int32_t>((CyberpunkVR_PlayerEntityPos[2] + eyeZ) * 131072.0f);
             dirty = true;
             if (camKind == 2) CVR_DIAGNOSTIC(++CyberpunkVR_DebugVrcamPosWrites);
             else              CVR_DIAGNOSTIC(++CyberpunkVR_DebugMainPosWrites);

@@ -35,6 +35,7 @@
 #include "Overlay/VrOverlay.hpp"
 #include "Overlay/UiRec.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Fbt/Game/Calibration.hpp"
 
 #include <RED4ext/Scripting/Utils.hpp>
 
@@ -62,7 +63,9 @@ std::atomic<bool> g_capture{false};
 std::atomic<ULONGLONG> g_wheelBeat{0};
 std::atomic<int> g_wheelHold{0};
 }
-bool CapturesButtons() { return g_capture.load(std::memory_order_relaxed); }
+// Also while full-body tracking calibrates: each step is a pull of both triggers, which the calibration reads from
+// OpenXR itself; the game must not get them. The sticks stay the game's, as with the menu.
+bool CapturesButtons() { return g_capture.load(std::memory_order_relaxed) || cvr::fbt::game::Calibrating(); }
 bool WheelArmed(uint64_t now) {
     const ULONGLONG beat = g_wheelBeat.load(std::memory_order_relaxed);
     return beat != 0 && now >= beat && now - beat < 500;

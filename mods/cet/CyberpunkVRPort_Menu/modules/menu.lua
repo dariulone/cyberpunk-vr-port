@@ -1507,6 +1507,8 @@ end
 
 function M.open(cam,initialSection)
   if S.waitTransition or preGame() then return false end
+  -- Not while full-body tracking calibrates: the steps move the hands (an accidental grip swipe opened it)
+  if S.fbtCalibrating then return false end
   if type(VRMenuSurfaceReady) ~= "function" then return false end
   cam = cam or camera()
   if cam == nil then return false end
@@ -2078,6 +2080,30 @@ end
 
 function M.update(dt)
   S.time = S.time + (dt or 0)
+  -- Full-body tracking calibration started from the settings: the menu gets out of the way (VRFbtCalibrating).
+  if type(VRFbtCalibrating) == "function" then
+    local ok, on = pcall(VRFbtCalibrating)
+    on = ok and on == 1
+    if on and S.open then M.close() end   -- at the start, and whatever opens it during the calibration
+    -- The step's instruction is drawn in the view (the menu is closed): hand the plugin the translated texts once
+    -- per calibration.
+    if on and not S.fbtCalibrating and type(VRFbtSetCalibrationText) == "function" then
+      local steps = {"Step 1: look ahead at the horizon line, then press both triggers (press to cancel)",
+                     "Step 2: arms down, look down, then press both triggers (press to cancel)",
+                     "Step 3: face the cross: head on its top, arms straight out along its arms, until the countdown ends (press to keep V's arms)",
+                     "",
+                     -- 5..7: why a pull was not taken (Fbt/Game/Calibration.hpp kRefuse*), drawn in red under the step
+                     "Not taken: look straight at the horizon line until it turns green, then press again",
+                     "Not taken: stretch both arms straight out along the cross, then hold still again",
+                     "Not taken: stand straight with the headset, trackers and controllers tracked, then press again"}
+      for i, en in ipairs(steps) do
+        -- the menu's own hint in brackets goes too (ASCII or full-width brackets)
+        local text = L.setting(en):gsub("^%*%s*", ""):gsub("%s*%b()%s*$", ""):gsub("%s*（.-）%s*$", "")
+        pcall(VRFbtSetCalibrationText, i, text)
+      end
+    end
+    S.fbtCalibrating = on
+  end
   Hud.update(S.open and S.menu~=nil and S.menu.placed==true,dt or 0)
   M.shared.vendorClock=S.time
   VendorVisit.pollNative(M.shared)
