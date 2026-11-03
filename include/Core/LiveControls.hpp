@@ -121,6 +121,9 @@ struct LiveControls {
     // 1 (default) = holding Y opens the port's weapon wheel in front of the body and the game keeps running; a
     // tap is still the game's next weapon. 0 = the game's own wheel (it slows time). Hooks/WeaponWheelHold.hpp.
     volatile int xrVrWeaponWheel = 1;
+    // 1 (default) = an empty hand's fingers follow the controller's finger sensing where the runtime offers it
+    // (Runtimes/HandTracking.hpp). 0 = they follow grip and trigger.
+    volatile int xrFingerTracking = 1;
 };
 
 extern LiveControls g_liveControls;

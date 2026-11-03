@@ -1102,6 +1102,12 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                                   "Point at a weapon, the arm cyberware, fists, a grenade or a consumable, then let go of Y.\n"
                                   "A tap of Y is still the next weapon. Off: the game's own wheel, which slows time.");
             }
+            changed |= CheckboxInt("Finger tracking on empty hands", &state.xrFingerTracking);
+            if (UI::IsItemHovered()) {
+                UI::SetTooltip("An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\n"
+                                  "Off, or where the runtime has none: they follow grip and trigger.\n"
+                                  "Only draws the fingers. A hand holding a weapon or an item keeps its grip.");
+            }
             UI::Separator();
 
             changed |= CheckboxInt("Enable VR -> XInput merge", &state.xrXInputHook);

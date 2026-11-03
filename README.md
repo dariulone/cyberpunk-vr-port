@@ -332,6 +332,13 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | Left trigger held + right grip, throw, open the grip | **Physical throw** of a throwable melee weapon |
 | Squat in the room | Crouch (physical crouch; the right stick still works) |
 
+On **empty hands** the fingers follow the controller's finger sensing where the
+runtime offers `XR_EXT_hand_tracking` (Index controllers on SteamVR): each finger
+on its own, including the fingertip that presses screens, so lift the index off
+the trigger to touch one. It only draws the fingers; a hand holding a weapon or an
+item keeps its grip (*Controls → Finger tracking on empty hands*; off = grip and
+trigger).
+
 Steam Frame uses the native `XR_VALVE_frame_controller_interaction` profile when
 available. Right A/B/X/Y, left D-pad, left View, right Menu and both bumpers map
 to the matching gamepad controls. Grips retain the port's VR gestures. Touch

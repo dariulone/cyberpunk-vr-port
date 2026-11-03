@@ -1,3 +1,4 @@
+#include "Runtimes/HandTracking.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/Psvr2HapticChannel.hpp"
@@ -1496,6 +1497,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 XrResult syncRes = xrSyncActions(m_session, &syncInfo);
                 // Vibration queued since the last frame, played where the actions are synced.
                 if (XR_SUCCEEDED(syncRes)) cvr::haptics::Tick();
+                if (XR_SUCCEEDED(syncRes)) cvr::handtracking::Tick(m_instance, m_systemId, m_session, m_localSpace, frameState.predictedDisplayTime);
                 
                 if (doHandLog) {
                     Log("OpenXRManager[Hands]: syncRes=%d sessionState=%d\n", syncRes, (int)m_sessionState);

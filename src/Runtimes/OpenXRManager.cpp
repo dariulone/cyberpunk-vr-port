@@ -1,4 +1,5 @@
 #include "Runtimes/PresenceRecenter.hpp"
+#include "Runtimes/HandTracking.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
@@ -681,6 +682,8 @@ bool OpenXRManager::Init() {
                 } else if(strcmp(p.extensionName,cvr::input::SteamFrameExtension)==0) {
                     steamFrameEnabled=true;
                     extensions.push_back(cvr::input::SteamFrameExtension);
+                } else if(const char* hand=cvr::handtracking::Extension(p.extensionName)) {
+                    extensions.push_back(hand);
                 }
             }
         }

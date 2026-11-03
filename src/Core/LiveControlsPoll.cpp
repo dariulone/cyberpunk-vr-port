@@ -645,6 +645,7 @@ void PollLiveControls() {
     int xrWheelGrab = g_liveControls.xrWheelGrab;
     int xrMenuGesture = g_liveControls.xrMenuGesture;
     int xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
+    int xrFingerTracking = g_liveControls.xrFingerTracking;
     float xrWheelRadius = g_liveControls.xrWheelRadius > 0.0f ? g_liveControls.xrWheelRadius : 0.28f;
     float xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(g_liveControls.xrWheelSteerMaxDeg);
     float xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg >= 0.0f ? g_liveControls.xrWheelSteerDeadDeg : 1.5f;
@@ -1546,6 +1547,11 @@ void PollLiveControls() {
             xrVrWeaponWheel = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_finger_tracking=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_finger_tracking = %d", &intValue) == 1) {
+            xrFingerTracking = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_wheel_radius=%f", &value) == 1 ||
             sscanf_s(line, "xr_wheel_radius = %f", &value) == 1) {
             xrWheelRadius = value;
@@ -1727,6 +1733,7 @@ void PollLiveControls() {
     g_liveControls.xrWheelGrab = xrWheelGrab != 0 ? 1 : 0;
     g_liveControls.xrMenuGesture = xrMenuGesture != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = xrVrWeaponWheel != 0 ? 1 : 0;
+    g_liveControls.xrFingerTracking = xrFingerTracking != 0 ? 1 : 0;
     // Clamped, not trusted: these come from a text file. Below ~8 cm the grab is unreachable for a
     // hand you cannot see; above 60 cm every grip in a car is a grab.
     g_liveControls.xrWheelRadius = (xrWheelRadius < 0.08f) ? 0.08f
@@ -2056,6 +2063,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrWheelGrab = g_liveControls.xrWheelGrab;
     state.xrMenuGesture = g_liveControls.xrMenuGesture;
     state.xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
+    state.xrFingerTracking = g_liveControls.xrFingerTracking;
     state.xrWheelRadius = g_liveControls.xrWheelRadius;
     state.xrWheelSteerMaxDeg = g_liveControls.xrWheelSteerMaxDeg;
     state.xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg;
@@ -2400,6 +2408,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_wheel_grab=%d\n", state.xrWheelGrab != 0 ? 1 : 0);
     fprintf(file, "xr_menu_gesture=%d\n", state.xrMenuGesture != 0 ? 1 : 0);
     fprintf(file, "xr_vr_weapon_wheel=%d\n", state.xrVrWeaponWheel != 0 ? 1 : 0);
+    fprintf(file, "xr_finger_tracking=%d\n", state.xrFingerTracking != 0 ? 1 : 0);
     fprintf(file, "xr_wheel_radius=%.3f\n", state.xrWheelRadius > 0.0f ? state.xrWheelRadius : 0.28f);
     fprintf(file, "xr_wheel_steer_max_deg=%.1f\n", cvr::anim::WheelFullLockDegrees(state.xrWheelSteerMaxDeg));
     fprintf(file, "xr_wheel_steer_dead_deg=%.1f\n", state.xrWheelSteerDeadDeg >= 0.0f ? state.xrWheelSteerDeadDeg : 1.5f);
@@ -2542,6 +2551,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrWheelGrab = state->xrWheelGrab != 0 ? 1 : 0;
     g_liveControls.xrMenuGesture = state->xrMenuGesture != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = state->xrVrWeaponWheel != 0 ? 1 : 0;
+    g_liveControls.xrFingerTracking = state->xrFingerTracking != 0 ? 1 : 0;
     g_liveControls.xrWheelHorn = state->xrWheelHorn != 0 ? 1 : 0;
     g_liveControls.xrVehicleGunTrigger = state->xrVehicleGunTrigger != 0 ? 1 : 0;
     {

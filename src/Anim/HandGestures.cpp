@@ -18,7 +18,7 @@ __declspec(dllexport) float CyberpunkVR_GestureStraight[2][5]{};
 }
 namespace cvr::gestures {
 namespace {
-std::atomic<uint64_t> input{},equipment{};
+std::atomic<uint64_t> input{},equipment{},fingers[2]{};
 struct State {Targets pose;CalibrationWeights calibration{};uint32_t epoch=~0u;uint64_t stamp{};};
 State state[2];
 uint64_t Byte(float v){return uint64_t(std::clamp(std::isfinite(v)?v:0.f,0.f,1.f)*255.f+.5f);}
@@ -46,8 +46,23 @@ void PublishInput(float lg,float rg,float lt,float rt,bool thumb,bool enabled) {
     input.store(Byte(lg)|(Byte(rg)<<8)|(Byte(lt)<<16)|(Byte(rt)<<24)|
         (uint64_t(thumb)<<32)|(uint64_t(enabled)<<33)|(now<<34),std::memory_order_release);
 }
+void PublishFingers(int side,const float* closed) {
+    if(side<0 || side>1)return;
+    if(!closed){fingers[side].store(0,std::memory_order_release);return;}
+    uint64_t packed=(GetTickCount64()&0xffffffull)<<40;
+    for(int digit=0;digit<5;++digit)packed|=Byte(closed[digit])<<(digit*8);
+    fingers[side].store(packed,std::memory_order_release);
+}
 void PublishEquipment(int mask) {
     equipment.store((GetTickCount64()<<2)|uint64_t(mask&3),std::memory_order_release);
+}
+namespace {
+bool MeasuredFingers(int side,uint64_t now,float* closed) {
+    const auto packed=fingers[side].load(std::memory_order_acquire);
+    if(!packed || ((now-(packed>>40))&0xffffffull)>250)return false;
+    for(int digit=0;digit<5;++digit)closed[digit]=float((packed>>(digit*8))&255)/255.f;
+    return true;
+}
 }
 void Apply(uint8_t* buffer) {
     CyberpunkVR_GestureMode[0]=CyberpunkVR_GestureMode[1]=0;
@@ -63,16 +78,21 @@ void Apply(uint8_t* buffer) {
         if(owned){state[side]={};CyberpunkVR_GestureMode[side]=0;continue;}
         const float grip=float((controls>>(side*8))&255)/255.f;
         const float trigger=float((controls>>(16+side*8))&255)/255.f;
-        // R3 belongs only to the right hand. L3 remains the game's ability.
-        const bool thumb=side==1 && ((controls>>32)&1)!=0,wire=kind==3;
+        const bool wire=kind==3;
+        // The wire's catch is timed to its payout, whatever the fingers do.
+        float measured[5];
+        const bool tracked=!wire && MeasuredFingers(side,now,measured);
+        // R3 belongs only to the right hand. L3 remains the game's ability. Measured, a thumb is simply up.
+        const bool thumb=side==1 && !tracked && ((controls>>32)&1)!=0;
         auto& s=state[side];
         if(s.epoch!=epoch) {
-            const auto wanted=Evaluate(grip,trigger,thumb,wire,cyberware::WireDeployment(side));
-            const auto calibration=CalibrationTargets(grip,trigger,thumb,wire);
+            const auto wanted=tracked?FromFingers(measured):Evaluate(grip,trigger,thumb,wire,cyberware::WireDeployment(side));
+            const auto calibration=tracked?FingerCalibration(measured):CalibrationTargets(grip,trigger,thumb,wire);
             const float dt=s.stamp && now>=s.stamp?std::min(float(now-s.stamp)*.001f,.05f):.016f;
             const float blend=wire?1.f:1-std::exp(-dt/.04f);
             for(int digit=0;digit<5;++digit) {
-                s.pose.closed[digit]+=(wanted.closed[digit]-s.pose.closed[digit])*blend;
+                s.pose.closed[digit]=tracked?FollowFinger(s.pose.closed[digit],wanted.closed[digit],blend,digit,dt):
+                    s.pose.closed[digit]+(wanted.closed[digit]-s.pose.closed[digit])*blend;
                 s.pose.straight[digit]+=(wanted.straight[digit]-s.pose.straight[digit])*blend;
                 CyberpunkVR_GestureClosed[side][digit]=s.pose.closed[digit];
                 CyberpunkVR_GestureStraight[side][digit]=s.pose.straight[digit];

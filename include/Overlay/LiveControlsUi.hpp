@@ -135,6 +135,8 @@ struct LiveControlsUiState {
     int xrMenuGesture = 1;
     // The port's weapon wheel on a held Y (1 = on); off, the game's own.
     int xrVrWeaponWheel = 1;
+    // An empty hand's fingers from the controller's finger sensing (1 = on); off, from grip and trigger.
+    int xrFingerTracking = 1;
     // Controller tilt that means full lock, degrees. 90 (default) = hands vertical, the 1:1 reading of
     // a real wheel; lower = the same wrist movement steers more. The deadzone is the tilt around
     // centre that steers nothing: 1.5 (default) only swallows tremor.
