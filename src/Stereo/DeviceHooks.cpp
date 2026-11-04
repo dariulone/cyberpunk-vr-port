@@ -1503,6 +1503,50 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateComputePipelineState(
     return hr;
 }
 
+// ID3D12Device5::CreateStateObject (slot 62): the ray-traced reflections' DXIL libraries get their stereo_rt\ twin
+// (HiddenAreaShaders group 15). Export names are unchanged, so shader identifiers and tables resolve as before.
+// A rejected twin falls back to the engine's own libraries; losing the state object would lose RT entirely.
+using PFN_CreateStateObject = HRESULT (STDMETHODCALLTYPE*)(ID3D12Device5*, const D3D12_STATE_OBJECT_DESC*, REFIID, void**);
+static PFN_CreateStateObject g_orig_CreateStateObject = nullptr;
+static HRESULT STDMETHODCALLTYPE Hook_CreateStateObject(ID3D12Device5* self, const D3D12_STATE_OBJECT_DESC* desc,
+                                                        REFIID riid, void** out) {
+    if (desc && desc->pSubobjects) {
+        std::vector<D3D12_STATE_SUBOBJECT> subobjects(desc->pSubobjects, desc->pSubobjects + desc->NumSubobjects);
+        std::vector<D3D12_DXIL_LIBRARY_DESC> libraries(desc->NumSubobjects);
+        uint32_t twinned = 0;
+        for (UINT i = 0; i < desc->NumSubobjects; ++i) {
+            if (subobjects[i].Type != D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY || !subobjects[i].pDesc) continue;
+            const auto& library = *static_cast<const D3D12_DXIL_LIBRARY_DESC*>(subobjects[i].pDesc);
+            const auto twin = cvr::hidden_area::shaders::LibraryTwin(library.DXILLibrary);
+            if (!twin.pShaderBytecode) continue;
+            libraries[i] = library;
+            libraries[i].DXILLibrary = twin;
+            subobjects[i].pDesc = &libraries[i];
+            ++twinned;
+            log("[pso] stereo_rt twin for a %zu-byte library with %u export(s), first %ls", library.DXILLibrary.BytecodeLength,
+                library.NumExports, library.NumExports && library.pExports ? library.pExports[0].Name : L"(all)");
+        }
+        if (twinned) {
+            // Associations point at subobjects by address; repoint the ones that named a replaced library.
+            std::vector<D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION> associations(desc->NumSubobjects);
+            for (UINT i = 0; i < desc->NumSubobjects; ++i) {
+                if (subobjects[i].Type != D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION || !subobjects[i].pDesc) continue;
+                associations[i] = *static_cast<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION*>(subobjects[i].pDesc);
+                const auto* target = associations[i].pSubobjectToAssociate;
+                if (target >= desc->pSubobjects && target < desc->pSubobjects + desc->NumSubobjects)
+                    associations[i].pSubobjectToAssociate = subobjects.data() + (target - desc->pSubobjects);
+                subobjects[i].pDesc = &associations[i];
+            }
+            D3D12_STATE_OBJECT_DESC twin{desc->Type, desc->NumSubobjects, subobjects.data()};
+            const HRESULT hr = g_orig_CreateStateObject(self, &twin, riid, out);
+            cvr::hidden_area::shaders::LibraryTwinCreated(SUCCEEDED(hr), twinned);
+            log("[pso] state object with %u stereo_rt library twin(s): hr=0x%08X", twinned, static_cast<unsigned>(hr));
+            if (SUCCEEDED(hr)) return hr;
+        }
+    }
+    return g_orig_CreateStateObject(self, desc, riid, out);
+}
+
 // The upscaler history-mask twin of a pipeline (lens_mask_ps / sight_mask_ps): same VS,
 // root signature and depth test, one R8_UNORM target, no blending, no depth or stencil writes.
 static ID3D12PipelineState* history_mask_twin(ID3D12Device* self,const D3D12_GRAPHICS_PIPELINE_STATE_DESC& base,
@@ -1969,6 +2013,21 @@ void patch_device_descriptor_slot(void* device) {
                 log("[pso] ID3D12Device2::CreatePipelineState hooked dev=%p", device);
             }
             dev2->Release();
+        }
+    }
+    {
+        Microsoft::WRL::ComPtr<ID3D12Device5> device5;
+        if (SUCCEEDED(static_cast<ID3D12Device*>(device)->QueryInterface(IID_PPV_ARGS(&device5)))) {
+            auto** table = *reinterpret_cast<void***>(device5.Get());
+            DWORD o62 = 0;
+            if (table[62] != reinterpret_cast<void*>(&Hook_CreateStateObject) &&
+                VirtualProtect(&table[62], sizeof(void*), PAGE_READWRITE, &o62)) {
+                g_orig_CreateStateObject = reinterpret_cast<PFN_CreateStateObject>(table[62]);
+                table[62] = reinterpret_cast<void*>(&Hook_CreateStateObject);
+                DWORD junk = 0;
+                VirtualProtect(&table[62], sizeof(void*), o62, &junk);
+                log("[pso] ID3D12Device5::CreateStateObject hooked dev=%p", device);
+            }
         }
     }
     DWORD o17 = 0;

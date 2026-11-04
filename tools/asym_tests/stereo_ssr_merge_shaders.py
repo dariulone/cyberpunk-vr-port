@@ -54,6 +54,104 @@ SHADERS = {
     0xb39515454d8975e2: 'deferred ambient, permutation',
     0xe3e6c1d2d6391955: 'deferred ambient, permutation',
 }
+# The ambient permutations without the SSR confidence input (t9) -- ray-traced reflections, SSR off: only the eye's
+# view direction (eye_view), no merge. Found 2026-11-02 by their view direction from b12 row 0 at three sites, as above.
+EYE_VIEW_ONLY = {
+    0x3e66e55a562d5a52: 'deferred ambient, no SSR confidence',
+    0x4b924f246e7f942d: 'deferred ambient, no SSR confidence',
+    0x500518a96e1cba40: 'deferred ambient, no SSR confidence',
+    0x613d2190f89b9ceb: 'deferred ambient, no SSR confidence',
+    0x63496fcbd6a9b65f: 'deferred ambient, no SSR confidence',
+    0x6f28d5ae4d4a1685: 'deferred ambient, no SSR confidence',
+    0x70072ec8d5754627: 'deferred ambient, no SSR confidence',
+    0x734a51eb31b97ac2: 'deferred ambient, no SSR confidence',
+    0x8d79729b92cdcb37: 'deferred ambient, no SSR confidence',
+    0xb362a6144137bf2a: 'deferred ambient, no SSR confidence',
+    0xc0ca3d215f422a0c: 'deferred ambient, no SSR confidence',
+    0xd16064d3f90c3cb2: 'deferred ambient, no SSR confidence',
+}
+# The tiled deferred light pass (8x8 compute, one dispatch per eye skipping the other half; every permutation in
+# staticshader_final.cache): its specular takes the view from b12 row 0 too. eye_view(per_eye_dispatch=True), no merge.
+LIGHT_PASS = {
+    0x04ca186039e1f34e: 'tiled deferred lights',
+    0x0a188ae486c1eef8: 'tiled deferred lights',
+    0x113c2749c98ad7d6: 'tiled deferred lights',
+    0x1231a5401edacf84: 'tiled deferred lights',
+    0x13c550fe8dfd3c32: 'tiled deferred lights',
+    0x15ed1be3d59e72a5: 'tiled deferred lights',
+    0x1620d1f0dbd804e0: 'tiled deferred lights',
+    0x171c20751f35471e: 'tiled deferred lights',
+    0x187f113cf7fc9653: 'tiled deferred lights',
+    0x1d8f7c21d7457039: 'tiled deferred lights',
+    0x250b40619b111d76: 'tiled deferred lights',
+    0x26ea6cc91ceb804a: 'tiled deferred lights',
+    0x2822a5f81319ea65: 'tiled deferred lights',
+    0x296f164da9fceea8: 'tiled deferred lights',
+    0x2a0cfd5774b58f65: 'tiled deferred lights',
+    0x2b5b364af64bd4f2: 'tiled deferred lights',
+    0x2f4dbb335d1b1ab1: 'tiled deferred lights',
+    0x30f6d328fa8c31d0: 'tiled deferred lights',
+    0x31fd050136bc33b3: 'tiled deferred lights',
+    0x34cd47fdabad1f90: 'tiled deferred lights',
+    0x351bcc486b0f279c: 'tiled deferred lights',
+    0x3bab3100fe0554a4: 'tiled deferred lights',
+    0x3c0f22f19b3770bf: 'tiled deferred lights',
+    0x3e5efa82a6413060: 'tiled deferred lights',
+    0x47e07195e41b0b52: 'tiled deferred lights',
+    0x48e019a8a4f4f49b: 'tiled deferred lights',
+    0x49a52c3c7d3b20ba: 'tiled deferred lights',
+    0x4ab9421834b16ad3: 'tiled deferred lights',
+    0x4d78accf008a43fa: 'tiled deferred lights',
+    0x509eaa6834d851f1: 'tiled deferred lights',
+    0x518f688f209059ee: 'tiled deferred lights',
+    0x53826c45343a7ac5: 'tiled deferred lights',
+    0x53b045bf20677bf4: 'tiled deferred lights',
+    0x58913de9d8133f12: 'tiled deferred lights',
+    0x593990d07dee318a: 'tiled deferred lights',
+    0x60badcbbe10ccb7a: 'tiled deferred lights',
+    0x61ece71943374575: 'tiled deferred lights',
+    0x69dd486927ef075a: 'tiled deferred lights',
+    0x6c2f960fb3000d03: 'tiled deferred lights',
+    0x6de8fa9909ce0cc4: 'tiled deferred lights',
+    0x6ee9d44b1f126fa7: 'tiled deferred lights',
+    0x700f965763aba302: 'tiled deferred lights',
+    0x71d4872370b2b310: 'tiled deferred lights',
+    0x72afb8a8ff3fd522: 'tiled deferred lights',
+    0x78fe3f496d1cd549: 'tiled deferred lights',
+    0x7970773a4ced80b7: 'tiled deferred lights',
+    0x7c7a320ecb9c935b: 'tiled deferred lights',
+    0x7cc7f68e2351aabf: 'tiled deferred lights',
+    0x7e0958a796e3dc38: 'tiled deferred lights',
+    0x81bab508da15212d: 'tiled deferred lights',
+    0x84304a307b32f307: 'tiled deferred lights',
+    0x8db1acfb9ef13745: 'tiled deferred lights',
+    0x91be4af1a22ccc3c: 'tiled deferred lights',
+    0x94b4b93690170318: 'tiled deferred lights',
+    0x9981fa314d57ae9d: 'tiled deferred lights',
+    0x9e6716647f70e90f: 'tiled deferred lights',
+    0xa53770c7eee682be: 'tiled deferred lights',
+    0xaa2b44710ed9f24b: 'tiled deferred lights',
+    0xabb5f7b834de1e87: 'tiled deferred lights',
+    0xaeeedf4c7025879b: 'tiled deferred lights',
+    0xbcf86efc0fa3216f: 'tiled deferred lights',
+    0xbd42959f1de0db6e: 'tiled deferred lights',
+    0xc0363c97d79ef345: 'tiled deferred lights',
+    0xc77c4034f21291ca: 'tiled deferred lights',
+    0xc8950391539df973: 'tiled deferred lights',
+    0xc8c9edb54ff8955c: 'tiled deferred lights',
+    0xcd3a88e26a441cc9: 'tiled deferred lights',
+    0xd00d3355390a0877: 'tiled deferred lights',
+    0xd07c92b9ad5c9a08: 'tiled deferred lights',
+    0xd2d441cd660ca547: 'tiled deferred lights',
+    0xd3a693108d260112: 'tiled deferred lights',
+    0xdf6fbcab9cd07625: 'tiled deferred lights',
+    0xe18d1ee008432317: 'tiled deferred lights',
+    0xedd7e5425573ffdd: 'tiled deferred lights',
+    0xf3b9aefb9e0bce6c: 'tiled deferred lights',
+    0xf92b3fc7330d0e97: 'tiled deferred lights',
+    0xf947083084eb9d62: 'tiled deferred lights',
+    0xfe24d3c94704ca87: 'tiled deferred lights',
+}
 TOLERANCE = 0.03       # reverse-Z depth, relative: the same surface
 STRENGTH = 4.0         # all the way to the other eye at a quarter more confidence
 FORWARD_ROWS = (93, 113)   # b12 world->clip: left eye, right eye (rows k..k+3 = clip x, y, z, w)
@@ -256,10 +354,70 @@ def merge(ir):
     return ir[:cut] + '\n'.join(body) + '\n' + tail
 
 
-def build(original):
+def eye_view(ir, per_eye_dispatch=False):
+    """The direction to the viewer from the pixel's own eye (2026-11-02: puddles seen from above reflected the
+    probe painted onto their surface in both eyes; measured at the road's disparity, SSR and RT off).
+
+    The ambient pass builds its view direction normalize(b12 row 0 - P), P the pixel's world position from its
+    eye's inverse -- and b12 row 0 is ONE position for both eyes: the engine's stereo centre (the same shader picks
+    it over the eye's b1 row 36 for a distance when b0 row 32.x != 0). Both eyes then reflect the same direction at
+    a surface point, so the probe's reflection (all of it where the SSR missed: looking down, the rays leave the
+    picture) sits on the surface instead of behind it. In the stereo branch the twin takes b1 row 36 instead, the
+    eye this draw is for (one draw per eye); the mono branch keeps row 0.
+
+    per_eye_dispatch: the tiled light pass (LIGHT_PASS), one dispatch per eye that skips the other eye's half when
+    b1 row 53.x is 1 or 2. Its specular takes the same centre origin (a metal trim's highlight painted on in both
+    eyes); there the eye's row 36 applies when b0 row 32.x != 0 and the kind is an eye, tested where it is used."""
+    b0, b1, b12 = (handle(ir, 2, r) for r in (0, 1, 12))
+    if per_eye_dispatch:
+        mono = None
+    else:
+        entry = ir[:ir.index('\n; <label>:')]
+        flag_load = one(r'(?m)^  (%\d+) = call ' + re.escape(I) + r' @dx\.op\.cbufferLoadLegacy\.i32\(i32 59, %dx\.types\.Handle ' +
+                        re.escape(b0) + r', i32 32\)', entry, 'stereo flag load in the entry block')
+        mono = one(r'(?m)^  (%\d+) = icmp eq i32 ' + re.escape(extract(ir, flag_load, 0, I)) + ', 0$', entry, 'mono test')
+    # The view origin: the b12 row 0 load whose xyz are subtracted from something (the first one; a later one,
+    # inside the stereo branch, is the centre's distance and stays).
+    load = re.search(r'(?m)^  (%\d+) = call ' + re.escape(F) + r' @dx\.op\.cbufferLoadLegacy\.f32\(i32 59, %dx\.types\.Handle ' +
+                     re.escape(b12) + r', i32 0\)', ir)
+    if not load:
+        raise ValueError('b12 row 0 is not read')
+    origin = [extract(ir, load.group(1), c, F) for c in range(3)]
+    last = re.search(r'(?m)^  ' + re.escape(origin[2]) + r' = .*$', ir)
+    uses = 0
+    for value in origin:
+        if not re.search(r'(?m)^  %\d+ = fsub fast float ' + re.escape(value) + r', %\d+$', ir):
+            raise ValueError('b12 row 0 is not used as an origin (%s)' % value)
+    insert = ['  %%ev.row = call %s @dx.op.cbufferLoadLegacy.f32(i32 59, %%dx.types.Handle %s, i32 36)' % (F, b1)]
+    if mono is None:
+        insert += [
+            '  %%ev.flag = call %s @dx.op.cbufferLoadLegacy.i32(i32 59, %%dx.types.Handle %s, i32 32)' % (I, b0),
+            '  %%ev.flagx = extractvalue %s %%ev.flag, 0' % I,
+            '  %%ev.kind = call %s @dx.op.cbufferLoadLegacy.i32(i32 59, %%dx.types.Handle %s, i32 %d)' % (I, b1, EYE_ROW),
+            '  %%ev.kindx = extractvalue %s %%ev.kind, 0' % I,
+            '  %ev.two = icmp ne i32 %ev.flagx, 0',
+            '  %ev.eye = icmp ne i32 %ev.kindx, 0',
+            '  %ev.stereo = and i1 %ev.two, %ev.eye',
+        ]
+    else:
+        insert += ['  %ev.stereo = xor i1 ' + mono + ', true']
+    for c, value in enumerate(origin):
+        insert += ['  %%ev.e%d = extractvalue %s %%ev.row, %d' % (c, F, c),
+                   '  %%ev.o%d = select i1 %%ev.stereo, float %%ev.e%d, float %s' % (c, c, value)]
+    head, tail = ir[:last.end()], ir[last.end():]
+    for c, value in enumerate(origin):
+        tail, n = re.subn(re.escape(value) + r'\b', '%%ev.o%d' % c, tail)
+        uses += n
+    if not uses:
+        raise ValueError('b12 row 0 has no uses after its load')
+    return head + '\n' + '\n'.join(insert) + tail
+
+
+def build(original, with_merge=True, per_eye_dispatch=False):
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
-        container = ham.assemble(merge(ham.disassemble(original, work)), work)
+        ir = eye_view(ham.disassemble(original, work), per_eye_dispatch)
+        container = ham.assemble(merge(ir) if with_merge else ir, work)
     if dc.dxil_hash(container) != container[4:20]:
         raise RuntimeError('validator output hash mismatch')
     return container
@@ -269,10 +427,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--shaders', type=Path, required=True, help='original shaders named <fnv1a>.dxil')
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--forward', action='store_true',
+                        help='build the forward material set (stereo_forward_shaders.txt; --shaders = shader_final.cache extract)')
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     failed = 0
-    for key, name in SHADERS.items():
+    if args.forward:
+        rows = [line.split() for line in (Path(__file__).parent / 'stereo_forward_shaders.txt').read_text().splitlines()
+                if line and not line.startswith('#')]
+        work = [(int(h, 16), 'forward %s' % stage, mode == 'fresh') for h, stage, mode in rows]
+    else:
+        work = [(key, name, key in LIGHT_PASS) for key, name in
+                list(SHADERS.items()) + list(EYE_VIEW_ONLY.items()) + list(LIGHT_PASS.items())]
+    for key, name, per_eye_dispatch in work:
         source = args.shaders / ('%016x.dxil' % key)
         if not source.exists():
             print('MISSING %016x %s' % (key, name)); failed += 1; continue
@@ -280,7 +447,7 @@ def main():
         if ham.fnv1a(original) != key:
             raise RuntimeError('%s does not hash to its name' % source)
         try:
-            patched = build(original)
+            patched = build(original, with_merge=key in SHADERS, per_eye_dispatch=per_eye_dispatch)
         except Exception as error:
             print('FAILED %016x %s: %s' % (key, name, error)); failed += 1; continue
         (args.out / ('%016x.dxil' % key)).write_bytes(patched)
