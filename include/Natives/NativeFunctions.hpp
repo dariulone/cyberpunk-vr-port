@@ -28,6 +28,7 @@ void VRMenuGesture(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray
 void VRMenuPointer(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
 void VRWorldTouchPointer(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::DynArray<RED4ext::Vector4>*,int64_t);
 void VRMenuCapture(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRGripFromFingers(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRWeaponWheel(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
 void VRMenuVendorPoll(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::Handle<RED4ext::IScriptable>*,int64_t);
 void VRMenuVendorResolve(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);

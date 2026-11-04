@@ -34,6 +34,7 @@
 #include "Core/LiveControls.hpp"
 #include "Overlay/VrOverlay.hpp"
 #include "Overlay/UiRec.hpp"
+#include "Runtimes/FingerGrip.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 
 #include <RED4ext/Scripting/Utils.hpp>
@@ -185,7 +186,9 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     uint64_t sequence{}, stamp{};
     VRControllerState input{};
     auto& xr = OpenXRManager::Get();
-    if (!g_liveControls.xrMenuGesture || !xr.GetGestureHandFrame(&head, hands, &sequence, &stamp, false) || !hands[1].valid ||
+    // With the grip read from the fingers a hand closed on the controller grips all the time, and any move down would be
+    // a swipe: the menu then opens with L3 + R3 only.
+    if (!g_liveControls.xrMenuGesture || cvr::fingergrip::GripFromFingers() || !xr.GetGestureHandFrame(&head, hands, &sequence, &stamp, false) || !hands[1].valid ||
         !xr.GetControllerState(&input) || !input.rightHandValid) {
         g_swipe.Clear();
         return;
@@ -286,6 +289,13 @@ void VRMenuOpenSettings(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool
     const bool open = !cvr::vrui::Visible();
     if (open) cvr::vrui::Toggle();
     if (out) *out = open;
+}
+
+// VRGripFromFingers() -> Bool: the grip is read from the fingers (xr_grip_from_fingers), so a hand closed on the controller
+// reads as gripping before it does anything; what waits for a grip to close asks here.
+void VRGripFromFingers(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    stack->code++;
+    if (out) *out = cvr::fingergrip::GripFromFingers();
 }
 
 // VRMenuCapture(open): while the menu is open the triggers, grips and face buttons stop reaching the game.

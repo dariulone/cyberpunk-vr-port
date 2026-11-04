@@ -1,4 +1,5 @@
 #include "Overlay/VrOverlay.hpp"
+#include "Runtimes/FingerGrip.hpp"
 #include <windows.h>
 #include <atomic>
 #include <mutex>
@@ -55,7 +56,10 @@ void UpdateTracking(const Tracking& t){
     // be arbitrarily old while closed. Give each new request its opening window;
     // require a live heartbeat only after that request has made the panel visible.
     if(wanted && ((visible && bridgeStamp && now-bridgeStamp>1500) || (!visible && now-requestStamp>3000))){wanted=false;visible=false;ReleasePointer();}
-    if(releasePending && !both && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && t.hands[0].grip<.5f && t.hands[1].grip<.5f)releasePending=false;
+    // With the grip read from the fingers a hand closed on the controller reads as gripping for as long as it holds it:
+    // waiting for that grip to open held every button and stick back from the game and the VR menu.
+    const bool gripsOpen=cvr::fingergrip::GripFromFingers() || (t.hands[0].grip<.5f && t.hands[1].grip<.5f);
+    if(releasePending && !both && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsOpen)releasePending=false;
     capture=visible || wanted || both || releasePending;
     view.hold=float(chord.held);
     if(!visible){view.valid=false;return;}

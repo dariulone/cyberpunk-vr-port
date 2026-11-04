@@ -163,6 +163,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     worldTouch->flags=flags;worldTouch->SetReturnType("array:Vector4");
     worldTouch->AddParam("handle:IScriptable","component");worldTouch->AddParam("Vector4","centre");
     worldTouch->AddParam("Vector4","normal");rtti->RegisterFunction(worldTouch);
+    auto gripFingers=RED4ext::CGlobalFunction::Create("VRGripFromFingers","VRGripFromFingers",&VRGripFromFingers);
+    gripFingers->flags=flags;gripFingers->SetReturnType("Bool");rtti->RegisterFunction(gripFingers);
     auto menuCapture=RED4ext::CGlobalFunction::Create("VRMenuCapture","VRMenuCapture",&VRMenuCapture);
     auto vendorPoll=RED4ext::CGlobalFunction::Create("VRMenuVendorPoll","VRMenuVendorPoll",&VRMenuVendorPoll);
     vendorPoll->flags=flags;vendorPoll->AddParam("Bool","enabled");vendorPoll->AddParam("handle:IScriptable","system",false,true);vendorPoll->SetReturnType("handle:IScriptable");rtti->RegisterFunction(vendorPoll);

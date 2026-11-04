@@ -1941,6 +1941,8 @@ updateGrenadeGrab = function(now, dt)
     if pend ~= nil then
         if not gripDown(pend.side) or (now - pend.at) > 2.0 then
             trace("pending grab dropped: grip=%s waited=%.2f", tostring(gripDown(pend.side)), now - pend.at)
+            -- A grip still closed after the wait has had its turn: the hand opens before it tries again.
+            if gripDown(pend.side) then E.S.grab.spent = E.S.grab.spent or {}; E.S.grab.spent[pend.side] = true end
             E.S.grab.pending = nil
         elseif E.weaponInHands(pl) == false then
             E.S.grab.pending = nil
@@ -1950,11 +1952,16 @@ updateGrenadeGrab = function(now, dt)
         return
     end
 
-    -- FREE: a grip that CLOSES while that hand is at the grenade holder takes it.
+    -- FREE: a grip that CLOSES while that hand is at the grenade holder takes it. With the grip read from the
+    -- fingers a closed grip is enough: the hand can be closed already when it reaches the belt.
+    local closedTakes = false
+    if type(VRGripFromFingers) == "function" then pcall(function() closedTakes = VRGripFromFingers() == true end) end
+    E.S.grab.spent = E.S.grab.spent or {}
     for side = 0, 1 do
         local down = gripDown(side)
-        local edge = down and not E.S.grab.was[side]
+        local edge = down and (closedTakes and not E.S.grab.spent[side] or not E.S.grab.was[side])
         E.S.grab.was[side] = down
+        if not down then E.S.grab.spent[side] = nil end
         if edge and E.S.grab.slot == nil then
             local host = E.S.litHand[side]
             -- The proximity test the mark already ran IS the "at the belt" condition -- see the note
