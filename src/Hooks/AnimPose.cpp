@@ -215,6 +215,7 @@ extern "C" inline void* Hooked_AnimPoseApply(void* a1, void* a2, void* a3, unsig
                             g_liveControls.xrCutsceneSuspendTier,g_liveControls.xrVehicleCutsceneSuspendTier) ||
                             cvr::anim::ShouldSuspendVrikForTakedown(g_VRTakedownState,CyberpunkVR_VrikTakedownSuspend) ||
                             cvr::anim::ShouldSuspendVrikForBodyCarry(g_VRBodyCarryingState,g_VRBodyDisposalState,g_VRLocomotionState,CyberpunkVR_VrikBodyCarryHandOff) ||
+                            (!mounted && cvr::anim::ShouldSuspendVrikForWorkspot(g_sceneTier.load(std::memory_order_relaxed),g_VRLocomotionState,g_liveControls.xrCutsceneSuspendTier)) ||
                             FinisherOwnsBody();
                         if(g_solveCacheModel && g_solveCacheN>0 && !headAimWork && !suspended && !DeviceCamActive() && !cvr::ladder::Active())
                             VRIK_ApplyCyberwarePose(boneBuf,reinterpret_cast<float*>(trackBuf),
@@ -242,7 +243,14 @@ if (g_VRRecordFK) {
                 const bool poseLadder=!poseMounted && cvr::ladder::Active();
                 const bool ladderVrik=poseLadder && cvr::anim::IsControllerVrikEnabled(g_VRBind,headAimWork) && g_liveControls.xrLadderGripClimb!=0;
                 int ladderKinds[2]{};if(ladderVrik)cvr::ladder::ReadHandKinds(ladderKinds);
-                const bool posePairedAnimation=
+                const bool poseWorkspot=!poseMounted && cvr::anim::ShouldSuspendVrikForWorkspot(
+                    g_sceneTier.load(std::memory_order_relaxed),g_VRLocomotionState,g_liveControls.xrCutsceneSuspendTier);
+                static bool previousPoseWorkspot=false;
+                if(poseWorkspot!=previousPoseWorkspot) {
+                    previousPoseWorkspot=poseWorkspot;
+                    Log("[VRIK] held in a workspot: %d (tier %d)\n",int(poseWorkspot),g_sceneTier.load(std::memory_order_relaxed));
+                }
+                const bool posePairedAnimation=poseWorkspot ||
                     cvr::anim::ShouldSuspendVrikForTakedown(g_VRTakedownState,CyberpunkVR_VrikTakedownSuspend) ||
                     cvr::anim::ShouldSuspendVrikForBodyCarry(g_VRBodyCarryingState,g_VRBodyDisposalState,g_VRLocomotionState,CyberpunkVR_VrikBodyCarryHandOff) ||
                     FinisherOwnsBody();

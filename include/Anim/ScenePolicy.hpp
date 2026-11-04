@@ -17,6 +17,15 @@ inline bool ShouldSuspendVrik(int engineTier,int configuredTier) {
 inline bool ShouldSuspendVrik(int engineTier,bool inVehicle,int onFootTier,int vehicleTier) {
     return ShouldSuspendVrik(engineTier,inVehicle ? vehicleTier : onFootTier);
 }
+// A POSE THE GAME HOLDS THE PLAYER IN -- sitting, lying, leaning: a workspot (locomotion 9, measured) in a staged scene
+// (Tier2 and up). Its entry plays above the suspend threshold, and when it settles the tier drops back below it with the
+// player still held, so VRIK and the physical body came back and drew the body beside the seat. With the setting at
+// "Never" the player has asked for VRIK always, and gets it.
+inline bool ShouldSuspendVrikForWorkspot(int engineTier,int locomotionState,int configuredTier) {
+    return configuredTier>=1 && configuredTier<=4 && locomotionState==9 &&
+        engineTier>static_cast<int>(RED4ext::GameplayTier::Tier1_FullGameplay) &&
+        engineTier<=static_cast<int>(RED4ext::GameplayTier::Tier5_Cinematic);
+}
 // A GRAPPLE OR TAKEDOWN IS A PAIRED ANIMATION: the victim is placed against the body the animation
 // authors, so arms solved to the controllers let go of it. gamePSMTakedown 1..4 (EnteringGrapple,
 // Grapple, Leap, Takedown) hand the body to the animation; 0 and unknown (-1) do not.

@@ -460,8 +460,15 @@ static bool OnFootViewAllowed() {
         !g_bdActive.load(std::memory_order_relaxed);
 }
 
+// The pose hook hands a workspot's body to its animation (Anim/ScenePolicy.hpp); the view and the room go with it, as
+// they do for the scene threshold.
+static bool HeldInWorkspot() {
+    return cvr::anim::ShouldSuspendVrikForWorkspot(g_sceneTier.load(std::memory_order_relaxed),g_VRLocomotionState,
+        g_liveControls.xrCutsceneSuspendTier);
+}
+
 static bool PhysicalBodyScopeEnabled() {
-    return !cvr::ladder::Active() && g_pSharedHands &&
+    return !cvr::ladder::Active() && g_pSharedHands && !HeldInWorkspot() &&
         !DeviceCamActive() && !g_bdActive.load(std::memory_order_relaxed) &&
         IsVrikBodyMovementAllowed(g_VRBind,
         cvr::anim::IsHeadAimWeaponActive(),g_isInVehicle,
@@ -490,7 +497,7 @@ bool PoseFrameAllowed() {
     // controllers. Script locomotion flags supplement it; they do not identify an owner.
     // Keep publishing the camera's coherent pose when VRIK is switched off;
     // only physical body motion depends on the solver mode, not the view.
-    return OnFootViewAllowed() && !g_isInVehicle && IsVrikPoseTierAllowed(
+    return OnFootViewAllowed() && !g_isInVehicle && !HeldInWorkspot() && IsVrikPoseTierAllowed(
         g_sceneTier.load(std::memory_order_relaxed),g_liveControls.xrCutsceneSuspendTier);
 }
 
