@@ -535,6 +535,8 @@ return {
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation no es compatible con esta GPU (requiere RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Falló la inicialización de NGX (0x%08X)",
   ["FULL-BODY TRACKING"] = "SEGUIMIENTO DE CUERPO COMPLETO",
+  ["Enable Vive trackers"] = "Activar los Vive Trackers",
+  ["Reads your Vive Trackers. Give them the roles Waist, Left Foot and Right Foot in SteamVR.\nTurning it on applies at the next game start."] = "Lee tus Vive Trackers. Asígnales en SteamVR los roles Waist, Left Foot y Right Foot.\nActivarlo se aplica en el próximo inicio del juego.",
   ["Calibrate full-body tracking"] = "Calibrar el seguimiento de cuerpo completo",
   ["Three steps: look ahead at the horizon line, press both triggers;\nstand straight, arms along the body, look down, press both triggers;\nthen the T-pose on the cross until the countdown ends.\nNeeds the Vive Trackers on the waist and both feet."] = "Tres pasos: mira al frente a la línea del horizonte y presiona ambos gatillos;\npárate derecho, brazos a lo largo del cuerpo, mira hacia abajo y presiona ambos gatillos;\nluego la pose en T sobre la cruz hasta que termine la cuenta regresiva.\nNecesita Vive Trackers en la cintura y en ambos pies.",
   ["Full-body calibration works in game only: load a save first."] = "La calibración de cuerpo completo solo funciona en el juego: primero carga una partida.",

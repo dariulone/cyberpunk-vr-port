@@ -348,6 +348,13 @@ bool SolveArm(uint8_t* boneBuf, int side, const float target[3], const float han
         r[0] = pose.localRot[b].x; r[1] = pose.localRot[b].y; r[2] = pose.localRot[b].z; r[3] = pose.localRot[b].w;
     };
     for (int b : bones) write(b);
+    // Where the solve put the wrist, as VRIK_SolveArm publishes it: the palm the belt, the holders and the reach measure
+    // from. Unwritten, it stayed where the port's own solve last left it, the moment the arms came here.
+    if (bones[3] >= 0 && bones[3] < n) {
+        const Vec3 wrist = pose.modelPos[bones[3]];
+        float* pin = g_VRIKHandPin[side == 1 ? 0 : 1];
+        pin[0] = wrist.x; pin[1] = wrist.y; pin[2] = wrist.z;
+    }
 
     // THE TWIST HELPERS. The forearm's skin hangs on three helpers along it (l/r_Wrist_0..2_JNT, a third, two thirds and
     // the end of the forearm), which the game turns with the wrist: the hand's twist about the forearm's axis (against

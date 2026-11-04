@@ -535,6 +535,8 @@ return {
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "A DLSS Frame Generation ezen a GPU-n nem támogatott (RTX 40/50 szükséges)",
   ["NGX initialization failed (0x%08X)"] = "Az NGX inicializálása sikertelen (0x%08X)",
   ["FULL-BODY TRACKING"] = "TELJES TEST KÖVETÉSE",
+  ["Enable Vive trackers"] = "Vive Trackerek engedélyezése",
+  ["Reads your Vive Trackers. Give them the roles Waist, Left Foot and Right Foot in SteamVR.\nTurning it on applies at the next game start."] = "Beolvassa a Vive Trackereket. SteamVR-ben add meg nekik a Waist, Left Foot és Right Foot szerepet.\nA bekapcsolás a játék következő indításától érvényes.",
   ["Calibrate full-body tracking"] = "Teljes test követésének kalibrálása",
   ["Three steps: look ahead at the horizon line, press both triggers;\nstand straight, arms along the body, look down, press both triggers;\nthen the T-pose on the cross until the countdown ends.\nNeeds the Vive Trackers on the waist and both feet."] = "Három lépés: nézz egyenesen a horizontvonalra, és nyomd meg mindkét ravaszt;\nállj egyenesen, karok a test mellett, nézz le, és nyomd meg mindkét ravaszt;\nutána T-póz a keresztnél, amíg a visszaszámlálás véget nem ér.\nVive Tracker kell a derékra és mindkét lábra.",
   ["Full-body calibration works in game only: load a save first."] = "A teljes test kalibrálása csak játék közben működik: előbb tölts be egy mentést.",

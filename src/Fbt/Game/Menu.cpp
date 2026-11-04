@@ -1,14 +1,25 @@
 #include "Fbt/Game/Menu.hpp"
 #include "Fbt/Game/Body.hpp"
 #include "Fbt/Game/Calibration.hpp"
+#include "Overlay/LiveControlsUi.hpp"
 #include "Overlay/UiRec.hpp"
 
 using namespace wrpuppets::fbt;   // the IK library (externals/wrpuppets-fbt-ik)
 
 namespace cvr::fbt::game {
 
-void DrawSettingsSection() {
+bool DrawSettingsSection(LiveControlsUiState& state) {
+    bool changed = false;
     if (UI::CollapsingHeader("FULL-BODY TRACKING", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // The extension is chosen when the OpenXR instance is created: the switch applies at the next start.
+        bool trackers = state.xrViveTrackers != 0;
+        if (UI::Checkbox("Enable Vive trackers", &trackers)) {
+            state.xrViveTrackers = trackers ? 1 : 0;
+            changed = true;
+            // Turning the trackers on is asking for the body: the switches below start on, and can be turned off.
+            if (trackers) { SetLegsEnabled(true); SetSpineEnabled(true); SetArmsEnabled(true); }
+        }
+        if (UI::IsItemHovered()) UI::SetTooltip("Reads your Vive Trackers. Give them the roles Waist, Left Foot and Right Foot in SteamVR.\nTurning it on applies at the next game start.");
         const int step = CalibrationStep();
         if (step == 0) {
             const bool available = CalibrationAvailable();
@@ -42,6 +53,7 @@ void DrawSettingsSection() {
         UI::EndDisabled();
         UI::EndDisabled();
     }
+    return changed;
 }
 
 }  // namespace cvr::fbt::game

@@ -1991,6 +1991,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrHudDistance=g_liveControls.xrHudDistance;
     state.xrHudFollowMode=g_liveControls.xrHudFollowMode;
     state.xrHudStereoDepth=g_liveControls.xrHudStereoDepth;
+    state.xrViveTrackers=g_viveTrackersSetting;
     state.xrHudBrightness=g_liveControls.xrHudBrightness;
     state.xrHudShadow=g_liveControls.xrHudShadow;
     state.xrHudGlow=g_liveControls.xrHudGlow;
@@ -2464,6 +2465,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrHudPanel=state->xrHudPanel!=0;
     g_liveControls.xrHudFollowMode=state->xrHudFollowMode==1;
     g_liveControls.xrHudStereoDepth=state->xrHudStereoDepth!=0;
+    g_viveTrackersSetting=state->xrViveTrackers!=0;
     g_liveControls.xrHudBrightness=(state->xrHudBrightness>=0.25f && state->xrHudBrightness<=3) ? state->xrHudBrightness : 1;
     g_liveControls.xrHudShadow=(state->xrHudShadow>=0 && state->xrHudShadow<=2) ? state->xrHudShadow : 1;
     g_liveControls.xrHudGlow=(state->xrHudGlow>=0 && state->xrHudGlow<=2) ? state->xrHudGlow : 1;

@@ -160,6 +160,7 @@ struct LiveControlsUiState {
     int xrBreaststrokeSwim;
     int xrLadderGripClimb;
     int xrLeftHanded;
+    int xrViveTrackers = 0;          // xr_vive_trackers: full-body tracking reads the Vive trackers (on: next start)
     int xrLadderAutoFinish;
     float xrLadderFinishDistance;
 };

@@ -535,6 +535,8 @@ return {
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "이 GPU에서는 DLSS Frame Generation이 지원되지 않습니다(RTX 40/50 필요)",
   ["NGX initialization failed (0x%08X)"] = "NGX 초기화 실패(0x%08X)",
   ["FULL-BODY TRACKING"] = "전신 트래킹",
+  ["Enable Vive trackers"] = "Vive 트래커 사용",
+  ["Reads your Vive Trackers. Give them the roles Waist, Left Foot and Right Foot in SteamVR.\nTurning it on applies at the next game start."] = "Vive 트래커를 읽습니다. SteamVR에서 Waist, Left Foot, Right Foot 역할을 지정하세요.\n켜기는 다음 게임 시작부터 적용됩니다.",
   ["Calibrate full-body tracking"] = "전신 트래킹 보정",
   ["Three steps: look ahead at the horizon line, press both triggers;\nstand straight, arms along the body, look down, press both triggers;\nthen the T-pose on the cross until the countdown ends.\nNeeds the Vive Trackers on the waist and both feet."] = "세 단계: 정면의 수평선을 보고 양쪽 트리거를 누릅니다;\n똑바로 서서 팔을 몸에 붙이고 아래를 보고 양쪽 트리거를 누릅니다;\n그다음 카운트다운이 끝날 때까지 십자가 앞에서 T 포즈.\n허리와 양발에 Vive Tracker가 필요합니다.",
   ["Full-body calibration works in game only: load a save first."] = "전신 보정은 게임 안에서만 됩니다: 먼저 세이브를 불러오세요.",
