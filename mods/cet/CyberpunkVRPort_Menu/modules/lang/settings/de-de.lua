@@ -1,6 +1,8 @@
 -- German (de-de): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/de-de.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Fingertracking bei leeren Händen",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Die Finger einer leeren Hand folgen der Fingererkennung des Controllers (Index-Controller unter SteamVR).\nAus, oder wenn die Laufzeit keine bietet: Sie folgen Griff und Abzug.\nBetrifft nur die Darstellung der Finger. Eine Hand mit Waffe oder Gegenstand behält ihren Griff.",
   ["Use OpenXR runtime projection FOV"] = "Projektions-FOV der OpenXR-Laufzeit verwenden",
   ["OpenXR projection layer FOV"] = "FOV der OpenXR-Projektionsebene",
   ["%.1f deg"] = "%.1f°",
@@ -534,4 +536,24 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation benötigt einen neueren NVIDIA-Treiber",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation wird auf dieser GPU nicht unterstützt (RTX 40/50 erforderlich)",
   ["NGX initialization failed (0x%08X)"] = "NGX-Initialisierung fehlgeschlagen (0x%08X)",
+  ["Hand collision"] = "Handkollision",
+  ["Hands and arms stop at the body and at each other.\nEmpty hands also stop at walls and furniture (static world geometry).\nOnly the drawn arm stops; your real hand does not."] = "Hände und Arme stoppen am Körper und aneinander.\nLeere Hände stoppen auch an Wänden und Möbeln (statische Weltgeometrie).\nNur der dargestellte Arm stoppt, deine echte Hand nicht.",
+  ["Hand collision in vehicles"] = "Handkollision in Fahrzeugen",
+  ["Seated, hands stop at the body and each other, not at the car.\nA hand on the wheel is never stopped."] = "Im Sitzen stoppen die Hände am Körper und aneinander, nicht am Auto.\nEine Hand am Lenkrad wird nie gestoppt.",
+  ["Hands push loose objects"] = "Hände schieben lose Gegenstände",
+  ["An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\nagainst a light prop knocks that one prop loose. Never in a vehicle.\nExperimental: turn it off if the player is ever thrown about."] = "Eine leere Hand abseits des Körpers schiebt Flaschen, Kisten und Ähnliches, und eine Hand, die\ngegen ein leichtes Objekt drückt, löst genau dieses Objekt. Nie in einem Fahrzeug.\nExperimentell: Schalte es aus, falls der Spieler je herumgeschleudert wird.",
+  ["Fingers stop at surfaces"] = "Finger stoppen an Oberflächen",
+  ["Closing an empty hand, each finger stops where it meets something, so a hand\nrests on a table or closes round a pipe. Never in a vehicle."] = "Beim Schließen einer leeren Hand stoppt jeder Finger dort, wo er auf etwas trifft: Die Hand\nliegt auf einem Tisch auf oder schließt sich um ein Rohr. Nie in einem Fahrzeug.",
+  ["Pick up small objects"] = "Kleine Gegenstände aufheben",
+  ["Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\nabout 6 kg, two about 30, and the other hand can take it over.\nExperimental: turn it off if the player is ever thrown about."] = "Drücke den Griff an einem losen Gegenstand, um ihn zu tragen, und lass los, um ihn fallen zu lassen oder zu werfen.\nEine Hand hebt etwa 6 kg, zwei etwa 30, und die andere Hand kann ihn übernehmen.\nExperimentell: Schalte es aus, falls der Spieler je herumgeschleudert wird.",
+  ["Show collision shapes and rays"] = "Kollisionsformen und Strahlen anzeigen",
+  ["For finding faults, and it costs frame rate. Stays off after a restart.\nBlue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\nRays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm."] = "Zur Fehlersuche, kostet Bildrate. Ist nach einem Neustart wieder aus.\nBlau die Hände, Cyan die Finger, Magenta Personen. Aus PhysX im Umkreis von 2 m: grau die Welt, gelb, was sich bewegt.\nStrahlen: grün frei, rot bis zum Treffer. In einem getragenen Gegenstand: orange die gegriffene Stelle, weiß die Handfläche.",
+  ["Carried objects stick to the hand"] = "Getragene Gegenstände haften an der Hand",
+  ["Draws a carried thing on the hand in the same frame, while its body follows in the physics.\nAgainst a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing."] = "Zeichnet einen getragenen Gegenstand im selben Bild an der Hand, während sein Körper in der Physik folgt.\nAn einer Wand geht das Bild zurück zum Körper. Aus: Das Bild liegt auf dem Körper und bleibt bei Schwüngen zurück.",
+  ["Carried objects lead the hand (ms)"] = "Getragene Gegenstände eilen der Hand voraus (ms)",
+  ["Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\nlower it if it runs ahead when the hand stops."] = "Die Physik erreicht den Bildschirm später als die Hand. Erhöhe den Wert, bis ein schnell geschwungener Gegenstand nicht mehr hinterherhängt,\nund senke ihn, wenn er beim Anhalten der Hand vorausläuft.",
+  ["Distance kept from surfaces (cm)"] = "Abstand zu Oberflächen (cm)",
+  ["The game's collision is simpler and often smaller than what is drawn. More distance keeps\nhands and fingers out of the mesh, and makes them stop a little before they touch."] = "Die Kollision des Spiels ist einfacher und oft kleiner als das Dargestellte. Mehr Abstand hält\nHände und Finger aus dem Modell heraus und lässt sie kurz vor der Berührung stoppen.",
+  ["Hold a car's wheel anywhere on the rim"] = "Autolenkrad überall am Kranz greifen",
+  ["Your hand stays where you took hold and slides round the rim with your own hand, so\nyou can steer one-handed from the top and change grip in a hard turn.\nOff: a grab puts the hand where the driving animation holds it. Bikes always do."] = "Deine Hand bleibt, wo du zugegriffen hast, und gleitet mit deiner eigenen Hand um den Kranz. So kannst du\neinhändig von oben lenken und in einer scharfen Kurve umgreifen.\nAus: Ein Griff setzt die Hand dorthin, wo die Fahranimation sie hält. Bei Motorrädern immer so.",
 }

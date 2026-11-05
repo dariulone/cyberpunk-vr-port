@@ -962,6 +962,7 @@ private:
     XrAction m_thumbstickAction = XR_NULL_HANDLE;        // Vector2f, per hand
     XrAction m_triggerAction = XR_NULL_HANDLE;           // Float, per hand
     XrAction m_gripAction = XR_NULL_HANDLE;              // Float, per hand
+    XrAction m_gripForceAction = XR_NULL_HANDLE;         // Float, per hand: squeezed past closed. Index only
     XrAction m_thumbstickClickAction = XR_NULL_HANDLE;   // Bool, per hand (L3/R3)
     XrAction m_primaryButtonAction = XR_NULL_HANDLE;     // Bool, per hand (X / A)
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)

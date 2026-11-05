@@ -40545,6 +40545,398 @@
                 "$value": "vr_optics_feed"
               },
               "zoom": 1
+            },
+            {
+              "$type": "entColliderComponent",
+              "colliders": [
+                {
+                  "HandleId": "729",
+                  "Data": {
+                    "$type": "physicsColliderCapsule",
+                    "filterData": null,
+                    "height": 0.08,
+                    "isImported": 0,
+                    "isQueryShapeOnly": 0,
+                    "localToBody": {
+                      "$type": "Transform",
+                      "orientation": {
+                        "$type": "Quaternion",
+                        "i": 0,
+                        "j": 0,
+                        "k": 0,
+                        "r": 1
+                      },
+                      "position": {
+                        "$type": "Vector4",
+                        "W": 0,
+                        "X": 0,
+                        "Y": 0,
+                        "Z": 0
+                      }
+                    },
+                    "material": {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "None"
+                    },
+                    "materialApperanceOverrides": [],
+                    "radius": 0.05,
+                    "tag": {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "None"
+                    },
+                    "volumeModifier": 1
+                  }
+                }
+              ],
+              "comOffset": {
+                "$type": "Transform",
+                "orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "position": {
+                  "$type": "Vector4",
+                  "W": 0,
+                  "X": 0,
+                  "Y": 0,
+                  "Z": 0
+                }
+              },
+              "dynamicTrafficSetting": {
+                "$type": "TrafficGenDynamicTrafficSetting",
+                "impact": "Ignored"
+              },
+              "filterData": {
+                "HandleId": "730",
+                "Data": {
+                  "$type": "physicsFilterData",
+                  "customFilterData": {
+                    "HandleId": "732",
+                    "Data": {
+                      "$type": "physicsCustomFilterData",
+                      "collideWith": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Dynamic"
+                        },
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Debris"
+                        }
+                      ],
+                      "collisionType": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Dynamic"
+                        }
+                      ],
+                      "queryDetect": []
+                    }
+                  },
+                  "preset": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "None"
+                  },
+                  "queryFilter": {
+                    "$type": "physicsQueryFilter",
+                    "mask1": "0",
+                    "mask2": "0"
+                  },
+                  "simulationFilter": {
+                    "$type": "physicsSimulationFilter",
+                    "mask1": "0",
+                    "mask2": "0"
+                  }
+                }
+              },
+              "id": "5195263792530830587",
+              "inertia": {
+                "$type": "Vector3",
+                "X": 1,
+                "Y": 1,
+                "Z": 1
+              },
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "mass": 1,
+              "massOverride": -1,
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "VRPortHand_l"
+              },
+              "parentTransform": {
+                "HandleId": "731",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponLeft"
+                  }
+                }
+              },
+              "simulationType": "Kinematic",
+              "startInactive": 1,
+              "useCCD": 0,
+              "volume": 0
+            },
+            {
+              "$type": "entColliderComponent",
+              "colliders": [
+                {
+                  "HandleId": "733",
+                  "Data": {
+                    "$type": "physicsColliderCapsule",
+                    "filterData": null,
+                    "height": 0.08,
+                    "isImported": 0,
+                    "isQueryShapeOnly": 0,
+                    "localToBody": {
+                      "$type": "Transform",
+                      "orientation": {
+                        "$type": "Quaternion",
+                        "i": 0,
+                        "j": 0,
+                        "k": 0,
+                        "r": 1
+                      },
+                      "position": {
+                        "$type": "Vector4",
+                        "W": 0,
+                        "X": 0,
+                        "Y": 0,
+                        "Z": 0
+                      }
+                    },
+                    "material": {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "None"
+                    },
+                    "materialApperanceOverrides": [],
+                    "radius": 0.05,
+                    "tag": {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "None"
+                    },
+                    "volumeModifier": 1
+                  }
+                }
+              ],
+              "comOffset": {
+                "$type": "Transform",
+                "orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "position": {
+                  "$type": "Vector4",
+                  "W": 0,
+                  "X": 0,
+                  "Y": 0,
+                  "Z": 0
+                }
+              },
+              "dynamicTrafficSetting": {
+                "$type": "TrafficGenDynamicTrafficSetting",
+                "impact": "Ignored"
+              },
+              "filterData": {
+                "HandleId": "734",
+                "Data": {
+                  "$type": "physicsFilterData",
+                  "customFilterData": {
+                    "HandleId": "736",
+                    "Data": {
+                      "$type": "physicsCustomFilterData",
+                      "collideWith": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Dynamic"
+                        },
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Debris"
+                        }
+                      ],
+                      "collisionType": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "Dynamic"
+                        }
+                      ],
+                      "queryDetect": []
+                    }
+                  },
+                  "preset": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "None"
+                  },
+                  "queryFilter": {
+                    "$type": "physicsQueryFilter",
+                    "mask1": "0",
+                    "mask2": "0"
+                  },
+                  "simulationFilter": {
+                    "$type": "physicsSimulationFilter",
+                    "mask1": "0",
+                    "mask2": "0"
+                  }
+                }
+              },
+              "id": "5195263792530830588",
+              "inertia": {
+                "$type": "Vector3",
+                "X": 1,
+                "Y": 1,
+                "Z": 1
+              },
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "mass": 1,
+              "massOverride": -1,
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "VRPortHand_r"
+              },
+              "parentTransform": {
+                "HandleId": "735",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponRight"
+                  }
+                }
+              },
+              "simulationType": "Kinematic",
+              "startInactive": 1,
+              "useCCD": 0,
+              "volume": 0
             }
           ]
         }
@@ -60876,6 +61268,398 @@
             "$value": "vr_optics_feed"
           },
           "zoom": 1
+        },
+        {
+          "$type": "entColliderComponent",
+          "colliders": [
+            {
+              "HandleId": "729",
+              "Data": {
+                "$type": "physicsColliderCapsule",
+                "filterData": null,
+                "height": 0.08,
+                "isImported": 0,
+                "isQueryShapeOnly": 0,
+                "localToBody": {
+                  "$type": "Transform",
+                  "orientation": {
+                    "$type": "Quaternion",
+                    "i": 0,
+                    "j": 0,
+                    "k": 0,
+                    "r": 1
+                  },
+                  "position": {
+                    "$type": "Vector4",
+                    "W": 0,
+                    "X": 0,
+                    "Y": 0,
+                    "Z": 0
+                  }
+                },
+                "material": {
+                  "$type": "CName",
+                  "$storage": "string",
+                  "$value": "None"
+                },
+                "materialApperanceOverrides": [],
+                "radius": 0.05,
+                "tag": {
+                  "$type": "CName",
+                  "$storage": "string",
+                  "$value": "None"
+                },
+                "volumeModifier": 1
+              }
+            }
+          ],
+          "comOffset": {
+            "$type": "Transform",
+            "orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "position": {
+              "$type": "Vector4",
+              "W": 0,
+              "X": 0,
+              "Y": 0,
+              "Z": 0
+            }
+          },
+          "dynamicTrafficSetting": {
+            "$type": "TrafficGenDynamicTrafficSetting",
+            "impact": "Ignored"
+          },
+          "filterData": {
+            "HandleId": "730",
+            "Data": {
+              "$type": "physicsFilterData",
+              "customFilterData": {
+                "HandleId": "732",
+                "Data": {
+                  "$type": "physicsCustomFilterData",
+                  "collideWith": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Dynamic"
+                    },
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Debris"
+                    }
+                  ],
+                  "collisionType": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Dynamic"
+                    }
+                  ],
+                  "queryDetect": []
+                }
+              },
+              "preset": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "None"
+              },
+              "queryFilter": {
+                "$type": "physicsQueryFilter",
+                "mask1": "0",
+                "mask2": "0"
+              },
+              "simulationFilter": {
+                "$type": "physicsSimulationFilter",
+                "mask1": "0",
+                "mask2": "0"
+              }
+            }
+          },
+          "id": "5195263792530830587",
+          "inertia": {
+            "$type": "Vector3",
+            "X": 1,
+            "Y": 1,
+            "Z": 1
+          },
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "mass": 1,
+          "massOverride": -1,
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "VRPortHand_l"
+          },
+          "parentTransform": {
+            "HandleId": "731",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponLeft"
+              }
+            }
+          },
+          "simulationType": "Kinematic",
+          "startInactive": 1,
+          "useCCD": 0,
+          "volume": 0
+        },
+        {
+          "$type": "entColliderComponent",
+          "colliders": [
+            {
+              "HandleId": "733",
+              "Data": {
+                "$type": "physicsColliderCapsule",
+                "filterData": null,
+                "height": 0.08,
+                "isImported": 0,
+                "isQueryShapeOnly": 0,
+                "localToBody": {
+                  "$type": "Transform",
+                  "orientation": {
+                    "$type": "Quaternion",
+                    "i": 0,
+                    "j": 0,
+                    "k": 0,
+                    "r": 1
+                  },
+                  "position": {
+                    "$type": "Vector4",
+                    "W": 0,
+                    "X": 0,
+                    "Y": 0,
+                    "Z": 0
+                  }
+                },
+                "material": {
+                  "$type": "CName",
+                  "$storage": "string",
+                  "$value": "None"
+                },
+                "materialApperanceOverrides": [],
+                "radius": 0.05,
+                "tag": {
+                  "$type": "CName",
+                  "$storage": "string",
+                  "$value": "None"
+                },
+                "volumeModifier": 1
+              }
+            }
+          ],
+          "comOffset": {
+            "$type": "Transform",
+            "orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "position": {
+              "$type": "Vector4",
+              "W": 0,
+              "X": 0,
+              "Y": 0,
+              "Z": 0
+            }
+          },
+          "dynamicTrafficSetting": {
+            "$type": "TrafficGenDynamicTrafficSetting",
+            "impact": "Ignored"
+          },
+          "filterData": {
+            "HandleId": "734",
+            "Data": {
+              "$type": "physicsFilterData",
+              "customFilterData": {
+                "HandleId": "736",
+                "Data": {
+                  "$type": "physicsCustomFilterData",
+                  "collideWith": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Dynamic"
+                    },
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Debris"
+                    }
+                  ],
+                  "collisionType": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "Dynamic"
+                    }
+                  ],
+                  "queryDetect": []
+                }
+              },
+              "preset": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "None"
+              },
+              "queryFilter": {
+                "$type": "physicsQueryFilter",
+                "mask1": "0",
+                "mask2": "0"
+              },
+              "simulationFilter": {
+                "$type": "physicsSimulationFilter",
+                "mask1": "0",
+                "mask2": "0"
+              }
+            }
+          },
+          "id": "5195263792530830588",
+          "inertia": {
+            "$type": "Vector3",
+            "X": 1,
+            "Y": 1,
+            "Z": 1
+          },
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "mass": 1,
+          "massOverride": -1,
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "VRPortHand_r"
+          },
+          "parentTransform": {
+            "HandleId": "735",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponRight"
+              }
+            }
+          },
+          "simulationType": "Kinematic",
+          "startInactive": 1,
+          "useCCD": 0,
+          "volume": 0
         }
       ],
       "cookingPlatform": "PLATFORM_PC",

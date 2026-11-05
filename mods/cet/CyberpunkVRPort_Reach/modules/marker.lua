@@ -199,6 +199,8 @@ local function level(v) return math.max(0, math.min(LEVELS, math.floor(LEVELS * 
 -- Marks what a hand reaches for, this frame. t: pos (the thing's centre, the world), radius (its size, m: how far
 -- before its centre the ring hangs when `lift` does not say), kind ("near", "aim", "lock", "pull"), ready (near: in
 -- reach), from (the hand, the world: where the ring opens to), lift (how far before the centre toward the eyes).
+function M.eyes() return eyes() end
+
 function M.mark(hand, t)
   local h = S.hands[hand]
   if h ~= nil and t ~= nil and t.pos ~= nil then h.want = t end

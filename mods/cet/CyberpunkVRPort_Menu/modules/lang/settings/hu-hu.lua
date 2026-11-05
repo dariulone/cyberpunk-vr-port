@@ -1,6 +1,8 @@
 -- Hungarian (hu-hu): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/hu-hu.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Ujjkövetés üres kéznél",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Az üres kéz ujjai a kontroller ujjérzékelését követik (Index kontrollerek SteamVR alatt).\nKikapcsolva, vagy ha a futtatókörnyezet nem kínálja: a markolatot és a ravaszt követik.\nCsak az ujjak megjelenítését érinti. A fegyvert vagy tárgyat tartó kéz megtartja a fogását.",
   ["Use OpenXR runtime projection FOV"] = "Az OpenXR futtatókörnyezet vetítési FOV-jának használata",
   ["OpenXR projection layer FOV"] = "OpenXR vetítési réteg FOV",
   ["%.1f deg"] = "%.1f°",
@@ -534,4 +536,24 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "A DLSS Frame Generationhöz újabb NVIDIA illesztőprogram kell",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "A DLSS Frame Generation ezen a GPU-n nem támogatott (RTX 40/50 szükséges)",
   ["NGX initialization failed (0x%08X)"] = "Az NGX inicializálása sikertelen (0x%08X)",
+  ["Hand collision"] = "Kézütközés",
+  ["Hands and arms stop at the body and at each other.\nEmpty hands also stop at walls and furniture (static world geometry).\nOnly the drawn arm stops; your real hand does not."] = "A kezek és a karok megállnak a testnél és egymásnál.\nAz üres kezek a falaknál és a bútoroknál is megállnak (statikus világgeometria).\nCsak a megjelenített kar áll meg, a valódi kezed nem.",
+  ["Hand collision in vehicles"] = "Kézütközés járművekben",
+  ["Seated, hands stop at the body and each other, not at the car.\nA hand on the wheel is never stopped."] = "Ülve a kezek a testnél és egymásnál állnak meg, az autónál nem.\nA kormányon lévő kéz sosem áll meg.",
+  ["Hands push loose objects"] = "A kezek tolják a laza tárgyakat",
+  ["An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\nagainst a light prop knocks that one prop loose. Never in a vehicle.\nExperimental: turn it off if the player is ever thrown about."] = "A testtől távol lévő üres kéz arrébb tolja az üvegeket, ládákat és hasonlókat, a könnyű tárgyhoz\nnyomott kéz pedig csak azt az egy tárgyat lazítja meg. Járműben soha.\nKísérleti: kapcsold ki, ha a játékost valaha elhajítja.",
+  ["Fingers stop at surfaces"] = "Az ujjak megállnak a felületeken",
+  ["Closing an empty hand, each finger stops where it meets something, so a hand\nrests on a table or closes round a pipe. Never in a vehicle."] = "Az üres kéz zárásakor minden ujj ott áll meg, ahol valamihez ér: a kéz\nráfekszik az asztalra vagy rázárul egy csőre. Járműben soha.",
+  ["Pick up small objects"] = "Kis tárgyak felvétele",
+  ["Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\nabout 6 kg, two about 30, and the other hand can take it over.\nExperimental: turn it off if the player is ever thrown about."] = "Szorítsd meg a markolatot egy laza tárgynál a cipeléshez, engedd el a leejtéshez vagy eldobáshoz. Egy kéz\nkb. 6 kg-ot emel, kettő kb. 30-at, és a másik kéz át is veheti.\nKísérleti: kapcsold ki, ha a játékost valaha elhajítja.",
+  ["Show collision shapes and rays"] = "Ütközési alakzatok és sugarak megjelenítése",
+  ["For finding faults, and it costs frame rate. Stays off after a restart.\nBlue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\nRays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm."] = "Hibakereséshez; csökkenti a képkockasebességet. Újraindítás után kikapcsolva marad.\nKék a kéz, cián az ujjak, bíbor az emberek. A PhysX-ből 2 m-en belül: szürke a világ, sárga, ami mozog.\nSugarak: zöld szabad, piros a találatig. Cipelt tárgyban: narancs a megfogott pont, fehér a tenyér.",
+  ["Carried objects stick to the hand"] = "A cipelt tárgyak a kézhez tapadnak",
+  ["Draws a carried thing on the hand in the same frame, while its body follows in the physics.\nAgainst a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing."] = "A cipelt tárgyat ugyanabban a képkockában a kézre rajzolja, míg a teste a fizikában követi.\nFalnál a kép visszatér a testhez. Kikapcsolva: a kép a testen van, és lendítéskor lemarad.",
+  ["Carried objects lead the hand (ms)"] = "A cipelt tárgyak előnye a kézhez képest (ms)",
+  ["Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\nlower it if it runs ahead when the hand stops."] = "A fizika a kéz után jut a képernyőre. Növeld, amíg a gyorsan lendített tárgy már nem marad le,\ncsökkentsd, ha a kéz megállásakor előreszalad.",
+  ["Distance kept from surfaces (cm)"] = "Felületektől tartott távolság (cm)",
+  ["The game's collision is simpler and often smaller than what is drawn. More distance keeps\nhands and fingers out of the mesh, and makes them stop a little before they touch."] = "A játék ütközése egyszerűbb és gyakran kisebb, mint ami látszik. Nagyobb távolság kívül tartja\na kezeket és ujjakat a modellen, és kicsivel az érintés előtt megállítja őket.",
+  ["Hold a car's wheel anywhere on the rim"] = "Az autó kormányának fogása bárhol a peremen",
+  ["Your hand stays where you took hold and slides round the rim with your own hand, so\nyou can steer one-handed from the top and change grip in a hard turn.\nOff: a grab puts the hand where the driving animation holds it. Bikes always do."] = "A kezed ott marad, ahol megfogtad, és a saját kezeddel együtt csúszik a peremen, így\negy kézzel, felülről is kormányozhatsz, és éles kanyarban átfoghatsz.\nKikapcsolva: a fogás oda teszi a kezet, ahol a vezetési animáció tartja. Motornál mindig így van.",
 }

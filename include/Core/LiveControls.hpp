@@ -121,6 +121,23 @@ struct LiveControls {
     // 1 (default) = holding Y opens the port's weapon wheel in front of the body and the game keeps running; a
     // tap is still the game's next weapon. 0 = the game's own wheel (it slows time). Hooks/WeaponWheelHold.hpp.
     volatile int xrVrWeaponWheel = 1;
+    // 1 (default) = an empty hand's fingers follow the controller's finger sensing where the runtime offers it
+    // (Runtimes/HandTracking.hpp). 0 = they follow grip and trigger.
+    volatile int xrFingerTracking = 1;
+    // 1 (default) = hands and arms stop at the body, each other and the world, in CyberpunkVRPort_HandCollision.
+    volatile int xrHandCollision = 1;
+    // 1 (default) = ...at the body and each other in a vehicle too. Only moves arm targets, so it cannot move the car.
+    volatile int xrHandCollisionVehicle = 1;
+    // 1 (default) = an empty hand clear of the body shoves loose objects, by capsules in the player's template.
+    volatile int xrHandPush = 1;
+    volatile int xrFingerContact = 1;
+    volatile int xrPropGrab = 1;
+    // 1 = the collision view: capsules, PhysX shapes and rays drawn in the world. Never saved on: it costs frames.
+    volatile int xrDebugView = 0;
+    volatile int xrCarryPicture = 1;          // a carried thing is drawn on the hand, its body following
+    volatile float xrCarryLead = 0.03f;       // s a carried thing is put ahead of the hand
+    volatile float xrContactMargin = 0.01f;   // m kept from a surface, because the collision is smaller than the mesh
+    volatile int xrWheelAnywhere = 1;
 };
 
 extern LiveControls g_liveControls;

@@ -23,6 +23,7 @@ tools/*
 !tools/body_rotation_tests/*.py
 tools/body_rotation_tests/__pycache__/
 !tools/vrik_tests/
+!tools/hand_tests/
 !tools/xr_probe/
 !tools/crash/
 !tools/ent/

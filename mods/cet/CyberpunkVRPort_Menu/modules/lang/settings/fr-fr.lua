@@ -1,6 +1,8 @@
 -- French (fr-fr): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/fr-fr.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Suivi des doigts des mains vides",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Les doigts d'une main vide suivent la détection des doigts de la manette (manettes Index sous SteamVR).\nDésactivé, ou si le runtime n'en dispose pas : ils suivent la poignée et la gâchette.\nN'affecte que l'affichage des doigts. Une main tenant une arme ou un objet garde sa prise.",
   ["Use OpenXR runtime projection FOV"] = "Utiliser le FOV de projection du runtime OpenXR",
   ["OpenXR projection layer FOV"] = "FOV de la couche de projection OpenXR",
   ["%.1f deg"] = "%.1f°",
@@ -534,4 +536,24 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation nécessite un pilote NVIDIA plus récent",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation n'est pas pris en charge sur ce GPU (RTX 40/50 requis)",
   ["NGX initialization failed (0x%08X)"] = "Échec de l'initialisation NGX (0x%08X)",
+  ["Hand collision"] = "Collision des mains",
+  ["Hands and arms stop at the body and at each other.\nEmpty hands also stop at walls and furniture (static world geometry).\nOnly the drawn arm stops; your real hand does not."] = "Les mains et les bras s'arrêtent au corps et l'un contre l'autre.\nLes mains vides s'arrêtent aussi aux murs et aux meubles (géométrie statique du monde).\nSeul le bras affiché s'arrête, pas votre vraie main.",
+  ["Hand collision in vehicles"] = "Collision des mains dans les véhicules",
+  ["Seated, hands stop at the body and each other, not at the car.\nA hand on the wheel is never stopped."] = "Assis, les mains s'arrêtent au corps et l'une contre l'autre, pas à la voiture.\nUne main sur le volant n'est jamais arrêtée.",
+  ["Hands push loose objects"] = "Les mains poussent les objets libres",
+  ["An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\nagainst a light prop knocks that one prop loose. Never in a vehicle.\nExperimental: turn it off if the player is ever thrown about."] = "Une main vide éloignée du corps pousse les bouteilles, les caisses, etc., et une main appuyée\ncontre un objet léger libère cet objet seul. Jamais dans un véhicule.\nExpérimental : désactivez-le si le joueur est projeté.",
+  ["Fingers stop at surfaces"] = "Les doigts s'arrêtent aux surfaces",
+  ["Closing an empty hand, each finger stops where it meets something, so a hand\nrests on a table or closes round a pipe. Never in a vehicle."] = "Quand une main vide se ferme, chaque doigt s'arrête là où il touche quelque chose : la main\nse pose sur une table ou se referme autour d'un tuyau. Jamais dans un véhicule.",
+  ["Pick up small objects"] = "Ramasser de petits objets",
+  ["Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\nabout 6 kg, two about 30, and the other hand can take it over.\nExperimental: turn it off if the player is ever thrown about."] = "Serrez la poignée sur un objet libre pour le porter, relâchez pour le lâcher ou le lancer. Une main soulève\nenviron 6 kg, deux environ 30, et l'autre main peut le reprendre.\nExpérimental : désactivez-le si le joueur est projeté.",
+  ["Show collision shapes and rays"] = "Afficher les formes de collision et les rayons",
+  ["For finding faults, and it costs frame rate. Stays off after a restart.\nBlue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\nRays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm."] = "Pour repérer les défauts ; réduit la fréquence d'images. Désactivé après un redémarrage.\nBleu les mains, cyan les doigts, magenta les personnes. Depuis PhysX dans un rayon de 2 m : gris le monde, jaune ce qui bouge.\nRayons : vert libre, rouge jusqu'au point touché. Dans un objet porté : orange l'endroit saisi, blanc la paume.",
+  ["Carried objects stick to the hand"] = "Les objets portés collent à la main",
+  ["Draws a carried thing on the hand in the same frame, while its body follows in the physics.\nAgainst a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing."] = "Dessine un objet porté sur la main dans la même image, tandis que son corps suit dans la physique.\nContre un mur, l'image revient au corps. Désactivé : l'image est sur le corps et traîne lors d'un balancement.",
+  ["Carried objects lead the hand (ms)"] = "Avance des objets portés sur la main (ms)",
+  ["Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\nlower it if it runs ahead when the hand stops."] = "La physique atteint l'écran après la main. Augmentez jusqu'à ce qu'un objet balancé vite ne traîne plus derrière la main,\nbaissez si elle le devance quand la main s'arrête.",
+  ["Distance kept from surfaces (cm)"] = "Distance gardée des surfaces (cm)",
+  ["The game's collision is simpler and often smaller than what is drawn. More distance keeps\nhands and fingers out of the mesh, and makes them stop a little before they touch."] = "La collision du jeu est plus simple et souvent plus petite que ce qui est affiché. Plus de distance garde\nles mains et les doigts hors du modèle et les arrête un peu avant le contact.",
+  ["Hold a car's wheel anywhere on the rim"] = "Tenir le volant n'importe où sur la jante",
+  ["Your hand stays where you took hold and slides round the rim with your own hand, so\nyou can steer one-handed from the top and change grip in a hard turn.\nOff: a grab puts the hand where the driving animation holds it. Bikes always do."] = "Votre main reste là où vous avez saisi et glisse sur la jante avec votre propre main : vous pouvez\nconduire d'une main par le haut et changer de prise dans un virage serré.\nDésactivé : la main va là où l'animation de conduite la tient. Toujours le cas à moto.",
 }

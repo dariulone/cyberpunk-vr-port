@@ -321,9 +321,32 @@ void PredictionModel() {
     }
 }
 }
+// Held at the top, the hub is below the hand: a pull to the right is a turn to the right, as much as at 3 o'clock going down.
+void OneHandTop() {
+    cvr::anim::WheelSteering top,side;
+    const float r=.18f,pi=3.14159265f,a=30/57.295779513f;
+    top.Update(1,{0,r},{},r,180,0,pi/2);
+    side.Update(1,{r,0},{},r,180,0,0);
+    const float turnedTop=top.Update(1,{r*std::sin(a),r*std::cos(a)},{},r,180,0,pi/2);
+    const float turnedSide=side.Update(1,{r*std::cos(a),-r*std::sin(a)},{},r,180,0,0);
+    if(std::abs(top.Angle()-30)>.01f || std::abs(side.Angle()-30)>.01f || std::abs(turnedTop-turnedSide)>.001f) {
+        std::cerr<<"top "<<top.Angle()<<" side "<<side.Angle()<<'\n';std::exit(1);
+    }
+    // a sideways pull at the top is a full tangent: nothing is lost to a hub assumed beside the hand
+    cvr::anim::WheelSteering wrong;
+    wrong.Update(1,{0,r},{},r,180,0);
+    wrong.Update(1,{r*std::sin(a),r*std::cos(a)},{},r,180,0);
+    if(!(std::abs(wrong.Angle())<25)) {std::cerr<<"the old hub read it as "<<wrong.Angle()<<'\n';std::exit(1);}
+    // the old assumption, kept when no rim angle is given: left hand at 9 o'clock
+    cvr::anim::WheelSteering left;
+    left.Update(2,{},{-r,0},r,180,0);
+    left.Update(2,{},{-r*std::cos(a),r*std::sin(a)},r,180,0);
+    if(std::abs(left.Angle()-30)>.01f){std::cerr<<"left "<<left.Angle()<<'\n';std::exit(1);}
+}
+
 int main(int argc,char** argv) {
     if(argc!=2)return 2;const std::string name=argv[1];
-    if(name=="grab_offset")GrabOffset();else if(name=="one_hand")OneHand();
+    if(name=="grab_offset")GrabOffset();else if(name=="one_hand")OneHand();else if(name=="one_hand_top")OneHandTop();
     else if(name=="two_hands")TwoHands();else if(name=="handoff")Handoff();
     else if(name=="lock_reversal")LockReversal();else if(name=="tracking_loss")TrackingLoss();
     else if(name=="rate_matrix")RateMatrix();else if(name=="deadzone")Deadzone();

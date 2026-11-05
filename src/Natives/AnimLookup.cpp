@@ -349,6 +349,37 @@ RED4ext::anim::AnimatedObject* FindPlayerAnimatedObjectByComponentName(const cha
     return nullptr;
 }
 
+// Any entity's root animated object, by walking the buckets. Once, when an arm is taken: not for every frame.
+RED4ext::anim::AnimatedObject* FindAnimatedObjectOf(RED4ext::ent::Entity* wanted)
+{
+    auto* engine = RED4ext::CGameEngine::Get();
+    auto* framework = engine ? engine->framework : nullptr;
+    auto* animationSystem = wanted ? FindWorldAnimationSystemFromScene(wanted->runtimeScene, framework ? framework->unk18 : 0, nullptr) : nullptr;
+    if (!animationSystem)
+        return nullptr;
+    for (uint32_t bucketIndex = 0; bucketIndex < RED4ext::world::AnimationSystem::BucketCount; ++bucketIndex)
+    {
+        __try
+        {
+            auto& bucket = animationSystem->entitityBuckets[bucketIndex];
+            const uint32_t entryCount = bucket.entities.Size();
+            for (uint32_t entryIndex = 0; entryIndex < entryCount; ++entryIndex)
+            {
+                if (reinterpret_cast<RED4ext::ent::Entity*>(bucket.entities[entryIndex].instance) != wanted)
+                    continue;
+                auto* animatedComponent = bucket.animatedComponents[entryIndex];
+                const char* name = animatedComponent ? animatedComponent->name.ToString() : nullptr;
+                if (name && std::strcmp(name, "root") == 0)
+                    return bucket.animatedObjects[entryIndex];
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+    return nullptr;
+}
+
 void DumpAnimationSystemLookup(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
 {
     RED4EXT_UNUSED_PARAMETER(aContext);

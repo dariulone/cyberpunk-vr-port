@@ -1,6 +1,8 @@
 -- Polish (pl-pl): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/pl-pl.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Śledzenie palców pustych dłoni",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Palce pustej dłoni podążają za wykrywaniem palców kontrolera (kontrolery Index w SteamVR).\nWyłączone lub gdy środowisko tego nie obsługuje: podążają za chwytem i spustem.\nDotyczy tylko rysowania palców. Dłoń trzymająca broń lub przedmiot zachowuje chwyt.",
   ["Use OpenXR runtime projection FOV"] = "Użyj FOV projekcji ze środowiska OpenXR",
   ["OpenXR projection layer FOV"] = "FOV warstwy projekcji OpenXR",
   ["%.1f deg"] = "%.1f°",
@@ -534,4 +536,24 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation wymaga nowszego sterownika NVIDIA",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation nie jest obsługiwane na tym GPU (wymagany RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Inicjalizacja NGX nie powiodła się (0x%08X)",
+  ["Hand collision"] = "Kolizja dłoni",
+  ["Hands and arms stop at the body and at each other.\nEmpty hands also stop at walls and furniture (static world geometry).\nOnly the drawn arm stops; your real hand does not."] = "Dłonie i ręce zatrzymują się na ciele i na sobie nawzajem.\nPuste dłonie zatrzymują się też na ścianach i meblach (statyczna geometria świata).\nZatrzymuje się tylko rysowana ręka, a nie twoja prawdziwa dłoń.",
+  ["Hand collision in vehicles"] = "Kolizja dłoni w pojazdach",
+  ["Seated, hands stop at the body and each other, not at the car.\nA hand on the wheel is never stopped."] = "Na siedząco dłonie zatrzymują się na ciele i na sobie nawzajem, ale nie na samochodzie.\nDłoń na kierownicy nigdy nie jest zatrzymywana.",
+  ["Hands push loose objects"] = "Dłonie popychają luźne przedmioty",
+  ["An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\nagainst a light prop knocks that one prop loose. Never in a vehicle.\nExperimental: turn it off if the player is ever thrown about."] = "Pusta dłoń z dala od ciała popycha butelki, skrzynki i tym podobne, a dłoń dociśnięta\ndo lekkiego obiektu uwalnia tylko ten obiekt. Nigdy w pojeździe.\nEksperymentalne: wyłącz, jeśli gracz zostanie odrzucony.",
+  ["Fingers stop at surfaces"] = "Palce zatrzymują się na powierzchniach",
+  ["Closing an empty hand, each finger stops where it meets something, so a hand\nrests on a table or closes round a pipe. Never in a vehicle."] = "Przy zamykaniu pustej dłoni każdy palec zatrzymuje się tam, gdzie coś napotka: dłoń\nspoczywa na stole albo zaciska się na rurze. Nigdy w pojeździe.",
+  ["Pick up small objects"] = "Podnoszenie małych przedmiotów",
+  ["Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\nabout 6 kg, two about 30, and the other hand can take it over.\nExperimental: turn it off if the player is ever thrown about."] = "Ściśnij chwyt przy luźnym przedmiocie, aby go nieść, puść, aby go upuścić lub rzucić. Jedna dłoń podnosi\nokoło 6 kg, dwie około 30, a druga dłoń może go przejąć.\nEksperymentalne: wyłącz, jeśli gracz zostanie odrzucony.",
+  ["Show collision shapes and rays"] = "Pokaż kształty kolizji i promienie",
+  ["For finding faults, and it costs frame rate. Stays off after a restart.\nBlue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\nRays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm."] = "Do szukania błędów; obniża liczbę klatek. Po ponownym uruchomieniu jest wyłączone.\nNiebieskie dłonie, cyjanowe palce, purpurowe osoby. Z PhysX w promieniu 2 m: szary świat, żółte to, co się porusza.\nPromienie: zielone wolne, czerwone do trafienia. W niesionym przedmiocie: pomarańczowe miejsce chwytu, białe wnętrze dłoni.",
+  ["Carried objects stick to the hand"] = "Niesione przedmioty przylegają do dłoni",
+  ["Draws a carried thing on the hand in the same frame, while its body follows in the physics.\nAgainst a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing."] = "Rysuje niesiony przedmiot na dłoni w tej samej klatce, a jego ciało podąża w fizyce.\nPrzy ścianie obraz wraca do ciała. Wyłączone: obraz jest na ciele i zostaje w tyle przy zamachu.",
+  ["Carried objects lead the hand (ms)"] = "Wyprzedzenie niesionych przedmiotów względem dłoni (ms)",
+  ["Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\nlower it if it runs ahead when the hand stops."] = "Fizyka trafia na ekran później niż dłoń. Zwiększ, aż szybko machany przedmiot przestanie zostawać w tyle,\nzmniejsz, jeśli wyprzedza dłoń, gdy się zatrzymuje.",
+  ["Distance kept from surfaces (cm)"] = "Odległość od powierzchni (cm)",
+  ["The game's collision is simpler and often smaller than what is drawn. More distance keeps\nhands and fingers out of the mesh, and makes them stop a little before they touch."] = "Kolizja gry jest prostsza i często mniejsza niż to, co jest rysowane. Większa odległość trzyma\ndłonie i palce poza modelem i zatrzymuje je tuż przed dotknięciem.",
+  ["Hold a car's wheel anywhere on the rim"] = "Trzymanie kierownicy w dowolnym miejscu wieńca",
+  ["Your hand stays where you took hold and slides round the rim with your own hand, so\nyou can steer one-handed from the top and change grip in a hard turn.\nOff: a grab puts the hand where the driving animation holds it. Bikes always do."] = "Dłoń zostaje tam, gdzie chwyciła, i przesuwa się po wieńcu razem z twoją dłonią, więc możesz\nkierować jedną ręką od góry i zmieniać chwyt w ostrym zakręcie.\nWyłączone: chwyt przenosi dłoń tam, gdzie trzyma ją animacja jazdy. Na motocyklach zawsze.",
 }

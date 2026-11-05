@@ -1,6 +1,8 @@
 -- Italian (it-it): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/it-it.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Tracciamento delle dita a mani vuote",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Le dita di una mano vuota seguono il rilevamento delle dita del controller (controller Index su SteamVR).\nDisattivato, o se il runtime non lo offre: seguono impugnatura e grilletto.\nInfluisce solo sulla visualizzazione delle dita. Una mano con un'arma o un oggetto mantiene la presa.",
   ["Use OpenXR runtime projection FOV"] = "Usa il FOV di proiezione del runtime OpenXR",
   ["OpenXR projection layer FOV"] = "FOV del livello di proiezione OpenXR",
   ["%.1f deg"] = "%.1f°",
@@ -534,4 +536,24 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generation richiede un driver NVIDIA più recente",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame Generation non è supportata su questa GPU (richiede RTX 40/50)",
   ["NGX initialization failed (0x%08X)"] = "Inizializzazione NGX non riuscita (0x%08X)",
+  ["Hand collision"] = "Collisione delle mani",
+  ["Hands and arms stop at the body and at each other.\nEmpty hands also stop at walls and furniture (static world geometry).\nOnly the drawn arm stops; your real hand does not."] = "Mani e braccia si fermano sul corpo e l'una contro l'altra.\nLe mani vuote si fermano anche su pareti e mobili (geometria statica del mondo).\nSi ferma solo il braccio visualizzato, non la tua vera mano.",
+  ["Hand collision in vehicles"] = "Collisione delle mani nei veicoli",
+  ["Seated, hands stop at the body and each other, not at the car.\nA hand on the wheel is never stopped."] = "Da seduti, le mani si fermano sul corpo e l'una contro l'altra, non sull'auto.\nUna mano sul volante non viene mai fermata.",
+  ["Hands push loose objects"] = "Le mani spingono gli oggetti liberi",
+  ["An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\nagainst a light prop knocks that one prop loose. Never in a vehicle.\nExperimental: turn it off if the player is ever thrown about."] = "Una mano vuota lontana dal corpo spinge bottiglie, casse e simili, e una mano premuta\ncontro un oggetto leggero libera solo quell'oggetto. Mai in un veicolo.\nSperimentale: disattivalo se il giocatore viene sbalzato via.",
+  ["Fingers stop at surfaces"] = "Le dita si fermano sulle superfici",
+  ["Closing an empty hand, each finger stops where it meets something, so a hand\nrests on a table or closes round a pipe. Never in a vehicle."] = "Chiudendo una mano vuota, ogni dito si ferma dove incontra qualcosa: la mano\nsi appoggia a un tavolo o si chiude attorno a un tubo. Mai in un veicolo.",
+  ["Pick up small objects"] = "Raccogli piccoli oggetti",
+  ["Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\nabout 6 kg, two about 30, and the other hand can take it over.\nExperimental: turn it off if the player is ever thrown about."] = "Stringi l'impugnatura su un oggetto libero per portarlo, rilascia per lasciarlo cadere o lanciarlo. Una mano solleva\ncirca 6 kg, due circa 30, e l'altra mano può prenderlo.\nSperimentale: disattivalo se il giocatore viene sbalzato via.",
+  ["Show collision shapes and rays"] = "Mostra forme di collisione e raggi",
+  ["For finding faults, and it costs frame rate. Stays off after a restart.\nBlue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\nRays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm."] = "Per trovare i difetti; riduce la frequenza dei fotogrammi. Resta disattivato dopo un riavvio.\nBlu le mani, ciano le dita, magenta le persone. Da PhysX entro 2 m: grigio il mondo, giallo ciò che si muove.\nRaggi: verde libero, rosso fino al punto colpito. In un oggetto portato: arancione il punto preso, bianco il palmo.",
+  ["Carried objects stick to the hand"] = "Gli oggetti portati aderiscono alla mano",
+  ["Draws a carried thing on the hand in the same frame, while its body follows in the physics.\nAgainst a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing."] = "Disegna un oggetto portato sulla mano nello stesso fotogramma, mentre il suo corpo segue nella fisica.\nContro una parete l'immagine torna al corpo. Disattivato: l'immagine è sul corpo e resta indietro nei movimenti rapidi.",
+  ["Carried objects lead the hand (ms)"] = "Anticipo degli oggetti portati sulla mano (ms)",
+  ["Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\nlower it if it runs ahead when the hand stops."] = "La fisica arriva sullo schermo dopo la mano. Aumentalo finché un oggetto mosso rapidamente non resta più indietro,\nabbassalo se precede la mano quando si ferma.",
+  ["Distance kept from surfaces (cm)"] = "Distanza dalle superfici (cm)",
+  ["The game's collision is simpler and often smaller than what is drawn. More distance keeps\nhands and fingers out of the mesh, and makes them stop a little before they touch."] = "La collisione del gioco è più semplice e spesso più piccola di ciò che si vede. Una distanza maggiore tiene\nmani e dita fuori dal modello e le ferma poco prima del contatto.",
+  ["Hold a car's wheel anywhere on the rim"] = "Impugna il volante in qualsiasi punto della corona",
+  ["Your hand stays where you took hold and slides round the rim with your own hand, so\nyou can steer one-handed from the top and change grip in a hard turn.\nOff: a grab puts the hand where the driving animation holds it. Bikes always do."] = "La mano resta dove hai afferrato e scorre sulla corona con la tua mano, così puoi\nsterzare con una mano dall'alto e cambiare presa in una curva stretta.\nDisattivato: la presa porta la mano dove la tiene l'animazione di guida. Sulle moto è sempre così.",
 }

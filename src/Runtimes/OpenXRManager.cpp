@@ -1,4 +1,5 @@
 #include "Runtimes/PresenceRecenter.hpp"
+#include "Runtimes/HandTracking.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
@@ -681,6 +682,8 @@ bool OpenXRManager::Init() {
                 } else if(strcmp(p.extensionName,cvr::input::SteamFrameExtension)==0) {
                     steamFrameEnabled=true;
                     extensions.push_back(cvr::input::SteamFrameExtension);
+                } else if(const char* hand=cvr::handtracking::Extension(p.extensionName)) {
+                    extensions.push_back(hand);
                 }
             }
         }
@@ -818,6 +821,7 @@ bool OpenXRManager::Init() {
             makeAction(m_thumbstickAction,      XR_ACTION_TYPE_VECTOR2F_INPUT, "thumbstick",       "Thumbstick",           true);
             makeAction(m_triggerAction,         XR_ACTION_TYPE_FLOAT_INPUT,    "trigger",          "Trigger",              true);
             makeAction(m_gripAction,            XR_ACTION_TYPE_FLOAT_INPUT,    "grip",             "Grip",                 true);
+            makeAction(m_gripForceAction,       XR_ACTION_TYPE_FLOAT_INPUT,    "grip_force",       "Grip Force",           true);
             makeAction(m_thumbstickClickAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "thumbstick_click", "Thumbstick Click",     true);
             makeAction(m_primaryButtonAction,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "primary_button",   "Primary Button (A/X)", true);
             makeAction(m_secondaryButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "secondary_button", "Secondary Button (B/Y)", true);
@@ -953,6 +957,8 @@ bool OpenXRManager::Init() {
             { m_triggerAction,         "/user/hand/right/input/trigger/value" },
             { m_gripAction,            "/user/hand/left/input/squeeze/value" },
             { m_gripAction,            "/user/hand/right/input/squeeze/value" },
+            { m_gripForceAction,       "/user/hand/left/input/squeeze/force" },
+            { m_gripForceAction,       "/user/hand/right/input/squeeze/force" },
             { m_primaryButtonAction,   "/user/hand/left/input/a/click" },
             { m_primaryButtonAction,   "/user/hand/right/input/a/click" },
             { m_secondaryButtonAction, "/user/hand/left/input/b/click" },
@@ -2456,6 +2462,7 @@ void OpenXRManager::Shutdown() {
     m_thumbstickAction = XR_NULL_HANDLE;
     m_triggerAction = XR_NULL_HANDLE;
     m_gripAction = XR_NULL_HANDLE;
+    m_gripForceAction = XR_NULL_HANDLE;
     m_thumbstickClickAction = XR_NULL_HANDLE;
     m_primaryButtonAction = XR_NULL_HANDLE;
     m_secondaryButtonAction = XR_NULL_HANDLE;

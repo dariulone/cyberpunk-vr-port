@@ -1,8 +1,10 @@
+#include "Runtimes/HandTracking.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/Psvr2HapticChannel.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
+extern std::atomic<float> g_xrGripForce[2];
 // openxr_frameloop.cpp - the XR frame loop (PumpInlineFrame / FrameThreadMain).
 // Split verbatim from openxr_manager.cpp; this is an OpenXRManager method. Shared
 // module state/helpers come from openxr_internal.h (inline, single instance).
@@ -1496,6 +1498,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 XrResult syncRes = xrSyncActions(m_session, &syncInfo);
                 // Vibration queued since the last frame, played where the actions are synced.
                 if (XR_SUCCEEDED(syncRes)) cvr::haptics::Tick();
+                if (XR_SUCCEEDED(syncRes)) cvr::handtracking::Tick(m_instance, m_systemId, m_session, m_localSpace, frameState.predictedDisplayTime);
                 
                 if (doHandLog) {
                     Log("OpenXRManager[Hands]: syncRes=%d sessionState=%d\n", syncRes, (int)m_sessionState);
@@ -1772,6 +1775,7 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                     const float trig = getFloat(m_triggerAction);
                     const float grip = getFloat(m_gripAction);
+                    if(i<2)g_xrGripForce[i].store(m_gripForceAction!=XR_NULL_HANDLE ? getFloat(m_gripForceAction):0.0f,std::memory_order_relaxed);
                     float sx = 0.0f, sy = 0.0f;
                     getVec2(m_thumbstickAction, sx, sy);
                     const bool sclick = getBool(m_thumbstickClickAction);

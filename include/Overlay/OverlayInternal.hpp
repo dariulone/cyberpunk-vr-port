@@ -42,6 +42,7 @@ extern bool g_drawHandProxy3D;
 extern float g_aimRayLenM;
 extern float g_handLocatorScale;
 void DrawBarrelCrosshair();
+void DrawDebugView();
 void DrawCompactAdsCameraTelemetry();
 extern bool g_showCompactAdsTelemetry;
 extern float g_compactAdsTelemetryX;

@@ -819,8 +819,11 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
     if (CyberpunkVR_TwoHandAim && CyberpunkVR_TwoHandActive && leftAt) {
         // LOW-PASSED IN THE BONE'S OWN FRAME. Smoothing a model-space direction would fight the hand's
         // motion (the frame moves under the filter); in the wrist's frame only the player's push varies,
-        // so the filter has nothing to chase. 0.12 s is slower than tracking noise and faster than a
-        // deliberate push, and it makes a jump impossible: the steer can only ramp.
+        // so the filter has nothing to chase. It makes a jump impossible: the steer can only ramp.
+        //
+        // SCALED BY THE LEVERAGE, like the deadzone and the ceiling below, and for their reason. This is all
+        // the drawn left hand follows, so its whole constant reads as that hand trailing the right one. A
+        // pistol needs it, 7 cm between the hands being mostly noise; at a rifle's baseline a quarter is plenty.
         const float rl = std::sqrt(g_cur->off[0]*g_cur->off[0] + g_cur->off[1]*g_cur->off[1]
                                 + g_cur->off[2]*g_cur->off[2]);
         float d[3] = { leftAt[0] - targetR[0],
@@ -836,7 +839,10 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
                 s_dL[0]=dL[0];   s_dL[1]=dL[1];   s_dL[2]=dL[2];
                 s_refHave = 1;
             }
-            const float tau = (CyberpunkVR_TwoHandAimTau > 0.01f) ? CyberpunkVR_TwoHandAimTau : 0.01f;
+            float tauLever = (CyberpunkVR_TwoHandLeverFull > 1e-3f) ? (rl / CyberpunkVR_TwoHandLeverFull) : 1.0f;
+            if (tauLever > 1.0f) tauLever = 1.0f;
+            const float scaled = CyberpunkVR_TwoHandAimTau * (1.0f - 0.75f * tauLever);
+            const float tau = (scaled > 0.01f) ? scaled : 0.01f;
             const float a = 1.0f - std::exp(-dt / tau);
             for (int i = 0; i < 3; ++i) s_dL[i] += (dL[i] - s_dL[i]) * a;
 
@@ -1259,6 +1265,15 @@ extern "C" void CarryReturnRight(float* target, float* hm, const float* wristR) 
         hm[0]=nh[0]; hm[1]=nh[1]; hm[2]=nh[2]; hm[3]=nh[3];
     } else {
         hm[0]=nb[0]; hm[1]=nb[1]; hm[2]=nb[2]; hm[3]=nb[3];
+    }
+}
+
+// THE WEAPON HAND WAS STOPPED (hand collision) after the support point was built from it. The weapon rides that
+// hand, so the point on the weapon moved with it, and the support hand has to go along.
+void TwoHandWeaponHandMoved(const float* moved) {
+    for (int k = 0; k < 3; ++k) {
+        g_supPos[k] += moved[k];
+        g_supPrevPos[k] += moved[k];
     }
 }
 

@@ -875,6 +875,25 @@ void LauncherWrist() {
 
 void HandGestures() {
     using cvr::gestures::Evaluate;
+    // Measured fingers: the bends Index controllers report for a flat hand and a fist.
+    {
+        const float flat[5]={30,21,26,28,36},fist[5]={119,280,286,281,241};
+        float closed[5];
+        for(int d=0;d<5;++d) {
+            Near(cvr::gestures::FingerClosed(d,flat[d]),0,.03f,"open finger measured closed");
+            closed[d]=cvr::gestures::FingerClosed(d,fist[d]);Near(closed[d],1,.03f,"fist measured open");
+        }
+        const auto measured=cvr::gestures::FromFingers(closed);
+        for(int d=0;d<5;++d) {
+            Near(measured.closed[d],1,.03f,"measured fist targets");Check(measured.straight[d]==1,"measured finger base");
+        }
+        const float none[5]={};const auto relaxed=cvr::gestures::FromFingers(none);
+        Check(relaxed.closed[0]==0 && relaxed.closed[1]==0,"thumb and index open as measured");
+        Check(relaxed.closed[2]>0 && relaxed.closed[3]>relaxed.closed[2] && relaxed.closed[4]>relaxed.closed[3],"outer fingers not relaxed");
+        Near(cvr::gestures::FollowFinger(1,0,.5f,2,.09f),.5f,.001f,"outer finger opened faster than its pace");
+        Near(cvr::gestures::FollowFinger(0,1,.5f,2,.09f),.5f,.001f,"outer finger closes at its pace");
+        Near(cvr::gestures::FollowFinger(1,0,.5f,1,.01f),.5f,.001f,"index finger held back");
+    }
     auto point=Evaluate(1,0,false,false,0);Check(point.closed[2]==1 && point.closed[1]==0 && point.straight[1]==1,"point gesture");
     auto index=Evaluate(0,1,false,false,0);Check(index.closed[1]==1 && index.closed[0]==0 && index.closed[2]==0,"trigger-only index");
     auto fist=Evaluate(1,1,false,false,0);for(float x:fist.closed)Check(x==1,"fist digit open");
@@ -979,7 +998,7 @@ void HandGestures() {
     const float neutral[4]={0,0,0,1};float left[4],right[4];std::copy_n(neutral,4,left);std::copy_n(neutral,4,right);
     cvr::gestures::ApplyCalibration(0,"InHandThumb",{0,0,1,0},left);
     cvr::gestures::ApplyCalibration(1,"InHandThumb",{0,0,1,0},right);
-    QuatNear(left,neutral,"left hand has a thumbs-up calibration");
+    QuatNear(left,right,"the thumbs-up calibration differs between the hands");
     Near(2*std::acos(right[3])*57.2957795f,49.8069992f,.0001f,"right thumb differs from user export");
     std::cout<<"hand_gestures_baked_both_hands_right_only_thumb_wire_and_weapon_protection=true\n";
 }

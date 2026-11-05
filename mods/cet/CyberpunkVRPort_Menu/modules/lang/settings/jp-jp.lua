@@ -1,6 +1,8 @@
 -- Japanese (jp-jp): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/jp-jp.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "空の手のフィンガートラッキング",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "空の手の指がコントローラーの指センサーに追従します(SteamVRのIndexコントローラー)。\nオフ、またはランタイムが非対応の場合:グリップとトリガーに追従します。\n指の表示だけに影響します。武器やアイテムを持つ手は握ったままです。",
   ["Use OpenXR runtime projection FOV"] = "OpenXRランタイムの投影FOVを使用",
   ["OpenXR projection layer FOV"] = "OpenXR投影レイヤーFOV",
   ["%.1f deg"] = "%.1f°",
@@ -534,4 +536,24 @@ return {
   ["DLSS Frame Generation needs a newer NVIDIA driver"] = "DLSS Frame Generationには新しいNVIDIAドライバーが必要です",
   ["DLSS Frame Generation is not supported on this GPU (RTX 40/50 required)"] = "DLSS Frame GenerationはこのGPUではサポートされていません（RTX 40/50が必要）",
   ["NGX initialization failed (0x%08X)"] = "NGXの初期化に失敗しました（0x%08X）",
+  ["Hand collision"] = "手のコリジョン",
+  ["Hands and arms stop at the body and at each other.\nEmpty hands also stop at walls and furniture (static world geometry).\nOnly the drawn arm stops; your real hand does not."] = "手と腕は体やお互いに当たると止まります。\n空の手は壁や家具(静的なワールドジオメトリ)でも止まります。\n止まるのは表示される腕だけで、実際の手は止まりません。",
+  ["Hand collision in vehicles"] = "乗り物内の手のコリジョン",
+  ["Seated, hands stop at the body and each other, not at the car.\nA hand on the wheel is never stopped."] = "座っているとき、手は体やお互いで止まりますが、車では止まりません。\nハンドルを握る手は決して止まりません。",
+  ["Hands push loose objects"] = "手で固定されていない物を押す",
+  ["An empty hand clear of the body shoves bottles, crates and the like, and a hand pressed\nagainst a light prop knocks that one prop loose. Never in a vehicle.\nExperimental: turn it off if the player is ever thrown about."] = "体から離れた空の手でボトルや木箱などを押せます。軽い物に手を押し当てると、\nその物だけが動くようになります。乗り物内では無効です。\n実験的機能:プレイヤーが吹き飛ばされる場合はオフにしてください。",
+  ["Fingers stop at surfaces"] = "指を表面で止める",
+  ["Closing an empty hand, each finger stops where it meets something, so a hand\nrests on a table or closes round a pipe. Never in a vehicle."] = "空の手を閉じると、各指は何かに触れた所で止まり、手は\nテーブルに乗ったりパイプを握ったりします。乗り物内では無効です。",
+  ["Pick up small objects"] = "小さな物を拾う",
+  ["Squeeze the grip at a loose object to carry it, let go to drop or throw it. One hand lifts\nabout 6 kg, two about 30, and the other hand can take it over.\nExperimental: turn it off if the player is ever thrown about."] = "固定されていない物に向けてグリップを握ると運べます。放すと落とすか投げます。片手で\n約6kg、両手で約30kgまで持ち上げられ、もう一方の手に持ち替えられます。\n実験的機能:プレイヤーが吹き飛ばされる場合はオフにしてください。",
+  ["Show collision shapes and rays"] = "コリジョン形状とレイを表示",
+  ["For finding faults, and it costs frame rate. Stays off after a restart.\nBlue the hands, cyan the fingers, magenta people. From PhysX within 2 m: grey the world, yellow what moves.\nRays: green free, red up to what they hit. In a carried thing: orange the place taken, white the palm."] = "不具合調査用で、フレームレートが下がります。再起動するとオフに戻ります。\n青は手、シアンは指、マゼンタは人。PhysXから2m以内:灰色はワールド、黄色は動く物。\nレイ:緑は何もなし、赤は当たった所まで。運んでいる物の中:オレンジは掴んだ位置、白は手のひら。",
+  ["Carried objects stick to the hand"] = "運んでいる物を手に密着させる",
+  ["Draws a carried thing on the hand in the same frame, while its body follows in the physics.\nAgainst a wall the picture goes back to the body. Off: the picture is on the body, and trails a swing."] = "運んでいる物を同じフレームで手に描画し、その物理ボディは物理演算で追従します。\n壁に当たると表示はボディに戻ります。オフ:表示はボディの位置で、振ると遅れます。",
+  ["Carried objects lead the hand (ms)"] = "運んでいる物を手より先行させる(ms)",
+  ["Physics reaches the screen after the hand does. Raise it until a thing swung fast stops trailing the hand,\nlower it if it runs ahead when the hand stops."] = "物理演算は手より遅れて画面に届きます。素早く振った物が遅れなくなるまで上げ、\n手を止めたときに先に行くなら下げてください。",
+  ["Distance kept from surfaces (cm)"] = "表面との距離(cm)",
+  ["The game's collision is simpler and often smaller than what is drawn. More distance keeps\nhands and fingers out of the mesh, and makes them stop a little before they touch."] = "ゲームのコリジョンは表示より単純で、小さいことがよくあります。距離を増やすと\n手と指がメッシュに入らなくなり、触れる少し手前で止まります。",
+  ["Hold a car's wheel anywhere on the rim"] = "車のハンドルのリムをどこでも握る",
+  ["Your hand stays where you took hold and slides round the rim with your own hand, so\nyou can steer one-handed from the top and change grip in a hard turn.\nOff: a grab puts the hand where the driving animation holds it. Bikes always do."] = "手は握った場所に留まり、自分の手に合わせてリム上を滑ります。\n上から片手で操作したり、急カーブで握り直したりできます。\nオフ:運転アニメーションの持ち位置に手が移ります。バイクは常にこの動作です。",
 }
