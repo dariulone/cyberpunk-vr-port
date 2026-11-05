@@ -1,4 +1,5 @@
 #include "Natives/MenuSurface.hpp"
+#include "Core/Paths.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Render/NativePreparation.hpp"
 #include "Render/PhysicalOpticsShaders.hpp"
@@ -1269,14 +1270,8 @@ static bool sight_blob_ready() {
     st = g_sight_blob_state.load(std::memory_order_relaxed);
     if (st) return st > 0;
     char path[MAX_PATH]{};
-    HMODULE self = nullptr;
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCSTR>(&sight_blob_ready), &self) && self &&
-        GetModuleFileNameA(self, path, MAX_PATH)) {
-        char* slash = strrchr(path, '\\');
-        if (slash) {
-            *(slash + 1) = 0;
+    if (strcpy_s(path, cvr::paths::DirA(cvr::paths::Folder::Shaders).c_str()) == 0) {
+        {
             const size_t dirLen = strlen(path);
             bool bothOk = true;
             for (int which = 0; which < 2 && bothOk; ++which) {
@@ -1380,14 +1375,8 @@ static bool vision_cs_blob_ready() {
     st = g_vision_cs_state.load(std::memory_order_relaxed);
     if (st) return st > 0;
     char path[MAX_PATH]{};
-    HMODULE self = nullptr;
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCSTR>(&vision_cs_blob_ready), &self) && self &&
-        GetModuleFileNameA(self, path, MAX_PATH)) {
-        char* slash = strrchr(path, '\\');
-        if (slash) {
-            *(slash + 1) = 0;
+    if (strcpy_s(path, cvr::paths::DirA(cvr::paths::Folder::Shaders).c_str()) == 0) {
+        {
             strcat_s(path, "CyberpunkVR_VisionCs.dxil");
             HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);

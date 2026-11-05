@@ -11,8 +11,8 @@ if ([IO.Path]::GetFullPath($GameRoot).TrimEnd('\') -ne 'C:\Program Files (x86)\S
 $repo=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ready=Join-Path $PSScriptRoot 'run_launch_tests.py'
 $exe=Join-Path $GameRoot 'bin\x64\Cyberpunk2077.exe'
-$dll=Join-Path $GameRoot 'red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_Stereo.dll'
-$built=Join-Path $repo 'build\bin\red4ext\plugins\CyberpunkVR_Stereo\Release\CyberpunkVR_Stereo.dll'
+$dll=Join-Path $GameRoot 'red4ext\plugins\cyberpunkvrport\cyberpunkvrport.dll'
+$built=Join-Path $repo 'build\bin\red4ext\plugins\cyberpunkvrport\Release\cyberpunkvrport.dll'
 if (-not (Test-Path -LiteralPath $ready)) { throw 'Stereo readiness helper missing' }
 if (Get-Process -Name qrenderdoc -ErrorAction SilentlyContinue) { throw 'Close RenderDoc first' }
 if ((Get-FileHash -LiteralPath $dll).Hash -ne $Previous) { throw 'Installed DLL changed before restart' }

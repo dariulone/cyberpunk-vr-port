@@ -910,6 +910,16 @@ void SetVRLocomotionState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, i
     if (aOut) *aOut = 1;
 }
 
+// The DETAILED locomotion value (gamePSMDetailedLocomotionStates), from the same push: the body under the view needs
+// to know a fall, a jump and a landing, which the plain value reports as Default.
+void SetVRLocomotionDetailed(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t) {
+    int32_t state = -1;
+    RED4ext::GetParameter(aFrame, &state);
+    aFrame->code++;
+    g_VRLocomotionDetailed = state;
+    if (aOut) *aOut = 1;
+}
+
 void SetVRScannerState(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
     int32_t state=0;RED4ext::GetParameter(frame,&state);++frame->code;
     cvr::input::PublishScannerVision(state);
@@ -1128,6 +1138,16 @@ void VRPhysicalOpticsEnabled(RED4ext::IScriptable*, RED4ext::CStackFrame* frame,
 void VRPhysicalOpticsCameraReady(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
     ++frame->code;
     if(out)*out=OpenXRManager::Get().IsSessionRunning() && cvr::detail::PhysicalOpticsStereoReady();
+}
+
+// VRLuaHostGc(want): the Stereo mod asks the Lua host to pace the collector this frame (in the game; false in the
+// menus); true = the host does (src/Lua/HostGc.cpp) and the mod leaves the collector alone.
+extern "C" bool CvrLuaHostGcWanted(bool aWant);
+void VRLuaHostGc(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
+    bool want=false;
+    RED4ext::GetParameter(frame,&want);++frame->code;
+    const bool active=CvrLuaHostGcWanted(want);
+    if(out)*out=active;
 }
 
 // The optical path the optics mod chose for the weapon in hand: 0 none, 1 collimator, 2 shader

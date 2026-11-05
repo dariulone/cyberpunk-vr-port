@@ -32,7 +32,7 @@ if a.out.exists():
     raise RuntimeError('Use a fresh output directory')
 a.out.mkdir(parents=True)
 game = boot.DEFAULT_GAME
-ini = game/'bin/x64/vrport.ini'
+ini = game/'red4ext/plugins/cyberpunkvrport/config/vrport.ini'
 sim = Path.home()/'AppData/Local/OpenXR-Simulator'
 mod = game/'bin/x64/plugins/cyber_engine_tweaks/mods/CyberpunkVRPort_QuickBoot'
 original = ini.read_bytes()
@@ -45,7 +45,7 @@ if time.time()-(sim/'runtime_status.json').stat().st_mtime > 3:
     raise RuntimeError('Simulator status is stale')
 head = sim_state['head_tracking']
 pose = {**head['position'], **{k:head[k] for k in ('yaw','pitch','roll')}}
-dll = ROOT/'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll'
+dll = ROOT/'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll'
 symbols = resolve(a.pid, dll, ['CyberpunkVR_FoveatedReport','CyberpunkVR_FoveatedReportSeq'])
 address, sequence = [int(symbols[k],16) for k in ('CyberpunkVR_FoveatedReport','CyberpunkVR_FoveatedReportSeq')]
 reader = Reader(a.pid, game/'bin/x64/Cyberpunk2077.exe', address, sequence)

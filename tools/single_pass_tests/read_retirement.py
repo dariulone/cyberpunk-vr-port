@@ -38,7 +38,7 @@ class Telemetry:
         self.pid=pid
         names=('Seq','Allocator','RetirementTotals','Retirement','RetirementEventSeq','RetirementEventCount',
                'RetirementEvents','Cache','CacheRows')
-        self.symbols=resolve(pid,Path(game)/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',
+        self.symbols=resolve(pid,Path(game)/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
                              [self.PREFIX+name for name in names])
         self.reader=Reader(pid,Path(game)/'bin/x64/Cyberpunk2077.exe',0,0)
     def words(self,name,count):

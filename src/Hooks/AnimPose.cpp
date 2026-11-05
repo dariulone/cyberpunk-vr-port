@@ -21,6 +21,7 @@
 
 #include "Anim/VrikHook.hpp"
 #include "Anim/CharacterRig.hpp"
+#include "Anim/GraspPose.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/WeaponRig.hpp"
 #include "Anim/FkRecorder.hpp"
@@ -31,6 +32,7 @@
 #include "Camera/AnchorTranslation.hpp"
 #include "Camera/NeckCameraMount.hpp"
 #include "Hooks/LadderInput.hpp"
+#include "Lobby/MenuLobby.hpp"
 #include "Camera/HandViewFrame.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Camera/PoseIdentity.hpp"
@@ -46,6 +48,7 @@
 #include "Anim/HeadAimWeapon.hpp"
 #include "Anim/WheelGrab.hpp"
 #include "Anim/ReloadHandOff.hpp"
+#include "Anim/LeftHanded.hpp"
 // Raised by VRTwoHandCapture(); read by the early-out above, which must not skip a pass it needs.
 extern "C" __declspec(dllexport) extern int CyberpunkVR_TwoHandCaptureReq;
 // 1 while the support hand is welded to the weapon: it then rides the weapon's kick and must not be
@@ -324,6 +327,8 @@ if (g_VRRecordFK) {
                 cvr::anim::PrepareAimArmTargets(boneBuf);
                 cvr::anim::SolvePreparedAimArms(boneBuf);
 
+                // Each hand's finger curl as the animation left it; below, as drawn (CyberpunkVR_DebugFingerFlex).
+                cvr::anim::NoteFingerFlex(boneBuf, false);
 
                 // THE LEFT HAND AT REST. While a weapon is out the game curls that hand into the support
                 // half of a two-handed grip; in VR it is empty and in view, so it wears the pose the game
@@ -347,9 +352,14 @@ if (g_VRRecordFK) {
                     const int bi=carriedFingerIdx[h][k];
                     if(bi>=0 && bi<VRIK_MAX_BONES)std::memcpy(carriedFingers[h][k],boneBuf+bi*48,48);
                 }
-                if(!VRIK_UsesNativeCyberware())cvr::anim::VrikRestFingerPose(boneBuf,ladderVrik && ladderKinds[0]==0);
+                // IN THE LOBBY both hands rest so: the main menu is a menu to the port, so the gestures below
+                // (which lay the resting fingers under a gesture in play) do not run there, and the menu's
+                // own animation is all the hands would wear. The lobby's grasp below still closes a hand on
+                // what it holds.
+                const bool lobbyHands=cvr::lobby::WorldShown();
+                if(!VRIK_UsesNativeCyberware())cvr::anim::VrikRestFingerPose(boneBuf,lobbyHands || (ladderVrik && ladderKinds[0]==0));
                 // ...and the right hand, which is empty exactly while the left one carries the weapon.
-                if(!VRIK_UsesNativeCyberware())cvr::anim::VrikRestFingerPoseRight(boneBuf,ladderVrik && ladderKinds[1]==0);
+                if(!VRIK_UsesNativeCyberware())cvr::anim::VrikRestFingerPoseRight(boneBuf,lobbyHands || (ladderVrik && ladderKinds[1]==0));
                 if(!VRIK_UsesNativeCyberware() && !ladderVrik)cvr::gestures::Apply(boneBuf);
                 // ...and as that empty hand reaches back for the carried weapon, the grip it is about to
                 // take, faded in on top of the resting fingers. On top, because reaching for the gun is
@@ -361,6 +371,10 @@ if (g_VRRecordFK) {
                 // grip a more specific one, and a hand on a magazine the most specific of all -- so each
                 // writes over the one before it and the reload keeps the last word.
                 if(!VRIK_UsesNativeCyberware())cvr::anim::TwoHandFingers(boneBuf);
+
+                // THE GRASP: a hand that holds a thing has its fingers closed on that thing's shape (the lobby's
+                // things, src/Anim/GraspPose.cpp). Under the reload layer, which keeps the last word.
+                cvr::anim::GraspFingers(boneBuf);
 
                 // RELOAD FINGER POSE: pose the FREE hand's fingers into a grip while it holds a weapon part
                 // (slide/mag). Reuses the smoke resolver's finger indices (hand 1 = right g_VRSmokeFingerIdx,
@@ -404,6 +418,7 @@ if (g_VRRecordFK) {
                     const float len=std::sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]+n[3]*n[3]);
                     if(len>1e-6f)for(int c=0;c<4;++c)q[c]=n[c]/len;
                 }
+                cvr::anim::NoteFingerFlex(boneBuf, true);
 
 
                 // (SNAP PUPPET PRE-ROTATION removed after live test: rotating the ROOT
@@ -765,6 +780,9 @@ if (g_VRRecordFK) {
                     // grip presses fired holster zones with the real hand nowhere near them.
                     float rhWristModel[3] = { 0.0f, 0.0f, 0.0f };
                     bool  rhWristValid = false;
+                    // ...and the left one, the same stage of its solve: left-handed it is the hand that draws.
+                    float lhWristModel[3] = { 0.0f, 0.0f, 0.0f };
+                    bool  lhWristValid = false;
                     int hIdx = g_VRHeadBoneIdx;
                     const float* headFKraw =
                         (hIdx >= 0 && hIdx < VRIK_MAX_BONES) ? g_fkPos[hIdx] : nullptr;
@@ -1419,7 +1437,8 @@ if (g_VRRecordFK) {
                                     // thing a hand holding a gun cannot do.
                                     {
                                         float backM = 0.0f, riseRad = 0.0f;
-                                        RecoilSample(1, 1, &backM, &riseRad);
+                                        // Left-handed the weapon kicks the other hand (the left arm, below).
+                                        if (!cvr::anim::WeaponInLeftHand()) RecoilSample(1, 1, &backM, &riseRad);
                                         if (riseRad != 0.0f) {
                                             const float rightL[3] = { 1.0f, 0.0f, 0.0f };
                                             float ax[3]; VRIK_QuatRotateVec(hm, rightL, ax);
@@ -1463,8 +1482,12 @@ if (g_VRRecordFK) {
                                         // into its own, so the gun travels instead of teleporting.
                                         // Before the hold below, so the support point follows the
                                         // weapon while it settles rather than the hand it ends up in.
-                                        CarryReturnRight(target, hm, wristR);
-                                        cvr::anim::TwoHandRight(target, hm, wristR, lCtrl);
+                                        // Left-handed this is the support hand: the weapon hand's half of the hold
+                                        // runs in the left arm, and this one is welded after it (below the arms).
+                                        if (!cvr::anim::WeaponInLeftHand()) {
+                                            CarryReturnRight(target, hm, wristR);
+                                            cvr::anim::TwoHandRight(target, hm, wristR, lCtrl);
+                                        }
                                     }
                                     VRIK_QuatMul(hm, wristR, handRot); VRIK_QuatNorm(handRot);
 
@@ -1594,6 +1617,7 @@ if (g_VRRecordFK) {
                             // Steering measures the controller, before collision
                             // or held-object stops constrain the drawn hand.
                             cvr::anim::WheelStoreTarget(0, target);
+                            VRIK_NoteHandAim(0, target, handRot);
                             VRIK_ApplyHandStop(1, target, handRot);
                             // WHEEL GRAB. Store the controller target FIRST: it is what the NEXT
                             // solve measures against the animated hand, and it has to keep being
@@ -1615,10 +1639,16 @@ if (g_VRRecordFK) {
                                               g_VRElbowPoleR * 0.01745329252f, g_VRElbowSwingR,
                                               /*isLeft*/false, /*storeDbg*/true,poseLadder);
                             }
-                            // Solved RIGHT wrist for the VR basketball (see the left-hand twin).
-                            g_VRPalmModelR[0] = target[0];
-                            g_VRPalmModelR[1] = target[1];
-                            g_VRPalmModelR[2] = target[2];
+                            // Solved RIGHT wrist for the VR basketball (see the left-hand twin). Where the solve put
+                            // it, not the target: with the controller beyond the arm's reach (leaning over a table)
+                            // the drawn hand stops short, and a palm published at the target took hold of things
+                            // 30 cm from it (2026-10-28, the lobby's engrams).
+                            {
+                                const float* wrist = armToAnimR ? target : g_VRIKHandPin[0];
+                                g_VRPalmModelR[0] = wrist[0];
+                                g_VRPalmModelR[1] = wrist[1];
+                                g_VRPalmModelR[2] = wrist[2];
+                            }
                             g_VRPalmModelRotR[0] = handRot[0];
                             g_VRPalmModelRotR[1] = handRot[1];
                             g_VRPalmModelRotR[2] = handRot[2];
@@ -1889,18 +1919,56 @@ if (g_VRRecordFK) {
                                         VRIK_ResolveViewModelPos(rawCamModelPos,camModelEntityQuat,vpM);
                                     float hm[4];
                                     VRIK_BuildViewHandTarget(vpM,rvM,vrPos,vrQuat,g_VRScaleL,offL,target,hm);
+                                    // LEFT-HANDED THIS IS THE WEAPON HAND, built the way the right arm builds it
+                                    // otherwise: the kick onto `hm` and the target first, then the weapon hand's half
+                                    // of the two-hand hold against the RIGHT controller, brought into model space by
+                                    // the same transform -- the support point the right arm is welded to below.
+                                    const bool weaponHandL = cvr::anim::WeaponInLeftHand();
+                                    if (weaponHandL) {
+                                        float backM = 0.0f, riseRad = 0.0f;
+                                        RecoilSample(1, 1, &backM, &riseRad);
+                                        if (riseRad != 0.0f) {
+                                            const float rightL[3] = { 1.0f, 0.0f, 0.0f };
+                                            float ax[3]; VRIK_QuatRotateVec(hm, rightL, ax);
+                                            const float s2 = std::sin(riseRad * 0.5f);
+                                            const float kq[4] = { ax[0]*s2, ax[1]*s2, ax[2]*s2, std::cos(riseRad * 0.5f) };
+                                            float kr[4]; VRIK_QuatMul(kq, hm, kr); VRIK_QuatNorm(kr);
+                                            hm[0]=kr[0]; hm[1]=kr[1]; hm[2]=kr[2]; hm[3]=kr[3];
+                                        }
+                                        if (backM != 0.0f) {
+                                            float bF = 1.0f, dF = 0.0f;
+                                            RecoilTravelMix(&bF, &dF);
+                                            const float vfL[3] = { 0.0f, 1.0f, 0.0f };
+                                            float vf[3]; VRIK_QuatRotateVec(rvM, vfL, vf);
+                                            const float vl = std::sqrt(vf[0]*vf[0] + vf[1]*vf[1]);
+                                            if (vl > 1e-5f) {
+                                                target[0] -= vf[0] / vl * bF * backM;
+                                                target[1] -= vf[1] / vl * bF * backM;
+                                            }
+                                            target[2] -= dF * backM;
+                                        }
+                                        const float rp[3] = { SharedPose(9), SharedPose(10), SharedPose(11) };
+                                        const float rmp[3] = { rp[0]*g_VRScaleR, -rp[2]*g_VRScaleR, rp[1]*g_VRScaleR };
+                                        float rrp[3]; VRIK_QuatRotateVec(rvM, rmp, rrp);
+                                        const float rCtrl[3] = { vpM[0] + rrp[0] + g_VROffRX,
+                                                                 vpM[1] + rrp[1] + g_VROffRY,
+                                                                 vpM[2] + rrp[2] + g_VROffRZ };
+                                        cvr::anim::TwoHandRight(target, hm, wristL, rCtrl);
+                                    }
                                     VRIK_QuatMul(hm, wristL, handRot); VRIK_QuatNorm(handRot);
-                                    // ...and if the grip is HELD, this wrist belongs to the weapon instead:
-                                    // the support point the right hand computed a moment ago, in the same
-                                    // frame. Only a held grip moves a wrist -- a preview never does.
-                                    cvr::anim::TwoHandLeft(target, handRot);
-                                    // ...and when the weapon has just been handed to this hand, the
-                                    // welded twist is faded out rather than dropped: the gun is
-                                    // parented to this wrist, so a dropped weld teleports it.
-                                    CarryLeftBlend(handRot);
-                                    // ...and this wrist, as finally drawn, is what the weapon hangs on
-                                    // while it is carried -- the one thing the return needs from it.
-                                    CarryRecordLeft(target, handRot);
+                                    if (!weaponHandL) {
+                                        // ...and if the grip is HELD, this wrist belongs to the weapon instead:
+                                        // the support point the right hand computed a moment ago, in the same
+                                        // frame. Only a held grip moves a wrist -- a preview never does.
+                                        cvr::anim::TwoHandLeft(target, handRot);
+                                        // ...and when the weapon has just been handed to this hand, the
+                                        // welded twist is faded out rather than dropped: the gun is
+                                        // parented to this wrist, so a dropped weld teleports it.
+                                        CarryLeftBlend(handRot);
+                                        // ...and this wrist, as finally drawn, is what the weapon hangs on
+                                        // while it is carried -- the one thing the return needs from it.
+                                        CarryRecordLeft(target, handRot);
+                                    }
 
                                     // RECOIL, ADDED TO THE TARGET -- the only place it can survive.
                                     //
@@ -1921,7 +1989,8 @@ if (g_VRRecordFK) {
                                         // kicked hand -- so sampling the spring again here would kick it
                                         // twice, and about its own axis rather than the weapon's, which
                                         // tears the hand off the grip for the length of the recoil.
-                                        if (!CyberpunkVR_TwoHandActive) RecoilSample(0, 0, &backM, &riseRad);
+                                        // (Left-handed this hand holds the weapon and took its kick above.)
+                                        if (!weaponHandL && !CyberpunkVR_TwoHandActive) RecoilSample(0, 0, &backM, &riseRad);
                                         if (backM != 0.0f || riseRad != 0.0f) {
                                             // BACK, IN THE BODY'S FRAME, AND HORIZONTAL. Along the
                                             // hand's own axis this was back along whatever the wrist
@@ -1969,7 +2038,10 @@ if (g_VRRecordFK) {
                                 }
                             }
                             if (CyberpunkVR_XrDeepDiag) VRIK_NoteShake(0, 2, target);   // stage 2: what the IK solves for
+                            lhWristModel[0] = target[0]; lhWristModel[1] = target[1]; lhWristModel[2] = target[2];
+                            lhWristValid = true;
                             cvr::anim::WheelStoreTarget(1, target);
+                            VRIK_NoteHandAim(1, target, handRot);
                             VRIK_ApplyHandStop(0, target, handRot);
                             cvr::anim::WheelBlendTarget(1, target, handRot);
                             cvr::anim::ReloadHandOffBlendTarget(1, target, handRot);
@@ -1984,9 +2056,12 @@ if (g_VRRecordFK) {
                             // Solved LEFT wrist, mirroring rhWristModel above. The VR basketball
                             // needs both hands, and the pre-solve g_fkPos is the animated pose
                             // (hands at the thighs) -- exactly the trap the holster code documents.
-                            g_VRPalmModelL[0] = target[0];
-                            g_VRPalmModelL[1] = target[1];
-                            g_VRPalmModelL[2] = target[2];
+                            {
+                                const float* wrist = armToAnimL ? target : g_VRIKHandPin[1];
+                                g_VRPalmModelL[0] = wrist[0];
+                                g_VRPalmModelL[1] = wrist[1];
+                                g_VRPalmModelL[2] = wrist[2];
+                            }
                             g_VRPalmModelRotL[0] = handRot[0];
                             g_VRPalmModelRotL[1] = handRot[1];
                             g_VRPalmModelRotL[2] = handRot[2];
@@ -2003,6 +2078,27 @@ if (g_VRRecordFK) {
                             g_VRCamModelRot[3] = camModelHandRot[3];
                             g_VRPalmModelValid = 1;
                         }
+                        // LEFT-HANDED, THE SUPPORT HAND IS WELDED HERE. The right arm is solved first, before the
+                        // weapon hand has built the support point, so a held two-hand grip solves it again onto that
+                        // point -- through the same stop and native-reload blend the left arm's weld goes through. From
+                        // the hand as drawn: the weld mixes toward the grip by the hold's weight, so the base only
+                        // matters while it is arriving or leaving.
+                        if (cvr::anim::WeaponInLeftHand() && SharedPose(8) > 0.0f && g_VRRightUpperArmIdx >= 0 &&
+                            !armToAnimR) {
+                            float t[3] = { g_VRPalmModelR[0], g_VRPalmModelR[1], g_VRPalmModelR[2] };
+                            float q[4] = { g_VRPalmModelRotR[0], g_VRPalmModelRotR[1],
+                                           g_VRPalmModelRotR[2], g_VRPalmModelRotR[3] };
+                            if (cvr::anim::TwoHandLeft(t, q)) {
+                                VRIK_ApplyHandStop(1, t, q);
+                                cvr::anim::ReloadHandOffBlendTarget(0, t, q);
+                                VRIK_SolveArm(boneBuf, g_VRRightUpperArmIdx, g_VRRightForeArmIdx,
+                                              g_VRRightBoneIdx, t, q, bodyRight, bodyUp, bodyFwd,
+                                              g_VRElbowPoleR * 0.01745329252f, g_VRElbowSwingR,
+                                              /*isLeft*/false, /*storeDbg*/true, poseLadder);
+                                for (int k = 0; k < 3; ++k) g_VRPalmModelR[k] = g_VRIKHandPin[0][k];
+                                for (int k = 0; k < 4; ++k) g_VRPalmModelRotR[k] = q[k];
+                            }
+                        }
                         // Also runs when the left hand is untracked: a valid
                         // right-hand grab must keep updating independently.
                         cvr::anim::WheelPublishGrab();
@@ -2015,8 +2111,16 @@ if (g_VRRecordFK) {
                         // REAL hand was nowhere near them (log-proven slot 1<->2 swap).
                         // Anchors (hips/shoulders) read g_fkPos, which at this point holds
                         // the post-body-place, post-clavicle-anchoring FK.
-                        if (rhWristValid) {
-                            const float* rh = rhWristModel;
+                        // LEFT-HANDED THE LEFT HAND DRAWS, and every zone is the mirror: [20] the hip on the drawing
+                        // side, [21] the other hip, [22] over the drawing side's shoulder. The holster mod reads
+                        // them the same way and takes that hand's grip.
+                        const bool drawLeft = g_liveControls.xrLeftHanded != 0;
+                        if (drawLeft ? lhWristValid : rhWristValid) {
+                            const float* rh = drawLeft ? lhWristModel : rhWristModel;
+                            const float side = drawLeft ? -1.0f : 1.0f;
+                            const int drawHip = drawLeft ? g_VRLeftUpLegIdx : g_VRRightUpLegIdx;
+                            const int crossHip = drawLeft ? g_VRRightUpLegIdx : g_VRLeftUpLegIdx;
+                            const int drawShoulder = drawLeft ? g_VRLeftUpperArmIdx : g_VRRightUpperArmIdx;
 
                             // Body axes: bodyRight from shoulders, bodyUp from root->head, bodyFwd from cross.
                             float br[3] = { 1.0f, 0.0f, 0.0f };
@@ -2055,14 +2159,16 @@ if (g_VRRecordFK) {
                             };
 
                             // Hip prop distances.
-                            if (g_VRRightUpLegIdx >= 0 && g_VRRightUpLegIdx < VRIK_MAX_BONES) {
-                                const float* p = g_fkPos[g_VRRightUpLegIdx];
-                                float px = p[0] + br[0]*kRightOff, py = p[1] + br[1]*kRightOff, pz = p[2] + br[2]*kRightOff;
+                            if (drawHip >= 0 && drawHip < VRIK_MAX_BONES) {
+                                const float* p = g_fkPos[drawHip];
+                                const float o = side * kRightOff;
+                                float px = p[0] + br[0]*o, py = p[1] + br[1]*o, pz = p[2] + br[2]*o;
                                 g_pSharedHands[20] = d3(rh[0],rh[1],rh[2], px,py,pz);
                             } else g_pSharedHands[20] = -1.0f;
-                            if (g_VRLeftUpLegIdx >= 0 && g_VRLeftUpLegIdx < VRIK_MAX_BONES) {
-                                const float* p = g_fkPos[g_VRLeftUpLegIdx];
-                                float px = p[0] - br[0]*kLeftOff, py = p[1] - br[1]*kLeftOff, pz = p[2] - br[2]*kLeftOff;
+                            if (crossHip >= 0 && crossHip < VRIK_MAX_BONES) {
+                                const float* p = g_fkPos[crossHip];
+                                const float o = side * kLeftOff;
+                                float px = p[0] - br[0]*o, py = p[1] - br[1]*o, pz = p[2] - br[2]*o;
                                 g_pSharedHands[21] = d3(rh[0],rh[1],rh[2], px,py,pz);
                             } else g_pSharedHands[21] = -1.0f;
 
@@ -2070,7 +2176,7 @@ if (g_VRRecordFK) {
                             // Two sign candidates published as min (bodyFwd sign per rig unknown;
                             // the wrong candidate lands in front of the body = always far).
                             if (haveShoulders) {
-                                const float* rs = g_fkPos[g_VRRightUpperArmIdx];
+                                const float* rs = g_fkPos[drawShoulder];
                                 const float kUp = 0.05f;   // above shoulder
                                 const float kBack = 0.10f; // back from shoulder
                                 float ax = rs[0] + bu[0]*kUp - bf[0]*kBack;

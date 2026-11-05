@@ -59,8 +59,7 @@ void Apply(uint8_t* buffer) {
     const int kind=cyberware::SelectedKind();
     const auto epoch=g_VrikFrameEpoch.load(std::memory_order_relaxed);
     for(int side=0;side<2;++side) {
-        const bool owned=((held>>side)&1)!=0 || (side==0 && CyberpunkVR_CarryLeft!=0) ||
-            g_VRReloadFingerActive[side] || (side==0?g_VRSmokeFingerActiveL:g_VRSmokeFingerActive);
+        const bool owned=((held>>side)&1)!=0 || PortHolds(side);
         if(owned){state[side]={};CyberpunkVR_GestureMode[side]=0;continue;}
         const float grip=float((controls>>(side*8))&255)/255.f;
         const float trigger=float((controls>>(16+side*8))&255)/255.f;
@@ -108,4 +107,9 @@ void Apply(uint8_t* buffer) {
     }
 }
 bool OwnsHand(int side){return side>=0 && side<2 && CyberpunkVR_GestureMode[side]!=0;}
+bool PortHolds(int side) {
+    if(side<0 || side>1)return false;
+    return (side==0 && CyberpunkVR_CarryLeft!=0) || g_VRReloadFingerActive[side] ||
+        (side==0?g_VRSmokeFingerActiveL:g_VRSmokeFingerActive);
+}
 }

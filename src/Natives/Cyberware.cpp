@@ -6,12 +6,17 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Hooks/WeaponTrigger.hpp"
+#include "Anim/LeftHanded.hpp"
+#include "Core/LiveControls.hpp"
+#include "Hooks/CyberwareChord.hpp"
 #include <RED4ext/Scripting/Utils.hpp>
 
 extern "C" int CyberpunkVR_TwoHandActive;
 extern "C" int CyberpunkVR_CarryLeft;
 namespace {
-void AppendMeleeTracking(RED4ext::DynArray<RED4ext::Vector4>* out,bool header) {
+// weaponLast: the hands in the melee order -- the other hand, then the weapon's (the left one while the weapon is in
+// the left hand, Anim/LeftHanded.cpp); otherwise left then right, as the implants' frames have them.
+void AppendMeleeTracking(RED4ext::DynArray<RED4ext::Vector4>* out,bool header,bool weaponLast=false) {
     // Append actual tracking-space motion, before any game camera/body pose,
     // wrist offset or IK. A native hit reaction/aim turn must not become another
     // punch merely because the rendered fist moved in the game's world.
@@ -30,14 +35,15 @@ void AppendMeleeTracking(RED4ext::DynArray<RED4ext::Vector4>* out,bool header) {
         tracking[side]={p[0]+head.posX,p[1]+head.posY,p[2]+head.posZ,float((head.originSerial&0xffffffu)+1u)};
         rotations[side]={q[0],q[1],q[2],q[3]};
     }
-    for(const auto& p:tracking)out->PushBack(p);
-    for(const auto& q:rotations)out->PushBack(q);
+    const int first=weaponLast && cvr::anim::WeaponInLeftHand() ? 1 : 0;
+    out->PushBack(tracking[first]);out->PushBack(tracking[1-first]);
+    out->PushBack(rotations[first]);out->PushBack(rotations[1-first]);
 }
 }
 void VRMeleeInputFrame(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext::DynArray<RED4ext::Vector4>* out,int64_t) {
     stack->code++;if(!out)return;out->Clear();
     if(g_VRBind!=4 || cvr::anim::IsHeadAimWeaponActive())return;
-    AppendMeleeTracking(out,true);
+    AppendMeleeTracking(out,true,true);
 }
 void VRMeleeThrowEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
     stack->code++;if(out)*out=g_VRBind==4 && !cvr::anim::IsHeadAimWeaponActive();
@@ -45,23 +51,37 @@ void VRMeleeThrowEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool*
 void VRWeaponTriggerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
     stack->code++;if(out)*out=cvr::input::WeaponTriggerEnabled();
 }
+// The weapon in hand is drawn in the LEFT hand (Anim/LeftHanded.cpp): the scripts' support hand is the right one.
+void VRWeaponInLeftHand(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
+    stack->code++;if(out)*out=cvr::anim::WeaponInLeftHand();
+}
+// The left-handed controls are on (xr_left_handed): the hand that draws and holsters is the left one, weapon or not.
+void VRLeftHanded(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
+    stack->code++;if(out)*out=g_liveControls.xrLeftHanded!=0;
+}
 void VRMeleeThrowFrame(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext::DynArray<RED4ext::Vector4>* out,int64_t) {
     stack->code++;if(!out)return;out->Clear();
     if(g_VRBind!=4 || g_menuModeValue!=0 || g_isInVehicle || CyberpunkVR_CarryLeft || cvr::anim::IsHeadAimWeaponActive())return;
     OpenXRHeadPose head{},hands[2]{};uint64_t sequence{},stamp{};VRControllerState input{};
     float p[3],q[4],yaw{};
     auto& xr=OpenXRManager::Get();
-    if(!xr.GetGestureHandFrame(&head,hands,&sequence,&stamp,true) || !hands[1].valid ||
-       !xr.GetControllerState(&input) || !input.rightHandValid || !VRIK_ReadCurrentBodyFrame(p,q,&yaw))return;
+    // The hand holding the knife throws it: the left one while the weapon is in the left hand.
+    const bool left=cvr::anim::WeaponInLeftHand();
+    const int hand=left ? 0 : 1;
+    if(!xr.GetGestureHandFrame(&head,hands,&sequence,&stamp,true) || !hands[hand].valid ||
+       !xr.GetControllerState(&input) || !(left ? input.leftHandValid : input.rightHandValid) ||
+       !VRIK_ReadCurrentBodyFrame(p,q,&yaw))return;
     const float headQ[4]={head.oriX,head.oriY,head.oriZ,head.oriW};
-    const float local[3]={hands[1].posX,hands[1].posY,hands[1].posZ};float tracking[3];
+    const float local[3]={hands[hand].posX,hands[hand].posY,hands[hand].posZ};float tracking[3];
     VRIK_QuatRotateVec(headQ,local,tracking);
     // Measure in metres in tracking space. Map the resulting velocity to game
     // axes only at release, so camera/body turns never create throwing energy.
     out->PushBack({float((stamp/1000u)&0xffffffu),float(sequence&0xffffffu),float(head.originSerial&0xffffffu),0});
     out->PushBack({tracking[0]+head.posX,tracking[1]+head.posY,tracking[2]+head.posZ,1});
-    out->PushBack({std::cos(yaw),std::sin(yaw),input.leftTrigger,input.rightGrip});
-    const float handQ[4]={hands[1].oriX,hands[1].oriY,hands[1].oriZ,hands[1].oriW};
+    // the other hand's trigger and the throwing hand's grip
+    out->PushBack({std::cos(yaw),std::sin(yaw),left ? input.rightTrigger : input.leftTrigger,
+                   left ? input.leftGrip : input.rightGrip});
+    const float handQ[4]={hands[hand].oriX,hands[hand].oriY,hands[hand].oriZ,hands[hand].oriW};
     float fullQ[4],forward[3],gaze[3];const float ray[3]={0,0,-1};
     VRIK_QuatMul(headQ,handQ,fullQ);VRIK_QuatRotateVec(fullQ,ray,forward);
     out->PushBack({forward[0],forward[1],forward[2],0});
@@ -125,6 +145,11 @@ void VRCyberwareSelect(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,void*,i
 void VRHandEquipment(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,void*,int64_t) {
     int32_t mask{};RED4ext::GetParameter(stack,&mask);stack->code++;
     cvr::gestures::PublishEquipment(mask);
+}
+void VRCyberwareChordTake(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
+    stack->code++;
+    const bool taken=cvr::input::TakeCyberwareChord();
+    if(out)*out=taken;
 }
 void VRLauncherControllerAim(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
     stack->code++;

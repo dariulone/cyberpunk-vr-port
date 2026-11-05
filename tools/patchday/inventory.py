@@ -105,7 +105,7 @@ def classify(line, col, end, value, in_code, fname):
     before = line[:col]
     after = line[end:]
     if re.search(r'\.(?:dll|asi)\s*\+\s*$', before, re.I):
-        # An offset inside another module ("CyberpunkVR_Stereo.dll+0x2CDBF" in a crash note).
+        # An offset inside another module ("cyberpunkvrport.dll+0x2CDBF" in a crash note).
         return 'foreign-module', 'none'
     if not in_code:
         return 'comment', 'weak'

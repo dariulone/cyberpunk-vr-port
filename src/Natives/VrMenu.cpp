@@ -6,7 +6,11 @@
 // hand that over, and the Lua decides what a touch or a click means.
 //
 // THE GESTURE is Sword Art Online's swipe, made deliberate: the right hand, GRIP HELD, swept straight
-// down (an open hand dropping after an action is not a swipe). Read in TRACKING space, from the same published hand frame the melee reads, so a turn
+// down (an open hand dropping after an action is not a swipe). A grip that holds something is not held for
+// the swipe, and stays out of it until it is released (Natives/MenuSwipe.hpp) -- the steering wheel (turning it
+// sweeps that hand down), a ladder (climbing is the same pull down, and the last pull goes on after the ladder
+// lets the player off), a thing the fingers are closed on (Anim/GraspPose: the lobby's items) -- and the setting
+// xr_menu_gesture turns the swipe off (L3 + R3 still opens the menu). Read in TRACKING space, from the same published hand frame the melee reads, so a turn
 // of the body or the camera never makes a swipe. Fired once; the Lua checks whether the moment allows
 // a menu (no weapon in hand, no scene) before it opens one.
 //
@@ -17,9 +21,17 @@
 // which a trigger press does not bend -- so clicking does not move the ray off what it points at.
 
 #include "Natives/NativeFunctions.hpp"
+#include "Audio/PortSound.hpp"
 #include "Natives/VrMenu.hpp"
+#include "Natives/MenuSwipe.hpp"
+#include "Camera/CameraState.hpp"   // InBraindance
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
+#include "Anim/CharacterRig.hpp"
+#include "Anim/GraspPose.hpp"
+#include "Anim/WheelGrab.hpp"
+#include "Hooks/LadderInput.hpp"
+#include "Core/LiveControls.hpp"
 #include "Overlay/VrOverlay.hpp"
 #include "Overlay/UiRec.hpp"
 #include "Runtimes/OpenXRManager.hpp"
@@ -27,20 +39,11 @@
 #include <RED4ext/Scripting/Utils.hpp>
 
 #include <windows.h>
-#include <xaudio2.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
-#include <cstring>
-#include <deque>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <memory>
-#include <mutex>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace cvr::vrmenu {
@@ -54,8 +57,19 @@ float BlinkClosure() {
 }
 namespace {
 std::atomic<bool> g_capture{false};
+// The wheel script's last call (it calls every frame it can open the wheel), and the hold as the input
+// merge last decided it: 0 none, 1 pressed and undecided, 2 the wheel's hold.
+std::atomic<ULONGLONG> g_wheelBeat{0};
+std::atomic<int> g_wheelHold{0};
 }
 bool CapturesButtons() { return g_capture.load(std::memory_order_relaxed); }
+bool WheelArmed(uint64_t now) {
+    const ULONGLONG beat = g_wheelBeat.load(std::memory_order_relaxed);
+    return beat != 0 && now >= beat && now - beat < 500;
+}
+void PublishWheelHold(bool pending, bool held) {
+    g_wheelHold.store(held ? 2 : (pending ? 1 : 0), std::memory_order_relaxed);
+}
 }
 
 namespace {
@@ -66,23 +80,8 @@ constexpr int kIndex3[2] = {65, 69};    // LeftHandIndex3, RightHandIndex3
 // From the bone to the end of the finger, along the bone's X: the last capsule's length and radius.
 constexpr float kTip = 0.024f;
 
-struct Sample {
-    double t;
-    float p[3];
-    bool held;      // the grip squeezed
-};
-std::deque<Sample> g_history;
+cvr::vrmenu::SwipeDetector g_swipe;
 uint64_t g_lastSequence = 0;
-double g_lastFire = -10.0;
-
-// The swipe: at least this far down, inside this window, at least this fast on average, and mostly
-// vertical. Measured against a deliberate flick (~0.3 m in ~0.25 s) and against a hand dropped to the
-// side after an action (slower, and it starts low).
-constexpr float kDrop = 0.20f;
-constexpr double kWindow = 0.40;
-constexpr float kSpeed = 0.75f;
-constexpr float kSlant = 0.65f;
-constexpr double kCooldown = 0.9;
 
 bool ModelToWorldFrame(float* m2w) {
     if (!g_VRPalmModelValid || !g_VRViewWorldValid) return false;
@@ -122,6 +121,33 @@ bool BoneWorld(const float* m2w, int bone, const float* offset, const float* axi
     return true;
 }
 
+// THE POINTER LEAVES THE HAND THE PLAYER HOLDS, not the drawn one. With the controller beyond the arm's reach --
+// pointing at a panel a metre away, the arm out -- the solve stops the drawn hand short, and where it stops moves with
+// the shoulders: the body's yaw steps under a turning head carried the pointer along (measured in the lobby: the ray's
+// origin 12 cm in three steps over a 35 degree head turn, the hand still in the room). The controller's own wrist
+// (g_VRIKHandAim, before the reach, the stops and the blends) is where the hand is; the index finger's base and the
+// hand's axis are put on it the way the snapshot has them on the drawn hand. Within reach the two are the same wrist.
+bool AimWorld(const float* m2w, int side, const float* along, float* origin, float* dir) {
+    const float* aim = g_VRIKHandAim[side ? 0 : 1];
+    const int hand = kHand[side], index = kIndex1[side];
+    if (aim[7] == 0.0f || hand >= g_VRFKSnapCount || index >= g_VRFKSnapCount) return false;
+    const float handQ[4] = {g_VRFKSnapRot[hand][0], g_VRFKSnapRot[hand][1], g_VRFKSnapRot[hand][2], g_VRFKSnapRot[hand][3]};
+    const float rel[3] = {g_VRFKSnapPos[index][0] - g_VRFKSnapPos[hand][0], g_VRFKSnapPos[index][1] - g_VRFKSnapPos[hand][1],
+                          g_VRFKSnapPos[index][2] - g_VRFKSnapPos[hand][2]};
+    float handInv[4], local[3];
+    VRIK_QuatConj(handQ, handInv);
+    VRIK_QuatRotateVec(handInv, rel, local);
+    float q[4] = {aim[3], aim[4], aim[5], aim[6]};
+    VRIK_QuatNorm(q);
+    float o[3], a[3];
+    VRIK_QuatRotateVec(q, local, o);
+    const float model[3] = {aim[0] + o[0], aim[1] + o[1], aim[2] + o[2]};
+    ModelToWorld(m2w, model, origin);
+    VRIK_QuatRotateVec(q, along, a);
+    VRIK_QuatRotateVec(m2w, a, dir);
+    return true;
+}
+
 float Dot(const float* a, const float* b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 } // namespace
 
@@ -144,6 +170,13 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     stack->code++;
     if (!out) return;
     out->Clear();
+    // NOT IN A BRAINDANCE, by either way in: the grips are its LB and RB there (Hooks/XInput.cpp), and an L3 + R3
+    // hold is dropped rather than kept for after it.
+    if (InBraindance()) {
+        cvr::vrui::ConsumeMenuSummon();
+        g_swipe.Clear();
+        return;
+    }
     if (cvr::vrui::ConsumeMenuSummon()) {
         out->PushBack({2.0f, 0.0f, 0.0f, 0.0f});
         return;
@@ -152,9 +185,9 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     uint64_t sequence{}, stamp{};
     VRControllerState input{};
     auto& xr = OpenXRManager::Get();
-    if (!xr.GetGestureHandFrame(&head, hands, &sequence, &stamp, false) || !hands[1].valid ||
+    if (!g_liveControls.xrMenuGesture || !xr.GetGestureHandFrame(&head, hands, &sequence, &stamp, false) || !hands[1].valid ||
         !xr.GetControllerState(&input) || !input.rightHandValid) {
-        g_history.clear();
+        g_swipe.Clear();
         return;
     }
     if (sequence == g_lastSequence) return;
@@ -164,23 +197,14 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     float p[3];
     VRIK_QuatRotateVec(headQ, local, p);
     const double t = double(stamp) * 1e-6;
-    g_history.push_back({t, {p[0] + head.posX, p[1] + head.posY, p[2] + head.posZ},
-                         input.rightGrip > 0.70f});
-    while (!g_history.empty() && t - g_history.front().t > 0.6) g_history.pop_front();
-    if (t - g_lastFire < kCooldown || g_history.size() < 3 || !g_history.back().held) return;
-
-    // The earliest gripped sample of the window from which the hand fell far and straight enough.
-    const Sample& end = g_history.back();
-    const Sample* start = nullptr;
-    for (auto it = g_history.rbegin(); it != g_history.rend(); ++it) {
-        if (end.t - it->t > kWindow || !it->held) break;
-        const float drop = it->p[1] - end.p[1];
-        const float dx = it->p[0] - end.p[0], dz = it->p[2] - end.p[2];
-        if (drop >= kDrop && std::sqrt(dx * dx + dz * dz) <= kSlant * drop && drop / float(end.t - it->t) >= kSpeed)
-            start = &*it;
-    }
-    if (!start) return;
-    g_lastFire = t;
+    // The right hand's grip on something is not a swipe: the steering wheel (owned, or still easing onto it), a
+    // ladder's rung, a thing in its grasp.
+    const bool holding = (cvr::anim::WheelControlState() & 1) != 0 ||
+                         cvr::anim::g_wheelBlendRight.load(std::memory_order_relaxed) > 0.0f ||
+                         cvr::ladder::Active() || cvr::anim::GraspHolding(1);
+    const float hand[3] = {p[0] + head.posX, p[1] + head.posY, p[2] + head.posZ};
+    cvr::vrmenu::SwipeSample start{}, end{};
+    if (!g_swipe.Push(t, hand, input.rightGrip > 0.70f, holding, &start, &end)) return;
 
     // The head's heading frame in tracking space (OpenXR: Y up, -Z ahead).
     const float ahead[3] = {0.0f, 0.0f, -1.0f};
@@ -197,9 +221,8 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
         return RED4ext::Vector4{Dot(d, r), d[1], Dot(d, f), 1.0f};
     };
     out->PushBack({1.0f, float(sequence & 0xffffffu), 0.0f, 0.0f});
-    out->PushBack(relative(start->p));
+    out->PushBack(relative(start.p));
     out->PushBack(relative(end.p));
-    g_history.clear();
 }
 
 // VRMenuPointer(center, right, up, size) -> array<Vector4>, the menu plane given in the world (unit
@@ -236,8 +259,7 @@ void VRMenuPointer(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
             tip = {Dot(l, rx) / w + 0.5f, 0.5f - Dot(l, uy) / h, Dot(l, nz), 1.0f};
         }
         float o[3];
-        if (frame && BoneWorld(m2w, kIndex1[side], nullptr, nullptr, o, nullptr) &&
-            BoneWorld(m2w, kHand[side], nullptr, along, p, d)) {
+        if (frame && AimWorld(m2w, side, along, o, d)) {
             origin = {o[0], o[1], o[2], trigger};
             const float l[3] = {o[0] - c[0], o[1] - c[1], o[2] - c[2]};
             const float front = Dot(l, nz), into = Dot(d, nz);
@@ -273,6 +295,19 @@ void VRMenuCapture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out
     stack->code++;
     cvr::vrmenu::g_capture.store(open, std::memory_order_relaxed);
     if (out) *out = open;
+}
+
+// VRWeaponWheel(armed) -> Int32: called every frame by the port's weapon wheel. Armed, it takes the hold of
+// Y from the game (Hooks/WeaponWheelHold.hpp) for the next half second; the answer is the hold as the input
+// merge last decided it: 0 none, 1 pressed and undecided (time to get the wheel ready), 2 held (the wheel is
+// up). Always 0 with the setting xr_vr_weapon_wheel off.
+void VRWeaponWheel(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* out, int64_t) {
+    bool armed = false;
+    RED4ext::GetParameter(stack, &armed);
+    stack->code++;
+    const bool on = armed && g_liveControls.xrVrWeaponWheel != 0;
+    cvr::vrmenu::g_wheelBeat.store(on ? GetTickCount64() : 0, std::memory_order_relaxed);
+    if (out) *out = on ? cvr::vrmenu::g_wheelHold.load(std::memory_order_relaxed) : 0;
 }
 
 void VRMenuBlink(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
@@ -313,120 +348,38 @@ void VRSettingsEdit(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* ou
 
 // THE MENU'S OWN SOUNDS. The game's UI events are Wwise random containers -- one event, a different
 // variant each play -- so the variant the player picked can only be had as its own file: the mod ships
-// it as a WAV and this plays it on the system's default output with XAudio2, at the volume the Lua
-// works out from the game's master and effects sliders. No voice callbacks (nothing of this DLL runs on
-// XAudio2's thread, so unloading the plugin at exit cannot leave a call into it); a finished voice is
-// destroyed on the next play.
-namespace {
-struct Wav {
-    WAVEFORMATEX format{};
-    std::vector<uint8_t> data;
-};
-
-std::mutex g_soundMutex;
-IXAudio2* g_audio = nullptr;
-IXAudio2MasteringVoice* g_master = nullptr;
-bool g_audioFailed = false;
-std::unordered_map<std::wstring, std::shared_ptr<Wav>> g_wavs;
-std::vector<IXAudio2SourceVoice*> g_voices;
-
-// RIFF / WAVE, PCM only: the 'fmt ' chunk and the 'data' chunk, whatever else sits between them.
-std::shared_ptr<Wav> LoadWav(const std::filesystem::path& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return nullptr;
-    std::vector<uint8_t> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    if (b.size() < 12 || std::memcmp(b.data(), "RIFF", 4) != 0 || std::memcmp(b.data() + 8, "WAVE", 4) != 0) return nullptr;
-    auto wav = std::make_shared<Wav>();
-    bool haveFormat = false;
-    for (size_t at = 12; at + 8 <= b.size();) {
-        uint32_t size = 0;
-        std::memcpy(&size, b.data() + at + 4, 4);
-        const uint8_t* body = b.data() + at + 8;
-        if (at + 8 + size > b.size()) break;
-        if (std::memcmp(b.data() + at, "fmt ", 4) == 0 && size >= 16) {
-            std::memcpy(&wav->format, body, 16);
-            haveFormat = wav->format.wFormatTag == WAVE_FORMAT_PCM;
-        } else if (std::memcmp(b.data() + at, "data", 4) == 0) {
-            wav->data.assign(body, body + size);
-        }
-        at += 8 + size + (size & 1);
-    }
-    if (!haveFormat || wav->data.empty()) return nullptr;
-    wav->format.cbSize = 0;
-    return wav;
-}
-
-// A relative path is under the game's CET mods folder (bin\x64\plugins\cyber_engine_tweaks\mods).
-std::filesystem::path SoundPath(const char* file) {
-    std::wstring w(MultiByteToWideChar(CP_UTF8, 0, file, -1, nullptr, 0), L'\0');
-    if (!w.empty()) MultiByteToWideChar(CP_UTF8, 0, file, -1, w.data(), static_cast<int>(w.size()));
-    if (!w.empty() && w.back() == L'\0') w.pop_back();
-    std::filesystem::path p(w);
-    if (p.is_absolute()) return p;
-    wchar_t exe[MAX_PATH]{};
-    GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    return std::filesystem::path(exe).parent_path() / L"plugins" / L"cyber_engine_tweaks" / L"mods" / p;
-}
-
-bool StartAudio() {
-    if (g_audio != nullptr) return true;
-    if (g_audioFailed) return false;
-    // The calling thread (the game's script thread) has COM already; this only adds a reference, or
-    // answers that the thread is in another apartment, which XAudio2 does not mind.
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(XAudio2Create(&g_audio, 0, XAUDIO2_DEFAULT_PROCESSOR)) ||
-        FAILED(g_audio->CreateMasteringVoice(&g_master))) {
-        if (g_audio != nullptr) g_audio->Release();
-        g_audio = nullptr;
-        g_audioFailed = true;
-        return false;
-    }
-    return true;
-}
-}
-
-// VRMenuPlayWav(file, volume) -> Bool: plays a PCM WAV once (relative to the CET mods folder), at
-// `volume` (0..1). False when the file or the audio device is not there -- the Lua then falls back to
-// the game's event.
+// it and the port plays it (Audio/PortSound.hpp), at the volume the Lua works out from the game's master
+// and effects sliders.
+//
+// VRMenuPlayWav(file, volume) -> Bool: plays a sound file once (a WAV or an Ogg Vorbis, relative to the
+// plugin's Lua mods folder), at `volume` (0..1). False when the file or the audio device is not there --
+// the Lua then falls back to the game's event.
 void VRMenuPlayWav(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
     RED4ext::CString file;
     float volume = 1.0f;
     RED4ext::GetParameter(stack, &file);
     RED4ext::GetParameter(stack, &volume);
     stack->code++;
-    bool played = false;
-    {
-        std::lock_guard lock(g_soundMutex);
-        if (StartAudio()) {
-            for (size_t i = 0; i < g_voices.size();) {
-                XAUDIO2_VOICE_STATE st{};
-                g_voices[i]->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
-                if (st.BuffersQueued == 0) {
-                    g_voices[i]->DestroyVoice();
-                    g_voices[i] = g_voices.back();
-                    g_voices.pop_back();
-                } else {
-                    ++i;
-                }
-            }
-            const std::filesystem::path path = SoundPath(file.c_str());
-            auto& wav = g_wavs[path.wstring()];
-            if (wav == nullptr) wav = LoadWav(path);
-            IXAudio2SourceVoice* voice = nullptr;
-            if (wav != nullptr && g_voices.size() < 16 && SUCCEEDED(g_audio->CreateSourceVoice(&voice, &wav->format))) {
-                XAUDIO2_BUFFER buf{};
-                buf.AudioBytes = static_cast<UINT32>(wav->data.size());
-                buf.pAudioData = wav->data.data();
-                buf.Flags = XAUDIO2_END_OF_STREAM;
-                voice->SetVolume(std::clamp(volume, 0.0f, 1.0f));
-                if (SUCCEEDED(voice->SubmitSourceBuffer(&buf)) && SUCCEEDED(voice->Start(0))) {
-                    g_voices.push_back(voice);
-                    played = true;
-                } else {
-                    voice->DestroyVoice();
-                }
-            }
-        }
-    }
+    const bool played = cvr::sound::PlayOnce(file.c_str(), volume);
     if (out) *out = played;
+}
+
+// VRSoundChannel(channel, file, volume, lowpass, loopFrom, loopTo, crossfade, fade) -> Bool: what the named channel plays
+// now, reached over `fade` seconds (Audio/PortSound.hpp Channel); file "" ends it.
+void VRSoundChannel(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    RED4ext::CString channel, file;
+    cvr::sound::Sound sound;
+    float fade = 0.0f;
+    RED4ext::GetParameter(stack, &channel);
+    RED4ext::GetParameter(stack, &file);
+    RED4ext::GetParameter(stack, &sound.volume);
+    RED4ext::GetParameter(stack, &sound.lowpass);
+    RED4ext::GetParameter(stack, &sound.loopFrom);
+    RED4ext::GetParameter(stack, &sound.loopTo);
+    RED4ext::GetParameter(stack, &sound.crossfade);
+    RED4ext::GetParameter(stack, &fade);
+    stack->code++;
+    sound.file = file.c_str();
+    const bool ok = cvr::sound::Channel(channel.c_str(), sound, std::isfinite(fade) ? fade : 0.0f);
+    if (out) *out = ok;
 }

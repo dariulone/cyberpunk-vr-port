@@ -1,7 +1,7 @@
 # CyberpunkVR Port
 
 A 6-DoF **VR mod for Cyberpunk 2077**, built as a **RED4ext plugin** -
-`CyberpunkVR_Stereo` is the ONLY native plugin: it drives OpenXR head
+`cyberpunkvrport.dll` is the ONLY native plugin: it drives OpenXR head
 tracking, real stereo, the in-headset overlay and the **full-body VR avatar with
 motion-controlled hands** that used to live in a second DLL; and a set of CET / redscript mods add VR
 weapon aiming, the physical reload, motion melee, hand-to-holster equipping and more. Everything is
@@ -119,7 +119,9 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   Kenshin, Militech Lexington, Militech Omaha, Kang Tao Chao, Tsunami Kappa,
   Arasaka Yukimura, Militech Ticon, Silverhand's Malorian, and the Malorian
   Overture revolver, which rolls its cylinder, ejects its cases and reloads from
-  a real speedloader.
+  a real speedloader. The gun shows what it wants next: a dry magazine slowly
+  glows amber, a dropped one stays as an amber outline where it goes, and the
+  slide or bolt handle waiting to be racked pulses amber the same way.
 - **Decoupled VR weapon aim** — bullets follow the real weapon muzzle, not the
   camera. The hit is redirected inside the engine's own `PhysicalRay` evaluator,
   so shotgun spread stays spread and every other shooter in the world keeps
@@ -167,11 +169,13 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   latches so the car keeps rolling.
 - **World-map head-lock** — DLSS/NGX handling (the second
   view gets its own upscaler viewport automatically).
-- **19 headsets, 139 resolutions**, every ladder shaped to that headset's measured
+- **19 headsets, 188 resolutions**, every ladder shaped to that headset's measured
   eye window, picked before launch: Quest 2 / 3 / 3S, Pico 4 / 4 Ultra, Pimax
   Crystal OG / Light / Super / Ultra Wide and Dream Air, Valve Index, PSVR2,
   Bigscreen Beyond 2/2e, Steam Frame, HP Reverb G2, MeganeX superlight 8K,
-  Samsung Galaxy XR, HTC Vive and HTC Vive Pro / Pro Eye.
+  Samsung Galaxy XR, HTC Vive and HTC Vive Pro / Pro Eye. Up to 3500 px the
+  steps are at most 1.12 per side; 49 of them need engine stereo (the default)
+  and are not listed when it is off.
 - **HUD placement is built into the port.** The HUD page controls native VR
   panels and their elements. HUDitor is not required and its old layout is not
   installed by the release package.
@@ -201,21 +205,23 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 ## Requirements
 
 - Cyberpunk 2077 (PC, **2.5**). The engine offsets are matched to 2.5; 2.31 does not work any more.
-- Cyber Engine Tweaks (**1.38.0 or newer**)
 - RED4ext (**1.31.0 or newer**)
-- ArchiveXL (**1.28.0 or newer** — an older one loads no item factories, so items in the hands stay invisible)
-- TweakXL (**1.12.0 or newer**)
-- redscript (**0.5.32 or newer** — an older one cannot read the 2.5 script cache)
-- Codeware (**1.21.0 or newer**)
 - Visual Holsters (Automatic Clothes Swap)
 - Equipment-EX
 - Nova Optics
-- Input Loader
 - [More Occluders (Scripted v0.3)](https://www.nexusmods.com/cyberpunk2077/mods/33136)
+
+Cyber Engine Tweaks, ArchiveXL, TweakXL, Input Loader, Codeware and redscript are not needed: the plugin runs the
+port's Lua mods itself (CET's scripting core, inside the plugin), mounts the port's archive and applies its
+manifest, writes its TweakDB records, merges its input bindings, has its own natives for what the scripts used
+Codeware for, and carries redscript's script compiler, built from redscript's sources, for a game without redscript
+(docs/native-frameworks-plan-20261030.md). Other mods may still need them -- Equipment-EX and Nova Optics do, for
+themselves; with CET installed it runs its own mods beside the plugin's, and with redscript installed its compiler
+compiles the port's scripts too. The port works with or without them.
 
 HUDitor is not required for the native VR HUD and is not bundled.
 
-Install RED4ext, CET and redscript first (the usual Nexus dependencies).
+Install RED4ext first (the usual Nexus dependency).
 
 ## Installation (drop-in)
 
@@ -224,26 +230,43 @@ game root** (the folder that contains `bin\`, `r6\`, `red4ext\`). The files land
 as:
 
 ```
-red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_Stereo.dll     # the VR plugin: OpenXR, stereo, overlay, VRIK
-red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_*.dxil         # sight, scope and outline shaders, loaded by name
-red4ext\plugins\CyberpunkVR_Stereo\asym*\, view_dir\, screen_fx\  # shader twins for the per-eye lens windows
-red4ext\plugins\CyberpunkVR_Stereo\UserSettings.json          # the first-launch VR preset
-                                                              # NOTE: CyberpunkVR_Hands.dll is GONE -- its
-                                                              # code is inside CyberpunkVR_Stereo.dll now.
-                                                              # An old copy left in red4ext\plugins makes
-                                                              # two plugins detour one address, which
-                                                              # crashes with a fault at FFFFFFFFFFFFFFFF.
-archive\pc\mod\cyberpunkvrport.archive                        # ALL packed assets: VRCAM + optics cameras, props, weapons
-archive\pc\mod\cyberpunkvrport.archive.xl                     # its ArchiveXL manifest (prop + smoking factories)
-                                                              # NOTE: older releases shipped VRCigarette.archive.xl
-                                                              # and vrport_*.archive separately; they are merged into
-                                                              # cyberpunkvrport.archive now -- delete the old files.
-bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_*\   # CET mods -- see the table below
-r6\scripts\CyberpunkVRPort_*\                                 # redscript mods -- see the table below
-r6\input\CyberpunkVRPort_ScannerHud.xml                      # scanner editor binding for Input Loader
-r6\tweaks\vrport\, r6\tweaks\vrcigarette\                     # TweakXL records (belt, props, grenades, smoking)
-bin\x64\CyberpunkVR_*Grip*.ini                                # captured hand poses (smoking, rest, two-hand holds)
-engine\config\platform\pc\vrcam_cpu_tweaks.ini                # streaming distances and culling for the two views
+red4ext\plugins\cyberpunkvrport\cyberpunkvrport.dll           # the VR plugin: OpenXR, stereo, overlay, VRIK
+                                                              # (CyberpunkVR_Stereo.dll up to 0.1.9: delete it
+                                                              # when upgrading; left there, it is renamed .old)
+red4ext\plugins\cyberpunkvrport\shaders\                      # sight, scope and outline shaders, and the shader
+                                                              # twins for the per-eye lens windows
+red4ext\plugins\cyberpunkvrport\grips\                        # recorded hand poses (two-hand, smoke, rest)
+red4ext\plugins\cyberpunkvrport\config\                       # vrport.ini, vrport-launcher.ini,
+                                                              # vrik_calibration.ini, the first-launch preset
+red4ext\plugins\cyberpunkvrport\log\                          # cyberpunkvrport.log and diagnostic dumps
+                                                              # NOTE: releases before the one-folder layout
+                                                              # installed red4ext\plugins\CyberpunkVR_Stereo.
+                                                              # Delete that folder: with both present this
+                                                              # plugin stays off and says so. Its settings and
+                                                              # calibration move over on the first start.
+red4ext\plugins\cyberpunkvrport\archive\cyberpunkvrport.archive  # ALL packed assets: VRCAM + optics cameras, props,
+                                                              # weapons -- mounted by the plugin
+red4ext\plugins\cyberpunkvrport\config\archive.yaml           # its manifest (ArchiveXL's format, applied by the
+                                                              # plugin): factories, animations, lobby, construct
+                                                              # NOTE: 0.1.9 and older put both in archive\pc\mod;
+                                                              # the plugin takes those copies out at its first start.
+red4ext\plugins\cyberpunkvrport\config\tweaks\               # TweakDB records (belt, props, grenades, smoking)
+red4ext\plugins\cyberpunkvrport\config\input\                # input bindings (scanner editor), merged by the plugin
+red4ext\plugins\cyberpunkvrport\scripts\CyberpunkVRPort_*\     # the port's scripts (*.reds) -- see the table below
+red4ext\plugins\cyberpunkvrport\redscript\                   # redscript's compiler (scc_lib.dll, MIT), used when
+                                                              # redscript is not installed
+                                                              # NOTE: earlier releases put the scripts in
+                                                              # r6\scripts\CyberpunkVRPort_*; the plugin takes them
+                                                              # out at its first start.
+red4ext\plugins\cyberpunkvrport\lua\CyberpunkVRPort_*\         # the Lua mods, run by the plugin -- see the table
+                                                              # below; their windows open with their own key
+                                                              # (config\lua_bindings.json: Home, or Scroll Lock when
+                                                              # CET is installed; CET keeps its key and console)
+                                                              # NOTE: earlier releases put them in CET's mods
+                                                              # folder; the plugin takes them out at its first
+                                                              # start (settings move over, the rest is kept in
+                                                              # legacy\cet)
+red4ext\plugins\cyberpunkvrport\config\tweakdb\             # TweakDB record names (WolvenKit's, GPL-3.0)
 ```
 
 Then **start your OpenXR runtime first**, and launch the game.
@@ -259,7 +282,7 @@ also delete `VRCigarette.archive.xl`, `vrport_basketball.archive` and
 `vrport_mag.archive` from `archive\pc\mod`. From a development build, delete
 `vrport_menu_native.archive` and `vrport_menu_panels.archive` there too: the VR menu's
 assets are inside `cyberpunkvrport.archive` now. QuickBoot is excluded
-from the release: remove an old development copy from CET's mods folder if present.
+from the release: remove an old development copy from the plugin's `lua` folder (or CET's mods folder) if present.
 The launcher defaults to visible, but an existing `show_launcher=0` is respected.
 
 > There is no `dxgi.dll` any more — this is a RED4ext plugin. Anything else that
@@ -295,13 +318,15 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | Right grip | Hand-to-holster equip / unequip; melee power modifier |
 | Left grip | **Grab the magazine** during a reload (at the ear it is the scanner) |
 | **L3 + R3, held 0.5 s** | Open / close the VR menu |
-| **L3 + left Grip, held 0.5 s** | Activate iconic cyberware in gameplay; requires Input Loader |
+| **L3 + left Grip, held 0.5 s** | Activate the cyberware operating system (Sandevistan, Berserk, overclock) in gameplay |
 | Left stick **up / down, to the stop** | Page the quickhack list *while the scanner is open* |
 | A | Jump (double jump and charge jump unchanged) |
 | B, **weapon in hand** | **Drop the magazine** (physical reload) — not dodge |
 | B, **holstered** | The game's own B again — close the phone, back out |
 | B, **phone / radio / vehicle list open** | Closes it, weapon in hand or not — and cannot drop a magazine for a second afterwards |
-| X / Y | Reload·interact / Weapon switch |
+| X | Reload · interact |
+| Y, **tap** | Next weapon (the game's own switch) |
+| Y, **held** | **VR weapon wheel** in front of the body — point at a weapon, the arm cyberware, fists, holster, a grenade or a consumable and let go of Y; the game keeps running (*Controls → VR weapon wheel on a held Y*; off = the game's own wheel) |
 | Menu button (left on Touch; right on Steam Frame) | Pause menu |
 | Swing a melee weapon | VR motion melee (native attack along the blade) |
 | Left trigger held + right grip, throw, open the grip | **Physical throw** of a throwable melee weapon |
@@ -328,8 +353,9 @@ overlays rather than menus, which is why they used to be impossible to close wit
 gun out. Spamming that button is safe — the magazine drop stays blocked for a second
 after the popup closes.
 
-In **menus** and in **braindances** the pad is vanilla: none of the remaps below
-apply there, including the grips-as-shoulders that used to page menu tabs.
+In **menus** and in **braindances** the pad is otherwise vanilla. Quest Touch grips
+stand in for LB/RB in menus because the controllers have no physical shoulder buttons;
+gameplay remaps stay off there, and grips are not remapped during braindances.
 
 While **driving**, the same controllers do something else:
 
@@ -420,46 +446,48 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 
 | Component | Type | Purpose |
 |---|---|---|
-| `CyberpunkVR_Stereo.dll` | RED4ext plugin | OpenXR head tracking, the second engine view, HUD composite, sight shaders, F10 overlay, XInput merge |
-| `CyberpunkVR_Stereo.dll` | (same plugin) | Full-body avatar / hand IK, hand recoil, weapon-aim and muzzle override, smoking and reload poses, shared-memory bridge -- was `CyberpunkVR_Hands.dll` until the single-plugin build |
+| `cyberpunkvrport.dll` | RED4ext plugin | OpenXR head tracking, the second engine view, HUD composite, sight shaders, F10 overlay, XInput merge |
+| `cyberpunkvrport.dll` | (same plugin) | Full-body avatar / hand IK, hand recoil, weapon-aim and muzzle override, smoking and reload poses, shared-memory bridge -- was `CyberpunkVR_Hands.dll` until the single-plugin build (the plugin itself was `CyberpunkVR_Stereo.dll` up to 0.1.9) |
 | `cyberpunkvrport.archive` | archive | Every packed asset: the magazine/prop carriers on the player templates and on every gameplay replacer, the weapon assets the reload drives, the case-ejection effects, the VRCAM camera components (one per supported resolution, 112) and the optics cameras, basketball, smoking, cyberware and crouch assets, on-screen effects with their picture displacement neutralised, and the UI layouts fitted to the square view — phone, vehicle panel, radio, subtitles, dialogue choices, tutorial popups |
-| `CyberpunkVRPort_Stereo` | CET | Enables the VRCAM component the launcher picked; runs the Lua garbage collector in small per-frame steps |
-| `CyberpunkVRPort_VRIK` | CET | Starts hand tracking, bridges calibration, publishes the locomotion state |
-| `CyberpunkVRPort_Weapon` | CET | Decoupled weapon aim, VR motion-melee detection, cyberware combat and physical throws |
-| `CyberpunkVRPort_Optics` | CET + reds | Scope, collimator and sniper-camera optics: path policy, authored profiles, the sight display apart from flat ADS |
-| `CyberpunkVRPort_PhysicalCrouch` | CET | Real squats request the game's own crouch |
-| `CyberpunkVRPort_WristHud` | CET | The living tattoo readout on the left forearm |
-| `CyberpunkVRPort_ForceFPP` | CET | Camera bridge: publishes scene, device and UI state to the camera director (legacy folder name) |
-| `CyberpunkVRPort_Reload` | CET | The physical reload — thirteen per-weapon configs, the magazine, the slide, the revolver cylinder |
-| `CyberpunkVRPort_HandCollision` | CET | Hand / finger / weapon push-out. **Off since 0.1.2** (`COLL_ON = false`) — the body capsules came back out of the archive after a vehicle launched the player |
-| `CyberpunkVRPort_Crosshair` | CET | Hides the game's own crosshair while decoupled VR aim is on |
-| `CyberpunkVRPort_Holster` | CET + reds | Hand-to-holster equip/unequip (immersive / simple) |
-| `CyberpunkVRPort_Smoking` | CET + reds | Cigarette / lighter props, FX, audio, auto-puff |
-| `CyberpunkVRPort_Basketball` | CET + reds | VR basketball with real ball values (the physics half is redscript) |
-| `CyberpunkVRPort_WorldMap` | CET + reds | World-map head-lock |
+| `CyberpunkVRPort_Stereo` | Lua | Enables the VRCAM component the launcher picked; runs the Lua garbage collector in small per-frame steps |
+| `CyberpunkVRPort_VRIK` | Lua | Starts hand tracking, bridges calibration, publishes the locomotion state |
+| `CyberpunkVRPort_Weapon` | Lua | Decoupled weapon aim, VR motion-melee detection, cyberware combat and physical throws |
+| `CyberpunkVRPort_Optics` | Lua + reds | Scope, collimator and sniper-camera optics: path policy, authored profiles, the sight display apart from flat ADS |
+| `CyberpunkVRPort_PhysicalCrouch` | Lua | Real squats request the game's own crouch |
+| `CyberpunkVRPort_WristHud` | Lua | The living tattoo readout on the left forearm |
+| `CyberpunkVRPort_ForceFPP` | Lua | Camera bridge: publishes scene, device and UI state to the camera director (legacy folder name) |
+| `CyberpunkVRPort_Reload` | Lua | The physical reload — thirteen per-weapon configs, the magazine, the slide, the revolver cylinder |
+| `CyberpunkVRPort_HandCollision` | Lua | Hand / finger / weapon push-out. **Off since 0.1.2** (`COLL_ON = false`) — the body capsules came back out of the archive after a vehicle launched the player |
+| `CyberpunkVRPort_Crosshair` | Lua | Hides the game's own crosshair while decoupled VR aim is on |
+| `CyberpunkVRPort_Holster` | Lua + reds | Hand-to-holster equip/unequip (immersive / simple) |
+| `CyberpunkVRPort_Smoking` | Lua + reds | Cigarette / lighter props, FX, audio, auto-puff |
+| `CyberpunkVRPort_Basketball` | Lua + reds | VR basketball with real ball values (the physics half is redscript) |
+| `CyberpunkVRPort_WorldMap` | Lua + reds | World-map head-lock |
 | `CyberpunkVRPort_Hold` | reds | Puts a real item in a hand — `AddItemToSlot` works from redscript and silently does nothing from CET. This is how the Overture's speedloader is carried |
 | `CyberpunkVRPort_Melee` | reds | Native melee along the blade segment, enhanced melee and the physical throw |
 | `CyberpunkVRPort_Cyberware` | reds | Cyberware combat, launcher aim and selection, monowire line and collision, breach and nameplate markers |
 | `CyberpunkVRPort_BodyCarry` / `_Finisher` | reds | Tell the plugin when a carry or a finisher animation owns the arms |
 | `CyberpunkVRPort_Haptics` | reds | Reads the guard's block / parry / deflect result for controller vibration |
 | `CyberpunkVRPort_PopupVisualState` | reds | Holds back the popups' flat visual state while VR runs |
+| `CyberpunkVRPort_Prompts` | reds | A prompt names the physical button that presses it (in a car a dialogue line shows A, the exit X) |
 | `CyberpunkVRPort_DeviceCam` | reds | Computers and monitors do not take the camera away from the head |
 | `CyberpunkVRPort_ScannerHud` | reds | Scanner layout editor (Right Shift, through Input Loader) |
 | `CyberpunkVRPort_StoryAttention` | reds | Manual transition of the Ofrenda clue (adapted from Ajson44's fork) |
 | `CyberpunkVRPort_WeaponUp` | reds | Stops auto-lower / auto-unequip of a drawn MELEE weapon |
 | `CyberpunkVRPort_NoAnims` | reds | Disables VR-fighting animations (keeps gameplay systems); also carries no-auto-reload and the firearm half of no-auto-lower |
-| `CyberpunkVRPort_BraindanceHud` | CET | The braindance notification plate, whose slot is declared in a HUD asset the port does not ship |
-| `CyberpunkVRPort_TacticalBelt` | CET + assets | Belt, magazine props and physical grenade handling |
-| `CyberpunkVRPort_Swimming` | CET + native | Water state and gesture-driven swimming |
-| `CyberpunkVRPort_Ladder` | CET + native | Grip-based climbing and ladder hand poses |
-| `CyberpunkVRPort_Driving` | CET + native | Native steering response while physically holding the wheel |
+| `CyberpunkVRPort_BraindanceHud` | Lua | The braindance notification plate, whose slot is declared in a HUD asset the port does not ship |
+| `CyberpunkVRPort_TacticalBelt` | Lua + assets | Belt, magazine props and physical grenade handling |
+| `CyberpunkVRPort_Swimming` | Lua + native | Water state and gesture-driven swimming |
+| `CyberpunkVRPort_Ladder` | Lua + native | Grip-based climbing and ladder hand poses |
+| `CyberpunkVRPort_Driving` | Lua + native | Native steering response while physically holding the wheel |
+| `CyberpunkVRPort_Reach` | Lua + assets | The reach marker in the world: a ring on what a hand would take, brackets on what its trigger locked from afar. In the game a free hand chooses the loot, container or device (the game's look-at ray is turned onto it) and its grip takes or uses it |
 
 `CyberpunkVRPort_QuickBoot`, `CyberpunkVRPort_ReloadRecorder` and
 `CyberpunkVRPort_WorldMapDiag` are development tools, excluded from the dist.
 
 ## Logs
 
-- `Cyberpunk 2077\bin\x64\cyberpunkvrport.log` — the plugin's own log, and the
+- `Cyberpunk 2077\red4ext\plugins\cyberpunkvrport\log\cyberpunkvrport.log` — the plugin's own log, and the
   right file for a bug report. Quiet by default; tick **DEBUG** in the launcher
   for per-frame diagnostics.
 - `Cyberpunk 2077\red4ext\logs\` — script validation and plugin load errors. If

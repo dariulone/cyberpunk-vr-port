@@ -130,7 +130,7 @@ function M.new(api)
     local job = setmetatable({ api = api or {
         key = key,
         record = function(item) return ItemID.GetTDBID(item:GetItemID()) end,
-        entityKey = function(item) return tostring(EntityID.ToHash(item:GetEntityID())) end,
+        entityKey = function(item) return tostring(item:GetEntityID().hash) end,
     } }, Job)
     job:Reset()
     return job

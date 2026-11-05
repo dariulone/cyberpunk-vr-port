@@ -21,7 +21,7 @@ def main():
     if capture['pid']!=args.pid or not capture.get('drawDataFile') or capture.get('drawsFull'):
         raise ValueError('Need a complete native draw reference from this PID')
     game=Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-    symbols=resolve(args.pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',['CyberpunkVR_Descriptor*'])
+    symbols=resolve(args.pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',['CyberpunkVR_Descriptor*'])
     if symbols['sha256']!=capture['dll']:
         raise ValueError('Capture/module identity differs')
     reader=Reader(args.pid,game/'bin/x64/Cyberpunk2077.exe',0,0)

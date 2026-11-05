@@ -318,7 +318,7 @@ local function step(S, h)
             local tr = WorldTransform.new()
             tr:SetPosition(Vector4.new(S.p[1], S.p[2], S.p[3], 1.0))
             tr:SetOrientation(Quaternion.new(S.q[1], S.q[2], S.q[3], S.q[4]))
-            e:SetWorldTransform(tr)
+            Game.VREntitySetWorldTransform(e, tr)
         end)
     end
     return false

@@ -45,22 +45,32 @@ $files = @(Get-ChildItem -LiteralPath $Package -Recurse -File)
 if (!$files.Count) { throw 'Empty package' }
 $relativeFiles = @($files | ForEach-Object { $_.FullName.Substring($Package.Length + 1) })
 $retiredScripts = @('r6\scripts\CyberpunkVRPort_LootUi\vrport_loot_ui.reds',
-    'r6\scripts\CyberpunkVRPort_SettingsGuard\vrport_settings_guard.reds')
+    'r6\scripts\CyberpunkVRPort_SettingsGuard\vrport_settings_guard.reds',
+    'r6\scripts\CyberpunkVRPort_Cyberware\vrport_launcher_tweak.reds',
+    'archive\pc\mod\cyberpunkvrport.archive', 'archive\pc\mod\cyberpunkvrport.archive.xl')
 foreach ($rel in $retiredScripts) {
     if ($relativeFiles -contains $rel) { throw "Package contains retired script: $rel" }
 }
-$dllRel = 'red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_Stereo.dll'
+# The port's scripts are the plugin's now (red4ext\plugins\cyberpunkvrport\scripts): every copy an earlier build put
+# in r6\scripts goes, backed up like the rest -- compiled beside the plugin's they would define everything twice.
+$oldScripts = Join-Path $GameRoot 'r6\scripts'
+if (Test-Path -LiteralPath $oldScripts) {
+    $retiredScripts += @(Get-ChildItem -LiteralPath $oldScripts -Directory -Filter 'CyberpunkVRPort_*' |
+        ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Recurse -File } |
+        ForEach-Object { $_.FullName.Substring($GameRoot.Length + 1) })
+}
+$dllRel = 'red4ext\plugins\cyberpunkvrport\cyberpunkvrport.dll'
 if ($relativeFiles -notcontains $dllRel) { throw 'Package lacks plugin DLL' }
-if (!(@($relativeFiles | Where-Object { $_ -like 'r6\tweaks\vrport\*' }).Count)) {
+if (!(@($relativeFiles | Where-Object { $_ -like 'red4ext\plugins\cyberpunkvrport\config\tweaks\vrport\*' }).Count)) {
     throw 'Full package lacks vrport tweaks'
 }
 
-$runtime = @('bin\x64\vrport.ini', 'bin\x64\vrport-launcher.ini',
-    'red4ext\plugins\CyberpunkVR_Stereo\vrik_calibration.ini')
+$runtime = @('red4ext\plugins\cyberpunkvrport\config\vrport.ini', 'red4ext\plugins\cyberpunkvrport\config\vrport-launcher.ini',
+    'red4ext\plugins\cyberpunkvrport\config\vrik_calibration.ini')
 $stereoConfig = 'bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_Stereo\vrcam.json'
 $backedUp = @()
 # Preserve the just-tested run before the next launch replaces its log.
-$diagnostics = @('bin\x64\cyberpunkvrport.log')
+$diagnostics = @('red4ext\plugins\cyberpunkvrport\log\cyberpunkvrport.log')
 foreach ($rel in @($relativeFiles + $runtime + $diagnostics + $retiredScripts | Sort-Object -Unique)) {
     $existing = Under-Root $GameRoot $rel
     if (Test-Path -LiteralPath $existing -PathType Leaf) {

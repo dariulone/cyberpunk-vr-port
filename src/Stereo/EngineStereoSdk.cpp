@@ -215,6 +215,8 @@ bool Armed() { return g_armed.load(std::memory_order_relaxed); }
 
 bool MainMenuUp() { return CyberpunkVR_EngineStereoMainMenus.load(std::memory_order_relaxed) > 0; }
 
+int MainMenusUp() { return CyberpunkVR_EngineStereoMainMenus.load(std::memory_order_relaxed); }
+
 CVR_DETOUR_IF("[engine-stereo] Odyssey 3D SDK in process sub_142282E60", WRAPPER_CTOR_RVA, Detour_WrapperCtor,
               g_orig_wrapper_ctor, Enabled)
 

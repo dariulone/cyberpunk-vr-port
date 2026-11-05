@@ -24,10 +24,13 @@ native func SetVRWeaponRaiseTransition(active: Int32) -> Int32;
 // module-qualified name and refused.
 native func SetVRSprintActive(active: Int32) -> Int32;
 
+// The state of the weapon in hand: the right hand's, or with the left-handed controls a lone one in the left hand
+// (CyberpunkVRPort_LeftHanded).
 func VRPortPublishWeaponPoseState(scriptInterface: ref<StateGameScriptInterface>) -> Void {
   if !IsDefined(scriptInterface) || !IsDefined(scriptInterface.localBlackboard) { return; }
   SetVRWeaponPoseState(
-    scriptInterface.localBlackboard.GetInt(GetAllBlackboardDefs().PlayerStateMachine.RightWeapon),
+    scriptInterface.localBlackboard.GetInt(VRLeftHandedWeapon.InHand(scriptInterface.executionOwner)
+      ? GetAllBlackboardDefs().PlayerStateMachine.LeftWeapon : GetAllBlackboardDefs().PlayerStateMachine.RightWeapon),
     scriptInterface.localBlackboard.GetFloat(GetAllBlackboardDefs().PlayerStateMachine.AimInTimeRemaining)
   );
 }

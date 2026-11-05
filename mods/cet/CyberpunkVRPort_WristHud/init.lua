@@ -1052,6 +1052,9 @@ registerForEvent("onOverlayClose", function() overlay = false end)
 registerForEvent("onDraw", function()
   if not overlay then return end
   pcall(function()
+    local w, h = GetDisplayResolution()
+    ImGui.SetNextWindowPos(w * 0.01, h * 0.5, ImGuiCond.FirstUseEver)
+    ImGui.SetNextWindowSize(w * 0.19, h * 0.45, ImGuiCond.FirstUseEver)
     ImGui.Begin("VR wrist readout")
     if S.built then
       ImGui.Text("on the arm -- " .. S.note)

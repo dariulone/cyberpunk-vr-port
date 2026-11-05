@@ -68,8 +68,14 @@ inline bool SecondViewWanted() { return !Enabled() && !MonoLaunch(); }
 // lens windows the same, their union.
 inline bool SharedWindow() { return Enabled() && CyberpunkVR_EngineStereoEyeWindows == 0; }
 
-// Whether MAIN's latest prepared frame had the engine's stereo (render feature 98) on.
+// Whether MAIN's latest prepared frame had the engine's stereo (render feature 98) on. It says nothing of a frame MAIN
+// was not prepared for: through a load it keeps what the last world frame had.
 bool Rendering();
+// Whether MAIN was prepared for the frame last presented, or the one before it: the world is drawn in that frame.
+bool WorldDrawn();
+// Once per game Present, before the frame is captured (Hooks/SwapChain.cpp): what was ticked while the frame was built
+// is counted against it (LoadingShown).
+void NotePresent();
 
 // The main menu's controller (mods/redscript/CyberpunkVRPort_EngineStereo, native VREngineStereoMenuShown) says it
 // was shown; from then on the plugin's SDK answers "available" and StereoEnabled is on (src/Stereo/EngineStereoSdk.cpp).
@@ -80,6 +86,9 @@ void NoteMainMenuClosed();
 bool Armed();
 // Whether the main menu is up now (between its controller's initialisation and uninitialisation).
 bool MainMenuUp();
+// How many are up: the game's own, and one the lobby holds up while it walks the new game's screens out of view
+// (mods/cet/CyberpunkVRPort_Lobby modules/creation.lua).
+int MainMenusUp();
 
 // THE WINDOW IS ONE PICTURE: the engine rendered the frame mono (before the main menu, or any frame without feature
 // 98), or the loading screen is up. The capture does not split it into the eyes: both get one picture on the menu
@@ -112,6 +121,8 @@ bool EyeSize(uint32_t* width, uint32_t* height);
 struct EyePlaces { uint8_t* eye[2]{}; int32_t position[2][3]{}; float world[2][4]{}; bool valid = false; };
 EyePlaces KeepEyePlaces(uint8_t* descriptor);
 void RestoreEyePlaces(const EyePlaces& places);
+// Diagnostics: the world and first-person planes' cameras as the producer left them (CyberpunkVR_DebugEngineStereoViewEyes).
+void NoteViewEyes(const uint8_t* worldPlane, const uint8_t* firstPersonPlane);
 
 // THE HUD IS LAID OUT TWO EYES WIDE. Ink sizes its layers to the window, so the HUD root here is 5296 x 2864 on
 // the Quest 3 profile, and the HUD layer fits its 3840 x 2160 design into that root bound by the HEIGHT (1.326
@@ -132,7 +143,7 @@ float UiViewNarrowing(const void* view);
 
 // Whether the loading screen is up (src/Stereo/EngineStereo.cpp THE LOADING SCREEN IS ONE PICTURE): it is shown as
 // one picture on the menu panel, as a menu is, also once the game's menu state has gone back to gameplay while the
-// screen waits for the button.
+// screen waits for the button. As of the last frame presented: its layer was ticked while that frame was built.
 bool LoadingShown();
 // The loading screen is up over a frame the engine rendered both eyes of: each eye's UI pass drew the whole screen
 // into its own half, squeezed to half its width (the 3D monitor's side by side). One half then already is the

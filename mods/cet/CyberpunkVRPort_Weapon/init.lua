@@ -383,6 +383,9 @@ end
 -- the head and every draw after it did not. The item's stats object outlives the gun entity, so the gun EQUIPPED
 -- as the left partner (Weapon slot 3) is prepared while it is holstered, renewed twice a second because a loaded
 -- save starts new stats objects (the set is taken off before it is put back, so nothing compounds).
+-- LEFT-HANDED, EVERY WEAPON SLOT'S GUN IS THE LEFT HAND'S: a gun drawn on its own goes there (CyberpunkVRPort_LeftHanded)
+-- and reads its recoil while it comes out the same way, so all of them are prepared, not only the partner -- measured:
+-- the first draw of an Overture into the left hand threw the head 18 px (and left it 9 px off), the second 0.
 local LEFT_PARTNER_SLOT = 3
 local leftKilled = nil
 local leftPrepClock = 0.5
@@ -398,8 +401,13 @@ local function leftGunFrame(pl, dt)
         leftPrepClock = leftPrepClock + (dt or 0.0)
         if leftPrepClock >= 0.5 then
             leftPrepClock = 0.0
-            local id = EquipmentSystem.GetData(pl):GetItemInEquipSlot(gamedataEquipmentArea.Weapon, LEFT_PARTNER_SLOT)
-            if ItemID.IsValid(id) then zeroCameraKickItem(id, nil, nil) end
+            local data = EquipmentSystem.GetData(pl)
+            local first = (type(VRLeftHanded) == 'function' and VRLeftHanded() == true) and 0 or LEFT_PARTNER_SLOT
+            local last = math.min(LEFT_PARTNER_SLOT, data:GetNumberOfSlots(gamedataEquipmentArea.Weapon, true) - 1)
+            for slot = first, last do
+                local id = data:GetItemInEquipSlot(gamedataEquipmentArea.Weapon, slot)
+                if ItemID.IsValid(id) then zeroCameraKickItem(id, nil, nil) end
+            end
         end
         return
     end
@@ -802,6 +810,8 @@ local slotRightID, slotLeftID = nil, nil
 
 local function carryTick(dt)
     if not CARRY_LEFT then return end
+    -- LEFT-HANDED THE WEAPON IS ALREADY THE LEFT HAND'S, drawn onto its slot by the game itself: nothing to hand over.
+    if not carryOn and type(VRWeaponInLeftHand) == 'function' and VRWeaponInLeftHand() then return end
     local pl = Game.GetPlayer()
     if not pl then return end
     -- Two guns in hand (the game's own dual wielding): the left slot holds the second gun, and nothing
@@ -947,9 +957,86 @@ local function carryTick(dt)
     end
 end
 
+-- A LOADED SAVE'S WEAPON, IN THE HAND THE CONTROLS USE. A save keeps which hand held the weapon, and a load draws
+-- only the right hand's; the restore hands a lone weapon to the hand the controls use (EquipmentSystemPlayerData.
+-- OnRestored in CyberpunkVRPort_LeftHanded), so left-handed it comes up in neither. From the player's attach this
+-- watches for RESTORE_WATCH seconds: once the save's left-hand weapon has waited RESTORE_SETTLE seconds with the
+-- hands empty and the game running, it is drawn (PlayerPuppet.VRLeftHandedDrawRestored); a lone weapon in the hand
+-- the controls do not use changes hands the way a toggle does; a weapon already in the right hand ends the watch.
+local RESTORE_WATCH = 120.0
+local RESTORE_SETTLE = 1.5
+local restoreWatch = nil    -- seconds the watch still runs; nil when no load is being watched
+local restoreHeld = 0.0     -- seconds the current finding has held
+
 registerForEvent('onInit', function()
     logf("weapon-aim init")
+    Observe('PlayerPuppet', 'OnGameAttached', function() restoreWatch, restoreHeld = RESTORE_WATCH, 0.0 end)
 end)
+
+-- THE WEAPON CHANGES HANDS WITH THE CONTROLS. Left-handed, a weapon drawn on its own is the left hand's
+-- (CyberpunkVRPort_LeftHanded); when the setting turns over with one out, it is put away
+-- (PlayerPuppet.VRLeftHandedRehand) and drawn again into the other hand once both hands are empty -- on the change,
+-- not every frame, so a weapon the player put in a hand by other means stays where it is. A weapon drawn meanwhile,
+-- or hands that stay full for REHAND_WAIT seconds, call the redraw off.
+local REHAND_WAIT = 3.0
+local handedWas = nil
+local rehandLeft = nil      -- seconds the redraw still waits for empty hands
+
+-- What the load left in the hands: 'draw' (the save's left-hand weapon, not drawn), 'rehand' (a lone weapon in the
+-- hand the controls do not use), 'done' (a weapon where it belongs), or nil while there is nothing to go on yet.
+local function restoreFinding(pl, left)
+    local r = Game.GetSystemRequestsHandler()
+    if r:IsPreGame() or r:IsGamePaused() then return nil end
+    local rw, lw = GameObject.GetRightActiveWeapon(pl), GameObject.GetLeftActiveWeapon(pl)
+    if (left and rw and not lw) or (not left and lw and not rw) then return 'rehand' end
+    if rw or lw then return 'done' end
+    if pl:VRLeftHandedRestorePending() then return 'draw' end
+    return nil
+end
+
+local function restoreFrame(pl, dt, left)
+    if type(pl.VRLeftHandedRestorePending) ~= 'function' then restoreWatch = nil; return end
+    restoreWatch = restoreWatch - dt
+    if restoreWatch <= 0.0 then
+        restoreWatch = nil
+        logAlways('handedness: nothing to restore after the load')
+        return
+    end
+    local f = restoreFinding(pl, left)
+    if f == 'done' then restoreWatch = nil; return end
+    restoreHeld = f and (restoreHeld + dt) or 0.0
+    if not f or restoreHeld < RESTORE_SETTLE then return end
+    restoreWatch = nil
+    if f == 'draw' then
+        logAlways('handedness: the save\'s left-hand weapon drawn=%s', tostring(pl:VRLeftHandedDrawRestored()))
+    else
+        local away = pl:VRLeftHandedRehand()
+        rehandLeft = away and REHAND_WAIT or nil
+        logAlways('handedness: the save\'s weapon came up in the other hand, put away to change hands=%s', tostring(away))
+    end
+end
+
+local function handednessFrame(pl, dt)
+    if type(VRLeftHanded) ~= 'function' or type(pl.VRLeftHandedRehand) ~= 'function' then return end
+    dt = dt or 0.016
+    local now = VRLeftHanded() == true
+    if handedWas ~= nil and now ~= handedWas then
+        local away = pl:VRLeftHandedRehand()
+        rehandLeft = away and REHAND_WAIT or nil
+        logAlways('handedness: left-handed=%s, weapon put away to change hands=%s', tostring(now), tostring(away))
+    end
+    handedWas = now
+    if restoreWatch and not rehandLeft then restoreFrame(pl, dt, now) end
+    if not rehandLeft then return end
+    rehandLeft = rehandLeft - (dt or 0.016)
+    if pl:VRLeftHandedHandsFree() then
+        rehandLeft = nil
+        logAlways('handedness: drawn again=%s', tostring(pl:VRLeftHandedRedraw()))
+    elseif rehandLeft <= 0.0 then
+        rehandLeft = nil
+        logAlways('handedness: the hands did not empty, no redraw')
+    end
+end
 
 -- The per-frame weapon work as a plain function: `pcall(function() ... end)` built a closure every frame,
 -- and the mods' per-frame garbage is what CET's collector pays for (the GC step in CyberpunkVRPort_Stereo).
@@ -983,6 +1070,7 @@ local function weaponFrame(dt)
         end
     end
     if pl then pcall(leftGunFrame, pl, dt) end
+    if pl then pcall(handednessFrame, pl, dt) end
 
     -- weapon draw sound (see equipSnd* header): fires on entity change, any weapon class
     if not equipSndInit then
@@ -1108,8 +1196,10 @@ local cyberwareClock=0
 local function combatFrame(dt)
     local pl=Game.GetPlayer();local wpn=pl and pl:GetActiveWeapon()
     -- Runtime weapon hooks need a live player, not the front-end/loading
-    -- scene while Codeware is still constructing script/resource types.
+    -- scene while the game is still constructing script/resource types.
     if pl then pcall(updateWeapon,dt) end
+    -- The cyberware chord with the game window behind: the plugin cannot press the key then (Hooks/CyberwareChord.cpp).
+    if pl and pl.VRActivateIconicCyberware and Game.VRCyberwareChordTake() then pl:VRActivateIconicCyberware() end
     local kind=cyberware.kind(wpn,pl)
     Game.VRCyberwareSelect(cyberware.inputKind())
     cyberware.handEquipment(pl)

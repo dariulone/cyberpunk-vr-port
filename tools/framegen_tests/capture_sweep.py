@@ -20,7 +20,7 @@ from live_symbols import resolve
 from simulator_probe import read_status, send
 
 GAME = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-DLL = GAME / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll'
+DLL = GAME / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll'
 SIMULATOR = Path(os.environ['LOCALAPPDATA']) / 'OpenXR-Simulator'
 
 

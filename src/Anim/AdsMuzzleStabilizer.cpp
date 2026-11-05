@@ -17,7 +17,7 @@
 //   a hip aim should travel with the right stick and stay put when only the player's head moves.
 //
 //   WHILE AIMING the recorded direction is rotated back into the world, the angular error against the
-//   live muzzle is measured, and 35% of it is applied per tick to the WeaponRight bone -- in MODEL
+//   live muzzle is measured, and 35% of it is applied per tick to the weapon bone -- in MODEL
 //   space, converted through the entity quaternion. Bounded at 15 degrees total, so a wrong reference
 //   can never throw the weapon across the screen.
 //
@@ -30,7 +30,7 @@
 //
 //   * The pose hook visits the same buffer several times per entity tick. Composing the correction
 //     onto an already-corrected pass multiplies it, and the skew accumulates until it is permanent --
-//     so the tick's RAW WeaponRight local rotation is cached and every pass composes from that.
+//     so the tick's RAW weapon bone local rotation is cached and every pass composes from that.
 //   * The hip reference must not be learned from the lowered weapon or from the raise transition, or
 //     it records a direction the player never aimed. Weapon PSM 5 is the real ranged Ready state; Safe
 //     and PublicSafeToReady are excluded by the redscript that publishes those states.
@@ -49,6 +49,7 @@
 #include "Anim/CharacterRig.hpp"
 #include "Anim/AdsEyeAlign.hpp"
 #include "Anim/HeadAimWeapon.hpp"
+#include "Anim/LeftHanded.hpp"
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
 #include "Camera/CameraState.hpp"
@@ -100,7 +101,7 @@ void ApplyNonVrikAdsMuzzleStabilizer(uint8_t* boneBuf) {
 
     // Off, VRIK-driven arms, no weapon out, or no muzzle published: reset to identity so nothing is
     // carried into the next time it applies. A stale correction is worse than none.
-    // Head aim writes WeaponRight's rotation outright, so there is no vanilla direction error
+    // Head aim writes the weapon's rotation outright, so there is no vanilla direction error
     // left to correct -- and two writers on one bone is a fight, not a fix.
     if (!g_pSharedHands || IsHeadAimWeaponActive() || g_VRBind > 0 ||
         !CyberpunkVR_NonVrikAdsStabilizer ||
@@ -116,9 +117,8 @@ void ApplyNonVrikAdsMuzzleStabilizer(uint8_t* boneBuf) {
         return;
     }
 
-    // WeaponRight, which is what this global resolves to (the name is a leftover from the smoking
-    // pose, which rides the same bone).
-    const int weaponIdx = static_cast<int>(g_VRSmokeCigIdx);
+    // The weapon in hand's bone: WeaponRight, or WeaponLeft with the weapon in the left hand.
+    const int weaponIdx = HeldWeaponBone();
     if (weaponIdx < 0 || weaponIdx >= VRIK_FKCount()) return;
 
     float muzzle[3] = { g_pSharedHands[24], g_pSharedHands[25], g_pSharedHands[26] };
@@ -251,7 +251,7 @@ void ApplyNonVrikAdsMuzzleStabilizer(uint8_t* boneBuf) {
         rawPose->boneBuf = boneBuf;
         rawPose->tick = -1.0f;
     }
-    const int handIdx = static_cast<int>(g_VRRightBoneIdx);
+    const int handIdx = static_cast<int>(WeaponInLeftHand() ? g_VRLeftBoneIdx : g_VRRightBoneIdx);
     if (handIdx < 0 || handIdx >= VRIK_FKCount() || g_VRBoneParent[weaponIdx] != handIdx) return;
     if (rawPose->tick != tick || rawPose->weaponIdx != weaponIdx || rawPose->handIdx != handIdx) {
         const float* rawWeaponLocal =
@@ -298,7 +298,7 @@ void ApplyNonVrikAdsMuzzleStabilizer(uint8_t* boneBuf) {
     VRIK_QuatNorm(correctedModel);
     // Through the hand, with the tick's RAW grip as the factor to divide out -- so the grip survives
     // and repeated passes cannot compound.
-    WriteWeaponModelRotViaRightHand(boneBuf, weaponIdx, correctedModel, rawPose->weaponLocalRot);
+    WriteWeaponModelRotViaHand(boneBuf, weaponIdx, correctedModel, rawPose->weaponLocalRot);
     CVR_DIAGNOSTIC(++CyberpunkVR_DebugAdsStabApplies);
 }
 

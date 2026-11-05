@@ -249,6 +249,17 @@ constexpr uintptr_t APPLYDLSS_WORK_RVA = 0x77E4C8;   // sub_14077E4C8 (ApplyDLSS
 constexpr uintptr_t FFX_API_PROVIDERS_RVA = 0x2287A20;   // sub_142287A20: FidelityFX API upscaler versions (FSR 2/3/4)
 constexpr uintptr_t GETTER_RVA = 0x3DFEA4;   // sub_1403DFEA4 view-dims getter entry
 constexpr uintptr_t RENDER_RES_RVA = 0x425054;   // sub_140425054 per-view DLSS render-res compute
+// The engine config variables Player/Input InputContextFile and InputMappingFile: static objects built by
+// sub_140178E60 / sub_140178F40 (sub_1412C2148: vtable +0, name +8, group +16, value +48), string-variable vtable
+// whose slot 3 sets the value from a string view {const char*, u32 length}. Core/InputConfig.cpp.
+constexpr uintptr_t INPUT_CONTEXT_FILE_VAR_RVA = 0x3C29DA0;
+constexpr uintptr_t INPUT_MAPPING_FILE_VAR_RVA = 0x3C29CE0;
+constexpr uintptr_t CONFIG_STRING_VAR_VTABLE_RVA = 0x31D8940;
+// Scripts/EnableCompilation (sub_1400B2140 builds it; sub_140AE18D0 reads it at +48 and then starts scc.exe through
+// sub_140AE2730), a bool config variable: same layout, its vtable's slot 3 sets it from a string view too.
+// Core/ScriptCompiler.cpp.
+constexpr uintptr_t SCRIPTS_ENABLE_COMPILATION_VAR_RVA = 0x3915C68;
+constexpr uintptr_t CONFIG_BOOL_VAR_VTABLE_RVA = 0x3078FA0;
 
 }  // namespace detail
 }  // namespace cvr

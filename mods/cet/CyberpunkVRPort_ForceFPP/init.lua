@@ -156,7 +156,7 @@ end
 local function lensPose(obj)
   local cam = nil
   pcall(function()
-    for _, c in ipairs(obj:GetComponents()) do
+    for _, c in ipairs(Game.VREntityComponents(obj)) do
       if string.find(tostring(c:GetClassName().value), "CameraComponent") then cam = c break end
     end
   end)
@@ -281,7 +281,7 @@ local function notificationsContainer()
     memo.notif = nil
   end
   pcall(function()
-    local layers = Game.GetInkSystem():GetLayers()
+    local layers = Game.VRInkLayers()
     for i = 1, #layers do
       local vw = nil
       pcall(function() vw = layers[i]:GetVirtualWindow() end)
@@ -426,6 +426,58 @@ local function clearLegacyRestriction(player)
   if ok then cleanedPlayer = id end
 end
 
+-- A WOMAN'S BODY THE GAME TAKES AWAY. (A wardrobe set naming clothes from a removed mod is taken off before the load
+-- puts the clothes on: CyberpunkVRPort_Saves/vrport_wardrobe_restore.reds.)
+--
+-- With nothing but underwear on the legs, the game takes the woman's first-person body part (t0_000_pwa_base__full:
+-- torso, belly and legs) off and puts nothing in its place -- measured in the unmodded game, and back the moment
+-- something covers the legs. The flat camera never sees it; in VR the player looks down onto floating feet. The same
+-- happens on a load whose wardrobe set hides the legs, and for the seconds after a load before the part arrives. A
+-- man's body stays.
+--
+-- The woman's player entities carry vrp_body_stand_in (tools/body_stand_in): the game's own body mesh as a plain
+-- skinned mesh, off. It is on, in the body's skin tone, while the body part is missing and its shadow and seam
+-- meshes (which never leave) say the body should be there; off when the part is back.
+--
+-- Nothing here runs once the player detaches: the components it lists are handles the collector releases later, and a
+-- component of the old session released after the world is gone crashed the game (a mesh appearance freed with it).
+-- Twice a second, three lookups by name (a walk of the player's 60-odd components was 0.25 ms on the game thread).
+-- The names are made on first use and kept in the one table: this file's main chunk is near Lua's 200 locals, and one
+-- more of them is a file that does not load.
+local standIn = { on = false, tone = nil, shown = false, names = nil }
+
+local function standInReset(on)
+  standIn.on, standIn.tone, standIn.shown = on, nil, false
+end
+
+local function standInUpdate(player)
+  local names = standIn.names
+  if not names then
+    names = { body = CName.new("t0_000_pwa_base__full"), shadow = CName.new("t0_000_pwa_base__full_shadow"),
+              stand = CName.new("vrp_body_stand_in"), arms = CName.new("left_arm") }
+    standIn.names = names
+  end
+  local stand = player:FindComponentByName(names.stand)
+  if not stand then return end   -- an entity without it (a replacer, a man), or one not built yet
+  local real = player:FindComponentByName(names.body)
+  if real and not real:IsEnabled() then real = nil end
+  if real then standIn.tone = real.meshAppearance.value end
+  local tone = standIn.tone
+  if not real and not tone then
+    local arms = player:FindComponentByName(names.arms)
+    tone = arms and arms.meshAppearance.value
+  end
+  local want = not real and tone ~= nil and player:FindComponentByName(names.shadow) ~= nil
+  if want and stand.meshAppearance.value ~= tone then Game.VRComponentChangeAppearance(stand, CName.new(tone), false) end
+  if stand:IsEnabled() ~= want then
+    stand:Toggle(want)
+    if want ~= standIn.shown then
+      standIn.shown = want
+      print(string.format("[ForceFPP] body stand-in %s (%s)", want and "on" or "off", tostring(tone)))
+    end
+  end
+end
+
 -- WHICH SURVEILLANCE CAMERA THE PLAYER TOOK OVER, handed to the plugin.
 --
 -- The camera writer in the plugin recognises cameras by component name, and every surveillance camera in
@@ -529,7 +581,7 @@ local function publishRemoteCamera()
     -- Measured live on that camera, 2026-09-05, with both components listed and named.
     pcall(function()
       local anyCam = nil
-      for _, c in ipairs(obj:GetComponents()) do
+      for _, c in ipairs(Game.VREntityComponents(obj)) do
         local cls = tostring(c:GetClassName().value)
         if string.find(cls, "CameraComponent") then
           if tostring(c:GetName().value) == "cameraComponent" then
@@ -625,6 +677,9 @@ local function publishBraindance()
   local on = false
   local okB, bd = pcall(inBraindance)
   if okB then on = bd end
+  -- The braindance alone, apart from the scene gate below: the plugin gives the grips its LB/RB and keeps the VR
+  -- menu shut while it runs.
+  if type(VRInBraindance) == "function" then pcall(VRInBraindance, (okB and bd) and 1 or 0) end
 
   -- ORDINARY SCENES TOO, and this is the whole point of the change: a braindance is not the only place
   -- where the scene takes the camera. In a plain dialogue the game renders through a camera nothing of
@@ -815,7 +870,8 @@ local function publishBraindance()
 end
 
 registerForEvent("onInit", function()
-  ObserveAfter("PlayerPuppet", "OnGameAttached", function() cleanedPlayer = nil end)
+  ObserveAfter("PlayerPuppet", "OnGameAttached", function() cleanedPlayer = nil; standInReset(true) end)
+  ObserveBefore("PlayerPuppet", "OnDetach", function() standInReset(false) end)
   ObserveAfter("BaseModalListPopupGameController", "OnInitialize", dropPopupController)
   devcamLoad()
   devcamPush()
@@ -841,7 +897,15 @@ registerForEvent("onUpdate", function(dt)
   cleanupTime = cleanupTime + (dt or 0)
   if cleanupTime >= 0.5 then
     cleanupTime = 0
-    clearLegacyRestriction(Game.GetPlayer())
+    local player = Game.GetPlayer()
+    clearLegacyRestriction(player)
+    if standIn.on and player and not Game.GetSystemRequestsHandler():IsPreGame() then
+      local ok, err = pcall(standInUpdate, player)
+      if not ok then
+        print("[ForceFPP] body stand-in failed: " .. tostring(err))
+        standIn.on = false
+      end
+    end
   end
 end)
 
@@ -852,6 +916,9 @@ registerForEvent("onOverlayClose", function() overlay = false end)
 registerForEvent("onDraw", function()
   if not overlay then return end
   pcall(function()
+    local w, h = GetDisplayResolution()
+    ImGui.SetNextWindowPos(w * 0.01, h * 0.04, ImGuiCond.FirstUseEver)
+    ImGui.SetNextWindowSize(w * 0.19, h * 0.45, ImGuiCond.FirstUseEver)
     ImGui.Begin("VR camera bridge")
     ImGui.Text("UI overlay owning B: " .. tostring(S.popupWhat or "-"))
     local g, gch = ImGui.Checkbox("scene camera path in ordinary scenes", S.sceneGate)
@@ -871,14 +938,14 @@ registerForEvent("onDraw", function()
         local tos = Game.GetScriptableSystemsContainer():Get(CName.new("TakeOverControlSystem"))
         local o = tos and tos:GetControlledObject()
         if o ~= nil then
-          for _, c in ipairs(o:GetComponents()) do
+          for _, c in ipairs(Game.VREntityComponents(o)) do
             local cl = tostring(c:GetClassName().value)
             if cl:find("CameraComponent") then tc = c break end
           end
         end
       end)
       pcall(function()
-        for _, c in ipairs(Game.GetPlayer():GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(Game.GetPlayer())) do
           if tostring(c:GetClassName().value) == "entRenderToTextureCameraComponent" and c:IsEnabled() then
             vc = c break
           end

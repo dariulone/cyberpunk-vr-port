@@ -1,7 +1,11 @@
 #pragma once
 #include <d3d12.h>
 
+namespace RED4ext { struct DynamicTexture; struct WorldWidgetComponent; }
 namespace cvr::menu_surface {
+// The dedicated texture of one of the port's own screens (the VR menu's, the lobby's), null before it has one.
+// Main thread, with the component alive.
+RED4ext::DynamicTexture* SurfaceTexture(RED4ext::WorldWidgetComponent* component);
 bool Waiting();
 // Native ink targets owned by the menu, outside the shared world-widget atlas.
 // These callbacks observe engine work; they never composite into an XR image.

@@ -9,8 +9,8 @@ $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $GameRoot = (Resolve-Path -LiteralPath $GameRoot).Path
 if (!(Test-Path -LiteralPath (Join-Path $GameRoot 'bin\x64\Cyberpunk2077.exe'))) { throw 'Not a game root' }
 if (Get-Process Cyberpunk2077 -ErrorAction SilentlyContinue) { throw 'Close Cyberpunk2077 before deployment' }
-$relative = 'red4ext\plugins\CyberpunkVR_Stereo\CyberpunkVR_Stereo.dll'
-$source = Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\CyberpunkVR_Stereo\Release\CyberpunkVR_Stereo.dll"
+$relative = 'red4ext\plugins\cyberpunkvrport\cyberpunkvrport.dll'
+$source = Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\cyberpunkvrport\Release\cyberpunkvrport.dll"
 $target = Join-Path $GameRoot $relative
 if (!(Test-Path -LiteralPath $source -PathType Leaf)) { throw "Plugin not built: $source" }
 if (!(Test-Path -LiteralPath (Split-Path $target -Parent))) { throw 'Install the full mod first' }
@@ -27,7 +27,7 @@ if (Test-Path -LiteralPath $target) {
     Copy-Item -LiteralPath $target -Destination $before
     if ((Hash $before) -ne $previousHash) { throw 'DLL backup mismatch' }
 }
-$log = Join-Path $GameRoot 'bin\x64\cyberpunkvrport.log'
+$log = Join-Path $GameRoot 'red4ext\plugins\cyberpunkvrport\log\cyberpunkvrport.log'
 if (Test-Path -LiteralPath $log) { Copy-Item -LiteralPath $log -Destination (Join-Path $backup 'previous-run.log') }
 $ini = Join-Path $GameRoot 'bin\x64\vrport.ini'
 $iniBefore = if (Test-Path -LiteralPath $ini) { Hash $ini } else { $null }

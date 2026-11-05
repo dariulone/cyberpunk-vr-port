@@ -12,10 +12,10 @@ enum class Backend:int { FidelityFX=0,Nvidia=1,DlssG=2 };
 const char* BackendName(Backend);
 struct Settings {
     bool enabled=false,overlay=false,autoPace=true;
-    // DLSS-G where the GPU has it (falls back to FidelityFX), and FidelityFX interpolation on the
-    // engine's vectors alone: optical flow measured no difference in quality for its GPU time.
-    Backend backend=Backend::DlssG;
-    int quality=2,flowScale=0,overlayCorner=1;
+    // NVIDIA's optical flow (OFA) at half resolution under FidelityFX interpolation; a GPU without OFA
+    // falls back to FidelityFX's own flow (Generator.cpp).
+    Backend backend=Backend::Nvidia;
+    int quality=2,flowScale=50,overlayCorner=1;
     int overlayLayout=0,overlayFollow=1,historySeconds=30;
     float overlayCone=60,overlayScale=1,overlayDistance=1.25f,overlayX=0,overlayY=0;
 };
@@ -58,7 +58,11 @@ void OnInput(unsigned eye,uint32_t width,uint32_t height);
 void OnSkip();
 void SetVram(uint64_t bytes);
 double NowMs();
+// Called when xrWaitFrame returns: the display period, and the phase the frame cap aims at.
 void DisplayPeriod(int64_t nanoseconds);
+// xr_fps_cap: the game held to the headset's refresh rate when framegen is not pacing it (default on).
+bool FpsCap();
+void SetFpsCap(bool);
 void PacingReady(bool);
 void OnPresentationCycle(bool missedAdjacentFrame);
 void PaceRenderedFrame();

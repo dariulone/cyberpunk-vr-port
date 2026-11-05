@@ -1,0 +1,249 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-31T10:09:10.2672862Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": ""
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "entEntityTemplate",
+   "appearances": [],
+   "backendDataOverrides": [],
+   "bindingOverrides": [],
+   "compiledData": {
+    "BufferId": "0",
+    "Flags": 4063232,
+    "Type": "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4, Version=8.19.0.0, Culture=neutral, PublicKeyToken=null",
+    "Data": {
+     "Version": 4,
+     "Sections": 7,
+     "CruidIndex": 0,
+     "CruidDict": {
+      "0": "0",
+      "1": "1973786360536372001"
+     },
+     "Chunks": [
+      {
+       "$type": "entEntity",
+       "customCameraTarget": "ECCTV_All",
+       "renderSceneLayerMask": "Default"
+      },
+      {
+       "$type": "entPhysicalMeshComponent",
+       "autoHideDistance": 0,
+       "castLocalShadows": "Always",
+       "castRayTracedGlobalShadows": "Always",
+       "castRayTracedLocalShadows": "Default",
+       "castShadows": "Always",
+       "chunkMask": "9223372036854775807",
+       "filterData": null,
+       "filterDataSource": "Collider",
+       "forcedLodDistance": "Default",
+       "forceLODLevel": -1,
+       "id": "1973786360536372001",
+       "isEnabled": 1,
+       "isReplicable": 0,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "LODMode": "AlwaysVisible",
+       "mesh": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "string",
+         "$value": "vrport\\lobby\\vr_lobby_item_4.mesh"
+        },
+        "Flags": "Default"
+       },
+       "meshAppearance": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "default"
+       },
+       "motionBlurScale": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "item"
+       },
+       "navigationImpact": {
+        "$type": "NavGenNavigationSetting",
+        "navmeshImpact": "Ignored"
+       },
+       "numInstances": 0,
+       "objectTypeID": "ROT_Static",
+       "order": 0,
+       "overrideMeshNavigationImpact": 1,
+       "parentTransform": null,
+       "renderingPlane": "RPl_Scene",
+       "renderSceneLayerMask": "Default",
+       "simulationType": "Dynamic",
+       "startInactive": 0,
+       "useResourceSimulationType": 1,
+       "version": 0,
+       "visibilityAnimationParam": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "visualScale": {
+        "$type": "Vector3",
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+       }
+      }
+     ]
+    }
+   },
+   "compiledEntityLODFlags": 0,
+   "componentResolveSettings": [],
+   "components": [
+    {
+     "$type": "entPhysicalMeshComponent",
+     "autoHideDistance": 0,
+     "castLocalShadows": "Always",
+     "castRayTracedGlobalShadows": "Always",
+     "castRayTracedLocalShadows": "Default",
+     "castShadows": "Always",
+     "chunkMask": "9223372036854775807",
+     "filterData": null,
+     "filterDataSource": "Collider",
+     "forcedLodDistance": "Default",
+     "forceLODLevel": -1,
+     "id": "1973786360536372001",
+     "isEnabled": 1,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0,
+       "j": 0,
+       "k": 0,
+       "r": 1
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "LODMode": "AlwaysVisible",
+     "mesh": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\lobby\\vr_lobby_item_4.mesh"
+      },
+      "Flags": "Default"
+     },
+     "meshAppearance": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "default"
+     },
+     "motionBlurScale": 1,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "item"
+     },
+     "navigationImpact": {
+      "$type": "NavGenNavigationSetting",
+      "navmeshImpact": "Ignored"
+     },
+     "numInstances": 0,
+     "objectTypeID": "ROT_Static",
+     "order": 0,
+     "overrideMeshNavigationImpact": 1,
+     "parentTransform": null,
+     "renderingPlane": "RPl_Scene",
+     "renderSceneLayerMask": "Default",
+     "simulationType": "Dynamic",
+     "startInactive": 0,
+     "useResourceSimulationType": 1,
+     "version": 0,
+     "visibilityAnimationParam": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "None"
+     },
+     "visualScale": {
+      "$type": "Vector3",
+      "X": 1,
+      "Y": 1,
+      "Z": 1
+     }
+    }
+   ],
+   "cookingPlatform": "PLATFORM_PC",
+   "defaultAppearance": {
+    "$type": "CName",
+    "$storage": "string",
+    "$value": "default"
+   },
+   "entity": {
+    "HandleId": "0",
+    "Data": {
+     "$type": "entEntity",
+     "customCameraTarget": "ECCTV_All",
+     "renderSceneLayerMask": "Default"
+    }
+   },
+   "includeInstanceBuffer": null,
+   "includes": [],
+   "inplaceResources": [],
+   "localData": null,
+   "resolvedDependencies": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\lobby\\vr_lobby_item_4.mesh"
+     },
+     "Flags": "Default"
+    }
+   ],
+   "visualTagsSchema": null
+  },
+  "EmbeddedFiles": []
+ }
+}

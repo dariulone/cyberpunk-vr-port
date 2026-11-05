@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WolvenKit.Modkit" Version="8.19.0" />
+    <PackageReference Include="WolvenKit.Core" Version="8.19.0" GeneratePathProperty="true" />
+    <PackageReference Include="WolvenKit.Common" Version="8.19.0" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <!-- kraken.dll (Oodle) ships as a content file of WolvenKit.Core and is not copied from the package on its own. -->
+  <Target Name="DeployKraken" AfterTargets="Build" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <Copy SourceFiles="$(PkgWolvenKit_Core)\content\kraken.dll" DestinationFolder="$(OutDir)"
+          Condition="Exists('$(PkgWolvenKit_Core)\content\kraken.dll')" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

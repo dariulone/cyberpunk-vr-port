@@ -100,3 +100,26 @@ texel (a 30 deg/s head turn moves about a third of a texel per frame at 80 fps).
 little as Ultra; frames grabbed in the middle of a 63 deg/s head sweep look the same as with the native shader.
 The cost left: with the head still, a light moving through the haze leaves a trail with a 1.7 s half-life
 (native 0.43 s).
+
+## Planar reflections: one eye's water showed the other eye's reflection (2026-10-30)
+
+The screen-space planar reflections (water; render-graph node `sub_14077D450`, trace `cs/5e01aaacc7c617d2`) were not
+in the cars capture: they run only with Screen Space Reflections on (`ScreenSpaceReflectionsQuality`, which the game
+applies at start, not from the settings system mid-session) and only where a planar surface is in view.
+
+In the side-by-side mode the node draws the planar stage once per eye into that eye's half (viewport x = half width
+for the right eye) and then dispatches the trace once per eye with that eye's block (b6 row 40.w = 1 left, 2 right;
+two 656-byte uploads per frame, `CyberpunkVR_DebugSsrUploads`) -- but each dispatch covers the WHOLE frame
+(groups = ceil(width / 8) both times). The shader folds the thread's x into its half, builds the ray with the
+block's camera and samples the half the block names, and it never checks which half the thread is in. So the left
+eye's dispatch traced both halves and the right eye's then traced both again: every pixel ended with the right
+eye's trace, the left eye's water carrying the right eye's reflection laid out in the right eye's window. With the
+asymmetric windows the two layouts are about a quarter of an eye apart; on the Pacifica bay the left eye's water was
+dark brown where the right eye's reflected the sky. The SSR node does halve its groups per eye
+(`sub_14077A100`: `ceil((width >> 1) / 32)` under feature 98); of the 46 functions that test feature 98, these two
+are the only per-eye loops around a compute dispatch.
+
+Fixed in the planar twin (`tools/asym_tests/asym_ssr_shaders.py` `eye_half_exit`, `src/Shaders/asym_ssr`): in the
+two-halves mode a thread outside the dispatch's own eye returns before it reads or writes anything, which also
+halves the trace's work. Live A/B on the bay, the twins off and on, mean change of the water per eye: left 13.3
+(frame noise 3.3), right 3.0 (noise 3.4); with the twin the left eye's water matches the right eye's.

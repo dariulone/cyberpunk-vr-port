@@ -21,12 +21,14 @@
 #include "Anim/HandGestures.hpp"
 #include "Anim/LadderFingerTuning.hpp"
 #include "Anim/LadderRungPose.hpp"
+#include "Anim/LeftHanded.hpp"
 #include "Camera/NeckCameraMount.hpp"
 // The elbow-policy flag lives with the other live controls.
 #include "Camera/CameraState.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <mutex>
 
@@ -45,6 +47,25 @@ float s_referenceModelRot[VRIK_MAX_BONES][4]{};
 float s_referenceModelPos[VRIK_MAX_BONES][3]{};
 float s_referenceCameraHeight=1.6f;
 bool s_referenceCameraValid{};
+int s_referenceCameraBone=-1;   // Torso_fppCamera_Control_GRP: the bone the game's camera rides
+// THE CLIP'S OWN TORSO (VRIK_PlaceBodyUnderHMD, the slide). The hips and spine locals the native pose brought, read
+// from a buffer that was not this solve's own output, and the clip's camera bone in model space beside them. A pose
+// pass can feed our output back in: a buffer whose torso still holds exactly what we left (`solved`) is ours, and
+// the native torso read from it earlier in the frame stands.
+struct NativeTorso {
+    const uint8_t* buffer{};
+    uint64_t revision{};
+    int count{};
+    int bones[12]{};
+    uint8_t native[12][48]{};
+    uint8_t solved[12][48]{};
+    float camera[3]{},hips[3]{};
+};
+NativeTorso s_nativeTorso[4]{};
+int s_nativeTorsoNext{};
+float s_clipBodyWeight{};
+int64_t s_clipBodyAtUs{};
+float s_clipOffset[2]{0.0f,0.195f};   // the standing body's hips less the clip's, xy; a standing value until a move
 std::mutex s_neckMountMutex;
 cvr::camera::AnchorVector s_neckMount{};
 cvr::camera::AnchorVector s_neckCameraEyeOffset{};
@@ -129,8 +150,17 @@ extern "C" __declspec(dllexport) float CyberpunkVR_DebugGripTorsoDeg = 0.0f;
 // the left side: how far the turn carried the shoulder's anchor (mm); the girdle's weight, clavicle degrees and
 // joint advance (mm); the reach as a fraction of the arm; 1 while that girdle ran in its grip profile
 extern "C" __declspec(dllexport) float CyberpunkVR_DebugGripReach[6] = {0,0,0,0,0,0};
+// THE BODY OF A SLIDE, A JUMP, A FALL AND A LANDING FROM THEIR CLIP (VRIK_PlaceBodyUnderHMD). 1 = through those
+// moves the hips and spine are the clip's own; 0 = the standing body throughout.
+extern "C" __declspec(dllexport) int   CyberpunkVR_ClipBodyMoves = 1;
+// the view (body base), the clip's camera bone and hips (model space), the clip's weight, the detailed locomotion state,
+// and 1 when the torso came from a buffer that was our own output
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugClipBody[12] = {};
 bool  g_VRIKGrip[2]{};            // R, L: that hand was in a grip on the last solve
 float g_VRIKShort[2]{};           // ...and its wrist's shortfall, metres (negative = slack)
+float g_VRIKHandPin[2][3]{};      // R, L: where the solve put the wrist, model space -- the hand that is drawn,
+                                  // short of the target when the caps run out of arm
+float g_VRIKHandAim[2][8]{};      // R, L: the target the controller asks for (position, rotation, valid), model space
 float g_VRIKTorsoShift[3]{};      // where this solve's thorax turn carried the LEFT shoulder, model space
 float g_VRIKTorsoQ[2][4]{{0,0,0,1},{0,0,0,1}};   // the turn's two rotations, model space, lower bone first...
 float g_VRIKTorsoP[2][3]{};                      // ...and the point each one turns about
@@ -268,7 +298,9 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
         if(EqualBoneName(names[i],"l_J_eye_JNT") || (leftEye<0 && EqualBoneName(names[i],"LeftEye")))leftEye=i;
         if(EqualBoneName(names[i],"r_J_eye_JNT") || (rightEye<0 && EqualBoneName(names[i],"RightEye")))rightEye=i;
     }
-    float neutralPos[VRIK_MAX_BONES][3]{},neutralRot[VRIK_MAX_BONES][4]{};
+    // Static rather than stack (VRIK_MAX_BONES entries, ~57 KB): rig policy runs under the rebind's exclusive lock.
+    static float neutralPos[VRIK_MAX_BONES][3],neutralRot[VRIK_MAX_BONES][4];
+    std::memset(neutralPos,0,sizeof(neutralPos));std::memset(neutralRot,0,sizeof(neutralRot));
     for(int i=0;i<referenceCount;++i)if(s_referenceValid[i]) {
         const int parent=g_VRBoneParent[i];
         if(parent>=0) {
@@ -295,6 +327,7 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
     const int neck=g_VRNeck1Idx>=0 ? g_VRNeck1Idx:g_VRNeckIdx;
     s_referenceCameraValid=camera>=0 && camera<referenceCount && s_referenceValid[camera];
     s_referenceCameraHeight=s_referenceCameraValid ? s_referenceModelPos[camera][2]:0;
+    s_referenceCameraBone=s_referenceCameraValid ? camera:-1;
     std::lock_guard lock(s_neckMountMutex);
     s_neckMountValid=neck>=0 && neck<referenceCount && camera>=0 && camera<referenceCount &&
         leftEye>=0 && leftEye<referenceCount && rightEye>=0 && rightEye<referenceCount &&
@@ -326,6 +359,8 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
             if(EqualBoneName(names[i],n))s_upperSkin[side][slot]=i;
         }
     }
+    // The left-handed weapon's mirror, from the same reference pose.
+    cvr::anim::LeftHandedArmRig(names,count);
 }
 
 
@@ -360,6 +395,14 @@ void VRIK_QuatNorm(float* q) {
 
 float VRIK_Dot3(const float* a, const float* b) {
     return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+void VRIK_NoteHandAim(int pin, const float* target, const float* rotation) {
+    if (pin < 0 || pin > 1) return;
+    float* aim = g_VRIKHandAim[pin];
+    aim[7] = 0.0f;
+    for (int k = 0; k < 3; ++k) aim[k] = target[k];
+    for (int k = 0; k < 4; ++k) aim[3 + k] = rotation[k];
+    aim[7] = 1.0f;
 }
 void VRIK_Cross3(const float* a, const float* b, float* o) {
     o[0] = a[1]*b[2] - a[2]*b[1];
@@ -500,6 +543,20 @@ int VRIK_FKCount() {
 bool VRIK_ReferenceFingerRotation(int bone,float* rotation) {
     if(!rotation || bone<0 || bone>=g_VRBoneCount || !s_referenceValid[bone])return false;
     std::copy_n(s_referenceLocalRot[bone],4,rotation);return true;
+}
+bool VRIK_ReferenceLocal(int bone,float* position,float* rotation) {
+    if(!position || !rotation || bone<0 || bone>=g_VRBoneCount || !s_referenceValid[bone])return false;
+    std::copy_n(s_referenceLocalPos[bone],3,position);std::copy_n(s_referenceLocalRot[bone],4,rotation);return true;
+}
+bool VRIK_ReferenceModel(int bone,float* position,float* rotation) {
+    if(!position || !rotation || bone<0 || bone>=g_VRBoneCount || !s_referenceValid[bone])return false;
+    std::copy_n(s_referenceModelPos[bone],3,position);std::copy_n(s_referenceModelRot[bone],4,rotation);return true;
+}
+// The ladder profile's finger bones (cvr::ladder::profile::fingers order) of a hand: 0 left, 1 right; -1 when the
+// rig has none.
+int VRIK_LadderFingerBone(int side,int slot) {
+    if(side<0 || side>1 || slot<0 || slot>=19)return -1;
+    return s_ladderFingers[side][slot];
 }
 bool cvr::gestures::ThumbReference(int side,float* rotation) {
     if(side<0 || side>1 || !rotation)return false;
@@ -700,9 +757,12 @@ void VRIK_GripTorso(uint8_t* boneBuf,const float* bodyRight,const float* bodyUp)
     }
     static float s_turn=0.0f;
     const float maxTurn=std::clamp(CyberpunkVR_GripTorsoMaxDeg,0.0f,35.0f)*.01745329252f;
-    if(CyberpunkVR_GripReach!=0 && g_VRIKGrip[1] && !g_VRIKVehicleUpperActive) {
+    // The support hand's side: the left one, or the right one while the weapon is in the left hand.
+    const bool mirrored=cvr::anim::WeaponInLeftHand();
+    const int supportJ=mirrored ? 0 : 1;
+    if(CyberpunkVR_GripReach!=0 && g_VRIKGrip[supportJ] && !g_VRIKVehicleUpperActive) {
         // the shoulder sits ~22 cm off the turn's pivot; settles in about a sixth of a second, slew-limited
-        const float rate=std::clamp((g_VRIKShort[1]+.01f)/.22f*6.0f,-1.5f,1.5f);
+        const float rate=std::clamp((g_VRIKShort[supportJ]+.01f)/.22f*6.0f,-1.5f,1.5f);
         s_turn=std::clamp(s_turn+rate*dt,0.0f,maxTurn);
     } else {
         s_turn-=s_turn*std::min(1.0f,dt/.20f);
@@ -710,12 +770,13 @@ void VRIK_GripTorso(uint8_t* boneBuf,const float* bodyRight,const float* bodyUp)
     }
     CyberpunkVR_DebugGripTorsoDeg=s_turn*57.2957795f;
     const int count=std::clamp(static_cast<int>(g_VRSpineCount),0,8);
-    const int upper=g_VRLeftUpperArmIdx;
+    const int upper=mirrored ? g_VRRightUpperArmIdx : g_VRLeftUpperArmIdx;
     if(s_turn<=0.0f || count<2 || upper<0 || upper>=g_VRBoneCount || !bodyRight || !bodyUp)return;
     const int bones[2]={g_VRSpineIdx[count-2],g_VRSpineIdx[count-1]};
     const float share[2]={.4f,.6f};
-    // about -up turns the left shoulder forward; about -right leans the chest over the reach
-    float axis[3]={-bodyUp[0]-.33f*bodyRight[0],-bodyUp[1]-.33f*bodyRight[1],-bodyUp[2]-.33f*bodyRight[2]};
+    // about -up turns the left shoulder forward (about +up the right one); about -right leans the chest over the reach
+    const float turn=mirrored ? 1.0f : -1.0f;
+    float axis[3]={turn*bodyUp[0]-.33f*bodyRight[0],turn*bodyUp[1]-.33f*bodyRight[1],turn*bodyUp[2]-.33f*bodyRight[2]};
     if(VRIK_Norm3(axis)<1e-4f)return;
     VRIK_ComputeFK(boneBuf,VRIK_FKCount());
     const float identity[4]={0,0,0,1};
@@ -902,7 +963,7 @@ void VRIK_AnchorShoulder(uint8_t* boneBuf,int upperIdx,const float* anchor,bool 
     // ...carried with the thorax while a grip has turned it (VRIK_GripTorso) -- the LEFT shoulder only. The joint
     // handed back for the hand target stays where it would have been: the turn is there to REACH the target, and a
     // target built off the turned shoulder would move away by exactly as much.
-    const bool turned=isLeft && g_VRIKTorsoOn;
+    const bool turned=isLeft!=cvr::anim::WeaponInLeftHand() && g_VRIKTorsoOn;
     if(turned) {
         float carried[3]={desired[0],desired[1],desired[2]};VRIK_TorsoCarry(carried);
         for(int k=0;k<3;++k) { g_VRIKTorsoShift[k]=carried[k]-desired[k];desired[k]=carried[k]; }
@@ -1191,6 +1252,7 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
                                  const float* bodyRight, const float* bodyUp, const float* bodyFwd,
                                  float poleAngleRad, float swingGain, bool isLeft,
                                  bool storeDbg,bool ladderReach) {
+    std::copy_n(targetModel, 3, g_VRIKHandPin[isLeft ? 1 : 0]);   // until the pin below says otherwise
     if (upperIdx < 0 || foreIdx < 0 || handIdx < 0) return;
     if (upperIdx >= VRIK_MAX_BONES || foreIdx >= VRIK_MAX_BONES || handIdx >= VRIK_MAX_BONES) return;
 
@@ -1232,8 +1294,10 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
         foreLen = (calibHalf > 0.0f) ? calibHalf : s_restForeLen[sideJ];
     }
     // A hand closed on something: the two-hand hold's support hand, or a wrist the reload has locked to a grip.
+    // (The support hand is the right one while the weapon is in the left hand, Anim/LeftHanded.cpp.)
+    const bool support=isLeft!=cvr::anim::WeaponInLeftHand();
     const bool grip=CyberpunkVR_GripReach!=0 &&
-        ((isLeft && CyberpunkVR_TwoHandActive!=0) || g_VRHandRotLockOn[isLeft ? 0 : 1]!=0);
+        ((support && CyberpunkVR_TwoHandActive!=0) || g_VRHandRotLockOn[isLeft ? 0 : 1]!=0);
     g_VRIKGrip[sideJ]=grip;
     const bool girdle=VRIK_ReachGirdle(boneBuf,upperIdx,targetModel,bodyUp,bodyFwd,upLen+foreLen,isLeft,ladderReach,grip);
     if(girdle) {
@@ -1911,6 +1975,7 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
             if (cl < lo) cl = lo; if (cl > hi) cl = hi;
             float pin[3] = { elbowW[0]+rel[0]*(cl/rl), elbowW[1]+rel[1]*(cl/rl), elbowW[2]+rel[2]*(cl/rl) };
             VRIK_WriteLocalPos(boneBuf, handIdx, elbowW, newForeModel, pin);
+            std::copy_n(pin, 3, g_VRIKHandPin[sideJ]);
         }
     }
 
@@ -2942,6 +3007,79 @@ bool VRIK_PlaceSwimmingBody(uint8_t* boneBuf,const float* cameraTarget,const flo
 }
 
 // Camera alignment is a separate neutral-neck mount, not an animated measurement.
+namespace {
+// The clip's torso for this buffer: read now, or -- the buffer still holding this frame's output -- as read before.
+// Our output is told by the hips alone: the spine is turned again after this solve (the grip's thorax turn), the
+// hips are not, so the hips local this solve left (ClipTorsoSolved) is what a fed-back buffer still holds.
+NativeTorso* ClipTorso(uint8_t* boneBuf,const int* bones,int count) {
+    if(count<=0 || count>12 || s_referenceCameraBone<0 || s_referenceCameraBone>=VRIK_FKCount())return nullptr;
+    for(auto& t:s_nativeTorso)if(t.buffer==boneBuf && t.revision==s_rigRevision && t.count==count &&
+        t.bones[0]==bones[0] && std::memcmp(boneBuf+bones[0]*48,t.solved[0],48)==0) {
+        CyberpunkVR_DebugClipBody[11]=1;
+        return &t;
+    }
+    NativeTorso* t=nullptr;
+    for(auto& e:s_nativeTorso)if(e.buffer==boneBuf) { t=&e;break; }
+    if(!t) { t=&s_nativeTorso[s_nativeTorsoNext];s_nativeTorsoNext=(s_nativeTorsoNext+1)%4; }
+    VRIK_ComputeFK(boneBuf,VRIK_FKCount());
+    const float* c=g_fkPos[s_referenceCameraBone];
+    if(!std::isfinite(c[0]) || !std::isfinite(c[1]) || !std::isfinite(c[2]))return nullptr;
+    t->buffer=boneBuf;t->revision=s_rigRevision;t->count=count;
+    for(int i=0;i<count;++i) {
+        t->bones[i]=bones[i];
+        std::memcpy(t->native[i],boneBuf+bones[i]*48,48);
+        std::memcpy(t->solved[i],boneBuf+bones[i]*48,48);
+    }
+    std::copy_n(c,3,t->camera);
+    std::copy_n(g_fkPos[bones[0]],3,t->hips);
+    CyberpunkVR_DebugClipBody[11]=0;
+    return t;
+}
+
+// What this solve left on the hips, the mark a fed-back buffer is known by.
+void ClipTorsoSolved(NativeTorso* t,const uint8_t* boneBuf) {
+    if(t)std::memcpy(t->solved[0],boneBuf+t->bones[0]*48,48);
+}
+
+// THE MOVES THAT ARE THE CLIP'S: a slide (gamePSMDetailedLocomotionStates.Slide 5, or the plain Slide 10, entered from
+// a sprint by a crouch tap), a fall (14), the jumps (18 Jump .. 22 DodgeAir) and the landings (23 RegularLand ..
+// 25 VeryHardLand). The plain state stays Default through a fall, so the detailed one decides.
+bool ClipMove(int detailed,int plain) {
+    return plain==10 || detailed==5 || detailed==14 || (detailed>=18 && detailed<=25);
+}
+
+// How much of the body is the clip's, eased over about 80 ms -- a slide comes in fast, and the standing body must
+// give way without a cut. All of it through a clip's move. A move can end before its clip does: a slide's state is
+// over half way through, the game back in its sprint while the clip still has the camera low and behind and only
+// then brings it up (measured, about 0.9 s). So a move holds the clip's body on until its camera bone is back near
+// standing height, letting go as it rises. `engaged` is true on the solve the clip's body comes in.
+bool s_clipLatched{};
+float ClipBodyWeight(const NativeTorso* clip,bool* engaged) {
+    const int64_t now=std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const float dt=s_clipBodyAtUs ? std::clamp(static_cast<float>(now-s_clipBodyAtUs)*1e-6f,0.0f,0.1f):0.0f;
+    s_clipBodyAtUs=now;
+    const bool moving=CyberpunkVR_ClipBodyMoves!=0 && clip && ClipMove(g_VRLocomotionDetailed,g_VRLocomotionState);
+    *engaged=moving && !s_clipLatched && s_clipBodyWeight<=0;
+    if(moving)s_clipLatched=true;
+    float want=0;
+    if(s_clipLatched && clip && CyberpunkVR_ClipBodyMoves!=0) {
+        const float drop=s_referenceCameraHeight-clip->camera[2];
+        want=moving ? 1.0f:std::clamp((drop-0.05f)/0.25f,0.0f,1.0f);
+    }
+    if(!moving && want<=0)s_clipLatched=false;
+    s_clipBodyWeight+=(want-s_clipBodyWeight)*std::min(1.0f,dt/0.08f);
+    if(std::abs(want-s_clipBodyWeight)<1e-3f)s_clipBodyWeight=want;
+    return s_clipBodyWeight;
+}
+
+void QuatNlerp(const float* a,const float* b,float t,float* out) {
+    const float s=(a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3])<0 ? -1.0f:1.0f;
+    for(int k=0;k<4;++k)out[k]=a[k]+(s*b[k]-a[k])*t;
+    VRIK_QuatNorm(out);
+}
+}
+
 void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
                                           const float* camModelPos, const float* camModelRot,
                                           int headIdx, const float* /*bodyFwd*/,const float* pairedHeadDeltaModel,
@@ -2995,6 +3133,13 @@ void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
     // camera height still supplies crouch/jump state; physical squat moves hips
     // rather than compressing the spine root away from its anatomical parent.
     const int hips=g_VRHipsIdx;
+    // The clip's torso, read before anything below writes it (applied after the spine, see there).
+    int torso[12],torsoN=0;
+    if(hips>=0 && hips<g_VRBoneCount)torso[torsoN++]=hips;
+    for(int c=0;c<chainN && torsoN<12 && torsoN>0;++c)torso[torsoN++]=chain[c];
+    NativeTorso* clip=ClipTorso(boneBuf,torso,torsoN);
+    bool clipEngaged=false;
+    const float clipW=ClipBodyWeight(clip,&clipEngaged);
     if(hips>=0 && hips<g_VRBoneCount && s_referenceValid[hips] && s_referenceCameraValid) {
         const int parent=g_VRBoneParent[hips];
         const float zero[3]={};
@@ -3052,6 +3197,58 @@ void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
         }
 
     }
+    // A SLIDE, A JUMP, A FALL AND A LANDING ARE THE CLIP'S BODY. Everything above stands the reference body under the
+    // camera: the hips where the reference pose has them, lowered by the camera's drop, the spine upright over them.
+    // That is the body while the player stands, walks or crouches. In those moves the game's camera goes where no
+    // standing body can follow (measured): a slide carries it 1.2 m down and 0.6 m back, so the reference hips ended
+    // under the floor and half a metre ahead of the eyes -- the body outran the head; a fall leans it 0.29 m forward
+    // within a quarter second while the hips stood -- the body jerked back; a hard landing drops it to 0.55 m, the
+    // hips 17 cm into the ground. The clip moves its own body with it -- most of the way, and on the ground -- and
+    // the rest is the camera's own: a fall's lean is 0.14 m more than the clip's camera bone, a hard landing's dip
+    // 0.5 m more, a slide's 11-18 cm, none of it a body's. So there the hips and spine are the clip's own, where the
+    // clip has them about the player, moved by what the standing body is moved by the clip -- the offset between the
+    // two taken as the move begins (ClipBodyWeight's `engaged`), so the body comes in where it stood -- and by the
+    // body's orbit, as the standing hips have it. The legs are the clip's already, below its hips. Eased in and out.
+    if(clipEngaged && clip && hips>=0 && s_referenceValid[hips]) {
+        s_clipOffset[0]=s_referenceModelPos[hips][0]-clip->hips[0];
+        s_clipOffset[1]=s_referenceModelPos[hips][1]-clip->hips[1];
+    }
+    if(clip && clipW>0) {
+        float shift[3]={s_clipOffset[0],s_clipOffset[1],0.0f};
+        if(bodyOrbitModel && std::isfinite(bodyOrbitModel[0]) && std::isfinite(bodyOrbitModel[1])) {
+            shift[0]+=bodyOrbitModel[0];shift[1]+=bodyOrbitModel[1];
+        }
+        for(int i=0;i<clip->count;++i) {
+            const int bone=clip->bones[i];
+            float* pos=reinterpret_cast<float*>(boneBuf+bone*48+VRIK_TRANS_OFF);
+            float* rot=reinterpret_cast<float*>(boneBuf+bone*48+VRIK_ROT_OFF);
+            const float* nativePos=reinterpret_cast<const float*>(clip->native[i]+VRIK_TRANS_OFF);
+            const float* nativeRot=reinterpret_cast<const float*>(clip->native[i]+VRIK_ROT_OFF);
+            float target[3]={nativePos[0],nativePos[1],nativePos[2]};
+            if(i==0) {
+                // the shift in the hips' parent frame
+                const int parent=g_VRBoneParent[bone];
+                float local[3]={shift[0],shift[1],shift[2]};
+                if(parent>=0) {
+                    float inv[4];VRIK_QuatConj(g_fkRot[parent],inv);
+                    VRIK_QuatRotateVec(inv,shift,local);
+                }
+                for(int k=0;k<3;++k)target[k]+=local[k];
+            }
+            for(int k=0;k<3;++k)pos[k]+=(target[k]-pos[k])*clipW;
+            float q[4];QuatNlerp(rot,nativeRot,clipW,q);
+            std::copy_n(q,4,rot);
+        }
+        VRIK_ComputeFK(boneBuf,VRIK_FKCount());
+    }
+    CyberpunkVR_DebugClipBody[0]=camModelPos[0];CyberpunkVR_DebugClipBody[1]=camModelPos[1];
+    CyberpunkVR_DebugClipBody[2]=camModelPos[2];
+    if(clip) {
+        std::copy_n(clip->camera,3,CyberpunkVR_DebugClipBody+3);
+        std::copy_n(clip->hips,3,CyberpunkVR_DebugClipBody+6);
+    }
+    CyberpunkVR_DebugClipBody[9]=clipW;
+    CyberpunkVR_DebugClipBody[10]=static_cast<float>(g_VRLocomotionDetailed);
     // A camera's axes are not a skull bone's axes. Preserve the reference basis.
     float headModelRot[4];VRIK_QuatMul(camModelRot,g_VRHeadReferenceModelRot,headModelRot);
     const int hp=g_VRBoneParent[headIdx];
@@ -3066,6 +3263,7 @@ void VRIK_PlaceBodyUnderHMD(uint8_t* boneBuf,
 
     VRIK_ApplyBodyBend(boneBuf,bendAngle,camModelRot,squatDrop,pairedHeadDeltaModel);
     VRIK_PublishBodyBones();
+    ClipTorsoSolved(clip,boneBuf);
 
     // Camera alignment now comes from the immutable neutral-neck mount.
     // Retire the old animated-head EMA so it cannot add a second offset.

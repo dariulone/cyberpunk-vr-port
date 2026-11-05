@@ -15,6 +15,11 @@ local function distance(a,b,lever)
     return d
 end
 function M.reset() state=nil end
+-- The trigger of the hand holding the weapon: the slots are per physical controller, and the weapon is in the left
+-- one while VRWeaponInLeftHand says so (input[3] below is that hand already).
+local function weaponTrigger()
+    return Game.GetVRSharedSlot(Game.VRWeaponInLeftHand() and 154 or 160)>.5
+end
 
 function M.update(dt,player,weapon,position,forward,origin,diag)
     diag.ticks=diag.ticks+1;diag.kind=0;diag.left=0;diag.right=2;diag.frameSize=12
@@ -80,7 +85,7 @@ function M.update(dt,player,weapon,position,forward,origin,diag)
         end
     end
     if clock>=s.mute and speed>=tuning.swingSpeed and s.armed and clock-s.lastBegin>=.12 then
-        s.strong=Game.GetVRSharedSlot(160)>.5
+        s.strong=weaponTrigger()
         s.episode=player:VRCyberwareBeginSwing(weapon,1,s.strong,speed)
         s.armed=false;s.lastBegin=clock;s.direction=velocity
     end
@@ -91,7 +96,9 @@ function M.update(dt,player,weapon,position,forward,origin,diag)
     -- Air sound belongs to the physical stroke, not to a collision or the
     -- success of a queued game attack. One whoosh per stroke/reversal.
     if clock>=s.mute and soundSpeed>=tuning.whooshSpeed and s.soundArmed and clock-s.lastSound>=.12 then
-        player:VRMeleeWhoosh(weapon,soundSpeed>=tuning.fastSpeed,Game.GetVRSharedSlot(160)>.5)
+        player:VRMeleeWhoosh(weapon,soundSpeed>=tuning.fastSpeed,weaponTrigger())
+        -- No haptic for a stroke through the air: a blade that meets nothing gives the hand nothing back. The hand
+        -- feels the hit (kMeleeHit), the block and the parry.
         s.soundArmed=false;s.lastSound=clock
         diag.whooshes=(diag.whooshes or 0)+1
     end

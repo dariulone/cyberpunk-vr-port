@@ -82,6 +82,11 @@ float4 PSMain(VSOut input) : SV_Target {
             color += weights[i-1]*(g_color.SampleLevel(g_linear,input.uv+g_filter.xy*i,0.0)+
                                    g_color.SampleLevel(g_linear,input.uv-g_filter.xy*i,0.0));
     }
+    // A black point: light under it is dropped, the rest scaled back to full range and kept in its hue.
+    if (g_filter.w > 0.0) {
+        const float peak = max(color.r, max(color.g, color.b));
+        color.rgb *= saturate((peak - g_filter.w) / max(peak * (1.0 - g_filter.w), 1e-5));
+    }
     return color * g_tint;
 }
 )";
@@ -847,7 +852,7 @@ bool ColorBlit::RecordOverlay(ID3D12GraphicsCommandList* cmdList,
                               bool pixelExact,
                               float offX,
                               float offY, float width, float height, const float* tint,
-                              uint32_t sourceMip,uint32_t targetMip,int blurAxis) {
+                              uint32_t sourceMip,uint32_t targetMip,int blurAxis,float blackPoint) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!cmdList || !srcOverlay || !dstColor) return false;
     ID3D12PipelineState* pso = m_psoOverlay.Get();
@@ -917,7 +922,7 @@ bool ColorBlit::RecordOverlay(ID3D12GraphicsCommandList* cmdList,
     cmdList->SetGraphicsRoot32BitConstants(1, 4, pso == m_pso.Get() ? fullRect : (tint ? tint : white), 0);
     const float filter[4]={blurAxis==1 ? 1.0f/float(std::max<UINT64>(1,sd.Width>>sourceMip)) : 0,
                            blurAxis==2 ? 1.0f/float(std::max<UINT>(1,sd.Height>>sourceMip)) : 0,
-                           blurAxis ? 1.0f : 0.0f,0};
+                           blurAxis ? 1.0f : 0.0f,blackPoint};
     cmdList->SetGraphicsRoot32BitConstants(2,4,filter,0);
     cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     cmdList->DrawInstanced(4, 1, 0, 0);

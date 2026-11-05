@@ -53,7 +53,7 @@ class Probe:
  def __init__(self,a):
   self.a=a;self.rows=[];self.results=[];self.commands=[];self.mode_events=[];self.rng=random.Random(240924)
   self.directory=Path(os.environ['LOCALAPPDATA'])/'OpenXR-Simulator'
-  self.game=a.game;self.ini=a.game/'bin/x64/vrport.ini';self.saved_ini=self.ini.read_bytes()
+  self.game=a.game;self.ini=a.game/'red4ext/plugins/cyberpunkvrport/config/vrport.ini';self.saved_ini=self.ini.read_bytes()
   self.original_mode=int(re.search(rb'^xr_tracked_body_rotation\s*=\s*(\d+)',self.saved_ini,re.M)[1])
   names=['OpenXRManager::Get','CyberpunkVR_BodyYawRealignRad','CyberpunkVR_BodyYawFollow','CyberpunkVR_BodyYawFollowDeadDeg',
    'CyberpunkVR_BodyYawFinalRad','CyberpunkVR_BodyYawFinalValid','g_PlayerPoseHeadingReady','g_VRBoneCount','g_liveControls','s_trackedBody']

@@ -41,16 +41,21 @@ local logAcc = 0.0
 --
 -- Re-applied on a timer rather than once: a component that re-registers (state change, teleport, reload)
 -- would come back queryable, and one queryable frame at chest depth is a shove.
-local capsCache, capsAt, capsScanAt = nil, -1.0, -1.0
+local capsCache, capsAt, capsScanAt, capsMissAt = nil, -1.0, -1.0, -10.0
 
 local function capsQueriesOff(now, pl)
+    -- A scan that found nothing is not repeated for a second. A player without the capsules (the main menu's
+    -- puppet) otherwise walked every component name through CET each frame: hundreds of userdata and strings a
+    -- frame, ~18 MB/s of garbage, and every ~15 s a 340 ms GC atomic phase -- the menu's periodic freeze
+    -- (2026-10-28).
+    if not capsCache and now - capsMissAt < 1.0 then return end
     if not capsCache or now - capsScanAt > 5.0 then
         -- Empty scans used to convert every component name through CET every
         -- frame. The native prefilter still checks the current list each tick.
         if type(VRShouldScanBodyCapsules)=='function' and not VRShouldScanBodyCapsules(pl) then return end
         local found = {}
         local ok = pcall(function()
-            local cs = pl:GetComponents()
+            local cs = Game.VREntityComponents(pl)
             for i = 1, #cs do
                 if string.find(tostring(cs[i]:GetName()), 'VRPortBody_') then
                     local b = cs[i]:CreatePhysicalBodyInterface(0)
@@ -58,7 +63,7 @@ local function capsQueriesOff(now, pl)
                 end
             end
         end)
-        if not ok or #found == 0 then return end
+        if not ok or #found == 0 then capsMissAt = now return end
         capsCache, capsScanAt = found, now
     end
     if now - capsAt < 0.5 then return end

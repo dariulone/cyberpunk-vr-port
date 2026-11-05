@@ -1,0 +1,6612 @@
+{
+ "Header": {
+  "WolvenKitVersion": "1.0.0+6f6be2fb74f3c4786fc49c205af4104e32ae27c2",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-21T08:48:36.9854284Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "C:\\Users\\dariulone\\Desktop\\CyberpunkVRPort\\build\\vr-menu-20261021\\game\\engine\\ink\\util\\ad_widget_component_capture.ent"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "entEntityTemplate",
+   "appearances": [],
+   "backendDataOverrides": [],
+   "bindingOverrides": [],
+   "compiledData": {
+    "BufferId": "0",
+    "Flags": 4063232,
+    "Type": "WolvenKit.RED4.Archive.Buffer.RedPackage, WolvenKit.RED4, Version=8.18.0.0, Culture=neutral, PublicKeyToken=null",
+    "Data": {
+     "Version": 4,
+     "Sections": 7,
+     "CruidIndex": 0,
+     "CruidDict": {
+      "0": "0",
+      "1": "2482346998624055296",
+      "2": "2482770868527067136",
+      "3": "2492811973113049088"
+     },
+     "Chunks": [
+      {
+       "$type": "entEntity",
+       "customCameraTarget": "ECCTV_All",
+       "renderSceneLayerMask": "Default"
+      },
+      {
+       "$type": "entMeshComponent",
+       "autoHideDistance": 0,
+       "castLocalShadows": "Always",
+       "castRayTracedGlobalShadows": "Always",
+       "castRayTracedLocalShadows": "Default",
+       "castShadows": "Always",
+       "chunkMask": "9223372036854775807",
+       "forcedLodDistance": "Default",
+       "forceLODLevel": -1,
+       "id": "2482346998624055296",
+       "isEnabled": 1,
+       "isReplicable": 0,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "LODMode": "AlwaysVisible",
+       "mesh": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "string",
+         "$value": "engine\\ink\\util\\advertisement_plane.mesh"
+        },
+        "Flags": "Default"
+       },
+       "meshAppearance": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "default"
+       },
+       "motionBlurScale": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "display"
+       },
+       "navigationImpact": {
+        "$type": "NavGenNavigationSetting",
+        "navmeshImpact": "Ignored"
+       },
+       "numInstances": 0,
+       "objectTypeID": "ROT_Static",
+       "order": 0,
+       "overrideMeshNavigationImpact": 1,
+       "parentTransform": null,
+       "renderingPlane": "RPl_Scene",
+       "renderSceneLayerMask": "Default",
+       "version": 0,
+       "visualScale": {
+        "$type": "Vector3",
+        "X": 1,
+        "Y": 1,
+        "Z": 1
+       }
+      },
+      {
+       "$type": "AdvertisementWidgetComponent",
+       "adGroupTDBID": {
+        "$type": "TweakDBID",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "adOverrideTDBID": {
+        "$type": "TweakDBID",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "adVersion": 0,
+       "enableOverride": 0,
+       "format": "Format_0_7x1",
+       "glitchValue": 0,
+       "id": "2482770868527067136",
+       "isEnabled": 0,
+       "isReplicable": 0,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "meshTargetBinding": {
+        "HandleId": "0",
+        "Data": {
+         "$type": "worlduiMeshTargetBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         }
+        }
+       },
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "adWidget"
+       },
+       "parentTransform": {
+        "HandleId": "1",
+        "Data": {
+         "$type": "entHardTransformBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         },
+         "slotName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "None"
+         }
+        }
+       },
+       "screenAreaMultiplier": 1,
+       "textureMaxMipBias": 0,
+       "textureMinMipBias": 0,
+       "tintColor": {
+        "$type": "Color",
+        "Alpha": 0,
+        "Blue": 0,
+        "Green": 0,
+        "Red": 0
+       },
+       "useOnlyAttachedLights": 0
+      },
+      {
+       "$type": "WorldWidgetComponent",
+       "cursorResource": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "Flags": "Default"
+       },
+       "glitchValue": 0,
+       "id": "2492811973113049088",
+       "isEnabled": 0,
+       "isReplicable": 0,
+       "itemNameToSpawn": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "limitedSpawnDistanceFromVehicle": 1,
+       "localTransform": {
+        "$type": "WorldTransform",
+        "Orientation": {
+         "$type": "Quaternion",
+         "i": 0,
+         "j": 0,
+         "k": 0,
+         "r": 1
+        },
+        "Position": {
+         "$type": "WorldPosition",
+         "x": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "y": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         },
+         "z": {
+          "$type": "FixedPoint",
+          "Bits": 0
+         }
+        }
+       },
+       "meshTargetBinding": {
+        "HandleId": "2",
+        "Data": {
+         "$type": "worlduiMeshTargetBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         }
+        }
+       },
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "worldWidget"
+       },
+       "parentTransform": {
+        "HandleId": "3",
+        "Data": {
+         "$type": "entHardTransformBinding",
+         "bindName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "display"
+         },
+         "enabled": 1,
+         "enableMask": {
+          "$type": "entTagMask",
+          "excludedTags": {
+           "$type": "redTagList",
+           "tags": [
+            {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "NoBinding"
+            }
+           ]
+          },
+          "hardTags": {
+           "$type": "redTagList",
+           "tags": []
+          },
+          "softTags": {
+           "$type": "redTagList",
+           "tags": []
+          }
+         },
+         "slotName": {
+          "$type": "CName",
+          "$storage": "string",
+          "$value": "None"
+         }
+        }
+       },
+       "sceneWidgetProperties": {
+        "$type": "worlduiSceneWidgetProperties",
+        "faceVector": {
+         "$type": "Vector3",
+         "X": 0,
+         "Y": 0,
+         "Z": 0
+        },
+        "isAlwaysVisible": 0,
+        "isInteractable": 0,
+        "isInteractableFromBehind": 0,
+        "maxInteractionDistance": 0,
+        "overrideMaxInteractionDistance": 0,
+        "projectionPlaneSize": {
+         "$type": "Vector2",
+         "X": 1,
+         "Y": 1
+        },
+        "renderingPlane": "RPl_Scene",
+        "useCustomFaceVector": 0
+       },
+       "screenAreaMultiplier": 1,
+       "screenDefinition": {
+        "$type": "SUIScreenDefinition",
+        "screenDefinition": {
+         "$type": "TweakDBID",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "style": {
+         "$type": "TweakDBID",
+         "$storage": "uint64",
+         "$value": "0"
+        }
+       },
+       "spawnDistanceOverride": -1,
+       "staticTextureResource": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "Flags": "Soft"
+       },
+       "textureMaxMipBias": 0,
+       "textureMinMipBias": 0,
+       "tintColor": {
+        "$type": "Color",
+        "Alpha": 0,
+        "Blue": 0,
+        "Green": 0,
+        "Red": 0
+       },
+       "widgetResource": {
+        "DepotPath": {
+         "$type": "ResourcePath",
+         "$storage": "uint64",
+         "$value": "0"
+        },
+        "Flags": "Soft"
+       }
+      }
+     ]
+    }
+   },
+   "compiledEntityLODFlags": 0,
+   "componentResolveSettings": [],
+   "components": [
+    {
+     "$type": "entMeshComponent",
+     "autoHideDistance": 0,
+     "castLocalShadows": "Always",
+     "castRayTracedGlobalShadows": "Never",
+     "castRayTracedLocalShadows": "Never",
+     "castShadows": "Always",
+     "chunkMask": "9223372036854775807",
+     "forcedLodDistance": "Default",
+     "forceLODLevel": -1,
+     "id": "2700000000000010001",
+     "isEnabled": 1,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0.0,
+       "j": 0.0,
+       "k": 0.0,
+       "r": 1.0
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "LODMode": "AlwaysVisible",
+     "mesh": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\lobby\\vr_lobby_near.mesh"
+      },
+      "Flags": "Default"
+     },
+     "meshAppearance": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "default"
+     },
+     "motionBlurScale": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "near"
+     },
+     "navigationImpact": {
+      "$type": "NavGenNavigationSetting",
+      "navmeshImpact": "Ignored"
+     },
+     "numInstances": 0,
+     "objectTypeID": "ROT_Static",
+     "order": 0,
+     "overrideMeshNavigationImpact": 1,
+     "parentTransform": null,
+     "renderingPlane": "RPl_Scene",
+     "renderSceneLayerMask": "Default",
+     "version": 0,
+     "visualScale": {
+      "$type": "Vector3",
+      "X": 1.0,
+      "Y": 1.0,
+      "Z": 1.0
+     }
+    },
+    {
+     "$type": "entColliderComponent",
+     "colliders": [
+      {
+       "HandleId": "900",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -16.3,
+          "Y": -34.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "901",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -16.3,
+          "Y": -13.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "902",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -16.3,
+          "Y": 18.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "903",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": -31.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "904",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": -27.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "905",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": -16.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "906",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": -6.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "907",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": 0.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "908",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 3.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": 6.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "909",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": 20.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "910",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -14.3,
+          "Y": 23.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "911",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.3,
+          "Y": -30.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "912",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.3,
+          "Y": -23.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "913",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.3,
+          "Y": -18.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "914",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.3,
+          "Y": -8.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "915",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.3,
+          "Y": -3.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "916",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.3,
+          "Y": -0.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "917",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.3,
+          "Y": 21.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "918",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": -22.595,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "919",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": 19.405,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "920",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -11.8,
+          "Y": -21.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "921",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -11.8,
+          "Y": -2.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "922",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 10.7,
+          "Y": -20.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "923",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -10.3,
+          "Y": -20.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "924",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -10.3,
+          "Y": 24.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "925",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.8,
+          "Y": -10.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "926",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.8,
+          "Y": 2.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "927",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.8,
+          "Y": 9.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "928",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -18.3,
+          "Y": 11.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "929",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -18.3,
+          "Y": 15.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "930",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -20.3,
+          "Y": 13.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "931",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 11.7,
+          "Y": 24.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "932",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 7.7,
+          "Y": 27.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "933",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 1.7,
+          "Y": 27.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "934",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -4.3,
+          "Y": 26.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "935",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -8.3,
+          "Y": 27.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "936",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 4.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.2,
+          "Y": -31.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "937",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.2,
+          "Y": -18.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "938",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.2,
+          "Y": 20.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "939",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.5,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": -25.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "940",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": -15.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "941",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 3.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": -8.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "942",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": 0.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "943",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": 17.405,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "944",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.2,
+          "Y": 23.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "945",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 16.2,
+          "Y": -23.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "946",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.5,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 16.2,
+          "Y": -4.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "947",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 16.2,
+          "Y": -1.595,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "948",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 3.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 16.2,
+          "Y": 7.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "949",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 16.2,
+          "Y": 16.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "950",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 16.2,
+          "Y": 18.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "951",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 11.7,
+          "Y": -22.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "952",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 11.7,
+          "Y": 21.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "953",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.7,
+          "Y": -20.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "954",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.75,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 10.2,
+          "Y": -20.095,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "955",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 3.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 10.2,
+          "Y": 26.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "956",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.7,
+          "Y": -12.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "957",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.7,
+          "Y": 3.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "958",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 18.2,
+          "Y": -3.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "959",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.25,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 18.2,
+          "Y": 13.905,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "960",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 20.2,
+          "Y": 11.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "961",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -11.8,
+          "Y": 24.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "962",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 4.2,
+          "Y": 27.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "963",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 0.2,
+          "Y": 26.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "964",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 2.0,
+         "Y": 0.05,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -5.8,
+          "Y": 27.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "965",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.3,
+          "Y": -32.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "966",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": -30.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "967",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": -24.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "968",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.95,
+          "Y": -22.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "969",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.05,
+          "Y": -22.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "970",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.2,
+          "Y": -22.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "971",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 10.45,
+          "Y": -20.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "972",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -11.05,
+          "Y": -20.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "973",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.45,
+          "Y": -19.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "974",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.95,
+          "Y": -11.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "975",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.05,
+          "Y": -10.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "976",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.05,
+          "Y": -9.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "977",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": -4.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "978",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.05,
+          "Y": -2.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "979",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 17.2,
+          "Y": -2.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "980",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.2,
+          "Y": -0.845,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "981",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.05,
+          "Y": 3.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "982",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 19.2,
+          "Y": 12.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "983",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -19.3,
+          "Y": 14.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "984",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 17.2,
+          "Y": 15.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "985",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.2,
+          "Y": 17.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "986",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -17.3,
+          "Y": 17.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "987",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 13.2,
+          "Y": 19.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "988",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.3,
+          "Y": 19.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "989",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.2,
+          "Y": 19.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "990",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 11.95,
+          "Y": 21.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "991",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": 21.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "992",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 10.95,
+          "Y": 23.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "993",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -11.05,
+          "Y": 23.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "994",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.95,
+          "Y": 25.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "995",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 5.95,
+          "Y": 25.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "996",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 0.95,
+          "Y": 25.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "997",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -5.05,
+          "Y": 25.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "998",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -9.3,
+          "Y": 25.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "999",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.05,
+          "Y": 25.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1000",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 2.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -2.05,
+          "Y": 27.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1001",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 8.95,
+          "Y": 29.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1002",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 2.95,
+          "Y": 29.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1003",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -7.05,
+          "Y": 29.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1004",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 14.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -2.05,
+          "Y": -35.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1005",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": -29.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1006",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 13.2,
+          "Y": -27.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1007",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.2,
+          "Y": -24.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1008",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.5,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.2,
+          "Y": -21.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1009",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 10.45,
+          "Y": -19.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1010",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -11.3,
+          "Y": -19.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1011",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 13.2,
+          "Y": -17.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1012",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": -17.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1013",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.3,
+          "Y": -15.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1014",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.95,
+          "Y": -13.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1015",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": -7.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1016",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.2,
+          "Y": -5.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1017",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 17.2,
+          "Y": -4.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1018",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -12.05,
+          "Y": -1.345,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1019",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": 0.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1020",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.05,
+          "Y": 1.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1021",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 14.95,
+          "Y": 2.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1022",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.95,
+          "Y": 4.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1023",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 0.75,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -15.05,
+          "Y": 9.155,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1024",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 2.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 18.2,
+          "Y": 10.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1025",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -17.05,
+          "Y": 10.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1026",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -19.3,
+          "Y": 12.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1027",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 15.2,
+          "Y": 17.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1028",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.25,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": 12.95,
+          "Y": 22.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1029",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 0.05,
+         "Y": 1.0,
+         "Z": 1.5
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.7071066656470943,
+          "r": 0.7071068967259817
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -13.3,
+          "Y": 22.655,
+          "Z": 1.5,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      },
+      {
+       "HandleId": "1030",
+       "Data": {
+        "$type": "physicsColliderBox",
+        "filterData": null,
+        "halfExtents": {
+         "$type": "Vector3",
+         "X": 1.034,
+         "Y": 0.4915,
+         "Z": 0.4013
+        },
+        "isImported": 0,
+        "isObstacle": 0,
+        "isQueryShapeOnly": 0,
+        "localToBody": {
+         "$type": "Transform",
+         "orientation": {
+          "$type": "Quaternion",
+          "i": 0.0,
+          "j": 0.0,
+          "k": 0.8571671674737575,
+          "r": 0.5150382966392066
+         },
+         "position": {
+          "$type": "Vector4",
+          "X": -1.6335,
+          "Y": -0.8685,
+          "Z": 0.4013,
+          "W": 0
+         }
+        },
+        "material": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "materialApperanceOverrides": [],
+        "tag": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "None"
+        },
+        "volumeModifier": 1
+       }
+      }
+     ],
+     "comOffset": {
+      "$type": "Transform",
+      "orientation": {
+       "$type": "Quaternion",
+       "i": 0.0,
+       "j": 0.0,
+       "k": 0.0,
+       "r": 1.0
+      },
+      "position": {
+       "$type": "Vector4",
+       "X": 0,
+       "Y": 0,
+       "Z": 0,
+       "W": 0
+      }
+     },
+     "dynamicTrafficSetting": {
+      "$type": "TrafficGenDynamicTrafficSetting",
+      "impact": "Ignored"
+     },
+     "filterData": {
+      "HandleId": "1031",
+      "Data": {
+       "$type": "physicsFilterData",
+       "customFilterData": null,
+       "preset": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "Device solid visible"
+       },
+       "queryFilter": {
+        "$type": "physicsQueryFilter",
+        "mask1": "0",
+        "mask2": "139837704"
+       },
+       "simulationFilter": {
+        "$type": "physicsSimulationFilter",
+        "mask1": "114696",
+        "mask2": "23627"
+       }
+      }
+     },
+     "id": "2700000000000010002",
+     "inertia": {
+      "$type": "Vector3",
+      "X": 1,
+      "Y": 1,
+      "Z": 1
+     },
+     "isEnabled": 1,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0.0,
+       "j": 0.0,
+       "k": 0.0,
+       "r": 1.0
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "mass": 1,
+     "massOverride": -1,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "collider"
+     },
+     "parentTransform": null,
+     "simulationType": "Kinematic",
+     "startInactive": 0,
+     "useCCD": 0,
+     "volume": 0
+    },
+    {
+     "$type": "entMeshComponent",
+     "autoHideDistance": 0,
+     "castLocalShadows": "Always",
+     "castRayTracedGlobalShadows": "Never",
+     "castRayTracedLocalShadows": "Never",
+     "castShadows": "Always",
+     "chunkMask": "9223372036854775807",
+     "forcedLodDistance": "Default",
+     "forceLODLevel": -1,
+     "id": "2700000000000010003",
+     "isEnabled": 1,
+     "isReplicable": 0,
+     "localTransform": {
+      "$type": "WorldTransform",
+      "Orientation": {
+       "$type": "Quaternion",
+       "i": 0.0,
+       "j": 0.0,
+       "k": -0.5150381048460736,
+       "r": 0.8571672827147364
+      },
+      "Position": {
+       "$type": "WorldPosition",
+       "x": {
+        "$type": "FixedPoint",
+        "Bits": -214100
+       },
+       "y": {
+        "$type": "FixedPoint",
+        "Bits": -113839
+       },
+       "z": {
+        "$type": "FixedPoint",
+        "Bits": 0
+       }
+      }
+     },
+     "LODMode": "AlwaysVisible",
+     "mesh": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "base\\environment\\decoration\\furniture\\office\\neomilitarism_office_desk\\neomilitarism_office_desk_d.mesh"
+      },
+      "Flags": "Default"
+     },
+     "meshAppearance": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "default"
+     },
+     "motionBlurScale": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "table desk"
+     },
+     "navigationImpact": {
+      "$type": "NavGenNavigationSetting",
+      "navmeshImpact": "Ignored"
+     },
+     "numInstances": 0,
+     "objectTypeID": "ROT_Static",
+     "order": 0,
+     "overrideMeshNavigationImpact": 1,
+     "parentTransform": null,
+     "renderingPlane": "RPl_Scene",
+     "renderSceneLayerMask": "Default",
+     "version": 0,
+     "visualScale": {
+      "$type": "Vector3",
+      "X": 0.9999999403953552,
+      "Y": 0.9999999403953552,
+      "Z": 0.9999999403953552
+     }
+    }
+   ],
+   "cookingPlatform": "PLATFORM_PC",
+   "defaultAppearance": {
+    "$type": "CName",
+    "$storage": "string",
+    "$value": "default"
+   },
+   "entity": {
+    "HandleId": "4",
+    "Data": {
+     "$type": "entEntity",
+     "customCameraTarget": "ECCTV_All",
+     "renderSceneLayerMask": "Default"
+    }
+   },
+   "includeInstanceBuffer": null,
+   "includes": [],
+   "inplaceResources": [],
+   "localData": null,
+   "resolvedDependencies": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "engine\\ink\\util\\advertisement_plane.mesh"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "visualTagsSchema": null
+  },
+  "EmbeddedFiles": []
+ }
+}

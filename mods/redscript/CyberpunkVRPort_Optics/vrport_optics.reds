@@ -70,9 +70,11 @@ public func VRIsSmartSniper(weapon: ref<WeaponObject>) -> Bool {
 // Keep weapon ADS gameplay but leave the world at its normal angular scale.
 // Scanner, device cameras, unarmed zoom and scripted temporary unequip retain
 // their native zoom feature. Optical magnification belongs to the lens view.
+// The weapon is the right hand's, or the left's when it holds the only one (the left-handed hold): read off the
+// right slot alone, a left-handed player's aim trigger got the game's zoom.
 @wrapMethod(ZoomTransition)
 protected final func SendZoomAnimFeatureData(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>) -> Void {
-  let weapon: ref<WeaponObject> = DefaultTransition.GetRightActiveWeapon(scriptInterface);
+  let weapon: ref<WeaponObject> = ScriptedPuppet.GetActiveWeapon(scriptInterface.executionOwner);
   let feature: ref<AnimFeature_Zoom>;
   let worldFOV: Float;
   if !VRPhysicalOpticsEnabled() || !IsDefined(scriptInterface.executionOwner as PlayerPuppet) ||

@@ -73,7 +73,9 @@ after its batch is on the queue, and the next one waits for that.
   present-time copies run inside that call. In mode 1 every view job also waits at its builder setup
   (`sub_140AA39B8`), so MAIN's graph starts after everything VRCAM submitted, as before.
 
-Setting `xr_submit_chain` (default 0 as of 2026-10-19; 0 off, 1 = view jobs and Present wait,
+Setting `xr_submit_chain` (default 1 again from 2026-11-01, with `xr_defer_present` 1: off since 2026-10-19 as
+grey-materials suspects, they cut 23.85 -> 21.47 ms with a camera scope on 2.5, see
+docs/scope-camera-cost-20261031.md; 0 off, 1 = view jobs and Present wait,
 2 = only Present waits; live `CyberpunkVR_SubmitChain`,
 counters `CyberpunkVR_SubmitChainStats[8]`). Switching it off drains the chain first.
 

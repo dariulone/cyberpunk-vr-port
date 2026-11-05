@@ -35,6 +35,9 @@ inline CalibrationWeights CalibrationTargets(float grip,float trigger,bool thumb
 void ApplyCalibration(int side,const char* suffix,const CalibrationWeights& weights,float* rotation);
 void PublishInput(float leftGrip,float rightGrip,float leftTrigger,float rightTrigger,bool rightThumbsUp,bool enabled);
 void PublishEquipment(int occupiedMask);
+// A hand the port has put something in, beside the game's weapon slots: the gun carried in the left hand, a reload's
+// magazine, shell or grip, a cigarette. Side 0 left, 1 right (the controllers as they are).
+bool PortHolds(int side);
 void Apply(uint8_t* boneBuffer);
 bool OwnsHand(int side);
 bool ThumbReference(int side,float* rotation);

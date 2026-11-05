@@ -11,7 +11,7 @@ import sys
 
 IDLE = ('ntdll.dll!NtWaitForSingleObject', 'ntdll.dll!ZwWaitForAlertByThreadId', 'ntdll.dll!NtWaitForMultipleObjects',
         'ntdll.dll!ZwRemoveIoCompletion', 'ntdll.dll!NtDelayExecution')
-PLUGIN = 'CyberpunkVR_Stereo.dll'
+PLUGIN = 'cyberpunkvrport.dll'
 
 
 def module(frame):

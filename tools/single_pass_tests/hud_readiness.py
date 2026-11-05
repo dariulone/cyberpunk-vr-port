@@ -52,7 +52,7 @@ def wait_for_stable_hud(pid, game, timeout, check, on_sample=None):
     names = ['CyberpunkVR_RuntimeDiagnostics', 'g_menuModeValue', 'CyberpunkVR_HudPoseDebug',
              'CyberpunkVR_HudPoseDebugSeq', 'CyberpunkVR_HudSubmittedFrames']
     deadline = time.monotonic() + timeout
-    symbols = resolve(pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', names)
+    symbols = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', names)
     reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     handle = None
     original = None

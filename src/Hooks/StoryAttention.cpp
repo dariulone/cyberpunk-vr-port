@@ -1,4 +1,5 @@
 #include "Quest/StoryAttention.hpp"
+#include "Natives/Reach.hpp"
 #include "Camera/ExternalView.hpp"
 #include "Camera/CameraState.hpp"
 #include "Hooks/RoomscaleMove.hpp"
@@ -18,6 +19,7 @@ void CvrStoryAttentionDetour();
 __declspec(dllexport) int CyberpunkVR_StoryAttentionHookReady{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_StoryAttentionCounters[5]{};
 // gated: player calls / Pacifica / workspot / unavailable pose / explicit clue presses
+__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_ReachTurns{};  // gated: look-at rays turned for a hand
 }
 namespace {
 std::mutex attentionMutex,clueMutex;
@@ -77,15 +79,26 @@ void cvr::quest::SuspendManualClueInput() {
     std::lock_guard lock(clueMutex);clueInput.Suspend();cluePlayer={};
 }
 extern "C" void CvrStoryAttentionAfter(uintptr_t user,float* transform) {
+    if(!Gameplay())return;
     cvr::quest::AttentionContext sample;
     {std::lock_guard lock(attentionMutex);sample=context;}
-    if(sample.mode==cvr::quest::Attention::Native || !Gameplay())return;
+    // A free hand reaching for something turns the player's own ray onto it from the eyes (Natives/Reach.hpp).
+    float point[3];
+    const bool reaching=cvr::reach::AimPoint(point);
+    if(sample.mode==cvr::quest::Attention::Native && !reaching)return;
     // Native +D1F2E0 locks the weak owner at user+10/+18 before QueueEvent;
     // user+8 is its EntityID. Compare all three, not proximity to the HMD.
     cvr::quest::ObjectKey owner{};uint64_t entity{};
     if(!ReadU64Safe(user+8,&entity) || !ReadPtrSafe(user+0x10,&owner.address) ||
-       !ReadPtrSafe(user+0x18,&owner.reference) ||
-       !sample.Matches(owner,entity,cvr::roomscale::PlayerIdentity(),GetTickCount64()))return;
+       !ReadPtrSafe(user+0x18,&owner.reference))return;
+    const auto player=cvr::roomscale::PlayerIdentity();
+    if(!sample.Matches(owner,entity,player,GetTickCount64())) {
+        uint64_t playerEntity{};
+        if(reaching && player && owner.address==player && ReadU64Safe(player+0x48,&playerEntity) &&
+           entity==playerEntity && cvr::reach::TurnToward(transform,point))
+            CVR_DIAGNOSTIC(++CyberpunkVR_ReachTurns);
+        return;
+    }
     CVR_DIAGNOSTIC(++CyberpunkVR_StoryAttentionCounters[0]);
     cvr::camera::MainAimPose pose{};
     if(!cvr::camera::ReadMainAimPose(pose)) {CVR_DIAGNOSTIC(++CyberpunkVR_StoryAttentionCounters[3]);return;}

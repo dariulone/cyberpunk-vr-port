@@ -1,0 +1,472 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-30T21:15:27.4059962Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": ""
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "inkGameSettingsResource",
+   "compositionResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\fullscreen\\composition_params.inkfullscreencomposition"
+    },
+    "Flags": "Default"
+   },
+   "cookingPlatform": "PLATFORM_PC",
+   "defaultShapeCollectionResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\main_shapes.inkshapecollection"
+    },
+    "Flags": "Default"
+   },
+   "durangoIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_durango.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "fallbackArmsCustomization": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\characters\\common\\player_base_bodies\\appearances\\a0_000_base__full.app"
+    },
+    "Flags": "Soft"
+   },
+   "fallbackBodyCustomization": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\characters\\common\\player_base_bodies\\appearances\\t0_000_base__full.app"
+    },
+    "Flags": "Soft"
+   },
+   "fallbackHeadCustomizationFpp": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\characters\\common\\player_base_bodies\\appearances\\n0_000_base_fpp__neck.app"
+    },
+    "Flags": "Soft"
+   },
+   "fallbackHeadCustomizationTpp": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\characters\\head\\player_base_heads\\appearances\\head\\h0_000__basehead.app"
+    },
+    "Flags": "Soft"
+   },
+   "fallbackHeadCustomizationTppFaceRig": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\characters\\head\\player_base_heads\\appearances\\head\\face_rig\\h0_000__basehead_face_rig.app"
+    },
+    "Flags": "Soft"
+   },
+   "femalePresetResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\fullscreen\\main_menu\\player_presets\\default_female.ccstate"
+    },
+    "Flags": "Soft"
+   },
+   "globalTVBinkLengthDataResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\movies\\bink_durations.json"
+    },
+    "Flags": "Soft"
+   },
+   "gpsAugmentedRealitySignEntity": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\devices\\street_signs\\road_signs\\road_sign_dynamic.ent"
+    },
+    "Flags": "Soft"
+   },
+   "gpsAugmentedRealityWidgetTurnBack": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "gpsAugmentedRealityWidgetTurnLeft": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\world\\street_signs\\road_signs\\dynamic_road_sign_turn_left.inkwidget"
+    },
+    "Flags": "Soft"
+   },
+   "gpsAugmentedRealityWidgetTurnRight": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\world\\street_signs\\road_signs\\dynamic_road_sign_turn_right.inkwidget"
+    },
+    "Flags": "Soft"
+   },
+   "iconReferenceFallbackTextureAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\icons\\atlas_inventory_fallback.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "initLoadingScreenLogoLoopVideo": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\movies\\fullscreen\\common\\cyberpunk2077_game_intro_message_en.bk2"
+    },
+    "Flags": "Soft"
+   },
+   "keyboardIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_keyboard.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "layersResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\ui_game.inklayers"
+    },
+    "Flags": "Default"
+   },
+   "malePresetResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\fullscreen\\main_menu\\player_presets\\default_male.ccstate"
+    },
+    "Flags": "Soft"
+   },
+   "nintendoSwitchIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_nintendo.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "npcNameplateResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\widgets\\healthbar\\npcnameplate.inkwidget"
+    },
+    "Flags": "Soft"
+   },
+   "orbisIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_orbis.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "permanentTextureAtlases": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\fullscreen\\loading\\atlas_loading_screen.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\icons\\atlas_nameplate.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\widgets\\mappins\\atlas_map_pins.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\widgets\\healthbar\\atlas_buffinfo.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\widgets\\wanted\\atlas_wanted.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesDurango": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_durango.inkatlas"
+     },
+     "Flags": "Soft"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_keyboard.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesOrbis": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_orbis.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesPC": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_keyboard.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesProspero": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_prospero.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesStadia": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_stadia.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesStadiaDurango": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_stadia_durango.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesStadiaOrbis": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_stadia_orbis.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "permanentTextureAtlasesStadiaSwitch": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_nintendo.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   ],
+   "prosperoIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_prospero.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "stadiaDurangoIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_stadia_durango.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "stadiaIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_stadia.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "stadiaOrbisIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_stadia_orbis.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "steamIconsAtlas": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\common\\input\\icons_steamdeck.inkatlas"
+    },
+    "Flags": "Soft"
+   },
+   "themes": [
+    {
+     "$type": "inkStyleThemeDescriptor",
+     "themeID": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "Default"
+     },
+     "themeNameLocKey": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "LocKey#17794"
+     }
+    },
+    {
+     "$type": "inkStyleThemeDescriptor",
+     "themeID": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "ColorBlindProtanopia"
+     },
+     "themeNameLocKey": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "UI-Settings-Interface-Accessibility-Protanopia"
+     }
+    },
+    {
+     "$type": "inkStyleThemeDescriptor",
+     "themeID": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "ColorBlindDeuteranopia"
+     },
+     "themeNameLocKey": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "UI-Settings-Interface-Accessibility-Deuteranopes"
+     }
+    },
+    {
+     "$type": "inkStyleThemeDescriptor",
+     "themeID": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "ColorBlindTritanopia"
+     },
+     "themeNameLocKey": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "UI-Settings-Interface-Accessibility-Tritanopes"
+     }
+    }
+   ],
+   "vsetSceneResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\quest\\primary_characters\\vsets\\vset_v.scene"
+    },
+    "Flags": "Soft"
+   },
+   "worldMapFloorplanWidgetResource": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "string",
+     "$value": "base\\gameplay\\gui\\fullscreen\\world_map\\floorplan.inkwidget"
+    },
+    "Flags": "Soft"
+   },
+   "nintendoSwitchTouchIconsAtlas": {
+    "$type": "raRef:inkTextureAtlas",
+    "$value": {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "base\\gameplay\\gui\\common\\input\\icons_nintendo_touch.inkatlas"
+     },
+     "Flags": "Soft"
+    }
+   },
+   "permanentTextureAtlasesSwitch": {
+    "$type": "array:raRef:inkTextureAtlas",
+    "$value": [
+     {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "base\\gameplay\\gui\\common\\input\\icons_nintendo.inkatlas"
+      },
+      "Flags": "Soft"
+     }
+    ]
+   },
+   "permanentTextureAtlasesSwitchTouch": {
+    "$type": "array:raRef:inkTextureAtlas",
+    "$value": [
+     {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "base\\gameplay\\gui\\common\\input\\icons_nintendo_touch.inkatlas"
+      },
+      "Flags": "Soft"
+     }
+    ]
+   }
+  },
+  "EmbeddedFiles": []
+ }
+}

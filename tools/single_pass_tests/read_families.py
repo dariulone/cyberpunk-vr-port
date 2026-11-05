@@ -33,7 +33,7 @@ def main():
     if not .5 <= a.seconds <= 10:
         p.error('Use a bounded 0.5..10-second census')
     game = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-    symbols = resolve(a.pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', ['CyberpunkVR_StereoFamily*'])
+    symbols = resolve(a.pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', ['CyberpunkVR_StereoFamily*'])
     reader = Reader(a.pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     address = lambda name: int(symbols['CyberpunkVR_StereoFamily' + name], 16)
     read32 = lambda name: struct.unpack('<I', reader.read(address(name), 4))[0]

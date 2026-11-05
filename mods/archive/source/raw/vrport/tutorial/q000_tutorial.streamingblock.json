@@ -1,0 +1,6383 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-28T06:55:02.2324334Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "vrport\\tutorial\\q000_tutorial.streamingblock"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "worldStreamingBlock",
+   "cookingPlatform": "PLATFORM_PC",
+   "descriptors": [
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160121
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-7_3_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -209.17797800000005,
+       "Y": 316.217712,
+       "Z": 62.00785819999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -714.3828120000001,
+       "Y": -177.518692,
+       "Z": -431.728576
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160887
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-9_6_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -408.45989999999995,
+       "Y": 620.368774,
+       "Z": 68.41822819999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -939.068604,
+       "Y": 123.18231200000002,
+       "Z": -458.4682
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160631
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-9_5_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -365.13214200000004,
+       "Y": 578.118774,
+       "Z": 74.01820380000004
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -935.068604,
+       "Y": -7.417664000000002,
+       "Z": -495.518188
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8226167
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-9_5_-3_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -362.18121399999995,
+       "Y": 567.756348,
+       "Z": 80.46864319999997
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -906.317626,
+       "Y": -13.218200000000024,
+       "Z": -416.66870200000005
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160889
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-7_6_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 6,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -125.282288,
+       "Y": 714.967774,
+       "Z": 74.81822199999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -694.1176760000001,
+       "Y": 136.431336,
+       "Z": -504.66821200000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "tbug"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_lobby_prefab27URIBY/loc_q000_tutorial_lobby_env_prefabG4NBO5Q/loc_q000_tutorial_lobby_decoration_prefabFJ7SJ6Y/#q000_vr_tutorial_pr_lobby_logo"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 4,
+       "variantId": 1138757012
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "militech"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_lobby_prefab27URIBY/loc_q000_tutorial_lobby_env_prefabG4NBO5Q/loc_q000_tutorial_lobby_decoration_prefabFJ7SJ6Y/#q000_vr_tutorial_pr_lobby_logo"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 5,
+       "variantId": 3638559299
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160635
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-5_5_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 131.26867600000003,
+       "Y": 576.318726,
+       "Z": 68.31819159999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -429.068664,
+       "Y": -24.518737999999985,
+       "Z": -484.2182
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160379
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-5_4_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 146.868652,
+       "Y": 452.71875,
+       "Z": 73.06822199999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -424.268676,
+       "Y": -55.217712000000006,
+       "Z": -462.91821200000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160377
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-7_4_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -115.24633800000004,
+       "Y": 434.96881199999996,
+       "Z": 67.66819759999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -725.783692,
+       "Y": -153.76867600000003,
+       "Z": -497.678588
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160378
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-6_4_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -14.931335999999988,
+       "Y": 454.36877400000003,
+       "Z": 57.218215999999984
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -508.667786,
+       "Y": -42.817687999999976,
+       "Z": -449.268188
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160632
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-8_5_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -240.84722999999997,
+       "Y": 590.617736,
+       "Z": 72.21821599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -847.46875,
+       "Y": -25.36871400000001,
+       "Z": -490.07855199999995
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160634
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-6_5_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -15.132202000000007,
+       "Y": 578.0177,
+       "Z": 71.01820380000004
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -524.66864,
+       "Y": -16.217712000000006,
+       "Z": -471.068176
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160890
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-6_6_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -85.53125,
+       "Y": 715.7686759999999,
+       "Z": 71.01820380000004
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -590.717712,
+       "Y": 140.83136000000002,
+       "Z": -464.018188
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8226425
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-7_6_-3_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -151.88122599999997,
+       "Y": 717.3686520000001,
+       "Z": 95.21821599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -683.9177239999999,
+       "Y": 138.83221400000002,
+       "Z": -400.518188
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160888
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-8_6_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -292.931336,
+       "Y": 660.4177239999999,
+       "Z": 41.81822199999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -804.7381600000001,
+       "Y": 131.18231200000002,
+       "Z": -501.2182
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160376
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-8_4_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -236.44635000000005,
+       "Y": 461.417724,
+       "Z": 58.61820979999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -788.4686280000001,
+       "Y": -118.41766400000006,
+       "Z": -484.478576
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8226168
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-8_5_-3_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -337.332214,
+       "Y": 538.967774,
+       "Z": 85.21821599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -853.6677239999999,
+       "Y": -25.968200000000024,
+       "Z": -414.26776199999995
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8225913
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-7_4_-3_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -139.4823,
+       "Y": 432.768676,
+       "Z": 79.21821599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -708.717652,
+       "Y": -103.32250999999997,
+       "Z": -414.518188
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160636
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-4_5_-4_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 220.86863700000004,
+       "Y": 568.168762,
+       "Z": 51.218215999999984
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -283.73877000000005,
+       "Y": -12.518737999999985,
+       "Z": -475.66821200000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8226172
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-4_5_-3_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 177.0,
+       "Y": 496.45782399999996,
+       "Z": 82.95829779999997
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -287.95782399999996,
+       "Y": 80.54217599999998,
+       "Z": -332.95733600000005
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 1024316
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-4_2_-2_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 5,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 23.924743999999976,
+       "Y": 820.185792,
+       "Z": 293.5546264
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -1084.790162,
+       "Y": -345.30102539999996,
+       "Z": -686.183106
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 4,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 1024317
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-3_2_-2_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 5,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 395.7964782,
+       "Y": 771.355712,
+       "Z": 326.7630616
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -685.753418,
+       "Y": -237.30102539999996,
+       "Z": -684.763062
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 4,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 1024318
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-2_2_-2_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 5,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 440.51965340000004,
+       "Y": 763.0842279999999,
+       "Z": 288.69458
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -561.508178,
+       "Y": -238.94360359999996,
+       "Z": -713.333252
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 4,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 129054
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-2_0_-1_2.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 2,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 500.3330078,
+       "Y": 796.381836,
+       "Z": 962.5571279999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -1056.533204,
+       "Y": -760.484436,
+       "Z": -594.309082
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 129117
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-3_1_-1_2.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 2,
+     "numNodeRanges": 7,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 280.79742439999995,
+       "Y": 1206.939086,
+       "Z": 848.618714
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -1735.8608399999998,
+       "Y": -623.5390620000001,
+       "Z": -1110.535766
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/jpn_cs_prefabKQ272CA/cs_drones_recon_env_001_prefabLQTLWIQ"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 4,
+       "variantId": 1297480951
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 5,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/jpn_cs_prefabKQ272CA/cs_drones_recon_env_001_prefabLQTLWIQ"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 6,
+       "variantId": 1297480951
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 129118
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-2_1_-1_2.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 2,
+     "numNodeRanges": 6,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 680.9932859999999,
+       "Y": 1225.843018,
+       "Z": 773.597046
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -1450.691162,
+       "Y": -734.060242,
+       "Z": -1179.628906
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 4,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 5,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 15887
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-1_0_-1_3.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 3,
+     "numNodeRanges": 9,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 1940.18872,
+       "Y": 2302.43994,
+       "Z": 1818.119018
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -2606.76,
+       "Y": -1880.963624,
+       "Z": -2260.11914
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 4,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 5,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 6,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 7,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 8,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 1927
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-1_0_-1_4.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 4,
+     "numNodeRanges": 9,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 4057.41918,
+       "Y": 4920.8335,
+       "Z": 4395.19628
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -5477.375,
+       "Y": -4087.9406799999997,
+       "Z": -4316.12402
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 4,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 5,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 6,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 7,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 8,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 227
+     },
+     "category": "Exterior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\exterior_-1_0_-1_5.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 5,
+     "numNodeRanges": 19,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 8151.86132,
+       "Y": 11153.08008,
+       "Z": 8205.68946
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -11300.37792,
+       "Y": -7472.56006,
+       "Z": -8512.83496
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 1,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "mikoshi_cyberspace"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/#c_city_center/corpo_plaza/#loc_mikoshi_cyberspace"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 1823968292
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 3,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 4,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 5,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "mikoshi_cyberspace"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/#c_city_center/corpo_plaza/#loc_mikoshi_cyberspace"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 6,
+       "variantId": 1823968292
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "mikoshi_cyberspace"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/#c_city_center/corpo_plaza/#loc_mikoshi_cyberspace"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 7,
+       "variantId": 1823968292
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 8,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 9,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 10,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 11,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 12,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 13,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "q115_suicide_ending_vista"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/wlc_03/wlc_03_lighting_prefabKJIF2OI;#wlc_03_lighting_prefabKJIF2OILERU"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 14,
+       "variantId": 2301050124
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 15,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 16,
+       "variantId": 3904942481
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "q115_suicide_ending_vista"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/wlc_03/wlc_03_lighting_prefabKJIF2OI;#wlc_03_lighting_prefabKJIF2OILERU"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 17,
+       "variantId": 2301050124
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "prolog_blockades"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_watson/little_china/little_china_openworld_prefab3SE7WFY/#lch_prolog_roadblocks/lch_prolog_roadblocks_env_prefab2GUBPEA/lch_prolog_roadblocks_architecture_prefabXPXGK6Y"
+       },
+       "parentVariantID": 3644366882,
+       "rangeIndex": 18,
+       "variantId": 3904942481
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65408754
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-14_7_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -293.001526,
+       "Y": 201.080506,
+       "Z": -99.00116000000003
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -558.580506,
+       "Y": -51.498536,
+       "Z": -348.99884
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410799
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-17_11_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -483.53753600000005,
+       "Y": 458.96246399999995,
+       "Z": -95.13568199999997
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -775.380494,
+       "Y": 157.50079400000004,
+       "Z": -352.99884
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410287
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-17_10_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -490.82391399999995,
+       "Y": 397.63610800000004,
+       "Z": -87.00116000000003
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -775.1965339999999,
+       "Y": 122.11944600000004,
+       "Z": -344.003968
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410294
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-10_10_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 8,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -81.0195,
+       "Y": 405.703614,
+       "Z": -45.16305599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -347.974792,
+       "Y": 113.51946999999996,
+       "Z": -350.99884
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_01"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 1,
+       "variantId": 95266600
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_01"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 3,
+       "variantId": 95266600
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_02"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 4,
+       "variantId": 4021135106
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_00"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 5,
+       "variantId": 4181688671
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_01"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 6,
+       "variantId": 95266600
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_00"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 7,
+       "variantId": 4181688671
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410800
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-16_11_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -463.01946999999996,
+       "Y": 466.96313399999997,
+       "Z": -95.437164
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -732.004394,
+       "Y": 177.410218,
+       "Z": -352.003968
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410293
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-11_10_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 5,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -100.02593999999999,
+       "Y": 405.73290999999995,
+       "Z": -61.019499999999994
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -362.98053000000004,
+       "Y": 106.51946999999996,
+       "Z": -350.99884
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_01"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 2,
+       "variantId": 95266600
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_02"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 3,
+       "variantId": 4021135106
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_00"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 4,
+       "variantId": 4181688671
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410295
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-9_10_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 28.63717600000001,
+       "Y": 402.33727999999996,
+       "Z": -59.16305599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -229.23303199999998,
+       "Y": 130.66332999999997,
+       "Z": -346.980042
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65409778
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-14_9_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -296.09613,
+       "Y": 333.68054199999995,
+       "Z": -94.61795000000001
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -579.580444,
+       "Y": 37.519499999999994,
+       "Z": -349.580018
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65409779
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-13_9_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -273.01946999999996,
+       "Y": 331.78241,
+       "Z": -94.61795000000001
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -541.48175,
+       "Y": 41.417664,
+       "Z": -350.99884
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410288
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-16_10_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -459.53680399999996,
+       "Y": 400.48053000000004,
+       "Z": -89.437164
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -730.9984139999999,
+       "Y": 139.51946999999996,
+       "Z": -352.99884
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65411826
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-14_13_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -304.01946999999996,
+       "Y": 561.080506,
+       "Z": -61.547608000000025
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -577.003662,
+       "Y": 289.51946999999996,
+       "Z": -338.003968
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65411827
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-13_13_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -258.20971599999996,
+       "Y": 559.48053,
+       "Z": -95.01901199999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -527.98053,
+       "Y": 289.51946999999996,
+       "Z": -337.580018
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65409266
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-14_8_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -298.61944600000004,
+       "Y": 268.880494,
+       "Z": -105.01901199999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -567.380432,
+       "Y": -26.68051200000002,
+       "Z": -349.18005400000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65409267
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-13_8_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -292.61944600000004,
+       "Y": 245.00659199999996,
+       "Z": -107.21902399999999
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -532.580506,
+       "Y": -8.933989999999994,
+       "Z": -347.18005400000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410296
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-8_10_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 85.23297200000002,
+       "Y": 404.81500200000005,
+       "Z": -59.16305599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -222.00293,
+       "Y": 93.063354,
+       "Z": -346.980042
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65409784
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-8_9_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 63.20358199999998,
+       "Y": 342.33715800000004,
+       "Z": -47.563018
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -206.20361400000002,
+       "Y": 70.500854,
+       "Z": -342.99884
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65672440
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-8_10_-6_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 85.83724999999998,
+       "Y": 401.499146,
+       "Z": -16.658629999999988
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -216.18054199999995,
+       "Y": 93.50152600000001,
+       "Z": -277.836944
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 65410808
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-8_11_-7_0.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 58.18099999999998,
+       "Y": 419.504272,
+       "Z": -74.19671599999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -207.20355199999995,
+       "Y": 164.49707,
+       "Z": -346.980042
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160631
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-9_5_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -373.09259,
+       "Y": 594.164734,
+       "Z": 34.57830820000001
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -893.2650140000001,
+       "Y": 43.56326200000001,
+       "Z": -488.86474599999997
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160887
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-9_6_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -370.335022,
+       "Y": 601.364746,
+       "Z": 19.665267999999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -875.6650400000001,
+       "Y": 96.03479000000004,
+       "Z": -485.66473399999995
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160635
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-5_5_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 7,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 102.33813400000008,
+       "Y": 495.12353599999994,
+       "Z": 25.139755199999996
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -457.29284600000005,
+       "Y": -11.792845999999997,
+       "Z": -460.62304600000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_02"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 1,
+       "variantId": 4021135106
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_01"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 4,
+       "variantId": 95266600
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_02"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 5,
+       "variantId": 4021135106
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_00"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 6,
+       "variantId": 4181688671
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160634
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-6_5_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -0.37649599999997463,
+       "Y": 495.12353599999994,
+       "Z": 25.339737000000014
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -471.62353599999994,
+       "Y": 3.8764959999999746,
+       "Z": -460.62304600000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_01"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 1,
+       "variantId": 95266600
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_02"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_env_prefab55W3PQI/#loc_q000_tutorial_stage_3_architecture"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 2,
+       "variantId": 4021135106
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160632
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-8_5_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -358.37646400000006,
+       "Y": 562.792846,
+       "Z": 12.623991999999987
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -841.292846,
+       "Y": 45.876495999999975,
+       "Z": -462.62304600000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160889
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-7_6_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -147.70715399999995,
+       "Y": 665.792846,
+       "Z": 21.293319800000006
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -680.292846,
+       "Y": 179.20715399999995,
+       "Z": -449.29235800000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160377
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-7_4_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -168.70715399999995,
+       "Y": 410.292724,
+       "Z": 7.293319999999994
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -679.292846,
+       "Y": -110.29275600000005,
+       "Z": -461.29235800000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8226171
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-5_5_-3_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 109.95782400000007,
+       "Y": 482.45782399999996,
+       "Z": 72.95829779999997
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -422.606812,
+       "Y": 50.542175999999984,
+       "Z": -361.86010799999997
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8160636
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-4_5_-4_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 169.62350400000003,
+       "Y": 496.04004,
+       "Z": 15.293319800000006
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -313.62353599999994,
+       "Y": -5.792845999999997,
+       "Z": -460.62304600000004
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 8226172
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-4_5_-3_1.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 1,
+     "numNodeRanges": 1,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 161.95781,
+       "Y": 482.45782399999996,
+       "Z": 72.95829779999997
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -287.95782399999996,
+       "Y": 14.542175999999984,
+       "Z": -342.95733600000005
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 1024317
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-3_2_-2_2.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 2,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 344.0026246,
+       "Y": 771.6525879999999,
+       "Z": 323.17309580000006
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -666.30249,
+       "Y": -238.6525878,
+       "Z": -687.13208
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 1024318
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-2_2_-2_2.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 2,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 334.29229740000005,
+       "Y": 658.0517580000001,
+       "Z": 221.44284058
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -470.611268,
+       "Y": -146.851806,
+       "Z": -583.460694
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 129118
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-2_1_-1_3.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 3,
+     "numNodeRanges": 4,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -1.9927059999999983,
+       "Y": 678.5,
+       "Z": 198.35778807999998
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -862.0,
+       "Y": -272.46725459999993,
+       "Z": -647.976746
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 3,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 15887
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-1_0_-1_4.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 4,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 1233.105958,
+       "Y": 1886.56542,
+       "Z": 1383.527344
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -1939.0249,
+       "Y": -1285.56543,
+       "Z": -1788.60352
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 15886
+     },
+     "category": "Interior",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\interior_-2_0_-1_4.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 4,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -283.853516,
+       "Y": 638.645996,
+       "Z": 124.09649660000002
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -974.0654300000001,
+       "Y": -51.989686000000006,
+       "Z": -566.115418
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 0,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 0
+     },
+     "category": "Quest",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\quest_35e3b8a3bb7e9e37.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "string",
+      "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_1_prefabCEDLZXI/loc_q000_tutorial_stage_1_questdesign_prefab5TGHBPY/#q000_pr_vr_tut_course_01"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 3.40282347e+38,
+       "X": 6.80564694e+38,
+       "Y": 6.80564694e+38,
+       "Z": 6.80564694e+38
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": -3.40282347e+38,
+       "X": -6.80564694e+38,
+       "Y": -6.80564694e+38,
+       "Z": -6.80564694e+38
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_devices"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_1_prefabCEDLZXI/loc_q000_tutorial_stage_1_questdesign_prefab5TGHBPY/#q000_pr_vr_tut_course_01"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 0,
+       "variantId": 258365521
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 0
+     },
+     "category": "Quest",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\quest_6d679ef0aebb522b.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 2,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "string",
+      "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_2_prefabHJTLFIY/loc_q000_tutorial_stage_2_questdesign_prefabYVBZE6Y/#q000_pr_vr_tut_course_02"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 3.40282347e+38,
+       "X": 6.80564694e+38,
+       "Y": 6.80564694e+38,
+       "Z": 6.80564694e+38
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": -3.40282347e+38,
+       "X": -6.80564694e+38,
+       "Y": -6.80564694e+38,
+       "Z": -6.80564694e+38
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_loot"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_2_prefabHJTLFIY/loc_q000_tutorial_stage_2_questdesign_prefabYVBZE6Y/#q000_pr_vr_tut_course_02"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 0,
+       "variantId": 918924084
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 0
+     },
+     "category": "Quest",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\quest_94e8409099dbbebc.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 7,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "string",
+      "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_questdesign_prefabHKOFOBI/#q000_pr_vr_tut_course_03"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 3.40282347e+38,
+       "X": 6.80564694e+38,
+       "Y": 6.80564694e+38,
+       "Z": 6.80564694e+38
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": -3.40282347e+38,
+       "X": -6.80564694e+38,
+       "Y": -6.80564694e+38,
+       "Z": -6.80564694e+38
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_00b"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_questdesign_prefabHKOFOBI/#q000_pr_vr_tut_course_03"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 0,
+       "variantId": 4158908346
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 1,
+       "variantId": 2001309159
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_sight_blocker"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_questdesign_prefabHKOFOBI/#q000_pr_vr_tut_course_03"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 2,
+       "variantId": 2640875631
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_failsafe_wall_collider"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_questdesign_prefabHKOFOBI/#q000_pr_vr_tut_course_03"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 3,
+       "variantId": 2664345679
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_00"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_questdesign_prefabHKOFOBI/#q000_pr_vr_tut_course_03"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 4,
+       "variantId": 352129219
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_01"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_questdesign_prefabHKOFOBI/#q000_pr_vr_tut_course_03"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 5,
+       "variantId": 3703736185
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_stage_02"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_3_prefabAOISKSI/loc_q000_tutorial_stage_3_questdesign_prefabHKOFOBI/#q000_pr_vr_tut_course_03"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 6,
+       "variantId": 2881652552
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 0
+     },
+     "category": "Quest",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\quest_b179805a28251813.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "string",
+      "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_4_prefab5RCTWPQ/loc_q000_tutorial_stage_4_questdesign_prefabPP5SUAA/#q000_pr_vr_tut_course_04"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 3.40282347e+38,
+       "X": 6.80564694e+38,
+       "Y": 6.80564694e+38,
+       "Z": 6.80564694e+38
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": -3.40282347e+38,
+       "X": -6.80564694e+38,
+       "Y": -6.80564694e+38,
+       "Z": -6.80564694e+38
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_cover_colliders"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_4_prefab5RCTWPQ/loc_q000_tutorial_stage_4_questdesign_prefabPP5SUAA/#q000_pr_vr_tut_course_04"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 0,
+       "variantId": 394325729
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_loot"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_stage_4_prefab5RCTWPQ/loc_q000_tutorial_stage_4_questdesign_prefabPP5SUAA/#q000_pr_vr_tut_course_04"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 1,
+       "variantId": 3979128679
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    },
+    {
+     "$type": "worldStreamingSectorDescriptor",
+     "blockIndex": {
+      "$type": "worldStreamingBlockIndex",
+      "oup": "Base",
+      "rldGridCell": 0
+     },
+     "category": "Quest",
+     "data": {
+      "DepotPath": {
+       "$type": "ResourcePath",
+       "$storage": "string",
+       "$value": "vrport\\tutorial\\sectors\\quest_b2d318aacc816d98.streamingsector"
+      },
+      "Flags": "Soft"
+     },
+     "level": 0,
+     "numNodeRanges": 3,
+     "questPrefabNodeRef": {
+      "$type": "NodeRef",
+      "$storage": "string",
+      "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_questdesign_prefabQ4VCKCQ/#q000_pr_vr_tutorial"
+     },
+     "streamingBox": {
+      "$type": "Box",
+      "Max": {
+       "$type": "Vector4",
+       "W": 3.40282347e+38,
+       "X": 6.80564694e+38,
+       "Y": 6.80564694e+38,
+       "Z": 6.80564694e+38
+      },
+      "Min": {
+       "$type": "Vector4",
+       "W": -3.40282347e+38,
+       "X": -6.80564694e+38,
+       "Y": -6.80564694e+38,
+       "Z": -6.80564694e+38
+      }
+     },
+     "variants": [
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_elevator_blocker"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_questdesign_prefabQ4VCKCQ/#q000_pr_vr_tutorial"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 0,
+       "variantId": 406405103
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 0,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "var_door_collision"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI/loc_q000_tutorial_questdesign_prefabQ4VCKCQ/#q000_pr_vr_tutorial"
+       },
+       "parentVariantID": 2001309159,
+       "rangeIndex": 1,
+       "variantId": 2360881799
+      },
+      {
+       "$type": "worldStreamingSectorVariant",
+       "enabledByDefault": 1,
+       "name": {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "None"
+       },
+       "nodeRef": {
+        "$type": "NodeRef",
+        "$storage": "string",
+        "$value": "$/03_night_city/c_westbrook/japan_town/loc_q000_tutorial_prefab3SJMLZI"
+       },
+       "parentVariantID": 0,
+       "rangeIndex": 2,
+       "variantId": 2001309159
+      }
+     ]
+    }
+   ],
+   "index": {
+    "$type": "worldStreamingBlockIndex",
+    "oup": "Base",
+    "rldGridCell": 7635822
+   }
+  },
+  "EmbeddedFiles": []
+ }
+}

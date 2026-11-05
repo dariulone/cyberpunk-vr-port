@@ -121,7 +121,7 @@ sl::Result Evaluate(sl::Feature feature,const sl::FrameToken& frame,const sl::Ba
     // Engine stereo: DLSS per eye (Stereo/EngineStereoDlss.cpp) instead of one evaluate over both eyes.
     sl::Result result;
     if(!cvr::engine_stereo::dlss::Evaluate(feature,frame,inputs,count,list,originalEvaluate,originalConstants,&result))
-        result=originalEvaluate(feature,frame,inputs,count,list);
+        result=cvr::engine_stereo::dlss::EvaluateOriginal(feature,frame,inputs,count,list,originalEvaluate);
     if(!CaptureInputsEnabled())return result;
     const auto pose=cvr::camera::CurrentNodePoseIdentity();
     if(CaptureInputsEnabled() && result==sl::Result::eOk && (feature==0 || feature==1001) && pose && pose.hasRenderFrameId && pose.view>=1 && pose.view<=2 && list) {

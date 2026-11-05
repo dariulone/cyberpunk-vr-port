@@ -1026,7 +1026,15 @@ bool Install() {
         {0x28A6D0,"\x48\x89\x5c\x24\x08\x48\x89\x74\x24\x10\x57\x48\x83\xec\x30",15,reinterpret_cast<void*>(&QuadSnap),reinterpret_cast<void**>(&originalSnap)},
         {0x54A0B4,"\x48\x89\x5c\x24\x08\x57\x48\x83\xec\x20\x48\x8b\xf9",13,reinterpret_cast<void*>(&ShouldClamp),reinterpret_cast<void**>(&originalShouldClamp)},
     };
-    for(const auto& h:hooks) if(std::memcmp(reinterpret_cast<void*>(base+h.rva),h.bytes,h.size)) {
+    // A function another module already detoured (RedHotTools hooks the ink paint, 0x27F26C) starts with its
+    // 5-byte jmp and keeps the rest of the prologue; MinHook relocates that jmp into the trampoline, so the
+    // port chains in front of it instead of leaving the markers native.
+    for(const auto& h:hooks) {
+        const auto* site=reinterpret_cast<const uint8_t*>(base+h.rva);
+        if(!std::memcmp(site,h.bytes,h.size)) continue;
+        if(site[0]==0xe9 && !std::memcmp(site+5,h.bytes+5,h.size-5)) {
+            Log("[world-markers] %llX already detoured by another module; chaining in front\n",static_cast<unsigned long long>(h.rva));continue;
+        }
         Log("[world-markers] signature mismatch at %llX; native placement retained\n",static_cast<unsigned long long>(h.rva));return false;
     }
     size_t made=0;
@@ -1146,17 +1154,6 @@ bool RewriteConstants(uint32_t size,const void* source,void* scratch,uint32_t* s
         if(parallax) out[2]=engineStereo ? EngineEyeParallax(eye,window) : EyeScale(p[188],p[189])*squeeze;
         if(shift) ShiftInkCamera(out,p,size,squeeze,window.shiftX,window.shiftY,content);
         inkCameras[slot].parallax=parallax ? out[2] : 0;inkCameras[slot].squeeze=squeeze;
-        if(engineStereo) {
-            // Each eye's move, once per change: what the engine wrote, what the eye gets.
-            static float logged[2][4]{};
-            float* l=logged[slot];
-            if(l[0]!=out[0] || l[1]!=out[3] || l[2]!=out[7] || l[3]!=out[2]) {
-                l[0]=out[0];l[1]=out[3];l[2]=out[7];l[3]=out[2];
-                Log("[world-markers] eye %d canvas %.0fx%.0f: x %.6f %.4f y %.4f -> x %.6f %.4f y %.4f parallax %.5f "
-                    "(squeeze %.4f window %.4f %.4f %.4f %.4f)\n",eye,p[188],p[189],p[0],p[3],p[7],out[0],out[3],out[7],out[2],
-                    squeeze,window.shiftX,window.shiftY,window.halfX,window.halfY);
-            }
-        }
         return true;
     }
     // Direct uploads can decode here. Batched native composition bypasses these

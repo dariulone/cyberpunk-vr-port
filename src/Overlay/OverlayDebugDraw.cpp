@@ -23,6 +23,7 @@
 #include "im3d.h"
 #include "Camera/CameraLink.hpp"   // cvr::camera::BarrelFrameRead
 #include "Hooks/SightLine.hpp"
+#include "Stereo/EngineStereo.hpp"
 #include "Overlay/OverlayInternal.hpp"
 
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
@@ -432,7 +433,12 @@ void DrawBarrelCrosshair() {
     const bool haveWorld = (mpx * mpx + mpy * mpy + mpz * mpz) > 1.0f &&
                            (hcx * hcx + hcy * hcy + hcz * hcz) > 1.0f;
 
-    const ImVec2 displaySize = ImGui::GetIO().DisplaySize;
+    const bool engineStereo = cvr::engine_stereo::Enabled();
+    // Full SBS window contains two independent eye viewports. Do not project a
+    // single dot across that window: its centre lands in only one captured half.
+    if (engineStereo && cvr::engine_stereo::OnePicture()) return;
+    const ImVec2 backbufferSize = ImGui::GetIO().DisplaySize;
+    const ImVec2 displaySize(engineStereo ? backbufferSize.x * 0.5f : backbufferSize.x, backbufferSize.y);
     if (displaySize.x <= 1.0f || displaySize.y <= 1.0f) return;
 
     // The camera's right axis, from the same quaternion the view is built with. Column 0 of the
@@ -479,7 +485,8 @@ void DrawBarrelCrosshair() {
     // Sign fixed by observation: a fixed world point must slide LEFT on screen when the eye
     // moves RIGHT, and it was doing the opposite -- the second eye sat right of the first. So
     // MAIN is the +right eye here, not the -right one. Live switch rather than a silent constant.
-    const float sMain = (CyberpunkVR_BarrelDotEyeSign >= 0) ? +1.0f : -1.0f;
+    const float sMain = engineStereo ? (CyberpunkVR_MainIsRightEye ? 1.0f : -1.0f)
+                                    : ((CyberpunkVR_BarrelDotEyeSign >= 0) ? +1.0f : -1.0f);
     // Do NOT require both, and do NOT fall back. Requiring both meant one failed projection
     // dropped the pair onto the direction path, which is wrong for the second eye BY
     // CONSTRUCTION -- a mark at infinity cannot show a finite impact from an eye off the line.
@@ -556,8 +563,26 @@ void DrawBarrelCrosshair() {
         // Background list: world-projected, see DrawHandLocatorOverlay.
         ImDrawList* dl = ImGui::GetBackgroundDrawList();
         if (dl) {
-            dl->AddCircleFilled(sc, rad, IM_COL32(255, 60, 60, 255));
-            //dl->AddCircle(sc, 11.0f, IM_COL32(255, 255, 255, 235), 0, 2.0f);
+            if (engineStereo) {
+                const int mainEye = CyberpunkVR_MainIsRightEye ? 1 : 0;
+                float secondY = worldOk ? 1.0f - 2.0f * scRight.y / displaySize.y : CyberpunkVR_BarrelDotNdcY;
+                AsymEyeWindows asym{};
+                if (cvr::projection::Active() && OpenXRManager::Get().GetAsymmetricEyeWindows(&asym))
+                    secondY = cvr::projection::MapNdcY(secondY, asym.eye[mainEye], asym.eye[1-mainEye]);
+                // Draw both in the existing ImGui pass before the backbuffer is split.
+                // Clip independently so a dot outside one eye never leaks into the other.
+                for (int eye = 0; eye != 2; ++eye) {
+                    const float x = eye == mainEye ? CyberpunkVR_BarrelDotNdcX : CyberpunkVR_BarrelDotNdcX2;
+                    const float y = eye == mainEye ? CyberpunkVR_BarrelDotNdcY : secondY;
+                    const float left = float(eye) * displaySize.x;
+                    dl->PushClipRect(ImVec2(left, 0), ImVec2(left + displaySize.x, displaySize.y), true);
+                    dl->AddCircleFilled(ImVec2(left + (x * 0.5f + 0.5f) * displaySize.x,
+                                              (0.5f - y * 0.5f) * displaySize.y), rad, IM_COL32(255, 60, 60, 255));
+                    dl->PopClipRect();
+                }
+            } else {
+                dl->AddCircleFilled(sc, rad, IM_COL32(255, 60, 60, 255));
+            }
         }
     }
 }

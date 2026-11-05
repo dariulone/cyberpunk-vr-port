@@ -3129,9 +3129,425 @@
                     },
                     "priority": 128,
                     "variableNames": []
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\base\\pma_w_handgun_dual_wield_base.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 100,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\pma_w_default_weapon_dual_wield.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 200,
+                    "variableNames": []
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_left__constitutional_liberty.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_liberty_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_right__constitutional_liberty.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_liberty"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_left__militech_lexington.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_militech_lexington_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_right__militech_lexington.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_militech_lexington"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_left__darra_nova.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_darra_nova_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_right__darra_nova.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_darra_nova"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_left__malorian_overture.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_malorian_overture_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_right__malorian_overture.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_revolver_malorian_overture"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_left__constitutional_unity.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_unity_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_right__constitutional_unity.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_constitutional_unity"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_left__tsunami_nue.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_tsunami_nue_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_right__tsunami_nue.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_tsunami_nue"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_left__budget_slaughtomatic.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_budget_slaughtomatic_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_right__budget_slaughtomatic.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_budget_slaughtomatic"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_left__malorian_silverhand.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_malorian_silverhand_left"
+                      }
+                    ]
+                  },
+                  {
+                    "$type": "animAnimSetupEntry",
+                    "animSet": {
+                      "DepotPath": {
+                        "$type": "ResourcePath",
+                        "$storage": "string",
+                        "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_right__malorian_silverhand.anims"
+                      },
+                      "Flags": "Default"
+                    },
+                    "priority": 64,
+                    "variableNames": [
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "dual_wield"
+                      },
+                      {
+                        "$type": "CName",
+                        "$storage": "string",
+                        "$value": "w_handgun_malorian_silverhand"
+                      }
+                    ]
                   }
                 ],
-                "hash": "6413304938307504174"
+                "hash": "16386969458207657898"
               },
               "animParameters": [
                 {
@@ -6353,7 +6769,7 @@
                     "DepotPath": {
                       "$type": "ResourcePath",
                       "$storage": "string",
-                      "$value": "base\\gameplay\\anim_graphs\\player_ranged.animgraph"
+                      "$value": "base\\gameplay\\anim_graphs\\player_dualwield.animgraph"
                     },
                     "Flags": "Obligatory"
                   },
@@ -16869,7 +17285,7 @@
                   "queryFilter": {
                     "$type": "physicsQueryFilter",
                     "mask1": "0",
-                    "mask2": "4194305"
+                    "mask2": "8388609"
                   },
                   "simulationFilter": {
                     "$type": "physicsSimulationFilter",
@@ -39749,6 +40165,386 @@
                 "Y": 1,
                 "Z": 1
               }
+            },
+            {
+              "$type": "entMeshComponent",
+              "castLocalShadows": "Never",
+              "castRayTracedGlobalShadows": "Never",
+              "castRayTracedLocalShadows": "Never",
+              "castShadows": "Never",
+              "chunkMask": "18446744073709551615",
+              "forcedLodDistance": "Default",
+              "id": "5195263792530828586",
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "LODMode": "AlwaysVisible",
+              "mesh": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "string",
+                  "$value": "vrbasketball\\vr_basketball.mesh"
+                },
+                "Flags": "Default"
+              },
+              "meshAppearance": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "default"
+              },
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vrp_glow_left"
+              },
+              "navigationImpact": {
+                "$type": "NavGenNavigationSetting",
+                "navmeshImpact": "Ignored"
+              },
+              "order": 0,
+              "overrideMeshNavigationImpact": 1,
+              "parentTransform": {
+                "HandleId": "726",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponLeft"
+                  }
+                }
+              },
+              "renderingPlane": "RPl_Weapon",
+              "renderSceneLayerMask": "Default",
+              "version": 1,
+              "visualScale": {
+                "$type": "Vector3",
+                "X": 1,
+                "Y": 1,
+                "Z": 1
+              }
+            },
+            {
+              "$type": "entMeshComponent",
+              "castLocalShadows": "Never",
+              "castRayTracedGlobalShadows": "Never",
+              "castRayTracedLocalShadows": "Never",
+              "castShadows": "Never",
+              "chunkMask": "18446744073709551615",
+              "forcedLodDistance": "Default",
+              "id": "5195263792530828587",
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "LODMode": "AlwaysVisible",
+              "mesh": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "string",
+                  "$value": "vrbasketball\\vr_basketball.mesh"
+                },
+                "Flags": "Default"
+              },
+              "meshAppearance": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "default"
+              },
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vrp_glow_right"
+              },
+              "navigationImpact": {
+                "$type": "NavGenNavigationSetting",
+                "navmeshImpact": "Ignored"
+              },
+              "order": 0,
+              "overrideMeshNavigationImpact": 1,
+              "parentTransform": {
+                "HandleId": "727",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponRight"
+                  }
+                }
+              },
+              "renderingPlane": "RPl_Weapon",
+              "renderSceneLayerMask": "Default",
+              "version": 1,
+              "visualScale": {
+                "$type": "Vector3",
+                "X": 1,
+                "Y": 1,
+                "Z": 1
+              }
+            },
+            {
+              "$type": "entRenderToTextureCameraComponent",
+              "albedoDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "aspectRatio": 1,
+              "backgroundColor": {
+                "$type": "Color",
+                "Alpha": 255,
+                "Blue": 0,
+                "Green": 0,
+                "Red": 0
+              },
+              "depthCutDistance": 0,
+              "depthDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "dynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "string",
+                  "$value": "base\\vrport\\optics\\scope_feed.dtex"
+                },
+                "Flags": "Default"
+              },
+              "env": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "farPlaneOverride": 16000,
+              "features": {
+                "$type": "entRenderToTextureFeatures",
+                "antiAliasing": "RTFP_PC",
+                "contactShadows": 1,
+                "localShadows": 1,
+                "reflections": "RTFP_PC",
+                "renderDecals": 1,
+                "renderForwardNoTXAA": 0,
+                "renderParticles": 1,
+                "SSAO": "RTFP_PC"
+              },
+              "fov": 8,
+              "id": "5195263792530829587",
+              "isEnabled": 0,
+              "isReplicable": 0,
+              "localTransform": {
+                "$type": "WorldTransform",
+                "Orientation": {
+                  "$type": "Quaternion",
+                  "i": 0,
+                  "j": 0,
+                  "k": 0,
+                  "r": 1
+                },
+                "Position": {
+                  "$type": "WorldPosition",
+                  "x": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "y": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  },
+                  "z": {
+                    "$type": "FixedPoint",
+                    "Bits": 0
+                  }
+                }
+              },
+              "motionBlurScale": 0,
+              "name": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vr_optics_camera"
+              },
+              "nearPlaneOverride": 0.0500000007,
+              "normalsDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "overrideBackgroundColor": 0,
+              "params": {
+                "$type": "WorldRenderAreaSettings",
+                "areaParameters": []
+              },
+              "parentTransform": {
+                "HandleId": "728",
+                "Data": {
+                  "$type": "entHardTransformBinding",
+                  "bindName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "ItemAttachmentSlots"
+                  },
+                  "enabled": 1,
+                  "enableMask": {
+                    "$type": "entTagMask",
+                    "excludedTags": {
+                      "$type": "redTagList",
+                      "tags": [
+                        {
+                          "$type": "CName",
+                          "$storage": "string",
+                          "$value": "NoBinding"
+                        }
+                      ]
+                    },
+                    "hardTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    },
+                    "softTags": {
+                      "$type": "redTagList",
+                      "tags": []
+                    }
+                  },
+                  "slotName": {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "WeaponRight"
+                  }
+                }
+              },
+              "particlesDynamicTextureRes": {
+                "DepotPath": {
+                  "$type": "ResourcePath",
+                  "$storage": "uint64",
+                  "$value": "0"
+                },
+                "Flags": "Default"
+              },
+              "renderingMode": "Shaded",
+              "renderSceneLayer": "Default",
+              "resolutionHeight": 1024,
+              "resolutionWidth": 1024,
+              "streamingDistance": 12500,
+              "virtualCameraName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "vr_optics_feed"
+              },
+              "zoom": 1
             }
           ]
         }
@@ -42134,9 +42930,425 @@
                 },
                 "priority": 128,
                 "variableNames": []
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\base\\pma_w_handgun_dual_wield_base.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 100,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\pma_w_default_weapon_dual_wield.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 200,
+                "variableNames": []
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_left__constitutional_liberty.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_liberty_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_right__constitutional_liberty.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_liberty"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_left__militech_lexington.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_militech_lexington_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_right__militech_lexington.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_militech_lexington"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_left__darra_nova.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_darra_nova_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_right__darra_nova.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_darra_nova"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_left__malorian_overture.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_malorian_overture_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_right__malorian_overture.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_revolver_malorian_overture"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_left__constitutional_unity.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_unity_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_right__constitutional_unity.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_constitutional_unity"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_left__tsunami_nue.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_tsunami_nue_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_right__tsunami_nue.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_tsunami_nue"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_left__budget_slaughtomatic.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_budget_slaughtomatic_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_right__budget_slaughtomatic.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_budget_slaughtomatic"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_left__malorian_silverhand.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_malorian_silverhand_left"
+                  }
+                ]
+              },
+              {
+                "$type": "animAnimSetupEntry",
+                "animSet": {
+                  "DepotPath": {
+                    "$type": "ResourcePath",
+                    "$storage": "string",
+                    "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_right__malorian_silverhand.anims"
+                  },
+                  "Flags": "Default"
+                },
+                "priority": 64,
+                "variableNames": [
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "dual_wield"
+                  },
+                  {
+                    "$type": "CName",
+                    "$storage": "string",
+                    "$value": "w_handgun_malorian_silverhand"
+                  }
+                ]
               }
             ],
-            "hash": "6413304938307504174"
+            "hash": "16386969458207657898"
           },
           "animParameters": [
             {
@@ -44382,7 +45594,7 @@
                 "DepotPath": {
                   "$type": "ResourcePath",
                   "$storage": "string",
-                  "$value": "base\\gameplay\\anim_graphs\\player_ranged.animgraph"
+                  "$value": "base\\gameplay\\anim_graphs\\player_dualwield.animgraph"
                 },
                 "Flags": "Obligatory"
               },
@@ -59201,6 +60413,469 @@
               }
             }
           }
+        },
+        {
+          "$type": "entSkinnedMeshComponent",
+          "acceptDismemberment": 1,
+          "autoHideDistance": 0,
+          "castLocalShadows": "Never",
+          "castShadows": "Never",
+          "chunkMask": "9223372036854775807",
+          "forcedLodDistance": "Default",
+          "forceLODLevel": -1,
+          "id": "5195263792530827586",
+          "isEnabled": 1,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "LODMode": "AlwaysVisible",
+          "mesh": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "vrport\\body\\vrp_neck_cap_pma.mesh"
+            },
+            "Flags": "Default"
+          },
+          "meshAppearance": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "02_ca_limestone"
+          },
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vrp_neck_cap"
+          },
+          "navigationImpact": {
+            "$type": "NavGenNavigationSetting",
+            "navmeshImpact": "Ignored"
+          },
+          "order": 0,
+          "overrideMeshNavigationImpact": 1,
+          "parentTransform": {
+            "HandleRefId": "327"
+          },
+          "renderingPlaneAnimationParam": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "None"
+          },
+          "renderSceneLayerMask": "Default",
+          "skinning": {
+            "HandleRefId": "328"
+          },
+          "useProxyMeshAsShadowMesh": 0,
+          "useSkinningLOD": 0,
+          "version": 1,
+          "visibilityAnimationParam": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "None"
+          }
+        },
+        {
+          "$type": "entMeshComponent",
+          "castLocalShadows": "Never",
+          "castRayTracedGlobalShadows": "Never",
+          "castRayTracedLocalShadows": "Never",
+          "castShadows": "Never",
+          "chunkMask": "18446744073709551615",
+          "forcedLodDistance": "Default",
+          "id": "5195263792530828586",
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "LODMode": "AlwaysVisible",
+          "mesh": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "vrbasketball\\vr_basketball.mesh"
+            },
+            "Flags": "Default"
+          },
+          "meshAppearance": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "default"
+          },
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vrp_glow_left"
+          },
+          "navigationImpact": {
+            "$type": "NavGenNavigationSetting",
+            "navmeshImpact": "Ignored"
+          },
+          "order": 0,
+          "overrideMeshNavigationImpact": 1,
+          "parentTransform": {
+            "HandleId": "726",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponLeft"
+              }
+            }
+          },
+          "renderingPlane": "RPl_Weapon",
+          "renderSceneLayerMask": "Default",
+          "version": 1,
+          "visualScale": {
+            "$type": "Vector3",
+            "X": 1,
+            "Y": 1,
+            "Z": 1
+          }
+        },
+        {
+          "$type": "entMeshComponent",
+          "castLocalShadows": "Never",
+          "castRayTracedGlobalShadows": "Never",
+          "castRayTracedLocalShadows": "Never",
+          "castShadows": "Never",
+          "chunkMask": "18446744073709551615",
+          "forcedLodDistance": "Default",
+          "id": "5195263792530828587",
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "LODMode": "AlwaysVisible",
+          "mesh": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "vrbasketball\\vr_basketball.mesh"
+            },
+            "Flags": "Default"
+          },
+          "meshAppearance": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "default"
+          },
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vrp_glow_right"
+          },
+          "navigationImpact": {
+            "$type": "NavGenNavigationSetting",
+            "navmeshImpact": "Ignored"
+          },
+          "order": 0,
+          "overrideMeshNavigationImpact": 1,
+          "parentTransform": {
+            "HandleId": "727",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponRight"
+              }
+            }
+          },
+          "renderingPlane": "RPl_Weapon",
+          "renderSceneLayerMask": "Default",
+          "version": 1,
+          "visualScale": {
+            "$type": "Vector3",
+            "X": 1,
+            "Y": 1,
+            "Z": 1
+          }
+        },
+        {
+          "$type": "entRenderToTextureCameraComponent",
+          "albedoDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "aspectRatio": 1,
+          "backgroundColor": {
+            "$type": "Color",
+            "Alpha": 255,
+            "Blue": 0,
+            "Green": 0,
+            "Red": 0
+          },
+          "depthCutDistance": 0,
+          "depthDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "dynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "string",
+              "$value": "base\\vrport\\optics\\scope_feed.dtex"
+            },
+            "Flags": "Default"
+          },
+          "env": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "farPlaneOverride": 16000,
+          "features": {
+            "$type": "entRenderToTextureFeatures",
+            "antiAliasing": "RTFP_PC",
+            "contactShadows": 1,
+            "localShadows": 1,
+            "reflections": "RTFP_PC",
+            "renderDecals": 1,
+            "renderForwardNoTXAA": 0,
+            "renderParticles": 1,
+            "SSAO": "RTFP_PC"
+          },
+          "fov": 8,
+          "id": "5195263792530829587",
+          "isEnabled": 0,
+          "isReplicable": 0,
+          "localTransform": {
+            "$type": "WorldTransform",
+            "Orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+            },
+            "Position": {
+              "$type": "WorldPosition",
+              "x": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "y": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              },
+              "z": {
+                "$type": "FixedPoint",
+                "Bits": 0
+              }
+            }
+          },
+          "motionBlurScale": 0,
+          "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vr_optics_camera"
+          },
+          "nearPlaneOverride": 0.0500000007,
+          "normalsDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "overrideBackgroundColor": 0,
+          "params": {
+            "$type": "WorldRenderAreaSettings",
+            "areaParameters": []
+          },
+          "parentTransform": {
+            "HandleId": "728",
+            "Data": {
+              "$type": "entHardTransformBinding",
+              "bindName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "ItemAttachmentSlots"
+              },
+              "enabled": 1,
+              "enableMask": {
+                "$type": "entTagMask",
+                "excludedTags": {
+                  "$type": "redTagList",
+                  "tags": [
+                    {
+                      "$type": "CName",
+                      "$storage": "string",
+                      "$value": "NoBinding"
+                    }
+                  ]
+                },
+                "hardTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                },
+                "softTags": {
+                  "$type": "redTagList",
+                  "tags": []
+                }
+              },
+              "slotName": {
+                "$type": "CName",
+                "$storage": "string",
+                "$value": "WeaponRight"
+              }
+            }
+          },
+          "particlesDynamicTextureRes": {
+            "DepotPath": {
+              "$type": "ResourcePath",
+              "$storage": "uint64",
+              "$value": "0"
+            },
+            "Flags": "Default"
+          },
+          "renderingMode": "Shaded",
+          "renderSceneLayer": "Default",
+          "resolutionHeight": 1024,
+          "resolutionWidth": 1024,
+          "streamingDistance": 12500,
+          "virtualCameraName": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "vr_optics_feed"
+          },
+          "zoom": 1
         }
       ],
       "cookingPlatform": "PLATFORM_PC",
@@ -60635,6 +62310,150 @@
             "$type": "ResourcePath",
             "$storage": "string",
             "$value": "base\\fx\\quest\\_common\\blood\\q_blood_mesh_decal.mesh"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\base\\pma_w_handgun_dual_wield_base.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\pma_w_default_weapon_dual_wield.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_left__constitutional_liberty.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_liberty\\pma_w_handgun_dual_wield_right__constitutional_liberty.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_left__militech_lexington.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\militech_lexington\\pma_w_handgun_dual_wield_right__militech_lexington.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_left__darra_nova.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\darra_nova\\pma_w_revolver_dual_wield_right__darra_nova.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_left__malorian_overture.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\revolver\\malorian_overture\\pma_w_revolver_dual_wield_right__malorian_overture.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_left__constitutional_unity.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\constitutional_unity\\pma_w_handgun_dual_wield_right__constitutional_unity.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_left__tsunami_nue.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\tsunami_nue\\pma_w_handgun_dual_wield_right__tsunami_nue.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_left__budget_slaughtomatic.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\budget_slaughtomatic\\pma_w_handgun_dual_wield_right__budget_slaughtomatic.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_left__malorian_silverhand.anims"
+          },
+          "Flags": "Soft"
+        },
+        {
+          "DepotPath": {
+            "$type": "ResourcePath",
+            "$storage": "string",
+            "$value": "base\\animations\\weapon\\firearms\\dual_wield\\handgun\\malorian_silverhand\\pma_w_handhgun_dual_wield_right__malorian_silverhand.anims"
           },
           "Flags": "Soft"
         }

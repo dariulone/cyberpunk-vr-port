@@ -332,6 +332,9 @@ bool UpkeepRoots(ink::HUDLayer* hud) {
         auto* root = r.root.GetPtr(); auto* window = r.window.GetPtr(); auto* info = r.info.GetPtr();
         if (!root || !window) continue;
         if(r.flags & RootGazeDot) {
+            // The persistent dot and the braindance HUD: full-screen roots laid out about the screen's middle, which
+            // under the asymmetric projection is not where the head looks. Moved onto the gaze line like the
+            // scanner's crop; the braindance one sat a gaze offset above the scanner (2026-11-01).
             const float y=g_menuModeValue==0 ? cvr::gaze::CanvasOffset(cvr::gaze::Read(),CyberpunkVR_HudRootHeight,HudDesignScale()) : 0.f;
             if(std::abs(root->renderTransform.translation.Y-y)>.01f) {
                 auto* fn=root->GetType()->GetFunction("SetTranslation");
@@ -490,7 +493,7 @@ cvr::hud::Rect ToEyeRoot(cvr::hud::Rect r, float rootWidth, float rootHeight, fl
             r.width * ratio, r.height * ratio};
 }
 
-std::shared_ptr<cvr::hud::TextureLease> Texture(DynamicTexture* texture) {
+std::shared_ptr<cvr::hud::TextureLease> Texture(DynamicTexture* texture, bool idle = false) {
     if (!texture) return {};
     const uintptr_t backing = *reinterpret_cast<uintptr_t*>(reinterpret_cast<uintptr_t>(texture)+0x70);
     if (!backing || *reinterpret_cast<uintptr_t*>(backing) != base+0x30646a8) return {};
@@ -520,10 +523,15 @@ std::shared_ptr<cvr::hud::TextureLease> Texture(DynamicTexture* texture) {
         desc.Width != texture->width || desc.Height != texture->height) return {};
     // This is the engine's read state (IDA sub_1401F9BBC / sub_140337264).
     // Do not guess barriers for a texture with a different native state.
-    if (*reinterpret_cast<uint32_t*>(entry+0x2f220) != 0xc0) return {};
+    const uint32_t state = *reinterpret_cast<uint32_t*>(entry+0x2f220);
+    if (state != 0xc0 && !(idle && state == 0)) return {};
     result->resource = resource;
     return result;
 }
+}
+
+std::shared_ptr<cvr::hud::TextureLease> cvr::hud::Lease(RED4ext::DynamicTexture* texture, bool idle) {
+    return Texture(texture, idle);
 }
 
 cvr::hud::TextureLease::~TextureLease() {

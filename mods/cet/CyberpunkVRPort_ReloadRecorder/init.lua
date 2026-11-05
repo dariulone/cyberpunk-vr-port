@@ -152,7 +152,7 @@ local function slotModel(name)
     local w = pl and pl:GetActiveWeapon()
     if not w then return nil end
     if not REC.sc then
-        local ok, cs = pcall(function() return w:GetComponents() end)
+        local ok, cs = pcall(function() return Game.VREntityComponents(w) end)
         if ok and cs then
             for i = 1, #cs do
                 if string.find(tostring(cs[i]:GetClassName()), 'SlotComponent') then
@@ -351,6 +351,9 @@ end
 registerForEvent('onDraw', function()
     if not overlayOpen then return end
     pcall(function()
+        local w, h = GetDisplayResolution()
+        ImGui.SetNextWindowPos(w * 0.71, h * 0.04, ImGuiCond.FirstUseEver)
+        ImGui.SetNextWindowSize(w * 0.24, h * 0.91, ImGuiCond.FirstUseEver)
         ImGui.Begin('VR Reload Recorder')
         if type(VRRecordFK) ~= 'function' then
             ImGui.Text('OLD PLUGIN - VRRecordFK missing, bones will freeze')

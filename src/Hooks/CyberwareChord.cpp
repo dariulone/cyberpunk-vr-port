@@ -14,6 +14,8 @@ namespace {
 cvr::input::CyberwareHold chord;
 std::mutex mutex;
 std::atomic<uint64_t> pendingUntil{};
+// A chord that fired with the game window behind, until when the script side may still take it.
+std::atomic<uint64_t> scriptUntil{};
 bool Allowed() {
     return g_liveControls.xrXInputHook!=0 && g_menuModeValue==0 && !cvr::vrui::CapturesInput() && !cvr::input::KeypadInputActive() &&
            !DeviceCamActive() && !g_bdActive.load(std::memory_order_relaxed) &&
@@ -33,7 +35,13 @@ void cvr::input::DispatchCyberwareChord() {
     const auto until=pendingUntil.exchange(0,std::memory_order_acq_rel);
     if(!until || GetTickCount64()>=until || !Allowed())return;
     DWORD process{};GetWindowThreadProcessId(GetForegroundWindow(),&process);
-    if(process!=GetCurrentProcessId())return;
+    if(process!=GetCurrentProcessId()) {
+        // The headset has the focus and the window is behind (BackgroundPad keeps the sticks working then): a key
+        // would land in the other app, never in the game. The weapon mod's frame takes the chord instead and runs
+        // the press's own activation, PlayerPuppet.ActivateIconicCyberware (VRActivateIconicCyberware).
+        scriptUntil.store(GetTickCount64()+500,std::memory_order_release);
+        return;
+    }
     // Input Loader appends F18 to IconicCyberware_Button, with no UI override:
     // game context/cooldown still decides whether the ability may activate.
     // Unlike E this private key survives a player's keyboard rebinding; unlike
@@ -43,4 +51,9 @@ void cvr::input::DispatchCyberwareChord() {
     const auto sent=SendInput(2,input,sizeof(INPUT));
     if(sent==1)SendInput(1,input+1,sizeof(INPUT)); // release after a partial OS insertion
     if(sent==2)CVR_DIAGNOSTIC(++CyberpunkVR_CyberwareChordSent);
+}
+bool cvr::input::TakeCyberwareChord() {
+    const auto until=scriptUntil.exchange(0,std::memory_order_acq_rel);
+    // Half a second: a chord the script side did not take by then (a load, a pause) is not run later.
+    return until && GetTickCount64()<until && Allowed();
 }

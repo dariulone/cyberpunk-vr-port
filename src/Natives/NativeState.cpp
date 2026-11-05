@@ -9,6 +9,7 @@
 // be a duplicate symbol rather than a quiet second copy, which is the good outcome.
 
 #include "Anim/VrikHook.hpp"
+#include "Core/Paths.hpp"
 #include "Anim/WeaponAim.hpp"
 
 #include <windows.h>
@@ -20,17 +21,10 @@
 //      live-projectile finders', went with their hooks on 2026-10-17. ----
 volatile uintptr_t g_waExeBase = 0;
 
-// All diagnostic .txt logs go next to the game exe == where dxgi.dll lives (bin\x64),
-// so every log (proxy cyberpunkvrport.log + these .txt dumps) sits in one place.
-std::string VRDiagPath(const char* name) {
-    char p[MAX_PATH];
-    DWORD n = GetModuleFileNameA(nullptr, p, MAX_PATH);
-    std::string s(p, n);
-    size_t slash = s.find_last_of('\\');
-    if (slash != std::string::npos) s.resize(slash + 1);
-    s += name;
-    return s;
-}
+// Every diagnostic dump sits beside cyberpunkvrport.log in the plugin's log folder, every recorded pose in its
+// grips folder (Core/Paths.hpp).
+std::string VRDiagPath(const char* name) { return cvr::paths::FileA(cvr::paths::Folder::Log, name); }
+std::string VRGripPath(const char* name) { return cvr::paths::FileA(cvr::paths::Folder::Grips, name); }
 
 HANDLE g_hMapFile = NULL;
 // NOT static: the pose path in src/Anim/VrikHook.cpp uses this, and used to reach it only
@@ -315,6 +309,7 @@ char               g_VRSmokeFingerName[32][48] = {};   // finger bone names (nam
 volatile int       g_VRSmokeCigIdx    = -1;
 volatile int       g_VRSprintActive = -1;
 volatile int       g_VRLocomotionState = -1;
+volatile int       g_VRLocomotionDetailed = -1;
 volatile int       g_VRTakedownState = -1;
 volatile int       g_VRBodyCarryingState = -1;
 volatile int       g_VRBodyDisposalState = -1;
@@ -410,13 +405,16 @@ int                g_VRSmokeThumbIsL[32] = {0};                         // 1 if 
 // but a different pose, loaded from CyberpunkVR_SmokeGrip_Left.ini. g_VRSmokeLeftUseCig picks which
 // pose the left-hand apply uses: 0 = lighter, 1 = cigarette.
 volatile int       g_VRSmokeLeftUseCig  = 0;
+// LEFT-HANDED: the RIGHT hand holds the lighter -- the lighter pose above, mirrored onto the right hand and
+// WeaponRight (Anim/LeftHanded.cpp), its thumb on the right trigger. 0 = the right hand holds the cigarette.
+volatile int       g_VRSmokeRightLighter = 0;
 volatile int       g_VRSmokeCigLHave    = 0;              // cig-left pose available (fingers + WeaponLeft slot)
 float              g_VRSmokeFingerRotLC[32][4] = {{0}};   // parallel to g_VRSmokeFingerRotL (same bones)
 float              g_VRSmokeCigLPos[3]  = {0.0f, 0.0f, 0.0f};
 float              g_VRSmokeCigLRot[4]  = {0.0f, 0.0f, 0.0f, 1.0f};
 
 // Full-arm IK (g_VRBind == 4): bone hierarchy + chain indices (resolved in VRIK_DoArmPlayer).
-int16_t            g_VRBoneParent[800] = {0};
+int16_t            g_VRBoneParent[VRIK_MAX_BONES] = {0};
 volatile int       g_VRBoneCount = 0;
 volatile int       g_VRFKCount = 0;   // solver-touched bone prefix (0 = use full count)
 volatile int       g_VRRightUpperArmIdx = -1; // RightArm  (upper-arm start / shoulder joint)

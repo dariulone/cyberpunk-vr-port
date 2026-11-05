@@ -49,7 +49,7 @@ local function len3(x, y, z) return math.sqrt(x * x + y * y + z * z) end
 -- is per entity. Only the ones that were on are switched back.
 local function magParts(gun)
     local out = {}
-    local ok, cs = pcall(function() return gun:GetComponents() end)
+    local ok, cs = pcall(function() return Game.VREntityComponents(gun) end)
     if not (ok and cs) then return out end
     for i = 1, #cs do
         local c = cs[i]
@@ -94,7 +94,7 @@ end
 -- Where the magazine sits in the gun, in world space -- reload.lua seatedWorld, against this gun's own slots.
 local function seated(gun, mc, U)
     local cn = CName.new(mc.slot or 'vrp_mag_slot')
-    local ok, cs = pcall(function() return gun:GetComponents() end)
+    local ok, cs = pcall(function() return Game.VREntityComponents(gun) end)
     if not (ok and cs) then return nil end
     for i = 1, #cs do
         local c = cs[i]
@@ -186,12 +186,12 @@ local function applySkin(f)
     local ok, e = pcall(function() return Game.FindEntityByID(f.id) end)
     if not (ok and e) then return end
     local done = pcall(function()
-        local cs = e:GetComponents()
+        local cs = Game.VREntityComponents(e)
         for i = 1, #cs do
             local c = cs[i]
             if tostring((c.name and c.name.value) or '') == 'mag_mesh' then
                 c.meshAppearance = CName.new(f.skin)
-                if type(c.RefreshAppearance) == 'function' then c:RefreshAppearance() end
+                Game.VRComponentRefreshAppearance(c)
             end
         end
     end)
@@ -308,7 +308,7 @@ local function fallStep(f, U, dt, floorZ)
             local tr = WorldTransform.new()
             tr:SetPosition(Vector4.new(c[1] - ox2, c[2] - oy2, c[3] - oz2, 1.0))
             tr:SetOrientation(Quaternion.new(q[1], q[2], q[3], q[4]))
-            e:SetWorldTransform(tr)
+            Game.VREntitySetWorldTransform(e, tr)
         end)
     end
     if f.t >= (f.mc.litterTime or 3.0) then

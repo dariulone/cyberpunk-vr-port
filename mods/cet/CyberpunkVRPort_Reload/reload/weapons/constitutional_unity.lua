@@ -96,7 +96,7 @@ return {
         -- effect by name through GameObjectEffectHelper.StartEffectEvent ejects a case.
         -- OUR OWN effect, not the game's: `ejection_port` fires two emitters, the case and a puff of smoke and
         -- sparks. That puff belongs to a SHOT -- racking a slide throws a case, it does not burn powder -- so the
-        -- effect is copied with the puff's particle blanked and shipped as baserportrp_unity_eject_case.effect,
+        -- effect is copied with the puff's particle blanked and shipped as base\vrport\vrp_unity_eject_case.effect,
         -- with a descriptor of this name added to the weapon's own effect spawner. Blanked rather than deleted:
         -- taking the track item out left a dangling handle and the file would not rebuild.
         ejectFx    = 'vrp_eject_case',

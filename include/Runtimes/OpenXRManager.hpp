@@ -24,6 +24,8 @@ struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Render/ColorBlit.hpp"
 #include "Render/SrgbToLinearPass.hpp"
 #include "Runtimes/HudQuad.hpp"
+#include "Render/IntroOverlay.hpp"
+#include "Render/LoadingScreen.hpp"
 #include "Runtimes/RoomscaleMovement.hpp"
 #include "Runtimes/TrackingReset.hpp"
 #include "Runtimes/HandPublication.hpp"
@@ -68,6 +70,9 @@ struct VRControllerState {
     float    rightGrip    = 0.0f;
     bool     leftHandValid  = false;
     bool     rightHandValid = false;
+    bool     psvr2SystemPressed = false;
+    bool     psvr2SystemAvailable = false;
+    bool     psvr2DpadShift = false;
 };
 
 extern "C" int GetXrRuntimeMode();
@@ -714,6 +719,9 @@ public:
 
     // Hands
     bool GetHandPose(int handIndex, OpenXRHeadPose* out) const;
+    // The controller's own motion at its last locate, in the head-relative axes of GetHandPose (XR axes): linear
+    // velocity in m/s, angular velocity in rad/s. False while the hand is not tracked.
+    bool GetHandMotion(int handIndex, float linear[3], float angular[3]) const;
     bool GetNativeFrameHead(OpenXRHeadPose* out,uint64_t* sequence=nullptr,
                             uint64_t* stampUs=nullptr,XrTime* aim=nullptr,
                             cvr::roomscale::Vec2* consumed=nullptr) const;
@@ -813,6 +821,16 @@ public:
     // offsets) to a file next to dxgi.dll. Returns true on success.
     bool SaveCalibrationToFile();
     bool LoadCalibrationFromFile();   // restored at startup so the player doesn't recalibrate each launch
+
+    // THE PLAYER'S HEIGHT (Runtimes/BodyProportions.hpp): the arms, the shoulders' drop and width taken from
+    // it, saved with the calibration; the first-launch setup's last step. 0 until given.
+    void ApplyUserHeight(float meters);
+    float GetUserHeight() const { return m_userHeight.load(std::memory_order_relaxed); }
+    // The eyes over the floor as the last T-pose measured them (the runtime's STAGE space); 0 when not measured.
+    float GetMeasuredEyeHeight() const { return m_measuredEyeHeight.load(std::memory_order_relaxed); }
+    // The first-launch setup (hand, T-pose, height: mods/cet/CyberpunkVRPort_Lobby modules/setup.lua) has been
+    // through once; saved with the calibration.
+    bool IsFirstSetupDone() const { return m_firstSetupDone.load(std::memory_order_relaxed) != 0; }
     // Monotonic counter: the plugin dumps a diag whenever the published value changes.
     void RequestVRDiag() { m_logDiagReq.fetch_add(1, std::memory_order_relaxed); }
 
@@ -846,7 +864,15 @@ public:
 
     float GetRuntimeHorizontalFovDeg() const { return m_runtimeHorizontalFovDeg.load(std::memory_order_relaxed); }
     const char* GetSystemName() const { return m_systemName; }
+    // The largest image one eye can be given: the runtime's swapchain maximum and every view's image-rect
+    // maximum, whichever is smaller. False until Init has read them.
+    bool GetEyeImageLimit(uint32_t* width, uint32_t* height) const {
+        if (!width || !height || !m_eyeImageLimit[0] || !m_eyeImageLimit[1]) return false;
+        *width = m_eyeImageLimit[0]; *height = m_eyeImageLimit[1];
+        return true;
+    }
     bool IsRuntimeSteamVR() const { return m_runtimeIsSteamVR.load(std::memory_order_relaxed); }
+    bool IsRuntimePsvr2() const { return m_runtimeIsPsvr2.load(std::memory_order_relaxed); }
     bool IsRuntimeVirtualDesktop() const { return m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed); }
     bool IsRuntimeSimulator() const { return m_runtimeIsSimulator.load(std::memory_order_relaxed); }
     // On the simulator only: turn a located grip pose into what a real controller's grip would read. Every
@@ -865,6 +891,8 @@ public:
 
     bool IsInitialized() const { return m_initialized; }
     bool IsSessionRunning() const { return m_sessionRunning.load(std::memory_order_relaxed); }
+    // The session has the headset's input: XR_SESSION_STATE_FOCUSED (any thread).
+    bool IsSessionFocused() const { return m_sessionFocused.load(std::memory_order_relaxed); }
 
 private:
     static DWORD WINAPI FrameThreadThunk(LPVOID param);
@@ -922,6 +950,7 @@ private:
     // The runtime's name for the headset. It was being logged and thrown away; the per-headset FOV
     // default needs it, and it is the only thing that distinguishes one panel from another at runtime.
     char m_systemName[128] = {};
+    uint32_t m_eyeImageLimit[2] = {};   // GetEyeImageLimit: width, height
     XrSession m_session = XR_NULL_HANDLE;
     XrSpace m_localSpace = XR_NULL_HANDLE;
     XrSpace m_viewSpace = XR_NULL_HANDLE;
@@ -938,6 +967,7 @@ private:
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)
     XrAction m_menuButtonAction = XR_NULL_HANDLE;        // Bool, global menu/start action
     XrAction m_hapticAction = XR_NULL_HANDLE;            // Vibration OUTPUT, per hand
+    XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};
     XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
     XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
@@ -968,6 +998,17 @@ private:
     // Hands
     std::mutex m_handMutex;
     OpenXRHeadPose m_hands[2]{};
+    // The controllers' own motion (GetHandMotion): the change of the room-space pose since the previous locate
+    // (prev*). Written with m_hands, under m_handMutex.
+    struct HandMotion {
+        float linear[3]{};
+        float angular[3]{};
+        bool valid = false;
+        XrPosef prevPose{};
+        XrTime prevTime = 0;
+        uint64_t origin = 0;
+    };
+    HandMotion m_handMotion[2]{};
     cvr::body::TrackingFrame m_bodyTrackingFrame{}; // same native locate time, before hand lerp/weapon offsets
     // Seqlock counter for the shared-memory pose block (FlushHandsToShared). Bumped
     // odd before / even after each write so the script-side readers detect torn reads.
@@ -1000,6 +1041,16 @@ private:
     // per hand (m) + HMD eye height (m). The plugin scales the avatar arm bones to match
     // (gizmo-path), instead of the old position-scale hack. [80] = valid.
     std::atomic<int>   m_measureValid{0};
+    std::atomic<float> m_userHeight{0.0f};
+    std::atomic<float> m_measuredEyeHeight{0.0f};
+    std::atomic<int>   m_firstSetupDone{0};
+    // The runtime's STAGE space (floor at y = 0), made on the first T-pose; unavailable on a runtime without one.
+    XrSpace            m_stageSpace = XR_NULL_HANDLE;
+    bool               m_stageUnavailable = false;
+    float              m_calibEyeFloorSum = 0.0f;
+    int                m_calibEyeFloorCount = 0;
+    bool LocateEyesOverFloor(float* height);
+    void EnsureCalibDefaults();   // the wrist/elbow defaults, when never set
     std::atomic<float> m_userArmLenR{0.0f};
     std::atomic<float> m_userArmLenL{0.0f};
     std::atomic<float> m_userEyeHeight{0.0f};
@@ -1086,6 +1137,11 @@ private:
         // and a warp distance that varies frame to frame is what reads as the world shifting, while
         // every rate counter stays perfect.
         double captureMs = 0.0;
+        // Presented under a loading screen (Lobby/MenuLobby.hpp LoadingDark): never shown, however often submitted.
+        bool dark = false;
+        // The dark with the boot's notice, nothing else (Render/LoadingScreen.hpp, at the intro's heading): one picture
+        // drawn for the main eye, submitted to both eyes with the turn it was drawn for.
+        bool oneTurn = false;
     };
     std::vector<EyeSwapchain> m_eyeSwapchains;
     CapturedMonoFrame m_monoCapturedFrame;
@@ -1275,6 +1331,13 @@ private:
     ID3D12Resource* m_menuWindow = nullptr;
     std::unique_ptr<ColorBlit> m_menuBlit;
     bool EnsureMenuWindow(const D3D12_RESOURCE_DESC& backBufferDesc);
+    // The lobby's curtain and intro picture, drawn into each presented frame (Render/IntroOverlay.hpp). Capture only.
+    cvr::lobby::intro::Overlay m_introOverlay;
+    // A loading screen outside the main menu, hung in the dark before the player (Render/LoadingScreen.hpp), or the
+    // boot's screen with the intro's notice, hung where the intro plays (m_loadingScreenIsNotice; Lobby/Intro.hpp).
+    // Capture only.
+    cvr::loading::Screen m_loadingScreen;
+    bool m_loadingScreenIsNotice = false;
     // Engine present pacing: see openxr_manager.cpp OnPresent. The HMD-paced gate is
     // m_frameSyncEvent.
     std::atomic<int64_t> m_predictedDisplayPeriodNs{0};
@@ -1288,6 +1351,7 @@ private:
     std::condition_variable m_frameLoopCv;
     FrameLoopOwner m_frameLoopOwner = FrameLoopOwner::None;
     std::atomic<bool> m_sessionRunning = false;
+    std::atomic<bool> m_sessionFocused = false;
     std::atomic<bool> m_monoSubmitEnabled = false;
     std::atomic<int> m_renderEyeIndex = 0;
     std::atomic<bool> m_poseValid = false;
@@ -1323,6 +1387,7 @@ private:
     float m_loggedRuntimeIpd = 0.0f;
     float m_loggedForcedProjectionFovDeg = 0.0f;
     std::atomic<bool> m_runtimeIsSteamVR = false;
+    std::atomic<bool> m_runtimeIsPsvr2 = false;
     std::atomic<bool> m_runtimeIsVirtualDesktop = false;
     // The OpenXR Simulator (the test runtime): its controllers report the AIM direction as their grip pose. See
     // ApplySimulatorGripFix.

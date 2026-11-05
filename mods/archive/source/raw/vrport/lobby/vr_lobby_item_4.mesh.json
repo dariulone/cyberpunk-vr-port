@@ -1,0 +1,779 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-31T10:08:59.5344344Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "C:\\Users\\dariulone\\Desktop\\CyberpunkVRPort\\build\\lobby-reference\\game\\vr_lobby_item_4.mesh"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 82160,
+  "RootChunk": {
+   "$type": "CMesh",
+   "appearances": [
+    {
+     "HandleId": "0",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "brass"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "metal_dark"
+       }
+      ],
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "default"
+      },
+      "tags": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "audioName"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "basketball"
+       }
+      ]
+     }
+    }
+   ],
+   "boneNames": [],
+   "boneRigMatrices": [],
+   "boneVertexEpsilons": [],
+   "boundingBox": {
+    "$type": "Box",
+    "Max": {
+     "$type": "Vector4",
+     "W": 1,
+     "X": 0.0549999252,
+     "Y": 0.0299999509,
+     "Z": 0.00799994078
+    },
+    "Min": {
+     "$type": "Vector4",
+     "W": 1,
+     "X": -0.0550000444,
+     "Y": -0.0300000403,
+     "Z": -0.00800005998
+    }
+   },
+   "castGlobalShadowsCachedInCook": 1,
+   "castLocalShadowsCachedInCook": 1,
+   "castsRayTracedShadowsFromOriginalGeometry": 1,
+   "consoleBias": 1,
+   "constrainAutoHideDistanceToTerrainHeightMap": 0,
+   "cookingPlatform": "PLATFORM_PC",
+   "externalMaterials": [],
+   "floatTrackNames": [],
+   "forceLoadAllAppearances": 0,
+   "geometryHash": "4888368052128569331",
+   "inplaceResources": [],
+   "isPlayerShadowMesh": 0,
+   "isShadowMesh": 0,
+   "localMaterialBuffer": {
+    "$type": "meshMeshMaterialBuffer",
+    "materials": [],
+    "rawData": null,
+    "rawDataHeaders": []
+   },
+   "localMaterialInstances": [],
+   "lodBoneMask": [],
+   "lodLevelInfo": [
+    0
+   ],
+   "materialEntries": [
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 0,
+     "isLocalInstance": 1,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "brass"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 1,
+     "isLocalInstance": 1,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "metal_dark"
+     }
+    }
+   ],
+   "objectType": "ROT_Static",
+   "parameters": [
+    {
+     "HandleId": "3",
+     "Data": {
+      "$type": "meshMeshParamPhysics",
+      "physicsData": {
+       "HandleId": "4",
+       "Data": {
+        "$type": "physicsSystemResource",
+        "bodies": [
+         {
+          "HandleId": "5",
+          "Data": {
+           "$type": "physicsSystemBody",
+           "collisionShapes": [
+            {
+             "HandleId": "6",
+             "Data": {
+              "$type": "physicsColliderBox",
+              "filterData": {
+               "HandleId": "7",
+               "Data": {
+                "$type": "physicsFilterData",
+                "customFilterData": null,
+                "preset": {
+                 "$type": "CName",
+                 "$storage": "string",
+                 "$value": "World Dynamic"
+                },
+                "queryFilter": {
+                 "$type": "physicsQueryFilter",
+                 "mask1": "0",
+                 "mask2": "143769604"
+                },
+                "simulationFilter": {
+                 "$type": "physicsSimulationFilter",
+                 "mask1": "376836",
+                 "mask2": "5070"
+                }
+               }
+              },
+              "isImported": 0,
+              "isQueryShapeOnly": 0,
+              "localToBody": {
+               "$type": "Transform",
+               "orientation": {
+                "$type": "Quaternion",
+                "i": 0,
+                "j": 0,
+                "k": 0,
+                "r": 1
+               },
+               "position": {
+                "$type": "Vector4",
+                "X": 0.0,
+                "Y": 0.0,
+                "Z": 0.01699999962002039,
+                "W": 0
+               }
+              },
+              "material": {
+               "$type": "CName",
+               "$storage": "string",
+               "$value": "plastic.physmat"
+              },
+              "materialApperanceOverrides": [],
+              "tag": {
+               "$type": "CName",
+               "$storage": "string",
+               "$value": "None"
+              },
+              "volumeModifier": 0.209999993,
+              "halfExtents": {
+               "$type": "Vector3",
+               "X": 0.05499999597668648,
+               "Y": 0.029999997466802597,
+               "Z": 0.025
+              }
+             }
+            }
+           ],
+           "isQueryBodyOnly": 0,
+           "localToModel": {
+            "$type": "Transform",
+            "orientation": {
+             "$type": "Quaternion",
+             "i": 0,
+             "j": 0,
+             "k": 0,
+             "r": 1
+            },
+            "position": {
+             "$type": "Vector4",
+             "W": 0,
+             "X": 0,
+             "Y": 0,
+             "Z": 0
+            }
+           },
+           "mappedBoneName": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "None"
+           },
+           "mappedBoneToBody": {
+            "$type": "Transform",
+            "orientation": {
+             "$type": "Quaternion",
+             "i": 0,
+             "j": 0,
+             "k": 0,
+             "r": 1
+            },
+            "position": {
+             "$type": "Vector4",
+             "W": 0,
+             "X": 0,
+             "Y": 0,
+             "Z": 0
+            }
+           },
+           "name": {
+            "$type": "CName",
+            "$storage": "string",
+            "$value": "VR Basketball (0.624 kg, shell inertia)"
+           },
+           "params": {
+            "$type": "physicsSystemBodyParams",
+            "angularDamping": 0.05,
+            "comOffset": {
+             "$type": "Transform",
+             "orientation": {
+              "$type": "Quaternion",
+              "i": 0,
+              "j": 0,
+              "k": 0,
+              "r": 1
+             },
+             "position": {
+              "$type": "Vector4",
+              "X": 0.0,
+              "Y": 0.0,
+              "Z": 0.0,
+              "W": 0
+             }
+            },
+            "inertia": {
+             "$type": "Vector3",
+             "X": 1.606666423479727e-05,
+             "Y": 5.148332605858671e-05,
+             "Z": 6.541665675739484e-05
+            },
+            "linearDamping": 0.05,
+            "mass": 0.05,
+            "maxAngularVelocity": 60,
+            "maxContactImpulse": -1,
+            "maxDepenetrationVelocity": 1.5,
+            "simulationType": "Dynamic",
+            "solverIterationsCountPosition": 8,
+            "solverIterationsCountVelocity": 2
+           }
+          }
+         }
+        ],
+        "cookingPlatform": "PLATFORM_None",
+        "joints": []
+       }
+      }
+     }
+    }
+   ],
+   "preloadExternalMaterials": [],
+   "preloadLocalMaterialInstances": [
+    {
+     "HandleId": "100",
+     "Data": {
+      "$type": "CMaterialInstance",
+      "audioTag": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "None"
+      },
+      "baseMaterial": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "string",
+        "$value": "engine\\materials\\metal_base.remt"
+       },
+       "Flags": "Default"
+      },
+      "cookingPlatform": "PLATFORM_None",
+      "enableMask": 0,
+      "metadata": null,
+      "resourceVersion": 4,
+      "values": [
+       {
+        "$type": "rRef:ITexture",
+        "BaseColor": {
+         "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "engine\\textures\\editor\\white.xbm"
+         },
+         "Flags": "Default"
+        }
+       },
+       {
+        "$type": "Vector4",
+        "BaseColorScale": {
+         "$type": "Vector4",
+         "X": 0.550000011920929,
+         "Y": 0.33000001311302185,
+         "Z": 0.10000000149011612,
+         "W": 1.0
+        }
+       },
+       {
+        "$type": "rRef:ITexture",
+        "Metalness": {
+         "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "engine\\textures\\editor\\white.xbm"
+         },
+         "Flags": "Default"
+        }
+       },
+       {
+        "$type": "Float",
+        "MetalnessScale": 1.0
+       },
+       {
+        "$type": "rRef:ITexture",
+        "Roughness": {
+         "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "engine\\textures\\editor\\white.xbm"
+         },
+         "Flags": "Default"
+        }
+       },
+       {
+        "$type": "Float",
+        "RoughnessScale": 0.30000001192092896
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "101",
+     "Data": {
+      "$type": "CMaterialInstance",
+      "audioTag": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "None"
+      },
+      "baseMaterial": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "string",
+        "$value": "engine\\materials\\metal_base.remt"
+       },
+       "Flags": "Default"
+      },
+      "cookingPlatform": "PLATFORM_None",
+      "enableMask": 0,
+      "metadata": null,
+      "resourceVersion": 4,
+      "values": [
+       {
+        "$type": "rRef:ITexture",
+        "BaseColor": {
+         "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "engine\\textures\\editor\\white.xbm"
+         },
+         "Flags": "Default"
+        }
+       },
+       {
+        "$type": "Vector4",
+        "BaseColorScale": {
+         "$type": "Vector4",
+         "X": 0.11999999731779099,
+         "Y": 0.12800000607967377,
+         "Z": 0.14399999380111694,
+         "W": 1.0
+        }
+       },
+       {
+        "$type": "rRef:ITexture",
+        "Metalness": {
+         "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "engine\\textures\\editor\\white.xbm"
+         },
+         "Flags": "Default"
+        }
+       },
+       {
+        "$type": "Float",
+        "MetalnessScale": 0.6000000238418579
+       },
+       {
+        "$type": "rRef:ITexture",
+        "Roughness": {
+         "DepotPath": {
+          "$type": "ResourcePath",
+          "$storage": "string",
+          "$value": "engine\\textures\\editor\\white.xbm"
+         },
+         "Flags": "Default"
+        }
+       },
+       {
+        "$type": "Float",
+        "RoughnessScale": 0.3199999928474426
+       }
+      ]
+     }
+    }
+   ],
+   "renderResourceBlob": {
+    "HandleId": "8",
+    "Data": {
+     "$type": "rendRenderMeshBlob",
+     "header": {
+      "$type": "rendRenderMeshBlobHeader",
+      "bonePositions": [],
+      "customData": [],
+      "customDataElemStride": 0,
+      "dataProcessing": 1,
+      "indexBufferOffset": 1680,
+      "indexBufferSize": 120,
+      "opacityMicromaps": [],
+      "quantizationOffset": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": -5.96046448e-08,
+       "Y": -4.47034836e-08,
+       "Z": -5.96046448e-08
+      },
+      "quantizationScale": {
+       "$type": "Vector4",
+       "W": 0,
+       "X": 0.0549999848,
+       "Y": 0.0299999956,
+       "Z": 0.00800000038
+      },
+      "renderChunkInfos": [
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 0
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           0,
+           192,
+           288,
+           480,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 24,
+        "numVertices": 24,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 48
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           672,
+           960,
+           1104,
+           1392,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 36,
+        "numVertices": 36,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       }
+      ],
+      "renderChunks": [],
+      "renderLODs": [
+       0
+      ],
+      "speedTreeWind": [],
+      "topology": [
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       }
+      ],
+      "topologyData": [],
+      "topologyDataStride": 0,
+      "topologyMetadata": [],
+      "topologyMetadataStride": 0,
+      "version": 20,
+      "vertexBufferSize": 1680
+     },
+     "renderBuffer": {
+      "BufferId": "1",
+      "Flags": 4063232,
+      "Bytes": "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"
+     }
+    }
+   },
+   "resourceVersion": 3,
+   "saveDateTime": "1048576",
+   "surfaceAreaPerAxis": {
+    "$type": "Vector3",
+    "X": 0.0444829203,
+    "Y": 0.0446018465,
+    "Z": 0.0423358902
+   },
+   "useRayTracingShadowLODBias": 0
+  },
+  "EmbeddedFiles": []
+ }
+}

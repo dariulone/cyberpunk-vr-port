@@ -48,7 +48,7 @@ def run_paired_interval(pid, game, frames, check, inspect, report_path, change_v
     from live_symbols import resolve
     if not 30 <= frames <= 1200:
         raise ValueError('Paired interval must contain 30-1200 frames')
-    symbols = resolve(pid, game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',
+    symbols = resolve(pid, game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
                       ['CyberpunkVR_Preparation*','CyberpunkVR_EagerDepth*','g_menuModeValue','CyberpunkVR_CullReuseMode'])
     reader = Reader(pid, game/'bin/x64/Cyberpunk2077.exe', 0, 0)
     k, handle = reader.k, None

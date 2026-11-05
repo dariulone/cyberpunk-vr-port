@@ -117,7 +117,7 @@ def main():
         if 'bone_buffer_cell' in addresses:
             indices={name:struct.unpack('<i',read('bone_'+name+'_index',4))[0]
                      for name in ('head','hips','right_hand','left_hand')}
-            if any(i<0 or i>=800 for i in indices.values()):raise ValueError('Invalid player bone index')
+            if any(i<0 or i>=2048 for i in indices.values()):raise ValueError('Invalid player bone index')
             count=max(indices.values())+1
             pointer=read('bone_buffer_cell',8);bone_ptr=struct.unpack('<Q',pointer)[0]
             local=reader.read(bone_ptr,count*48);parents=struct.unpack('<'+'h'*count,read('bone_parents',count*2))

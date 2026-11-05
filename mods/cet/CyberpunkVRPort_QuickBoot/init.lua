@@ -49,7 +49,7 @@ local function readJson(path)
 end
 
 local function saveConfirmation()
-    local layer=Game.GetInkSystem():GetLayer(CName.new("inkSystemNotificationsLayer"))
+    local layer=Game.VRInkLayer(CName.new("inkSystemNotificationsLayer"))
     local root=layer and layer:GetVirtualWindow()
     if not root then return {ready=false} end
     local stack={{widget=root,depth=0}};local count=0;local popups={}
@@ -108,9 +108,8 @@ local function writeDetailedStatus(extra)
             local defs = GetAllBlackboardDefs()
             local board = Game.GetBlackboardSystem():Get(defs.UI_System)
             local result = { menuBlackboard = board and board:GetBool(defs.UI_System.IsInMenu) }
-            local system = Game.GetInkSystem()
             result.menuControllers = {}
-            local layer = system and system:GetLayer(CName.new("inkMenuLayer"))
+            local layer = Game.VRInkLayer(CName.new("inkMenuLayer"))
             if layer then
                 for _, controller in ipairs(layer:GetGameControllers()) do
                     local name = controller:GetClassName()
@@ -147,8 +146,11 @@ local function saveConfig()
     file:close()
 end
 
--- The run named a save: load that one through the menu's own call (Continue is LoadModdedSave(0) on a modded
--- game, the newest save). Never falls back to the latest -- the latest may be the save being avoided.
+-- On a modded game the menu loads through LoadModdedSave, which first raises a native warning that no script
+-- controller answers; a test run has accepted the mods already, so it loads the way an unmodded game does.
+
+-- The run named a save: load that one through the menu's own call. Never falls back to the latest -- the latest may
+-- be the save being avoided.
 local function resumeNamedSave(controller)
     local name = QuickBoot.saveName
     local index = nil
@@ -160,11 +162,7 @@ local function resumeNamedSave(controller)
         writeStatus("failed:named-save-missing:" .. name)
         return false
     end
-    local modded = true
-    pcall(function() modded = controller.isModded ~= false end)
-    local ok, err = pcall(function()
-        if modded then controller:LoadModdedSave(index) else controller:LoadSaveInGame(index) end
-    end)
+    local ok, err = pcall(function() controller:LoadSaveInGame(index) end)
     if not ok then
         writeStatus("failed:named-save:" .. tostring(err))
         return false
@@ -181,10 +179,12 @@ local function resumeLastSave()
     QuickBoot.continueItem = nil
     if QuickBoot.saveName then return resumeNamedSave(controller) end
     if controller and item and not QuickBoot.viaCheckpoint then
-        local ok, err = pcall(function() controller:HandleMenuItemActivate(item) end)
+        -- Continue itself is LoadLastCheckpoint(false) on an unmodded game, LoadModdedSave(0) on a modded one:
+        -- the same newest save, which the menu showing Continue proves is there.
+        local ok, err = pcall(function() controller:GetSystemRequestsHandler():LoadLastCheckpoint(false) end)
         if ok then
             QuickBoot.resumeMethod = "menu-continue"
-            print("[CyberpunkVR QuickBoot] resumed via native Continue menu item")
+            print("[CyberpunkVR QuickBoot] resumed the newest save, as the menu's Continue does")
             writeStatus("resumed:menu-continue")
             return true
         end
@@ -280,9 +280,7 @@ local function continuePanelReady(root)
 end
 
 local function loadingScreenActive()
-    local system = Game.GetInkSystem()
-    if not system then return nil, {}, false end
-    local layer = system:GetLayer(CName.new("inkLoadingLayer"))
+    local layer = Game.VRInkLayer(CName.new("inkLoadingLayer"))
     if not layer then return false, {}, false end
     local active = false
     local continueReady, walkFailed = false, false

@@ -29,6 +29,9 @@ extern "C" int CyberpunkVR_BindPoseToImage;
 #include <memory>
 #include <algorithm>
 #include <dxgi1_4.h>
+#include "Lobby/Intro.hpp"
+#include "Lobby/Notice.hpp"
+#include "Lobby/MenuLobby.hpp"
 
 // Right eye source, from the stereo module. "Fresh" returns null once the VRCAM view stops
 // updating, which is what makes the fallback to mono automatic.
@@ -866,10 +869,21 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // over a frame rendered in stereo is drawn into each half already squeezed (EngineStereo.hpp LoadingSideBySide):
     // MAIN's eye's half is that same picture and is copied as it is (not under the main menu, drawn once over the
     // window: its right half alone showed the menu shifted).
-    const bool menuOpen = (GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture();
+    // The main menu shown in its world is split as a scene is (Lobby/MenuLobby.hpp WorldShown).
+    const bool menuOpen = ((GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture()) &&
+        !cvr::lobby::WorldShown();
+    const bool loadingDark = cvr::lobby::LoadingDark();
     const bool engineStereo = cvr::engine_stereo::Enabled() && sourceDesc.Width >= 2;
     const bool split = engineStereo && !menuOpen;
     const bool squeeze = engineStereo && menuOpen && !cvr::engine_stereo::LoadingSideBySide();
+    // A loading screen outside the main menu is hung in the void before the player (Render/LoadingScreen.hpp): both
+    // eyes are the dark with the window's picture on a screen in the space, each seen through its own eye. So is the
+    // boot's screen, the intro's notice (Lobby/Intro.hpp): where the intro will play, from the first frame it is up
+    // until the intro takes it over -- its last picture standing in once the screen has closed.
+    const auto notice = cvr::lobby::intro::Boot();
+    const bool loadingInSpace = notice.shown || (engineStereo && cvr::lobby::LoadingInSpace());
+    if (!loadingInSpace || notice.shown != m_loadingScreenIsNotice) m_loadingScreen.End();
+    m_loadingScreenIsNotice = notice.shown;
     D3D12_RESOURCE_DESC eyeDesc = sourceDesc;
     if (engineStereo) eyeDesc.Width = sourceDesc.Width / 2;
     const uint32_t mainEyeIndex = CyberpunkVR_MainIsRightEye ? 1u : 0u;
@@ -877,6 +891,22 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     const auto halfX = [&](uint32_t eye) {
         return eye == 0 ? 0u : static_cast<uint32_t>(sourceDesc.Width - eyeDesc.Width);
     };
+    // The loading screen's picture: the window of a frame the world was not drawn in -- the most of a load -- where the
+    // screen is drawn once over the whole window, in the 16:9 its screens are laid out in, fitted by the height (as a
+    // menu's, OpenXRFrameLoop.cpp the menu quad). A frame with the world drawn under the screen is not taken: its UI
+    // pass leaves the world showing at the window's edges and the progress bar out (measured on a checkpoint reload,
+    // 2026-10-30). The picture copied last stands in for it, and until there is one the screen is not shown.
+    float loadingUv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    float loadingAspect = 16.0f / 9.0f;
+    bool loadingWindow = false;   // MAIN's eye got the loading screen: the other eye gets it too
+    const bool loadingCopy = notice.shown ? notice.live : loadingInSpace && !cvr::engine_stereo::WorldDrawn();
+    if (loadingInSpace) {
+        const float windowW = static_cast<float>(sourceDesc.Width), windowH = static_cast<float>(sourceDesc.Height);
+        const float designW = (std::min)(windowW, windowH * 16.0f / 9.0f);
+        loadingAspect = designW / windowH;
+        loadingUv[0] = 0.5f * (1.0f - designW / windowW);
+        loadingUv[2] = 1.0f - loadingUv[0];
+    }
     if (!EnsureMonoCaptureResource(eyeDesc)) {
         CVR_DIAGNOSTIC(CyberpunkVR_DebugCapSkipNoRes.fetch_add(1, std::memory_order_relaxed));
         return false;
@@ -955,6 +985,55 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     }
 
     auto gpuProfile = cvr::gpu::profile::Begin(m_captureCmdList);
+    // The pose an eye's image was rendered at: its label's head with this frame's eye offset (Camera/ImagePoseMath.hpp)
+    // when the label belongs to this queue and tracking origin, else the pose located for it. The image is submitted
+    // with it, and anything drawn into the image is seen through it.
+    const auto labelled = [&](const cvr::camera::ImagePoseIdentity& source, uint32_t view) {
+        return CyberpunkVR_BindPoseToImage && !ExternalPoseResetPending() && source && source.pose &&
+               source.pose.view == view && source.queue == reinterpret_cast<uintptr_t>(m_d3dQueue) &&
+               source.pose.head.originSerial == GetTrackingOriginSerial();
+    };
+    const auto imagePose = [&](uint32_t eye, const cvr::camera::ImagePoseIdentity& source, uint32_t view) {
+        return labelled(source, view)
+                   ? cvr::camera::RebaseImageEyePose(headCenters[eye], poses[eye], source.pose.localHead)
+                   : poses[eye];
+    };
+    // THE LOBBY'S CURTAIN AND INTRO, INTO THE FRAME (Render/IntroOverlay.hpp): over the presented image itself,
+    // before anything is copied out of it, so the window shows what the eyes do. Each eye's image gets the intro's
+    // picture seen through that eye (the second eye of the port's own stereo below, after its blit); a window both
+    // eyes share (a menu's, the loading screen's) the curtain alone.
+    const bool introOverlay = m_introOverlay.Begin(cvr::lobby::Curtain(), headCenters[mainEyeIndex]);
+    const bool introPicture = split || (!engineStereo && !menuOpen);
+    if (introOverlay) {
+        XrPosef seen[2] = {poses[0], poses[1]};
+        {
+            std::lock_guard submissionLock(cvr::camera::ImageSubmissionMutex());
+            const auto image = cvr::camera::ReadImagePose(backBuffer);
+            for (uint32_t eye = 0; eye < 2; ++eye) seen[eye] = imagePose(eye, image, 1u);
+        }
+        D3D12_RESOURCE_BARRIER toTarget{};
+        toTarget.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toTarget.Transition.pResource = backBuffer;
+        toTarget.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        toTarget.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        toTarget.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        m_captureCmdList->ResourceBarrier(1, &toTarget);
+        const LONG height = static_cast<LONG>(sourceDesc.Height);
+        if (split) {
+            for (uint32_t eye = 0; eye < 2; ++eye) {
+                const LONG x = static_cast<LONG>(halfX(eye));
+                m_introOverlay.Record(m_d3dDevice, m_captureCmdList, backBuffer,
+                                      {x, 0, x + static_cast<LONG>(eyeDesc.Width), height}, seen[eye], fovs[eye], true,
+                                      m_captureAllocatorIndex);
+            }
+        } else {
+            m_introOverlay.Record(m_d3dDevice, m_captureCmdList, backBuffer,
+                                  {0, 0, static_cast<LONG>(sourceDesc.Width), height}, seen[mainEyeIndex],
+                                  fovs[mainEyeIndex], introPicture, m_captureAllocatorIndex);
+        }
+        std::swap(toTarget.Transition.StateBefore, toTarget.Transition.StateAfter);
+        m_captureCmdList->ResourceBarrier(1, &toTarget);
+    }
     {
     cvr::gpu::profile::Scope gpuScope(gpuProfile, cvr::gpu::profile::Stage::CaptureMain);
     D3D12_RESOURCE_BARRIER barriers[2] = {};
@@ -978,8 +1057,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
 
     m_captureCmdList->ResourceBarrier(barrierCount, barriers);
     bool squeezed = false;
-    if (squeeze && EnsureMenuWindow(sourceDesc)) {
-        m_captureCmdList->CopyResource(m_menuWindow, backBuffer);
+    if ((squeeze || loadingInSpace) && EnsureMenuWindow(sourceDesc)) {
+        if (!loadingInSpace || loadingCopy) m_captureCmdList->CopyResource(m_menuWindow, backBuffer);
         D3D12_RESOURCE_BARRIER blit[2] = {};
         for (auto& barrier : blit) {
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -992,7 +1071,23 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         blit[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
         blit[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
         m_captureCmdList->ResourceBarrier(2, blit);
-        squeezed = m_menuBlit->RecordBlit(m_captureCmdList, m_menuWindow, snapshot);
+        if (loadingInSpace) {
+            if (notice.shown) {
+                static const cvr::loading::Placement kNotice{cvr::lobby::intro::kNoticeDistance, 0.0f,
+                                                             cvr::lobby::intro::kNoticeWidth, 0.8f,
+                                                             &cvr::lobby::notice::Word(),
+                                                             &cvr::lobby::intro::Heading()};
+                m_loadingScreen.Begin(headCenters[mainEyeIndex], kNotice, notice.opacity);
+            } else {
+                m_loadingScreen.Begin(headCenters[mainEyeIndex]);
+            }
+            if (loadingCopy) m_loadingScreen.Hold();
+            squeezed = loadingWindow = m_loadingScreen.Record(m_d3dDevice, m_captureCmdList, snapshot, sourceDesc.Format,
+                {0, 0, static_cast<LONG>(eyeDesc.Width), static_cast<LONG>(eyeDesc.Height)}, poses[mainEyeIndex],
+                fovs[mainEyeIndex], m_menuWindow, sourceDesc.Format, loadingUv, loadingAspect);
+        } else {
+            squeezed = m_menuBlit->RecordBlit(m_captureCmdList, m_menuWindow, snapshot);
+        }
         for (auto& barrier : blit) std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
         m_captureCmdList->ResourceBarrier(2, blit);
     }
@@ -1014,6 +1109,22 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     afterCopy[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     m_captureCmdList->ResourceBarrier(2, afterCopy);
     }
+
+    // The second eye's slot this capture writes: the next one of the pool that no submit is reading and that the frame
+    // just published does not pair with. Null when every one is in use.
+    const auto takeEyeSlot = [&]() -> ID3D12Resource* {
+        std::lock_guard<std::mutex> lock(m_presentMutex);
+        for(int step=1;step<=kVrcamEyeSlots;++step) {
+            const auto slot=(m_vrcamEyeSlot+step)%kVrcamEyeSlots;
+            if(m_vrcamEyePoolSerial[slot]==m_monoCapturedFrame.serial && m_monoCapturedFrame.serial)continue;
+            auto* candidate=m_vrcamEyePool[slot];
+            if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
+                m_vrcamEyeSlot=slot;writeResources[1]=reinterpret_cast<uintptr_t>(candidate);
+                return candidate;
+            }
+        }
+        return nullptr;
+    };
 
     // ---- right eye: the VRCAM view, converted here and now ---------------------------------
     //
@@ -1050,6 +1161,38 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     ID3D12Resource* vrcamCaptureSource=nullptr;
     const uint32_t eyeW = static_cast<uint32_t>(eyeDesc.Width);
     const uint32_t eyeH = sourceDesc.Height;
+    // THE MONITOR SHOWS THE NOTICE AS THE EYES DO (Lobby/Intro.hpp): once the eyes have theirs, the window itself is
+    // made the dark with the notice hung in it -- each eye's half through that eye when the engine draws both, else the
+    // whole window through MAIN's eye, its view widened to the window's shape -- instead of the boot's flat screen.
+    if (loadingWindow && notice.shown) {
+        D3D12_RESOURCE_BARRIER toTarget{};
+        toTarget.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toTarget.Transition.pResource = backBuffer;
+        toTarget.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        toTarget.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        toTarget.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        m_captureCmdList->ResourceBarrier(1, &toTarget);
+        const LONG height = static_cast<LONG>(sourceDesc.Height);
+        if (split) {
+            for (uint32_t eye = 0; eye < 2; ++eye) {
+                const LONG x = static_cast<LONG>(halfX(eye));
+                m_loadingScreen.Record(m_d3dDevice, m_captureCmdList, backBuffer, sourceDesc.Format,
+                                       {x, 0, x + static_cast<LONG>(eyeDesc.Width), height}, poses[eye], fovs[eye],
+                                       m_menuWindow, sourceDesc.Format, loadingUv, loadingAspect);
+            }
+        } else {
+            XrFovf wide = fovs[mainEyeIndex];
+            const float up = std::tan(wide.angleUp), down = std::tan(wide.angleDown);
+            const float half = 0.5f * (up - down) * float(sourceDesc.Width) / float((std::max)(1u, sourceDesc.Height));
+            wide.angleLeft = std::atan(-half);
+            wide.angleRight = std::atan(half);
+            m_loadingScreen.Record(m_d3dDevice, m_captureCmdList, backBuffer, sourceDesc.Format,
+                                   {0, 0, static_cast<LONG>(sourceDesc.Width), height}, poses[mainEyeIndex], wide,
+                                   m_menuWindow, sourceDesc.Format, loadingUv, loadingAspect);
+        }
+        std::swap(toTarget.Transition.StateBefore, toTarget.Transition.StateAfter);
+        m_captureCmdList->ResourceBarrier(1, &toTarget);
+    }
     // NOT IN A MENU. The right eye below is VRCAM's view of the WORLD; the menu is not in it,
     // because a menu is drawn as one mono surface into the backbuffer. Taking VRCAM here
     // anyway gives the left eye the menu and the right eye a frozen street, which is the
@@ -1057,7 +1200,33 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // that completely, the scene is what reads.
     // Skipping it leaves both eyes on the backbuffer snapshot, i.e. the menu, mono -- which is
     // what a mono surface should look like.
-    if (split) {
+    if (loadingWindow) {
+        // The loading screen for the other eye: the same window, hung in the same place, seen through that eye. Its
+        // slot is written through the 8-bit view the window was copied in (the frame's encoding, as MAIN's eye).
+        if (CyberpunkVR_StereoSubmit && CopyFamily(sourceDesc.Format) == 1 && eyeW && eyeH &&
+            EnsureVrcamEyeTexture(eyeW, eyeH, DXGI_FORMAT_R8G8B8A8_TYPELESS)) {
+            ID3D12Resource* const eyeSlotTex = takeEyeSlot();
+            if (!eyeSlotTex) { m_captureCmdList->Close();snapshot->Release();return false; }
+            const uint32_t eye = mainEyeIndex ^ 1u;
+            D3D12_RESOURCE_BARRIER b[2] = {};
+            for (auto& barrier : b) {
+                barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            }
+            b[0].Transition.pResource = m_menuWindow;
+            b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            b[1].Transition.pResource = eyeSlotTex;
+            b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            m_captureCmdList->ResourceBarrier(2, b);
+            vrcamEyeCaptured = m_loadingScreen.Record(m_d3dDevice, m_captureCmdList, eyeSlotTex,
+                DXGI_FORMAT_R8G8B8A8_UNORM, {0, 0, static_cast<LONG>(eyeW), static_cast<LONG>(eyeH)}, poses[eye],
+                fovs[eye], m_menuWindow, sourceDesc.Format, loadingUv, loadingAspect);
+            for (auto& barrier : b) std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+            m_captureCmdList->ResourceBarrier(2, b);
+        }
+    } else if (split) {
         // ENGINE STEREO: the second eye is the other half of the same backbuffer. The engine drew it whole --
         // HUD and scanner per eye -- so it is copied as it is, with nothing composited on top. A plain
         // copy needs the slot's format family, the R8G8B8A8 one the swapchains are picked for.
@@ -1072,19 +1241,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         }
         if (CyberpunkVR_StereoSubmit && rgba8 && eyeW && eyeH &&
             EnsureVrcamEyeTexture(eyeW, eyeH, DXGI_FORMAT_R8G8B8A8_TYPELESS)) {
-            {
-                std::lock_guard<std::mutex> lock(m_presentMutex);
-                for(int step=1;step<=kVrcamEyeSlots;++step) {
-                    const auto slot=(m_vrcamEyeSlot+step)%kVrcamEyeSlots;
-                    if(m_vrcamEyePoolSerial[slot]==m_monoCapturedFrame.serial && m_monoCapturedFrame.serial)continue;
-                    auto* candidate=m_vrcamEyePool[slot];
-                    if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
-                        m_vrcamEyeSlot=slot;writeResources[1]=reinterpret_cast<uintptr_t>(candidate);break;
-                    }
-                }
-            }
-            if(!writeResources[1]) { m_captureCmdList->Close();snapshot->Release();return false; }
-            ID3D12Resource* const eyeSlotTex = m_vrcamEyePool[m_vrcamEyeSlot];
+            ID3D12Resource* const eyeSlotTex = takeEyeSlot();
+            if (!eyeSlotTex) { m_captureCmdList->Close();snapshot->Release();return false; }
             cvr::gpu::profile::Scope gpuScope(gpuProfile, cvr::gpu::profile::Stage::CaptureSecond);
             D3D12_RESOURCE_BARRIER b[2] = {};
             for (auto& barrier : b) {
@@ -1157,19 +1315,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                     // ROTATE FIRST, then write. The slot chosen here is the one the submit will
                     // look up by serial, so the producer never touches an image a consumer is
                     // still copying out of -- the whole point of the pool.
-                    {
-                        std::lock_guard<std::mutex> lock(m_presentMutex);
-                        for(int step=1;step<=kVrcamEyeSlots;++step) {
-                            const auto slot=(m_vrcamEyeSlot+step)%kVrcamEyeSlots;
-                            if(m_vrcamEyePoolSerial[slot]==m_monoCapturedFrame.serial && m_monoCapturedFrame.serial)continue;
-                            auto* candidate=m_vrcamEyePool[slot];
-                            if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
-                                m_vrcamEyeSlot=slot;writeResources[1]=reinterpret_cast<uintptr_t>(candidate);break;
-                            }
-                        }
-                    }
-                    if(!writeResources[1]) { m_captureCmdList->Close();snapshot->Release();return false; }
-                    ID3D12Resource* const eyeSlotTex = m_vrcamEyePool[m_vrcamEyeSlot];
+                    ID3D12Resource* const eyeSlotTex = takeEyeSlot();
+                    if (!eyeSlotTex) { m_captureCmdList->Close();snapshot->Release();return false; }
                     cvr::gpu::profile::Scope gpuScope(gpuProfile, cvr::gpu::profile::Stage::CaptureSecond);
 
                     D3D12_RESOURCE_BARRIER toRt{};
@@ -1341,6 +1488,19 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                         OverlayRecordIntoTarget(m_captureCmdList, eyeSlotTex, shiftPx);
                     }
 
+                    // The lobby's curtain and intro picture for this eye, as MAIN's got them above.
+                    if (vrcamEyeCaptured && introOverlay) {
+                        const uint32_t eye = mainEyeIndex ^ 1u;
+                        XrPosef seen = poses[eye];
+                        {
+                            std::lock_guard submissionLock(cvr::camera::ImageSubmissionMutex());
+                            seen = imagePose(eye, cvr::camera::ReadImagePose(vrcamSrc), 2u);
+                        }
+                        m_introOverlay.Record(m_d3dDevice, m_captureCmdList, eyeSlotTex,
+                                              {0, 0, static_cast<LONG>(eyeW), static_cast<LONG>(eyeH)}, seen,
+                                              fovs[eye], introPicture, m_captureAllocatorIndex);
+                    }
+
                     // Why this is done here at all rather than in the engine: eye 0 is MAIN's
                     // backbuffer and already carries the HUD, while eye 1 is the VRCAM view,
                     // for which the composition group bails on a per-view gate we cannot
@@ -1475,10 +1635,9 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             // keeps the left half's in the first pool), none for a menu's squeezed window -- framegen does not
             // generate under a menu.
             const uint32_t inputView=split ? eye+1u : engineStereo ? 0u : view;
-            if(CyberpunkVR_BindPoseToImage && !ExternalPoseResetPending() && source && source.pose && source.pose.view==view &&
-               source.queue==reinterpret_cast<uintptr_t>(m_d3dQueue) &&
-               source.pose.head.originSerial==GetTrackingOriginSerial()) {
-                capturedPoses[eye]=cvr::camera::RebaseImageEyePose(headCenters[eye],poses[eye],source.pose.localHead);
+            // The loading screen is drawn through the poses located for this frame, and is submitted with them.
+            if(!loadingWindow && labelled(source,view)) {
+                capturedPoses[eye]=imagePose(eye,source,view);
                 capturedPoseIds[eye]=source.pose.poseId;
                 capturedImageGenerations[eye]=source.generation;
                 if(inputView && cvr::framegen::CaptureInputsEnabled() && source.pose.hasRenderFrameId)
@@ -1508,6 +1667,10 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         if (m_monoCapturedFrame.texture == snapshot) {
             m_monoCapturedFrame.serial = serial;
             m_monoCapturedFrame.captureMs = XrDiagNowMs();
+            // A frame hung with a screen in the dark is dark already, with the screen in it.
+            m_monoCapturedFrame.dark = loadingDark && !loadingWindow;
+            // The boot's notice in the dark: both eyes are submitted with the turn it was drawn for.
+            m_monoCapturedFrame.oneTurn = loadingWindow && notice.shown;
             CVR_DIAGNOSTIC(CyberpunkVR_DebugCapOk.fetch_add(1, std::memory_order_relaxed));
             for (int eye = 0; eye < 2; ++eye) {
                 m_monoCapturedFrame.poses[eye] = capturedPoses[eye];

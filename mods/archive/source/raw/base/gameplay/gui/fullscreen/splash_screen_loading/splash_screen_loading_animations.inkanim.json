@@ -1,0 +1,642 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-28T19:43:24.6921117Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": ""
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "inkanimAnimationLibraryResource",
+   "cookingPlatform": "PLATFORM_PC",
+   "sequences": [
+    {
+     "HandleId": "0",
+     "Data": {
+      "$type": "inkanimSequence",
+      "definitions": [
+       {
+        "HandleId": "1",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [
+          {
+           "HandleId": "2",
+           "Data": {
+            "$type": "inkanimPlaySoundEvent",
+            "soundEventName": {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "None"
+            },
+            "startTime": 0
+           }
+          }
+         ],
+         "interpolators": [
+          {
+           "HandleId": "3",
+           "Data": {
+            "$type": "inkanimVideoInterpolator",
+            "allowSkipBackward": 1,
+            "audioEvent": {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "None"
+            },
+            "duration": 0,
+            "endValue": 0,
+            "interpolationDirection": "FromTo",
+            "interpolationMode": "EasyIn",
+            "interpolationType": "Linear",
+            "isAdditive": 0,
+            "retriggerAudioOnLoop": 0,
+            "startDelay": 0,
+            "startValue": 0,
+            "synchronizeToAudio": 1,
+            "useRelativeDuration": 0
+           }
+          }
+         ]
+        }
+       }
+      ],
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "logo_train"
+      },
+      "targets": [
+       {
+        "HandleId": "4",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          2
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "5",
+     "Data": {
+      "$type": "inkanimSequence",
+      "definitions": [
+       {
+        "HandleId": "6",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": [
+          {
+           "HandleId": "7",
+           "Data": {
+            "$type": "inkanimVideoInterpolator",
+            "allowSkipBackward": 1,
+            "audioEvent": {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "cp_intro_temp_sfx_music_start"
+            },
+            "duration": 0,
+            "endValue": 0,
+            "interpolationDirection": "FromTo",
+            "interpolationMode": "EasyIn",
+            "interpolationType": "Linear",
+            "isAdditive": 0,
+            "retriggerAudioOnLoop": 0,
+            "startDelay": 0,
+            "startValue": 0,
+            "synchronizeToAudio": 1,
+            "useRelativeDuration": 0
+           }
+          }
+         ]
+        }
+       },
+       {
+        "HandleId": "8",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "13",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "18",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "23",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "28",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "33",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "38",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "43",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "48",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "53",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "58",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "63",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "68",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "73",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       }
+      ],
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "game_intro"
+      },
+      "targets": [
+       {
+        "HandleId": "78",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          2
+         ]
+        }
+       },
+       {
+        "HandleId": "79",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          0
+         ]
+        }
+       },
+       {
+        "HandleId": "80",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          1
+         ]
+        }
+       },
+       {
+        "HandleId": "81",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          2
+         ]
+        }
+       },
+       {
+        "HandleId": "82",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          3
+         ]
+        }
+       },
+       {
+        "HandleId": "83",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          4
+         ]
+        }
+       },
+       {
+        "HandleId": "84",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          5
+         ]
+        }
+       },
+       {
+        "HandleId": "85",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          6
+         ]
+        }
+       },
+       {
+        "HandleRefId": "-1"
+       },
+       {
+        "HandleId": "86",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          8
+         ]
+        }
+       },
+       {
+        "HandleId": "87",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          9
+         ]
+        }
+       },
+       {
+        "HandleId": "88",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          10
+         ]
+        }
+       },
+       {
+        "HandleId": "89",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          11
+         ]
+        }
+       },
+       {
+        "HandleId": "90",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          12
+         ]
+        }
+       },
+       {
+        "HandleId": "91",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          0,
+          13
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "92",
+     "Data": {
+      "$type": "inkanimSequence",
+      "definitions": [
+       {
+        "HandleId": "93",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [
+          {
+           "HandleId": "94",
+           "Data": {
+            "$type": "inkanimPlaySoundEvent",
+            "soundEventName": {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "None"
+            },
+            "startTime": 0
+           }
+          }
+         ],
+         "interpolators": [
+          {
+           "HandleId": "95",
+           "Data": {
+            "$type": "inkanimVideoInterpolator",
+            "allowSkipBackward": 1,
+            "audioEvent": {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "None"
+            },
+            "duration": 0,
+            "endValue": 0,
+            "interpolationDirection": "FromTo",
+            "interpolationMode": "EasyIn",
+            "interpolationType": "Linear",
+            "isAdditive": 0,
+            "retriggerAudioOnLoop": 0,
+            "startDelay": 0,
+            "startValue": 0,
+            "synchronizeToAudio": 1,
+            "useRelativeDuration": 0
+           }
+          }
+         ]
+        }
+       }
+      ],
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "logo_train_long"
+      },
+      "targets": [
+       {
+        "HandleId": "96",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          2
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "97",
+     "Data": {
+      "$type": "inkanimSequence",
+      "definitions": [
+       {
+        "HandleId": "98",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "102",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "106",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "108",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "111",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       },
+       {
+        "HandleId": "120",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": []
+        }
+       }
+      ],
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "after_skip_pressed"
+      },
+      "targets": [
+       {
+        "HandleId": "125",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          1,
+          1
+         ]
+        }
+       },
+       {
+        "HandleId": "126",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          1,
+          0
+         ]
+        }
+       },
+       {
+        "HandleId": "127",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          1,
+          2,
+          0
+         ]
+        }
+       },
+       {
+        "HandleId": "128",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          1,
+          3
+         ]
+        }
+       },
+       {
+        "HandleId": "129",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          1,
+          2,
+          4
+         ]
+        }
+       },
+       {
+        "HandleId": "130",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          1,
+          2,
+          2
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "131",
+     "Data": {
+      "$type": "inkanimSequence",
+      "definitions": [
+       {
+        "HandleId": "132",
+        "Data": {
+         "$type": "inkanimDefinition",
+         "events": [],
+         "interpolators": [
+          {
+           "HandleId": "133",
+           "Data": {
+            "$type": "inkanimVideoInterpolator",
+            "allowSkipBackward": 1,
+            "audioEvent": {
+             "$type": "CName",
+             "$storage": "string",
+             "$value": "None"
+            },
+            "duration": 0,
+            "endValue": 0,
+            "interpolationDirection": "FromTo",
+            "interpolationMode": "EasyIn",
+            "interpolationType": "Linear",
+            "isAdditive": 0,
+            "retriggerAudioOnLoop": 0,
+            "startDelay": 0,
+            "startValue": 0,
+            "synchronizeToAudio": 1,
+            "useRelativeDuration": 0
+           }
+          }
+         ]
+        }
+       }
+      ],
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "loc_message"
+      },
+      "targets": [
+       {
+        "HandleId": "134",
+        "Data": {
+         "$type": "inkanimSequenceTargetInfo",
+         "path": [
+          2
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "EmbeddedFiles": []
+ }
+}

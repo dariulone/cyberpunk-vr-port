@@ -502,13 +502,13 @@ void MovementFreeZone() {
     Near(entity,{.11f,0},"body never reached new centre");
     Near(tick(.12f).world,{},"one centimetre moved body after catch-up");
     Near(tick(.12f,.01f).world,{},"diagonal small lean moved body");
-    // After completing a rejected wall request there is no replayed debt.
-    Movement blocked;seq=0;
+    // A follow the controller carried out is not requested again.
+    Movement carried;seq=0;
     for(int i=0;i<60;++i) {
-        auto pose=Pose(++seq,i ? .2f:0);auto step=blocked.Begin(pose,pose.stampUs,.01f,1,0,true,.10f);blocked.Complete(step);
+        auto pose=Pose(++seq,i ? .2f:0);auto step=carried.Begin(pose,pose.stampUs,.01f,1,0,true,.10f);carried.Complete(step);
     }
-    Near(blocked.Consumed(1),{.2f,0},"blocked follow leaves movement debt");
-    auto pose=Pose(++seq,.2f);Near(blocked.Begin(pose,pose.stampUs,.01f,1,0,true,.10f).world,{},"stationary head retries wall movement");
+    Near(carried.Consumed(1),{.2f,0},"carried follow leaves movement debt");
+    auto pose=Pose(++seq,.2f);Near(carried.Begin(pose,pose.stampUs,.01f,1,0,true,.10f).world,{},"stationary head replays a carried step");
     Movement held;auto initial=Pose(1,0);held.Complete(held.Begin(initial,initial.stampUs,.01f,1,0,true,.10f));
     auto same=Pose(2,.13f);
     for(int i=0;i<40;++i)held.Complete(held.Begin(same,same.stampUs+i*5000,.005f,1,0,true,.10f));
@@ -581,16 +581,96 @@ void Camera() {
 }
 
 void Collision() {
-    Movement m; Tick(m, Pose(1, 0));
-    const auto step = Tick(m, Pose(2, 0.1f));
-    // Wall accepts 2 cm of the requested 10 cm; the camera ends on the wall too.
-    Vec2 entity{0.02f, 0};
-    Near(entity + (Vec2{0.1f, 0} - m.Consumed(1)), entity, "blocked distance is not camera translation");
-    for (int i = 3; i < 200; ++i) {
-        Near(Tick(m, Pose(i, 0.1f)).world, {}, "no catch-up while headset stands at wall");
+    constexpr float lead = 0.3f;
+    const Movement::LeadLimit limit{{}, lead};
+    {
+        // Wall accepts 2 cm of the requested 10 cm: the view keeps the headset's
+        // 8 cm lead over the capsule instead of being held on it.
+        Movement m; Tick(m, Pose(1, 0));
+        auto p = Pose(2, 0.1f);
+        const auto step = m.Begin(p, p.stampUs, .01f, 1, 0, true);
+        Near(step.world, {0.1f, 0}, "physics receives whole displacement, not an eased target");
+        m.Complete(step, {0.02f, 0}, limit);
+        const Vec2 entity{0.02f, 0};
+        Near(entity + (Vec2{0.1f, 0} - m.Consumed(1)), {0.1f, 0}, "wall held the view on the capsule");
+        Near(m.Pending(), {0.08f, 0}, "refused distance is not the view's lead");
     }
-    Near(Tick(m, Pose(200, 0.07f)).world, {-0.03f, 0}, "step away from wall responds immediately");
-    Near(step.world, {0.1f, 0}, "physics receives whole displacement, not an eased target");
+    // A wall 0 m in front of the capsule, the follow's free zone 10 cm, the head walked in.
+    for (float yaw : {0.0f, 1.1f}) for (float scale : {1.0f, 1.6f}) {
+        Movement m; Vec2 entity{}; uint64_t seq = 0; float peak = 0;
+        auto tick = [&](Vec2 head, bool wall) {
+            auto p = Pose(++seq, head.x, head.y);
+            const auto step = m.Begin(p, p.stampUs, .011f, scale, yaw, true, .10f);
+            // The wall's normal is the tracking +x axis, in world axes.
+            const Vec2 normal = Rotate({1, 0}, yaw);
+            Vec2 accepted = step.world;
+            const float into = Dot(accepted, normal);
+            if (wall && into > 0) accepted = accepted - normal * into;
+            entity = entity + accepted;
+            m.Complete(step, accepted, limit);
+            const Vec2 view = entity + Rotate((head - m.Consumed(1)) * scale, yaw);
+            peak = std::max(peak, std::sqrt(Dot(step.world, step.world)));
+            return view;
+        };
+        tick({}, true);
+        Vec2 view{};
+        for (int i = 1; i <= 15; ++i) view = tick({0.01f * i, 0}, true);
+        Near(view, Rotate({0.15f * scale, 0}, yaw), "view did not lead the blocked capsule", .0002f);
+        Near(entity, {}, "wall let the capsule through", .0002f);
+        for (int i = 0; i < 200; ++i) view = tick({0.15f, 0}, true);
+        Check(peak < .05f * scale, "a stationary headset gained speed into the wall");
+        Near(view, Rotate({0.15f * scale, 0}, yaw), "a stationary headset drifted at the wall", .0002f);
+        // Walked on past the cap: the view stops at the cap, no debt.
+        for (int i = 16; i <= 60; ++i) view = tick({0.01f * i, 0}, true);
+        Near(std::sqrt(Dot(view, view)), lead, "view went past the capsule's free footprint", .0002f);
+        // Stepping back moves the view at once.
+        const Vec2 before = view;
+        view = tick({0.55f, 0}, true);
+        Near(view - before, Rotate({-0.05f * scale, 0}, yaw), "step away from wall responds immediately", .0002f);
+        // Along the wall the body follows smoothly; into it, it stays.
+        peak = 0;
+        for (int i = 1; i <= 30; ++i) view = tick({0.55f, 0.01f * i}, true);
+        for (int i = 0; i < 100; ++i) view = tick({0.55f, 0.3f}, true);
+        Check(peak < .05f * scale, "the body was thrown along the wall");
+        Near(Dot(entity, Rotate({0, 1}, yaw)), 0.3f * scale, "body did not follow along the wall", .002f);
+        // The wall gone, the body closes up under the head; the view stays put.
+        const Vec2 held = view;
+        for (int i = 0; i < 200; ++i) view = tick({0.55f, 0.3f}, false);
+        Near(view, held, "the view moved when the capsule caught up", .0002f);
+        Near(m.Pending(), {}, "the capsule did not close up under the head", .0002f);
+    }
+    {
+        // A suspension keeps the lead for the body to follow; it is not baked into the view.
+        Movement m; Tick(m, Pose(1, 0));
+        auto p = Pose(2, 0.2f);
+        auto step = m.Begin(p, p.stampUs, .01f, 1, 0, true);
+        m.Complete(step, {}, limit);
+        m.Suspend();
+        Near(m.Pending(), {0.2f, 0}, "suspension dropped the head's lead");
+        Tick(m, Pose(3, 0.2f));
+        Near(Tick(m, Pose(4, 0.2f)).world, {0.2f, 0}, "body did not follow the kept lead");
+    }
+    {
+        // The eye already sits 13 cm ahead of the capsule's axis: the lead toward the
+        // wall ends 13 cm sooner, and an eye placed past the limit without any lead
+        // (a recenter offset) is not pulled back by it.
+        Movement m; Tick(m, Pose(1, 0));
+        const Movement::LeadLimit ahead{{0.13f, 0}, lead};
+        auto p = Pose(2, 0.4f);
+        auto step = m.Begin(p, p.stampUs, .01f, 1, 0, true);
+        m.Complete(step, {}, ahead);
+        Near(Vec2{0.4f, 0} - m.Consumed(1), {0.17f, 0}, "eye base ignored by the lead limit");
+        Movement far; Tick(far, Pose(1, 0));
+        const Movement::LeadLimit beyond{{0.5f, 0}, lead};
+        p = Pose(2, 0.01f);
+        step = far.Begin(p, p.stampUs, .01f, 1, 0, true);
+        far.Complete(step, {}, beyond);
+        Near(Vec2{0.01f, 0} - far.Consumed(1), {}, "the limit pulled a view that already sat past it", .0001f);
+        p = Pose(3, -0.1f);
+        step = far.Begin(p, p.stampUs, .01f, 1, 0, true);
+        far.Complete(step, step.world, beyond);
+        Near(Vec2{-0.1f, 0} - far.Consumed(1), {}, "a step back toward the capsule was refused");
+    }
 }
 
 void Feedback() {

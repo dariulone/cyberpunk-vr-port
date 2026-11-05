@@ -1,4 +1,5 @@
 #include "Framegen/FrameCapture.hpp"
+#include "Core/Paths.hpp"
 #include <atomic>
 #include <cstdio>
 #include <ctime>
@@ -68,9 +69,8 @@ void WriteAll(std::vector<Frame> frames,ComPtr<ID3D12Fence> fence,uint64_t value
     if(fence->GetCompletedValue()<value && event) {fence->SetEventOnCompletion(value,event);WaitForSingleObject(event,10000);}
     if(event)CloseHandle(event);
     bool ok=fence->GetCompletedValue()>=value;
-    wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);
     char stamp[32];const std::time_t now=std::time(nullptr);std::tm local{};localtime_s(&local,&now);std::strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",&local);
-    const auto directory=std::filesystem::path(exe).parent_path()/L"framegen-capture"/stamp;
+    const auto directory=std::filesystem::path(cvr::paths::Dir(cvr::paths::Folder::Log))/L"framegen-capture"/stamp;
     std::error_code error;std::filesystem::create_directories(directory,error);ok=ok && !error;
     FILE* json=ok?_wfopen((directory/L"capture.json").c_str(),L"w"):nullptr;ok=json!=nullptr;
     if(ok)std::fprintf(json,"{\"frames\":[\n");

@@ -27,7 +27,7 @@ args=p.parse_args()
 if args.native_constants and not args.native_draws:p.error('--native-constants requires --native-draws')
 if args.freeze_geometry and not args.native_constants:p.error('--freeze-geometry requires --native-constants')
 game=boot.DEFAULT_GAME
-symbols=resolve(args.pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',
+symbols=resolve(args.pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
     ['CyberpunkVR_GeometryPacket*','CyberpunkVR_NativeStereo*','CyberpunkVR_StereoGpuProbeState','CyberpunkVR_SinglePassTwinUpload','g_menuModeValue',
      'CyberpunkVR_ConstantCaptureEnable','CyberpunkVR_StereoFamilyAssetStatus','CyberpunkVR_GeometryFreezeEnable'])
 reader=Reader(args.pid,game/'bin/x64/Cyberpunk2077.exe',0,0)

@@ -347,8 +347,9 @@ static bool WaLeftGunFired(const void* aBlackboard, float* pos, float* fwd) {
         break;
     }
     const uint32_t leftRecord = CyberpunkVR_DualWieldRecords[0], rightRecord = CyberpunkVR_DualWieldRecords[1];
-    const bool leftTrigger = g_pSharedHands[vrshared::kLeftTriggerAnalog] > 0.2f;
-    const bool rightTrigger = g_pSharedHands[vrshared::kRightTriggerAnalog] > 0.2f;
+    const int hands = static_cast<int>(g_pSharedHands[vrshared::kDualWieldActive]);
+    const bool leftTrigger = (hands & vrshared::kDualWieldLeftFires) != 0;
+    const bool rightTrigger = (hands & vrshared::kDualWieldRightFires) != 0;
     bool left = false;
     int path = 0;
     if (record && leftRecord && rightRecord && leftRecord != rightRecord) {left = record == leftRecord; path = 1;}

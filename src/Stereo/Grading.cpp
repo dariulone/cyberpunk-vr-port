@@ -58,6 +58,7 @@
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
 #include "Stereo/DetourRegistry.hpp"
+#include "Lobby/MenuLobby.hpp"
 
 namespace cvr {
 namespace detail {
@@ -2158,10 +2159,17 @@ extern "C" __declspec(dllexport) float CyberpunkVR_HudShadowOffset = 0.0f;
 extern "C" float CyberpunkVR_HudEngineCurvature[2];
 static bool FlattenHudComposite(uint32_t size,const void* src,uint8_t* out) {
     const bool engineStereo=size==432 && cvr::engine_stereo::Enabled();
-    if(!src || !CyberpunkVR_HudFlatInEye || !(engineStereo || (size==512 && cvr::projection::Active()))) return false;
+    if(!src || !(engineStereo || (size==512 && cvr::projection::Active()))) return false;
     const float* r=static_cast<const float*>(src);
     const float w=r[16*4+2],h=r[16*4+3];
     if(!(w>=64.0f && w<=16384.0f && h>=64.0f && h<=16384.0f)) return false;
+    // The main menu shown in its world (Lobby/MenuLobby.hpp). Its block has no glow, so the HUD's fingerprint below
+    // does not take it.
+    if(engineStereo && cvr::lobby::Active()) {
+        std::memcpy(out,src,size);
+        if(cvr::lobby::ComposeWorld(reinterpret_cast<float*>(out))) return true;
+    }
+    if(!CyberpunkVR_HudFlatInEye) return false;
     if(!hud_cb_block_plausible(static_cast<const uint8_t*>(src),w,h)) return false;
     std::memcpy(out,src,size);
     float* o=reinterpret_cast<float*>(out);
@@ -2535,7 +2543,24 @@ static void ssr_upload_note(uint32_t size, bool cbPath) {
     }
 }
 
+// Diagnostics: the camera blocks (CameraShaderConsts: 852 bytes in 2.5, uploaded as 864) the uploaders were handed, each with
+// the render node that uploaded it and the view side, in a ring (CyberpunkVR_DebugCamBlockNext counts every one).
+struct CamBlockNote { uint32_t node; int32_t side; uint32_t seq; uint32_t pad; uint8_t block[864]; };
+extern "C" __declspec(dllexport) CamBlockNote CyberpunkVR_DebugCamBlocks[64] = {};
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_DebugCamBlockNext{0};
+static void cam_block_note(uint32_t size, const void* src) {
+    if (size != sizeof(CamBlockNote::block) || !src || !g_exe_base || !cvr::RuntimeDiagnosticsEnabled()) return;
+    const uint32_t seq = CyberpunkVR_DebugCamBlockNext.fetch_add(1, std::memory_order_relaxed);
+    CamBlockNote& note = CyberpunkVR_DebugCamBlocks[seq % 64];
+    note.node = t_current_node_work > reinterpret_cast<uintptr_t>(g_exe_base)
+        ? static_cast<uint32_t>(t_current_node_work - reinterpret_cast<uintptr_t>(g_exe_base)) : 0;
+    note.side = t_view_side;
+    __try { std::memcpy(note.block, src, sizeof(note.block)); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    note.seq = seq + 1;
+}
+
 static int64_t __fastcall Detour_BufUpload(uint32_t idx, uint32_t size, void* src) {
+    cam_block_note(size, src);
     ssr_upload_note(size, false);
     if (ao_node_now()) {
         ao_upload_note(size, false, src);
@@ -2905,6 +2930,7 @@ static __int64 __fastcall Detour_CbUpload(unsigned int size, void* src) {
     // The SSR and planar-reflection traces' block, grown by the rows their wide-merge twins read
     // (Render/SsrWideMerge.cpp).
     ssr_upload_note(size, true);
+    cam_block_note(size, src);
     if (size == cvr::ssr_merge::kEngineBlockBytes && g_exe_base) {
         const auto node = t_current_node_work - reinterpret_cast<uintptr_t>(g_exe_base);
         if (node == SSR_NODE_RVA || node == SSPR_NODE_RVA) {

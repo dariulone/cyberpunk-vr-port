@@ -16,7 +16,7 @@ from live_read import Reader
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--pid',required=True,type=int);parser.add_argument('--frames',type=int,default=2,choices=range(1,5))
 parser.add_argument('--out',required=True,type=Path);args=parser.parse_args()
-symbols=resolve(args.pid,root/'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll',
+symbols=resolve(args.pid,root/'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll',
                 ['CyberpunkVR_NativeStereo*','g_menuModeValue'])
 reader=Reader(args.pid,r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe',0,0)
 k=reader.k;k.WriteProcessMemory.argtypes=[w.HANDLE,c.c_void_p,c.c_void_p,c.c_size_t,c.POINTER(c.c_size_t)];k.WriteProcessMemory.restype=w.BOOL

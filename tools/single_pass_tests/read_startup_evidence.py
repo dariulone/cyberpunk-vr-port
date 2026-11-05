@@ -17,7 +17,7 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     a = p.parse_args()
     game = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
-    symbols = resolve(a.pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',
+    symbols = resolve(a.pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
                       ['CyberpunkVR_MenuTransition*','CyberpunkVR_MenuSource*','CyberpunkVR_MenuMethods*','g_menuModeValue','CyberpunkVR_ConstantRegistered*'])
     reader = Reader(a.pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     read = lambda name: struct.unpack('<I', reader.read(int(symbols[name], 16), 4))[0]

@@ -321,7 +321,7 @@ static int ArmPlayerLocked() {
                 const char* files[2] = { "CyberpunkVR_SmokeGrip_right.ini", "CyberpunkVR_LighterGrip_Left.ini" };
                 int rFing = 0, lFing = 0; bool cigLoaded = false, ltrLoaded = false;
                 for (int fi = 0; fi < 2; ++fi) {
-                    std::ifstream f(VRDiagPath(files[fi]));
+                    std::ifstream f(VRGripPath(files[fi]));
                     if (!f.is_open()) continue;
                     std::string line;
                     while (std::getline(f, line)) {
@@ -388,7 +388,7 @@ static int ArmPlayerLocked() {
                     g_VRSmokeCigLPos[0]=g_VRSmokeLighterPos[0]; g_VRSmokeCigLPos[1]=g_VRSmokeLighterPos[1]; g_VRSmokeCigLPos[2]=g_VRSmokeLighterPos[2];
                     g_VRSmokeCigLRot[0]=g_VRSmokeLighterRot[0]; g_VRSmokeCigLRot[1]=g_VRSmokeLighterRot[1]; g_VRSmokeCigLRot[2]=g_VRSmokeLighterRot[2]; g_VRSmokeCigLRot[3]=g_VRSmokeLighterRot[3];
                     if (ltrLoaded) g_VRSmokeCigLHave = 1;   // fallback availability = lighter pose
-                    std::ifstream fc(VRDiagPath("CyberpunkVR_SmokeGrip_Left.ini"));
+                    std::ifstream fc(VRGripPath("CyberpunkVR_SmokeGrip_Left.ini"));
                     if (fc.is_open()) {
                         int lcFing = 0; bool lcSlot = false;
                         std::string line;
@@ -433,10 +433,12 @@ static int ArmPlayerLocked() {
             const uint32_t pc = metaRig->parentIndeces.Size();
             const uint32_t copyN = (pc < boneCount ? pc : boneCount);
             int written = 0;
-            for (uint32_t i = 0; i < copyN && i < 800; ++i) { g_VRBoneParent[i] = metaRig->parentIndeces[i]; ++written; }
+            for (uint32_t i = 0; i < copyN && i < static_cast<uint32_t>(VRIK_MAX_BONES); ++i) { g_VRBoneParent[i] = metaRig->parentIndeces[i]; ++written; }
             g_VRBoneCount = written;
 
-            const char* policyNames[VRIK_MAX_BONES]{};
+            // Static: the rebind holds g_PlayerPoseStateLock exclusively, and VRIK_MAX_BONES pointers are 16 KB.
+            static const char* policyNames[VRIK_MAX_BONES];
+            std::fill(std::begin(policyNames), std::end(policyNames), nullptr);
             for(int i=0;i<written;++i)policyNames[i]=metaRig->boneNames[i].ToString();
             const int referenceCount=static_cast<int>(metaRig->boneTransforms.Size());
             const auto* reference=referenceCount>0

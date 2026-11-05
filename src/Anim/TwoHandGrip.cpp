@@ -32,6 +32,7 @@
 #include "Natives/NativeState.hpp"  // VRDiagPath
 #include "Anim/ScenePolicy.hpp"     // the carried body's left arm
 #include "Anim/VrikState.hpp"       // g_VRBodyCarryingState
+#include "Anim/LeftHanded.hpp"
 
 #include <windows.h>
 #include <cmath>
@@ -380,10 +381,24 @@ void ParseInto(Hold* h, FILE* f) {
     }
 }
 
+// THE HOLD AS THE WEAPON HAND HAS IT. Captured with the weapon in the right hand -- the left wrist in the right
+// wrist's frame -- and, with the weapon in the left hand (Anim/LeftHanded.cpp), its mirror: the right wrist in the
+// left wrist's frame. Everything below measures and places the support hand through this, so the hold, the steer
+// and the release are the same code for both hands.
+void HoldPose(const Hold* h, float* off, float* rot) {
+    off[0] = h->off[0]; off[1] = h->off[1]; off[2] = h->off[2];
+    rot[0] = h->rot[0]; rot[1] = h->rot[1]; rot[2] = h->rot[2]; rot[3] = h->rot[3];
+    if (cvr::anim::WeaponInLeftHand()) cvr::anim::MirrorHeldHand(off, rot);
+}
+
+// The support hand in the reload module's numbering (0 left, 1 right).
+int SupportHand() { return cvr::anim::WeaponInLeftHand() ? 1 : 0; }
+
+// THE SUPPORT HAND'S GRIP. [155] is the left controller's, published by the input merge per physical hand; the
+// right grip lives at the legacy [49] (the two were once read off one slot, which is how a lighter used to ignite
+// itself). With the weapon in the left hand the support hand is the right one.
 float LeftGripPressed() {
-    // [155] is the left grip, published by the input merge. The right grip lives at the legacy [49]; the
-    // two were once read off one slot, which is how a lighter used to ignite itself.
-    return (g_pSharedHands ? g_pSharedHands[155] : 0.0f);
+    return (g_pSharedHands ? g_pSharedHands[SupportHand() ? 49 : 155] : 0.0f);
 }
 
 // ...and the right one, for the carry: the hand that gives the weapon away and later takes it back.
@@ -591,7 +606,7 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
         const bool down = LeftGripPressed() > 0.5f;
         if (!down)                          g_gripFresh = 0;      // released: nothing is held to spend
         else if (!g_gripWas)                g_gripFresh = 1;      // just pressed: it belongs to no one yet
-        if (down && g_VRReloadFingerActive[0]) g_gripFresh = 0;   // ...and the reload has taken it
+        if (down && g_VRReloadFingerActive[SupportHand()]) g_gripFresh = 0;   // ...and the reload has taken it
         g_gripWas = down ? 1 : 0;
     }
 
@@ -600,7 +615,7 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
     // point, so without this the grip snapped shut on the way in and the magazine was carried by a hand
     // welded to the pistol (the two-handed magnet caught). `g_VRReloadFingerActive[0]` is the reload
     // module saying it has the left hand: a magazine held, a slide gripped, or a preview being offered.
-    if (g_VRReloadFingerActive[0]) {
+    if (g_VRReloadFingerActive[SupportHand()]) {
         CyberpunkVR_TwoHandActive = 0;
         CyberpunkVR_TwoHandBlend = 0.0f;
         SteerReset();
@@ -625,6 +640,14 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
     // a squeeze held right through the carry is still unspent when the weapon comes back, and the hold
     // takes it again by itself instead of needing a new press.
     if (CyberpunkVR_CarryLeft) {
+        CyberpunkVR_TwoHandActive = 0;
+        CyberpunkVR_TwoHandBlend = 0.0f;
+        SteerReset();
+        return;
+    }
+    // NOR WITH A GUN IN EACH HAND: the left hand holds its own. The hold would open its fingers off that gun as soon
+    // as the hands came close, and a squeeze would weld the hand to the right gun with the left one hanging off it.
+    if (cvr::anim::TwoGunsInHand()) {
         CyberpunkVR_TwoHandActive = 0;
         CyberpunkVR_TwoHandBlend = 0.0f;
         SteerReset();
@@ -682,7 +705,8 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
             float bestD = 1e9f;
             for (int k = 0; k < g_candN; ++k) {
                 if (!avail(k)) continue;
-                float o[3]; VRIK_QuatRotateVec(bone, g_cand[k]->off, o);
+                float ho[3], hq[4]; HoldPose(g_cand[k], ho, hq);
+                float o[3]; VRIK_QuatRotateVec(bone, ho, o);
                 float d = 0.0f;
                 if (leftAt) {
                     const float dx = leftAt[0] - (targetR[0] + o[0]);
@@ -707,7 +731,8 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
         CyberpunkVR_DebugTwoHandHoldIdx = curK;
     }
 
-    float off[3]; VRIK_QuatRotateVec(bone, g_cur->off, off);
+    float holdOff[3], holdRot[4]; HoldPose(g_cur, holdOff, holdRot);
+    float off[3]; VRIK_QuatRotateVec(bone, holdOff, off);
     float sup[3] = { targetR[0] + off[0], targetR[1] + off[1], targetR[2] + off[2] };
 
     // The hold's leverage, published for the recoil. Same quantity the aim correction computes further
@@ -832,7 +857,7 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
             // its ceiling and swings its axis with every centimetre of palm motion.
             float refL[3];
             if (CyberpunkVR_TwoHandAim == 2) {
-                refL[0] = g_cur->off[0]/rl; refL[1] = g_cur->off[1]/rl; refL[2] = g_cur->off[2]/rl;
+                refL[0] = holdOff[0]/rl; refL[1] = holdOff[1]/rl; refL[2] = holdOff[2]/rl;
             } else {
                 const float el = std::sqrt(s_refE[0]*s_refE[0] + s_refE[1]*s_refE[1] + s_refE[2]*s_refE[2]);
                 const float ei = (el > 1e-6f) ? 1.0f / el : 0.0f;
@@ -898,7 +923,7 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
             hm[0]=hr[0]; hm[1]=hr[1]; hm[2]=hr[2]; hm[3]=hr[3];
             // ...and the support point is recomputed from the AIMED hand: the hand is drawn where the
             // weapon now is.
-            VRIK_QuatRotateVec(bone, g_cur->off, off);
+            VRIK_QuatRotateVec(bone, holdOff, off);
             sup[0] = targetR[0] + off[0]; sup[1] = targetR[1] + off[1]; sup[2] = targetR[2] + off[2];
         }
     }
@@ -924,7 +949,7 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
     g_supPos[0] = sup[0] + slide[0]; g_supPos[1] = sup[1] + slide[1]; g_supPos[2] = sup[2] + slide[2];
     // The wrist rotation follows the same relation as the offset, so the hand lands on the grip the way
     // the animation had it rather than merely near it.
-    VRIK_QuatMul(bone, g_cur->rot, g_supRot); VRIK_QuatNorm(g_supRot);
+    VRIK_QuatMul(bone, holdRot, g_supRot); VRIK_QuatNorm(g_supRot);
     g_supValid = 1;
     g_supPrevPos[0] = g_supPos[0]; g_supPrevPos[1] = g_supPos[1]; g_supPrevPos[2] = g_supPos[2];
     g_supPrevRot[0] = g_supRot[0]; g_supPrevRot[1] = g_supRot[1];
@@ -1294,14 +1319,21 @@ void TwoHandFingers(uint8_t* boneBuf) {
     if (!g_cur || g_cur->fingerCount <= 0) return;
     const float b = CyberpunkVR_TwoHandBlend;
     if (b <= 0.001f) return;
+    // The hold's fingers are the left hand's; with the weapon in the left hand they go, mirrored, to the right one.
+    const bool mirrored = cvr::anim::WeaponInLeftHand();
     for (int k = 0; k < g_cur->fingerCount && k < 32; ++k) {
         int bi = -1;
         for (int s = 0; s < g_VRSmokeFingerCountL && s < 32; ++s) {
             if (std::strcmp(g_cur->fingerName[k], g_VRSmokeFingerNameL[s]) == 0) { bi = g_VRSmokeFingerIdxL[s]; break; }
         }
         if (bi < 0 || bi >= VRIK_MAX_BONES) continue;
-        float* q = reinterpret_cast<float*>(boneBuf + bi * 48 + VRIK_ROT_OFF);
         const float* tq = g_cur->finger[k];
+        float mq[4];
+        if (mirrored) {
+            if (!cvr::anim::MirrorFingerToRight(bi, tq, &bi, mq)) continue;
+            tq = mq;
+        }
+        float* q = reinterpret_cast<float*>(boneBuf + bi * 48 + VRIK_ROT_OFF);
         if (b >= 0.999f) { q[0]=tq[0]; q[1]=tq[1]; q[2]=tq[2]; q[3]=tq[3]; continue; }
         const float dot = q[0]*tq[0] + q[1]*tq[1] + q[2]*tq[2] + q[3]*tq[3];
         const float s = (dot < 0.0f) ? -b : b;
@@ -1319,7 +1351,7 @@ void TwoHandTick() {
     if (!g_scanned) {
         g_scanned = 1;
         WIN32_FIND_DATAA fd = {};
-        const std::string pat = VRDiagPath("CyberpunkVR_TwoHandGrip_*.ini");
+        const std::string pat = VRGripPath("CyberpunkVR_TwoHandGrip_*.ini");
         HANDLE hf = FindFirstFileA(pat.c_str(), &fd);
         if (hf != INVALID_HANDLE_VALUE) {
             do {
@@ -1336,7 +1368,7 @@ void TwoHandTick() {
                 Hold* h = AddHold(weapon);
                 if (!h) break;
                 FILE* f = nullptr;
-                if (fopen_s(&f, VRDiagPath(nm).c_str(), "r") == 0 && f) {
+                if (fopen_s(&f, VRGripPath(nm).c_str(), "r") == 0 && f) {
                     ParseInto(h, f);
                     std::fclose(f);
                 }
@@ -1354,7 +1386,7 @@ void TwoHandTick() {
     char path[128];
     std::snprintf(path, sizeof(path), "CyberpunkVR_TwoHandGrip_%s.ini", h->weapon);
     FILE* f = nullptr;
-    if (fopen_s(&f, VRDiagPath(path).c_str(), "w") == 0 && f) {
+    if (fopen_s(&f, VRGripPath(path).c_str(), "w") == 0 && f) {
         std::fprintf(f, "# CyberpunkVR two-hand grip pose v1 (auto-generated by VRTwoHandCapture)\n"
                         "# Weapon: %s. One frame of the game's own two-handed hold, captured with VRIK off.\n"
                         "# W px py pz qx qy qz qw        left wrist IN THE RIGHT WRIST'S FRAME\n"

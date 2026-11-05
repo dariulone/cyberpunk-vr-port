@@ -8,7 +8,7 @@
 #include <string>
 
 float* g_pSharedHands=nullptr;
-int16_t g_VRBoneParent[800]{};
+int16_t g_VRBoneParent[VRIK_MAX_BONES]{};
 volatile int g_VRBoneCount=0,g_VRFKCount=0;
 volatile int g_VRHipsIdx=2,g_VRNeckIdx=16,g_VRNeck1Idx=19,g_VRHeadBoneIdx=22;
 volatile int g_VRRightUpLegIdx=6,g_VRRightLegIdx=9,g_VRRightFootIdx=12;

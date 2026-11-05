@@ -18,12 +18,16 @@
 // same as the world.
 
 #include "Stereo/EngineStereo.hpp"
+#include "Lobby/Intro.hpp"
 #include "Stereo/DetourRegistry.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include "Core/CoreInternal.hpp"
 
 #include <windows.h>
+#include <algorithm>
 #include <atomic>
+#include <climits>
+#include <cstdint>
 #include <cmath>
 #include <cstdio>
 #include <cstddef>
@@ -63,6 +67,9 @@ __declspec(dllexport) float CyberpunkVR_DebugEngineStereoEyes[2][7] = {};
 __declspec(dllexport) float CyberpunkVR_DebugEngineStereoEyeJitter[2][4] = {};
 // First-person plane eyes put back at their own place after the plane's override rebuild: left, right.
 __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoPlaneEyes[2] = {};
+// With diagnostics on, MAIN's world plane (0) and first-person plane (2) as the view producer left them: centre, left
+// eye, right eye, each jitter x, y, jitter size w, h, P20, P21.
+__declspec(dllexport) float CyberpunkVR_DebugEngineStereoViewEyes[2][3][6] = {};
 // 1 (default) = ink lays the UI out in one eye's window (UiOneEye); 0 = in the whole window, as the engine does.
 // Read when a layer is resized: at start-up, and when the window changes size.
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereoUiOneEye = 1;
@@ -74,6 +81,9 @@ __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoUiTicks = 0;
 // 1 (default) = the loading screen is shown as one picture on the menu panel while its layer is up (LoadingShown).
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereoLoadingPanel = 1;
 __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoLoadingTicks = 0;
+// The loading layer as LoadingShown last read it: presents since the one its last tick counts for (below 0: the frame
+// being built ticked it; INT32_MIN never), its active byte (-1 unread).
+__declspec(dllexport) int32_t CyberpunkVR_DebugEngineStereoLoadingLayer[2] = {INT32_MIN, -1};
 }
 
 namespace cvr::engine_stereo {
@@ -95,6 +105,8 @@ FloatGetterFn g_orig_weapon_separation = nullptr;
 FloatGetterFn g_orig_convergence = nullptr;
 
 std::atomic<int> g_rendering{-1};
+// The presents counted when MAIN was last prepared, plus one (as the loading layer's tick below); 0 never.
+std::atomic<uint64_t> g_mainPrepared{0};
 // xr_engine_stereo as the ini asks for it, before the mono mode has its say.
 bool g_requested = false;
 // The launch started in the mono mode.
@@ -392,22 +404,20 @@ void* __fastcall Detour_ViewUnproject(void* view, void* world, const float* ndc)
 // THE LOADING SCREEN IS ONE PICTURE, AS A MENU IS. The loading layer keeps the window, but the menu state the port
 // follows (Hooks/MenuMode.cpp) is already the game's while its last screen waits for the button: the frame was split
 // into the eyes and each showed half of the loading screen (2026-10-24). The layer's own state says when it is
-// up (inkLayer::active, +0xB0); it is read only while the layer is being ticked.
+// up (inkLayer::active, +0xB0); it is read only while the layer is being ticked: ticked within the last frames
+// presented. Counted in frames, not time -- a frame of a load can take seconds to build, and an age in milliseconds
+// let a loading screen drop out for the frame after every stall -- and not every frame: a load presents runs of
+// frames the layer is not ticked in (measured: two and more, as the world comes in). Its own byte says when it ends.
 // How it is drawn follows the frame: over a mono frame (the world not there yet) once across the whole window; once
 // the world under it renders both eyes (feature 98, the screen waiting for the button), by each eye's UI pass into
 // its own half, the whole screen squeezed to half the width -- squeezed again, the panel showed two narrow copies
 // side by side (LoadingSideBySide).
 constexpr size_t kLayerActive = 0xB0;
 std::atomic<void*> g_loadingLayer{nullptr};
-std::atomic<uint64_t> g_loadingTick{0};
-
-void NoteLayerTick(void* layer) {
-    if (!layer || static_cast<RED4ext::ink::Layer*>(layer)->GetType()->GetName() != RED4ext::CName("inkLoadingLayer"))
-        return;
-    g_loadingLayer.store(layer, std::memory_order_relaxed);
-    g_loadingTick.store(GetTickCount64(), std::memory_order_relaxed);
-    ++CyberpunkVR_DebugEngineStereoLoadingTicks;
-}
+std::atomic<uint64_t> g_presents{0};
+// The presents a loading layer still counts as ticked for: the frames of a load it is skipped in.
+constexpr int64_t kLoadingTickFrames = 30;
+std::atomic<uint64_t> g_loadingTick{0};   // the presents counted when the layer was last ticked, plus one; 0 never
 
 bool LayerActive(const uint8_t* layer) {
     __try {
@@ -417,16 +427,39 @@ bool LayerActive(const uint8_t* layer) {
     }
 }
 
+void NoteLayerTick(void* layer) {
+    if (!layer || static_cast<RED4ext::ink::Layer*>(layer)->GetType()->GetName() != RED4ext::CName("inkLoadingLayer"))
+        return;
+    g_loadingLayer.store(layer, std::memory_order_relaxed);
+    g_loadingTick.store(g_presents.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+    ++CyberpunkVR_DebugEngineStereoLoadingTicks;
+    cvr::lobby::intro::NoteLoadingLayer(LayerActive(static_cast<const uint8_t*>(layer)));
+}
+
 }  // namespace
 
 bool UiOneEye() { return Enabled() && g_uiOneEye.load(std::memory_order_relaxed); }
 
+void NotePresent() { g_presents.fetch_add(1, std::memory_order_relaxed); }
+
+bool WorldDrawn() {
+    const uint64_t prepared = g_mainPrepared.load(std::memory_order_relaxed);
+    return prepared &&
+           static_cast<int64_t>(g_presents.load(std::memory_order_relaxed)) - static_cast<int64_t>(prepared) <= 1;
+}
+
 bool LoadingShown() {
-    if (!Enabled() || !CyberpunkVR_EngineStereoLoadingPanel ||
-        GetTickCount64() - g_loadingTick.load(std::memory_order_relaxed) > 250)
-        return false;
+    // The tick stands for the present after it: 0 presents since when the frame it was part of is the last presented,
+    // -1 when the game has ticked the frame it builds before the last one was presented (the two overlap).
+    const uint64_t tick = g_loadingTick.load(std::memory_order_relaxed);
+    const int64_t since = static_cast<int64_t>(g_presents.load(std::memory_order_relaxed)) - static_cast<int64_t>(tick);
+    CyberpunkVR_DebugEngineStereoLoadingLayer[0] =
+        tick ? static_cast<int32_t>(std::clamp<int64_t>(since, INT32_MIN + 1, INT32_MAX)) : INT32_MIN;
+    if (!Enabled() || !CyberpunkVR_EngineStereoLoadingPanel || !tick || since > kLoadingTickFrames) return false;
     const auto* layer = static_cast<const uint8_t*>(g_loadingLayer.load(std::memory_order_relaxed));
-    return layer && LayerActive(layer);
+    const bool active = layer && LayerActive(layer);
+    CyberpunkVR_DebugEngineStereoLoadingLayer[1] = layer ? int32_t(active) : -1;
+    return active;
 }
 
 bool OnePicture() { return Enabled() && (!Rendering() || LoadingShown()); }
@@ -452,6 +485,16 @@ EyePlaces KeepEyePlaces(uint8_t* descriptor) {
     return kept;
 }
 
+namespace {
+void NoteCameraState(const uint8_t* camera, float* out) {
+    const float* f = reinterpret_cast<const float*>(camera);
+    const uint32_t* size = reinterpret_cast<const uint32_t*>(camera + kJitterSize);
+    out[0] = f[kJitter / 4]; out[1] = f[kJitter / 4 + 1];
+    out[2] = float(size[0]); out[3] = float(size[1]);
+    out[4] = f[kProjection / 4 + 8]; out[5] = f[kProjection / 4 + 9];
+}
+}  // namespace
+
 void RestoreEyePlaces(const EyePlaces& kept) {
     if (!kept.valid || !detail::g_exe_base) return;
     // The engine's entry, so the eye-window detour gives the eye its window again.
@@ -464,6 +507,20 @@ void RestoreEyePlaces(const EyePlaces& kept) {
         std::memcpy(eye + kWorldPosition, kept.world[e], sizeof(kept.world[e]));
         build(eye);
         ++CyberpunkVR_DebugEngineStereoPlaneEyes[e];
+    }
+}
+
+void NoteViewEyes(const uint8_t* worldPlane, const uint8_t* firstPersonPlane) {
+    const uint8_t* planes[2] = {worldPlane, firstPersonPlane};
+    for (int p = 0; p < 2; ++p) {
+        const uint8_t* centre = planes[p];
+        if (!centre) continue;
+        NoteCameraState(centre, CyberpunkVR_DebugEngineStereoViewEyes[p][0]);
+        if (!(centre[kEyeFlags] & kHasEyes)) continue;
+        for (int e = 0; e < 2; ++e) {
+            const uint8_t* eye = *reinterpret_cast<const uint8_t* const*>(centre + (e ? kRightEye : kLeftEye));
+            if (eye) NoteCameraState(eye, CyberpunkVR_DebugEngineStereoViewEyes[p][1 + e]);
+        }
     }
 }
 
@@ -555,6 +612,7 @@ void NoteMainPrepared(const uint8_t* view) {
     const uint64_t bits = *reinterpret_cast<const uint64_t*>(view + kViewFeatures + (kStereoFeature / 64) * 8);
     const int on = ((bits >> (kStereoFeature % 64)) & 1) ? 1 : 0;
     ++CyberpunkVR_DebugEngineStereoFrames[on];
+    g_mainPrepared.store(g_presents.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
     if (g_rendering.exchange(on, std::memory_order_relaxed) != on) {
         if (on) Log("[engine-stereo] the engine renders both eyes (feature 98 on)\n");
         else Log("[engine-stereo] the engine renders ONE eye (feature 98 off)%s -- the headset shows it as one picture\n",

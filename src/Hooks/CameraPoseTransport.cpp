@@ -20,6 +20,7 @@
 #include <type_traits>
 #include <vector>
 #include <array>
+#include "Lobby/MenuLobby.hpp"
 
 struct PoseBlendDebug {
     uint64_t calls{},labelled{},rejected{};
@@ -101,7 +102,8 @@ std::mutex s_externalDebugMutex[2];
 
 bool ExternalAllowed() {
     // The existing device-lens and BD playback paths already own those views.
-    return g_menuModeValue==0 && OpenXRManager::Get().IsSessionRunning() && !DeviceCamActive() && !(g_bdActive.load(std::memory_order_relaxed) &&
+    // The main menu shown in its world is head-tracked as a scene is (Lobby/MenuLobby.hpp WorldShown).
+    return (g_menuModeValue==0 || cvr::lobby::WorldShown()) && OpenXRManager::Get().IsSessionRunning() && !DeviceCamActive() && !(g_bdActive.load(std::memory_order_relaxed) &&
                                   g_bdScenePoseValid.load(std::memory_order_acquire));
 }
 bool ExternalHeadRead(ExternalHead& sample,bool includesFpp) {

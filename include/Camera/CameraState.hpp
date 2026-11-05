@@ -25,6 +25,7 @@ namespace RED4ext { struct CProperty; struct CBaseFunction; }
 
 // ---- state ----
 extern RED4ext::CProperty* g_equippedWeaponProp;
+extern RED4ext::CProperty* g_equippedLeftWeaponProp;
 extern RED4ext::CProperty* g_isAimingProp;
 extern RED4ext::CProperty* g_mountedVehicleProp;
 extern RED4ext::CProperty* g_vehicleStateProp;
@@ -362,6 +363,11 @@ extern std::atomic<int> g_devCamPosValid;
 // device the player took over. Milli-degrees, so one atomic int carries it.
 extern std::atomic<int> g_bdActive;
 extern std::atomic<int> g_bdWantFovMilli;
+// A BRAINDANCE AND NOTHING ELSE: BraindanceSystem.GetIsInBraindance, published by script every frame through
+// VRInBraindance (Natives/RemoteCamera.cpp). g_bdActive above opens for any scene that takes the camera, a
+// dialogue included; the controls and the VR menu need the braindance itself. Fresh for half a second, so a
+// script that stops publishing cannot leave it standing.
+bool InBraindance();
 
 // THE SCENE CAMERA'S POSE, published every frame by the VRSceneCamera native from
 // scnScriptInterface.GetSceneSystemCameraLastCameraPosition / ...LastCameraOrientation. It is not the

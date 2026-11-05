@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pid', type=int, required=True)
     parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--dll', type=Path, default=ROOT / 'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll')
+    parser.add_argument('--dll', type=Path, default=ROOT / 'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll')
     parser.add_argument('--game', type=Path, default=Path('C:/Program Files (x86)/Steam/steamapps/common/Cyberpunk 2077'))
     args = parser.parse_args()
     if args.out.exists() or not args.out.parent.is_dir():
@@ -45,7 +45,7 @@ def main():
         after = sample()
     finally:
         reader.close()
-    log = (args.game / 'bin/x64/cyberpunkvrport.log').read_text(encoding='utf-8', errors='replace')
+    log = (args.game / 'red4ext/plugins/cyberpunkvrport/log/cyberpunkvrport.log').read_text(encoding='utf-8', errors='replace')
     result = {'symbols': symbols, 'before': before, 'after': after,
               'log': [line for line in log.splitlines() if '[world-markers]' in line],
               'game_memory_written': False}

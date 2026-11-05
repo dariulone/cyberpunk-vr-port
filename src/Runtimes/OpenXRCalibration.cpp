@@ -2,6 +2,8 @@
 // Split verbatim from openxr_manager.cpp (OpenXRManager methods). Shared module
 // state/helpers via openxr_internal.h (inline).
 #include "Runtimes/WristBase.hpp"
+#include "Core/Paths.hpp"
+#include "Runtimes/BodyProportions.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/OpenXRInternal.hpp"
 #include "Utils/XrMath.hpp"
@@ -73,11 +75,19 @@ void OpenXRManager::StartAutoCalibration(float secs) {
     m_calibSampleCount = 0;
     m_calibCtrlPosSumR[0]=m_calibCtrlPosSumR[1]=m_calibCtrlPosSumR[2]=0.0f;
     m_calibCtrlPosSumL[0]=m_calibCtrlPosSumL[1]=m_calibCtrlPosSumL[2]=0.0f;
+    m_calibEyeFloorSum = 0.0f;
+    m_calibEyeFloorCount = 0;
     m_calibStart = 0.0;
-    // INITIALIZE wrist defaults if they've never been set. Without this, finalisation reads zero
-    // values from m_calib[] (atomic float default = 0), publishes identity wrist quats, and the
-    // hand orientation breaks (palm faces wrong way). These match the plugin's baked-in defaults
-    // (g_VRWristR_* and g_VRWristL_*) so the player sees the same wrist behaviour as before auto-cal.
+    EnsureCalibDefaults();
+    m_calibState.store(1, std::memory_order_relaxed);
+    Log("Auto-calibration: started (%.1fs T-pose sample). Stretch arms STRAIGHT OUT to the sides.\n", secs);
+}
+
+// INITIALIZE wrist defaults if they've never been set. Without this, finalisation reads zero
+// values from m_calib[] (atomic float default = 0), publishes identity wrist quats, and the
+// hand orientation breaks (palm faces wrong way). These match the plugin's baked-in defaults
+// (g_VRWristR_* and g_VRWristL_*) so the player sees the same wrist behaviour as before auto-cal.
+void OpenXRManager::EnsureCalibDefaults() {
     if (m_calib[0].load(std::memory_order_relaxed) == 0.0f
         && m_calib[1].load(std::memory_order_relaxed) == 0.0f
         && m_calib[9].load(std::memory_order_relaxed) == 0.0f) {
@@ -93,8 +103,30 @@ void OpenXRManager::StartAutoCalibration(float secs) {
         for (int i = 0; i < 6; ++i) m_calib[8 + i].store(cvr::calib::kWristBase[i], std::memory_order_relaxed);
         Log("Auto-calibration: initialised wrist/elbow defaults (the baked wrist base).\n");
     }
-    m_calibState.store(1, std::memory_order_relaxed);
-    Log("Auto-calibration: started (%.1fs T-pose sample). Stretch arms STRAIGHT OUT to the sides.\n", secs);
+}
+
+// The eyes over the floor now: the view located in the runtime's STAGE space, whose floor is y = 0. The T-pose's
+// own LOCAL space has its origin wherever the session started, so its heights are not over anything.
+bool OpenXRManager::LocateEyesOverFloor(float* height) {
+    if (!height || m_stageUnavailable || m_session == XR_NULL_HANDLE || m_viewSpace == XR_NULL_HANDLE) return false;
+    if (m_stageSpace == XR_NULL_HANDLE) {
+        XrReferenceSpaceCreateInfo info{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
+        info.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+        info.poseInReferenceSpace.orientation.w = 1.0f;
+        if (XR_FAILED(xrCreateReferenceSpace(m_session, &info, &m_stageSpace))) {
+            m_stageSpace = XR_NULL_HANDLE;
+            m_stageUnavailable = true;
+            Log("Auto-calibration: the runtime has no STAGE space -- the eyes' height over the floor is not measured.\n");
+            return false;
+        }
+    }
+    const XrTime time = GetFrameAimTimeNow();
+    if (time <= 0) return false;
+    XrSpaceLocation location{XR_TYPE_SPACE_LOCATION};
+    if (XR_FAILED(xrLocateSpace(m_viewSpace, m_stageSpace, time, &location)) ||
+        !(location.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) return false;
+    *height = location.pose.position.y;
+    return std::isfinite(*height) && *height > 0.5f && *height < 2.5f;
 }
 
 void OpenXRManager::TickAutoCalibration() {
@@ -134,13 +166,17 @@ void OpenXRManager::TickAutoCalibration() {
             m_calibSampleCount++;
         }
     }
+    {
+        float eyes = 0.0f;
+        if (LocateEyesOverFloor(&eyes)) { m_calibEyeFloorSum += eyes; ++m_calibEyeFloorCount; }
+    }
 
     if (elapsed >= total) {
         // Finalise.
         float armSpan = m_calibArmSpanMax;
         if (armSpan < 0.5f || armSpan > 2.5f || m_calibSampleCount == 0) {
             Log("Auto-calibration: armSpan %.3fm out of plausible range — aborting.\n", armSpan);
-            m_calibState.store(0, std::memory_order_relaxed);
+            m_calibState.store(3, std::memory_order_relaxed);
             return;
         }
         float invN = 1.0f / static_cast<float>(m_calibSampleCount);
@@ -149,8 +185,8 @@ void OpenXRManager::TickAutoCalibration() {
 
         // SHOULDER ANATOMICAL OFFSETS. These are body-frame OpenXR axes (X right, Y up,
         // Z back), sampled from the same gizmo/controller coordinates used for hand drawing.
-        const float kShoulderHalfWidth = 0.105f;     // X | wrist-span to shoulder half-width; keep torso narrow
-        const float kShoulderBackFromHmd = 0.05f;    // Z | eyes sit slightly in front of shoulders
+        const float kShoulderHalfWidth = cvr::body::kShoulderHalfWidth;     // X | wrist-span to shoulder half-width; keep torso narrow
+        const float kShoulderBackFromHmd = cvr::body::kShoulderBehindEyes;  // Z | eyes sit slightly in front of shoulders
         float shoulderHalf = kShoulderHalfWidth * armSpan;
         if (shoulderHalf < 0.10f) shoulderHalf = 0.10f;
         if (shoulderHalf > 0.20f) shoulderHalf = 0.20f;
@@ -195,7 +231,9 @@ void OpenXRManager::TickAutoCalibration() {
         // real controller position; avatar proportions are matched by scaling the arm BONES to
         // the measured arm length (plugin VRIK_ArmScale), not by stretching the target. Publish
         // the measured anatomy (arm length per hand + eye height) into [77..80] instead.
-        float eyeHeight = (m_calibSampleCount > 0) ? (m_calibHmdHeightSum / static_cast<float>(m_calibSampleCount)) : 0.0f;
+        // The eyes over the FLOOR (STAGE space); the LOCAL heights summed above are over the session's start.
+        float eyeHeight = m_calibEyeFloorCount > 0 ? m_calibEyeFloorSum / static_cast<float>(m_calibEyeFloorCount) : 0.0f;
+        m_measuredEyeHeight.store(eyeHeight, std::memory_order_relaxed);
         m_userArmLenR.store(realArmLenR, std::memory_order_relaxed);
         m_userArmLenL.store(realArmLenL, std::memory_order_relaxed);
         m_userEyeHeight.store(eyeHeight, std::memory_order_relaxed);
@@ -242,24 +280,42 @@ void OpenXRManager::TickAutoCalibration() {
         // may have drifted slightly.
         RequestRecenter();
 
+        // A height already given decides the arms and the shoulders (ApplyUserHeight); the T-pose keeps which
+        // way is right, the eyes' height and the camera.
+        if (const float height = m_userHeight.load(std::memory_order_relaxed); height > 0.0f) ApplyUserHeight(height);
+
         m_calibState.store(2, std::memory_order_relaxed);
         m_calibProgress.store(1.0f, std::memory_order_relaxed);
     }
 }
 
-// Path is next to dxgi.dll (same dir as the OpenXR config).
+void OpenXRManager::ApplyUserHeight(float meters) {
+    if (!std::isfinite(meters)) return;
+    const float height = std::clamp(meters, cvr::body::kMinHeight, cvr::body::kMaxHeight);
+    const cvr::body::Proportions body = cvr::body::FromHeight(height);
+    EnsureCalibDefaults();
+    // Which way is right: what the last T-pose found (it tells swapped controllers), else the runtime's +X.
+    const float right = m_calibExt[0].load(std::memory_order_relaxed) < 0.0f ? -1.0f : 1.0f;
+    const float half = std::clamp(body.shoulderHalfWidth, 0.10f, 0.20f);
+    const float drop = std::clamp(body.shoulderBelowEyes, 0.12f, 0.30f);
+    const float back = cvr::body::kShoulderBehindEyes;
+    SetShoulderAnatomical(half * right, -drop, back, -half * right, -drop, back);
+    const float arm = std::clamp(body.armLength, 0.45f, 0.85f);
+    m_userArmLenR.store(arm, std::memory_order_relaxed);
+    m_userArmLenL.store(arm, std::memory_order_relaxed);
+    if (m_userEyeHeight.load(std::memory_order_relaxed) <= 0.0f)
+        m_userEyeHeight.store(body.eyeHeight, std::memory_order_relaxed);
+    m_measureValid.store(1, std::memory_order_relaxed);
+    m_userHeight.store(height, std::memory_order_relaxed);
+    m_firstSetupDone.store(1, std::memory_order_relaxed);
+    SaveCalibrationToFile();
+    Log("Body from the height %.2f m: arms %.3f m (shoulder to wrist), shoulders %.3f m apart and %.3f m under the eyes\n",
+        height, arm, 2.0f * half, drop);
+}
+
+// In the plugin's config folder (Core/Paths.hpp).
 static void GetCalibFilePath(char* out, size_t outSize) {
-    HMODULE self = nullptr;
-    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                       reinterpret_cast<LPCSTR>(&GetCalibFilePath), &self);
-    char dir[MAX_PATH] = {0};
-    if (self) {
-        GetModuleFileNameA(self, dir, MAX_PATH);
-        char* slash = strrchr(dir, '\\');
-        if (slash) *slash = 0;
-    }
-    if (dir[0] == 0) strcpy_s(dir, MAX_PATH, ".");
-    _snprintf_s(out, outSize, _TRUNCATE, "%s\\vrik_calibration.ini", dir);
+    _snprintf_s(out, outSize, _TRUNCATE, "%s", cvr::paths::FileA(cvr::paths::Folder::Config, "vrik_calibration.ini").c_str());
 }
 
 void OpenXRManager::GetCameraOffset(float* out) const {
@@ -329,6 +385,9 @@ bool OpenXRManager::SaveCalibrationToFile() {
             m_userArmLenR.load(std::memory_order_relaxed),
             m_userArmLenL.load(std::memory_order_relaxed),
             m_userEyeHeight.load(std::memory_order_relaxed));
+    // The player's height (0 = not given) and whether the first-launch setup has been through.
+    fprintf(f, "userHeight=%.4f\nfirstSetup=%d\n", m_userHeight.load(std::memory_order_relaxed),
+            m_firstSetupDone.load(std::memory_order_relaxed));
     fclose(f);
     Log("Calibration saved -> %s\n", path);
     return true;
@@ -394,6 +453,10 @@ bool OpenXRManager::LoadCalibrationFromFile() {
             m_userArmLenL.store(val, std::memory_order_relaxed);
         if (strcmp(key, "userEyeHeight") == 0 && val > 0.0f && val <= 2.2f)
             m_userEyeHeight.store(val, std::memory_order_relaxed);
+        if (strcmp(key, "userHeight") == 0 && val >= cvr::body::kMinHeight && val <= cvr::body::kMaxHeight)
+            m_userHeight.store(val, std::memory_order_relaxed);
+        if (strcmp(key, "firstSetup") == 0)
+            m_firstSetupDone.store(val != 0.0f ? 1 : 0, std::memory_order_relaxed);
         #undef M
         #undef E
         #undef C

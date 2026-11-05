@@ -6,7 +6,7 @@ sys.path[:0]=[str(root/'tools/swimming_tests'),str(root/'tools/roomscale_tests')
 from live_symbols import resolve
 from live_read import Reader
 p=argparse.ArgumentParser();p.add_argument('--pid',type=int,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--seconds',type=float,default=20)
-p.add_argument('--dll',type=Path,default=root/'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll');a=p.parse_args();assert not a.out.exists()
+p.add_argument('--dll',type=Path,default=root/'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll');a=p.parse_args();assert not a.out.exists()
 names=['CyberpunkVR_PanzerWeaponAimDebug','CyberpunkVR_PanzerWeaponAimDebugSeq','CyberpunkVR_RuntimeDiagnostics','CyberpunkVR_PanzerCannonDebug','CyberpunkVR_PanzerCannonDebugSeq']
 s=resolve(a.pid,a.dll.resolve(),names);r=Reader(a.pid,r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe',0,0)
 k=c.WinDLL('kernel32',use_last_error=True);k.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];k.OpenProcess.restype=w.HANDLE

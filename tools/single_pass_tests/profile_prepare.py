@@ -40,7 +40,7 @@ def main():
     if not 2 <= args.seconds <= 60:
         parser.error('Use a bounded 2-60 second sample')
     game = boot.DEFAULT_GAME
-    ini = (game / 'bin/x64/vrport.ini').read_text(encoding='utf-8-sig')
+    ini = (game / 'red4ext/plugins/cyberpunkvrport/config/vrport.ini').read_text(encoding='utf-8-sig')
     if 'xr_framegen=0' not in ini.splitlines():
         raise RuntimeError('This measurement requires frame generation disabled')
     scalars = [f'DebugPrepare{scope}Ticks{eye}' for scope in SCOPES for eye in EYES]
@@ -49,7 +49,7 @@ def main():
     states = ('GeometryPacketState', 'NativeStereoProbeState', 'StereoGpuProbeState', 'SinglePassTraceState')
     names = [PREFIX + n for n in (*CONTROLS, *GUARDS, *scalars, *arrays, *states,
                                  'MonoCascadeReport', 'MonoCascadeReportSeq')] + ['g_menuModeValue']
-    dll = game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll'
+    dll = game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll'
     symbols = resolve(args.pid, dll, names)
     reader = Reader(args.pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
     k = reader.k

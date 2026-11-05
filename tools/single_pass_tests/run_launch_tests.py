@@ -311,7 +311,7 @@ def finish_upload_install(backend, symbols, nonce, on_state, *, sleep=time.sleep
 
 def install_disabled_upload_observer(pid, game, out, check):
     import install_upload_observer as installer
-    dll = game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll'
+    dll = game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll'
     exe = game / 'bin/x64/Cyberpunk2077.exe'
     with exe.open('rb') as stream:
         exe_hash = hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -854,7 +854,7 @@ def main():
 
     def clear_selector_tracking():
         if not reader:return
-        values=resolve(pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',['CyberpunkVR_RegisteredIntentEnable','CyberpunkVR_RegisteredIntentCacheStats','CyberpunkVR_RegisteredStructuredIntentStats','CyberpunkVR_SourceSrvBindingEnable','CyberpunkVR_StructuredBufferSnapshotsEnable'])
+        values=resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',['CyberpunkVR_RegisteredIntentEnable','CyberpunkVR_RegisteredIntentCacheStats','CyberpunkVR_RegisteredStructuredIntentStats','CyberpunkVR_SourceSrvBindingEnable','CyberpunkVR_StructuredBufferSnapshotsEnable'])
         address=int(values['CyberpunkVR_RegisteredIntentEnable'],16)
         if args.source_selector_manifest:
             k=reader.k;k.WriteProcessMemory.argtypes=[c.c_void_p,c.c_void_p,c.c_void_p,c.c_size_t,c.POINTER(c.c_size_t)]
@@ -988,9 +988,9 @@ def main():
                  'CyberpunkVR_ConstantBankPrepareGeometry', 'CyberpunkVR_GeometryLeaseDrawCount', 'CyberpunkVR_GeometryLeaseResourceCount']
         names.extend(('CyberpunkVR_PairedGeometryRequest','CyberpunkVR_PairedGeometryState','CyberpunkVR_PairedGeometryOrdinal','CyberpunkVR_PairedGeometryFamily'))
         names.extend(('CyberpunkVR_PreparedActualMembershipEnable','CyberpunkVR_RetainedFixedAssetsEnable','CyberpunkVR_RetainedBorrowedTablesEnable','CyberpunkVR_RetainedFullT5Enable','CyberpunkVR_PreparedNativeExportEnable','CyberpunkVR_PreparedVrsRefinementEnable','CyberpunkVR_PreparedTailEnable','CyberpunkVR_PreparedInfixEnable','CyberpunkVR_PreparedCurrentEnable','CyberpunkVR_PreparedPairInputFault','CyberpunkVR_PreparedPairState','CyberpunkVR_SubmissionFrontierEnable'))
-        symbols = resolve(pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', names)
+        symbols = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', names)
         if args.retained_geometry:
-            symbols.update(resolve(pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',['CyberpunkVR_RetainedGeometry*']))
+            symbols.update(resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',['CyberpunkVR_RetainedGeometry*']))
         reader = Reader(pid, game / 'bin/x64/Cyberpunk2077.exe', 0, 0)
         read32 = lambda name: struct.unpack('<I', reader.read(int(symbols[name], 16), 4))[0]
         report['nativeStartup'] = dict(menuMode=read32('g_menuModeValue'), hookCompatible=read32(names[0]))
@@ -1502,7 +1502,7 @@ def main():
             report['completed'].append('post_collector_hud')
         if args.geometry_cost:
             from geometry_cost_report import NAMES as cost_names,LiveProbe,run as run_cost,validate as validate_cost,ceiling as cost_ceiling
-            cost_symbols=resolve(pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',list(cost_names))
+            cost_symbols=resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',list(cost_names))
             probe=LiveProbe(reader,cost_symbols,pid,check)
             def cost_image(row):
                 if not row['control']:return
@@ -1516,7 +1516,7 @@ def main():
                         (out/f"geometry-cost-{row['label']}.bmp").write_bytes((simulator/'screenshot.bmp').read_bytes());return
                     time.sleep(.1)
                 raise TimeoutError('No fresh simulator screenshot during the cost interval')
-            cost_results,cost_cleanup=run_cost(probe,game/'bin/x64/vrport.ini',on_interval=cost_image)
+            cost_results,cost_cleanup=run_cost(probe,game/'red4ext/plugins/cyberpunkvrport/config/vrport.ini',on_interval=cost_image)
             (out/'geometry-cost.json').write_text(json.dumps(dict(results=cost_results,cleanup=cost_cleanup),indent=2)+chr(10),encoding='utf-8')
             validate_cost(cost_results)
             if any(cost_cleanup.values()):raise RuntimeError('Geometry cost controls were not restored')
@@ -1539,18 +1539,18 @@ def main():
         report['controls']['CyberpunkVR_RegisteredIntentEnable']=clear_selector_tracking()
         if args.retained_geometry:
             for name in ('Request','State','Verified'):report['controls']['CyberpunkVR_RetainedGeometry'+name]=read32('CyberpunkVR_RetainedGeometry'+name)
-        more = resolve(pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',
+        more = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
                        ['CyberpunkVR_NativeStereoProbeRequest','CyberpunkVR_NativeStereoProbeState','CyberpunkVR_NativeStereoAllDraws'])
         for name in ('CyberpunkVR_NativeStereoProbeRequest','CyberpunkVR_NativeStereoProbeState','CyberpunkVR_NativeStereoAllDraws'):
             report['controls'][name] = struct.unpack('<I',reader.read(int(more[name],16),4))[0]
         if args.family_manifest:
-            family = resolve(pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', ['CyberpunkVR_StereoFamilyObserve'])
+            family = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', ['CyberpunkVR_StereoFamilyObserve'])
             report['controls']['CyberpunkVR_StereoFamilyObserve'] = struct.unpack('<I', reader.read(int(family['CyberpunkVR_StereoFamilyObserve'], 16), 4))[0]
         if args.native_constants:
-            controls = resolve(pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', ['CyberpunkVR_ConstantCaptureEnable', 'CyberpunkVR_ConstantBankRequest', 'CyberpunkVR_ConstantBankPairCount', 'CyberpunkVR_ConstantBankPrepareGeometry', 'CyberpunkVR_ConstantBankCompareDepth'])
+            controls = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', ['CyberpunkVR_ConstantCaptureEnable', 'CyberpunkVR_ConstantBankRequest', 'CyberpunkVR_ConstantBankPairCount', 'CyberpunkVR_ConstantBankPrepareGeometry', 'CyberpunkVR_ConstantBankCompareDepth'])
             for name in ('CyberpunkVR_ConstantCaptureEnable', 'CyberpunkVR_ConstantBankRequest', 'CyberpunkVR_ConstantBankPairCount', 'CyberpunkVR_ConstantBankPrepareGeometry', 'CyberpunkVR_ConstantBankCompareDepth'):
                 report['controls'][name] = struct.unpack('<I', reader.read(int(controls[name], 16), 4))[0]
-        freeze = resolve(pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll', ['CyberpunkVR_GeometryFreezeEnable'])
+        freeze = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll', ['CyberpunkVR_GeometryFreezeEnable'])
         report['controls']['CyberpunkVR_GeometryFreezeEnable'] = struct.unpack('<I', reader.read(int(freeze['CyberpunkVR_GeometryFreezeEnable'], 16), 4))[0]
         preparation_names=('CyberpunkVR_PreparationRequest','CyberpunkVR_PreparationState','CyberpunkVR_PreparationPairRequest',
                            'CyberpunkVR_PreparationRunRequest','CyberpunkVR_PreparationRunState','CyberpunkVR_PreparationRunStop','CyberpunkVR_EagerDepthMode',
@@ -1579,10 +1579,10 @@ def main():
                            'CyberpunkVR_GeometryCostProbe','CyberpunkVR_GeometryCostNode',
                            'CyberpunkVR_PreparedPairRequest','CyberpunkVR_PreparedPairState','CyberpunkVR_PreparedPairSelection','CyberpunkVR_PreparedPairInputFault','CyberpunkVR_PreparedActualMembershipEnable','CyberpunkVR_RetainedFixedAssetsEnable','CyberpunkVR_RetainedBorrowedTablesEnable','CyberpunkVR_RetainedFullT5Enable','CyberpunkVR_PreparedNativeExportEnable','CyberpunkVR_PreparedVrsRefinementEnable','CyberpunkVR_PreparedTailEnable','CyberpunkVR_PreparedInfixEnable','CyberpunkVR_PreparedCurrentEnable','CyberpunkVR_SubmissionFrontierEnable')
         if args.scene_access:preparation_names+=('CyberpunkVR_SceneAccessEnable','CyberpunkVR_SceneChildEnable')
-        preparation = resolve(pid, game / 'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',list(preparation_names))
+        preparation = resolve(pid, game / 'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',list(preparation_names))
         for name in preparation_names:
             report['controls'][name] = struct.unpack('<I', reader.read(int(preparation[name], 16), 4))[0]
-        collector=resolve(pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',['CyberpunkVR_CpuCollectorRequest','CyberpunkVR_CpuCollectorState'])
+        collector=resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',['CyberpunkVR_CpuCollectorRequest','CyberpunkVR_CpuCollectorState'])
         for name in ('CyberpunkVR_CpuCollectorRequest','CyberpunkVR_CpuCollectorState'):
             report['controls'][name]=struct.unpack('<I',reader.read(int(collector[name],16),4))[0]
         if any(report['controls'].values()):

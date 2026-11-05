@@ -1,4 +1,5 @@
 #include "Framegen/DlssFrameGen.hpp"
+#include "Core/Paths.hpp"
 #include "Utils/DebugGate.hpp"
 #include <atomic>
 #include <cmath>
@@ -128,8 +129,9 @@ bool Available(ID3D12Device* device) {
     NVSDK_NGX_FeatureCommonInfo info{};info.PathListInfo.Path=paths;info.PathListInfo.Length=2;
     info.LoggingInfo.LoggingCallback=&NgxLog;
     info.LoggingInfo.MinimumLoggingLevel=cvr::RuntimeDiagnosticsEnabled()?NVSDK_NGX_LOGGING_LEVEL_ON:NVSDK_NGX_LOGGING_LEVEL_OFF;
+    // NGX writes its logs to the application data path: the plugin's log folder.
     const auto result=NVSDK_NGX_D3D12_Init_with_ProjectID("5f0c9a3e-7d24-4b8e-9c61-2a7e8d4f1b30",NVSDK_NGX_ENGINE_TYPE_CUSTOM,
-        "CyberpunkVR",plugin.c_str(),device,&info);
+        "CyberpunkVR",cvr::paths::Dir(cvr::paths::Folder::Log).c_str(),device,&info);
     if(NVSDK_NGX_FAILED(result)) {
         char text[96];std::snprintf(text,sizeof(text),"NGX initialization failed (0x%08X)",unsigned(result));reason=text;
         Log("[framegen] DLSS-G: %s\n",text);return false;

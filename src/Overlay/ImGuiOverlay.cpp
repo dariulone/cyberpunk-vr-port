@@ -22,6 +22,7 @@
 #include "im3d.h"
 #include "Overlay/OverlayInternal.hpp"
 #include "Overlay/UiRec.hpp"
+#include "Lua/Host.hpp"
 
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 
@@ -256,8 +257,13 @@ void ShutdownOverlay() {
 // because it is how the guard was proven necessary. 3 = pacing plus the guard (default).
 // ================================================================================================
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlayPacing = 3;
-// Live diagnostic A/B switch; the normal path skips empty submissions.
-extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlaySkipEmpty = 1;
+// Keep the fork's previous-submission pacing even when holstering/mounting removes
+// the barrel dot. Skipping this submission also skips next frame's queue fence,
+// making GPU pacing depend on whether ImGui happens to have visible vertices.
+// PID36688: waits stopped 21ms before mounted=1, XR delivery fell to ~38/s while
+// Present stayed ~75/s, and waits stayed absent after dismount. Retain the empty
+// fast path only as an explicit diagnostic opt-in, not the default scheduling policy.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_OverlaySkipEmpty = 0;
 // Diagnostics: how long the two waits actually cost, and how often the guard was open.
 extern "C" __declspec(dllexport) double   CyberpunkVR_DebugOverlayWaitMs = 0.0;
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugOverlayDrains = 0;
@@ -522,6 +528,14 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
     }
 
+    // The Lua mods' key binds and their overlay key (raw input); while their windows are open, ImGui has the input.
+    // The game reads the mouse and keys from raw input: without this it also turned, walked and fired behind them.
+    cvr::lua::OnWndProc(hwnd, msg, wParam, lParam);
+    if (cvr::lua::OverlayOpen() && !cvr::vrui::Visible()) {
+        if (g_imguiInitialized && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam)) return 1;
+        if (msg == WM_INPUT ? !cvr::lua::PassRawInput(lParam) : IsBlockedInputMessage(msg)) return 0;
+    }
+
     // 2. Handle menu toggle
     if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && (wParam == VK_F10 || wParam == VK_INSERT)) {
         cvr::vrui::Toggle();
@@ -656,14 +670,23 @@ void OverlayRender(IDXGISwapChain* swapChain) {
         std::lock_guard pointerLock(g_desktopPointerMutex);
         g_pointerInput.Submit(io,pointerEvents,pointer.hit,pointer.dragging,GetTickCount64());
     } else {
-        {std::lock_guard pointerLock(g_desktopPointerMutex);g_pointerInput.Reset(io);}
+        if(!cvr::lua::OverlayOpen()){std::lock_guard pointerLock(g_desktopPointerMutex);g_pointerInput.Reset(io);}
         io.FontGlobalScale=1;cvr::vrui::ClearCanvas();
     }
-    io.MouseDrawCursor=false;
+    // The Lua mods' windows on the desktop: ImGui draws the pointer the game hides.
+    const bool luaOverlay=!g_menuVisible && cvr::lua::OverlayOpen();
+    if(luaOverlay)ReleaseGameMouseCapture();
+    io.MouseDrawCursor=luaOverlay;
+    if(luaOverlay){
+        // The frame is two eyes wide and the mirror shrinks it into the window: about 18 px of text on the monitor.
+        RECT client{};POINT clientOrigin{};
+        if(GetDesktopPhysicalClientRect(g_hwnd,client,clientOrigin) && client.right>client.left)
+            io.FontGlobalScale=std::max(1.0f,io.DisplaySize.x/float(client.right-client.left)*18.0f/28.0f);
+    }
 
     ImGui::NewFrame();
 
-    if(!g_menuVisible){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawCompactAdsCameraTelemetry();}
+    if(!g_menuVisible){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
 
     const bool placementSave = cvr::vrui::ConsumePlacementSave();
     bool foveatedEditing=false;

@@ -8,7 +8,7 @@ from live_symbols import resolve
 from live_read import Reader
 from motion_probe import camera
 p=argparse.ArgumentParser();p.add_argument('--pid',type=int,required=True);p.add_argument('--out',type=Path,required=True)
-p.add_argument('--dll',type=Path,default=ROOT/'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll')
+p.add_argument('--dll',type=Path,default=ROOT/'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll')
 a=p.parse_args();assert not a.out.exists();a.out.parent.mkdir(exist_ok=True,parents=True)
 names=['CyberpunkVR_FramegenReport','CyberpunkVR_FramegenReportSeq','CyberpunkVR_FramegenInputStages','CyberpunkVR_RuntimeDiagnostics',
        'CyberpunkVR_PoseIdLastCapture','CyberpunkVR_PoseIdCaptureMiss','CyberpunkVR_PoseIdCaptured',

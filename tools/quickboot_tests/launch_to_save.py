@@ -511,7 +511,7 @@ def native_loading_state(pid,game,symbols):
     from live_read import Reader
     from live_symbols import resolve
     if not symbols:
-        symbols.update(resolve(pid,game/'red4ext/plugins/CyberpunkVR_Stereo/CyberpunkVR_Stereo.dll',
+        symbols.update(resolve(pid,game/'red4ext/plugins/cyberpunkvrport/cyberpunkvrport.dll',
                                ['CyberpunkVR_MenuSourceSeq','CyberpunkVR_MenuSource']))
     reader=Reader(pid,game/'bin/x64/Cyberpunk2077.exe',0,0)
     try:
@@ -581,6 +581,9 @@ def main():
     parser.add_argument('--no-focus',action='store_true',help='Keep window focus unchanged; Continue uses the simulator pad')
     parser.add_argument('--save',help='Load this save (its folder name, e.g. AutoSave-8) instead of the latest one')
     parser.add_argument('--hold-file',type=Path,help='Test process only: stay in the main menu while this file exists')
+    parser.add_argument('--launcher-hold',type=Path,help='Test process only: leave the resolution launcher open while this file exists (a debugger attaches before the game starts)')
+    parser.add_argument('--mods-root',type=Path,help="The Lua mods folder QuickBoot runs from (default: the plugin's lua folder)")
+    parser.add_argument('--start-screen',action='store_true',help='Launch as a player does, without -skipStartScreen: the plugin skips the start screen')
     parser.add_argument('--simulator',type=Path,help='Exact loaded simulator DLL, required with --no-focus')
     parser.add_argument('--pause-at-continue',action='store_true',help='Diagnostic mode: leave the post-load Continue screen open for inspection')
     parser.add_argument("--observe-native-bindings", action="store_true", help="Test process only: capture complete D3D graphics state")
@@ -603,9 +606,11 @@ def main():
     if args.reflection_dxc and (not args.family_manifest or not args.reflection_dxc.is_file() or args.reflection_dxc.name.lower()!='dxcompiler.dll'):
         parser.error('Reflection requires a family package and an existing dxcompiler.dll')
 
-    from_root = game / "bin" / "x64" / "plugins" / "cyber_engine_tweaks" / "mods"
+    # The port's Lua mods run in the plugin's host, from its lua folder (src/Lua); --mods-root names another
+    # (CET's mods folder, for an A/B run with the mods back in CET).
+    from_root = args.mods_root or game / "red4ext" / "plugins" / "cyberpunkvrport" / "lua"
     if not from_root.is_dir():
-        parser.error("Cyber Engine Tweaks mod folder is missing")
+        parser.error(f"The Lua mods folder is missing: {from_root}")
     existing = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Cyberpunk2077.exe", "/FO", "CSV"],
                               capture_output=True, text=True, check=True)
     if "Cyberpunk2077.exe" in existing.stdout:
@@ -645,7 +650,7 @@ def main():
         environment['CVR_STEREO_SOURCE_SELECTORS']=str(args.source_selector_manifest.resolve())
     else:
         environment.pop('CVR_STEREO_SOURCE_SELECTORS',None)
-    process = subprocess.Popen([str(executable), "-skipStartScreen"], cwd=executable.parent, env=environment)
+    process = subprocess.Popen([str(executable)] + ([] if args.start_screen else ["-skipStartScreen"]), cwd=executable.parent, env=environment)
     print(f"Launched PID {process.pid}", flush=True)
     deadline = time.monotonic() + args.timeout
     launcher_seen = None
@@ -690,7 +695,8 @@ def main():
         if launcher and launcher_seen is None:
             launcher_seen = now
             print("Resolution launcher detected; Start Game in one second", flush=True)
-        if launcher and not clicked and now - launcher_seen >= 1.0:
+        held = args.launcher_hold is not None and args.launcher_hold.exists()
+        if launcher and not clicked and not held and now - launcher_seen >= 1.0:
             click_launcher(launcher, process.pid)
             clicked = True
             print("Start Game clicked", flush=True)

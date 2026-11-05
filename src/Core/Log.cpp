@@ -10,6 +10,7 @@
 // mistyped offset in a diagnostic produces a line saying so instead of taking the game down.
 
 #include <windows.h>
+#include "Core/Paths.hpp"
 #include <psapi.h>
 #include <xinput.h>
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
@@ -42,12 +43,8 @@
 
 void Log(const char* fmt, ...) {
     if (!g_logFile) {
-        char logPath[MAX_PATH];
-        GetModuleFileNameA(nullptr, logPath, MAX_PATH);
-        char* lastSlash = strrchr(logPath, '\\');
-        if (lastSlash) *(lastSlash + 1) = 0;
-        strcat_s(logPath, "cyberpunkvrport.log");
-        g_logFile = _fsopen(logPath, "w", _SH_DENYNO);
+        const std::wstring logPath = cvr::paths::File(cvr::paths::Folder::Log, L"cyberpunkvrport.log");
+        g_logFile = _wfsopen(logPath.c_str(), L"w", _SH_DENYNO);
     }
     if (!g_logFile) return;
 
@@ -318,3 +315,6 @@ void LogStackWindowAt(const char* label, uintptr_t rsp, int slots) {
         }
     }
 }
+
+// One line, for code that cannot name Log: the Lua host (src/Lua), where CET's logging namespace is called Log.
+extern "C" void CvrLogText(const char* text) { Log("%s", text); }

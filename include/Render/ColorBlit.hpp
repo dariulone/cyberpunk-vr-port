@@ -47,7 +47,8 @@ public:
                        float offY = 0.0f,
                        float width = 0.0f, float height = 0.0f,
                        const float* tint = nullptr,
-                       uint32_t sourceMip = 0, uint32_t targetMip = 0, int blurAxis = 0);
+                       uint32_t sourceMip = 0, uint32_t targetMip = 0, int blurAxis = 0,
+                       float blackPoint = 0.0f);   // linear light a texel must exceed to show (overlay modes)
 
     // The engine's own HUD composite, ported from PipelineState_576 (the indirect compute
     // dispatch that produces the final colour). Constants below default to the values read out

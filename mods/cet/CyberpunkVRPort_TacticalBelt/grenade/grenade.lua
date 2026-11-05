@@ -945,7 +945,7 @@ grenadeParts = function()
     if not IsDefined(e) then return nil end
     local list = {}
     pcall(function()
-        for _, c in ipairs(e:GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(e)) do
             if string.find(tostring(c:GetClassName()), "Mesh", 1, true)
                 and type(c.SetLocalTransform) == "function" then
                 local en = nil
@@ -970,7 +970,7 @@ grenadeParts = function()
     E.S.grab.pin = nil
     pcall(function()
         local idx, seen = nil, 0
-        for _, c in ipairs(e:GetComponents()) do
+        for _, c in ipairs(Game.VREntityComponents(e)) do
             local cn = tostring(c:GetName().value)
             if string.find(tostring(c:GetClassName()), "SkinnedMesh", 1, true) then
                 if string.find(string.lower(cn), "safe_pin", 1, true) then idx = seen break end

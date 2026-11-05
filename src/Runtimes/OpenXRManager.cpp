@@ -1,3 +1,4 @@
+#include "Runtimes/PresenceRecenter.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
@@ -5,16 +6,22 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Render/FoveatedDlss.hpp"
 #include "Render/FixedVrs.hpp"
+#include "Hooks/Psvr2Input.hpp"
 #include "Hooks/RoomscaleMove.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Runtimes/SimulatorRecenter.hpp"
 #include "Runtimes/TrackingFilter.hpp"
+#include "Runtimes/TrackingReacquire.hpp"
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
 #include "Hooks/Ngx.hpp"
 #include "Runtimes/RuntimeFovCorrection.hpp"
 #include "Utils/XrMath.hpp"   // extracted pure quaternion/vector math (inline)
 #include "Runtimes/OpenXRInternal.hpp"   // shared inline statics/helpers for the split OpenXR TUs
+#include "Utils/TestMarker.hpp"
 #include <cstdarg>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -191,6 +198,42 @@ static bool TryReadRegistryString(HKEY root, const char* subKey, const char* val
     return true;
 }
 
+// The file openvr_api.dll's VR_GetRuntimePath reads, read directly: %LOCALAPPDATA%\openvr\openvrpaths.vrpath,
+// written by SteamVR (vrpathreg) with the installed runtime roots under "runtime". No DLL is loaded into the
+// game for it; the DLL and the Steam registry stay as fallbacks.
+static bool TryGetSteamVRRuntimeJsonFromVrPath(char* outJsonPath, size_t outJsonPathSize) {
+    if (!outJsonPath || outJsonPathSize == 0) return false;
+    char localAppData[MAX_PATH]{};
+    const DWORD length = GetEnvironmentVariableA("LOCALAPPDATA", localAppData, MAX_PATH);
+    char vrPath[MAX_PATH]{};
+    if (!length || length >= MAX_PATH || !JoinPath(vrPath, sizeof(vrPath), localAppData, "openvr\\openvrpaths.vrpath")) return false;
+    std::ifstream file(vrPath, std::ios::binary);
+    if (!file) return false;
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const size_t key = text.find("\"runtime\"");
+    const size_t open = key == std::string::npos ? std::string::npos : text.find('[', key);
+    const size_t close = open == std::string::npos ? std::string::npos : text.find(']', open);
+    if (close == std::string::npos) {
+        Log("OpenXRManager: %s has no runtime list.\n", vrPath);
+        return false;
+    }
+    // Each entry is a JSON string: a runtime root, its backslashes escaped.
+    for (size_t at = text.find('"', open); at != std::string::npos && at < close; at = text.find('"', at + 1)) {
+        std::string root;
+        for (++at; at < close && text[at] != '"'; ++at) {
+            if (text[at] == '\\' && at + 1 < close) ++at;
+            root.push_back(text[at]);
+        }
+        if (root.empty() || !JoinPath(outJsonPath, outJsonPathSize, root.c_str(), "steamxr_win64.json")) continue;
+        if (FileExistsA(outJsonPath)) {
+            Log("OpenXRManager: SteamVR runtime resolved via openvrpaths.vrpath: \"%s\"\n", outJsonPath);
+            return true;
+        }
+        Log("OpenXRManager: openvrpaths.vrpath names \"%s\", but it has no steamxr_win64.json.\n", root.c_str());
+    }
+    return false;
+}
+
 static bool TryGetSteamVRRuntimeJsonFromOpenVR(char* outJsonPath, size_t outJsonPathSize) {
     if (!outJsonPath || outJsonPathSize == 0) {
         return false;
@@ -277,7 +320,8 @@ static void ConfigurePreferredOpenXRRuntime() {
     }
 
     char runtimeJson[2048]{};
-    if (!TryGetSteamVRRuntimeJsonFromOpenVR(runtimeJson, sizeof(runtimeJson)) &&
+    if (!TryGetSteamVRRuntimeJsonFromVrPath(runtimeJson, sizeof(runtimeJson)) &&
+        !TryGetSteamVRRuntimeJsonFromOpenVR(runtimeJson, sizeof(runtimeJson)) &&
         !TryGetSteamVRRuntimeJsonFromRegistry(runtimeJson, sizeof(runtimeJson))) {
         Log("OpenXRManager: xr_runtime=1 requested SteamVR, but no SteamVR OpenXR runtime manifest was found. Using system default runtime.\n");
         return;
@@ -296,6 +340,23 @@ static void ConfigurePreferredOpenXRRuntime() {
     }
 
     Log("OpenXRManager: xr_runtime=1 forcing SteamVR OpenXR runtime via XR_RUNTIME_JSON=\"%s\"\n", runtimeJson);
+    // The OpenXR loader reads XR_RUNTIME_JSON as a "secure" variable: a process at high integrity (run as
+    // administrator) has it ignored and gets the system runtime from HKLM\SOFTWARE\Khronos\OpenXR\1
+    // ActiveRuntime instead. Seen 2026-11-02: an elevated launch with xr_runtime=1 came up on the simulator.
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        alignas(TOKEN_MANDATORY_LABEL) BYTE buffer[64]{};
+        DWORD size = 0;
+        if (GetTokenInformation(token, TokenIntegrityLevel, buffer, sizeof(buffer), &size)) {
+            const auto* label = reinterpret_cast<const TOKEN_MANDATORY_LABEL*>(buffer);
+            const DWORD level = *GetSidSubAuthority(label->Label.Sid, *GetSidSubAuthorityCount(label->Label.Sid) - 1);
+            if (level >= SECURITY_MANDATORY_HIGH_RID)
+                Log("OpenXRManager: WARNING the game runs as administrator: the OpenXR loader ignores XR_RUNTIME_JSON there, "
+                    "so xr_runtime=1 cannot pick SteamVR and the system's OpenXR runtime is used. Start the game without "
+                    "administrator rights, or make SteamVR the system OpenXR runtime.\n");
+        }
+        CloseHandle(token);
+    }
 }
 
 static void LogDxgiAdapterForDevice(ID3D12Device* device) {
@@ -677,8 +738,17 @@ bool OpenXRManager::Init() {
     }
 
     XrSystemProperties systemProps{XR_TYPE_SYSTEM_PROPERTIES};
+    m_runtimeIsPsvr2.store(false, std::memory_order_relaxed);
+    m_eyeImageLimit[0] = m_eyeImageLimit[1] = 0;
     if (XR_SUCCEEDED(xrGetSystemProperties(m_instance, m_systemId, &systemProps))) {
         strncpy_s(m_systemName, systemProps.systemName, _TRUNCATE);
+        m_eyeImageLimit[0] = systemProps.graphicsProperties.maxSwapchainImageWidth;
+        m_eyeImageLimit[1] = systemProps.graphicsProperties.maxSwapchainImageHeight;
+        m_runtimeIsPsvr2.store(cvr::input::IsPsvr2System(systemProps.systemName), std::memory_order_relaxed);
+        if (IsRuntimePsvr2()) {
+            Log("OpenXRManager[PSVR2]: Sense Triangle touch D-pad and Create SystemButton enabled. "
+                "Haptic actuator ownership remains with the external Toolkit bridge; no OpenXR vibration action.\n");
+        }
         Log("OpenXRManager: OpenXR system vendorId=0x%X systemName=\"%s\" maxSwapchain=%ux%u maxLayerCount=%u positionTracking=%d orientationTracking=%d\n",
             systemProps.vendorId,
             systemProps.systemName,
@@ -702,6 +772,11 @@ bool OpenXRManager::Init() {
                 view.maxImageRectWidth,
                 view.maxImageRectHeight,
                 view.recommendedSwapchainSampleCount);
+            // A runtime that leaves a maximum at 0 sets no limit there.
+            if (view.maxImageRectWidth && (!m_eyeImageLimit[0] || view.maxImageRectWidth < m_eyeImageLimit[0]))
+                m_eyeImageLimit[0] = view.maxImageRectWidth;
+            if (view.maxImageRectHeight && (!m_eyeImageLimit[1] || view.maxImageRectHeight < m_eyeImageLimit[1]))
+                m_eyeImageLimit[1] = view.maxImageRectHeight;
         }
     }
 
@@ -746,7 +821,13 @@ bool OpenXRManager::Init() {
             makeAction(m_thumbstickClickAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "thumbstick_click", "Thumbstick Click",     true);
             makeAction(m_primaryButtonAction,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "primary_button",   "Primary Button (A/X)", true);
             makeAction(m_secondaryButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "secondary_button", "Secondary Button (B/Y)", true);
-            makeAction(m_menuButtonAction,      XR_ACTION_TYPE_BOOLEAN_INPUT,  "menu",             "Menu Button",          false);
+            makeAction(m_menuButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,
+                IsRuntimePsvr2() ? "systembutton" : "menu",
+                IsRuntimePsvr2() ? "SystemButton (Sense Create)" : "Menu Button", false);
+            if (IsRuntimePsvr2()) {
+                makeAction(m_psvr2TriangleTouchAction, XR_ACTION_TYPE_BOOLEAN_INPUT,
+                    "secondary_button_touch", "Triangle Touch D-pad Shift", true);
+            }
             // HAPTICS: an OUTPUT action (Runtimes/Haptics.cpp). Bound inside each profile's one
             // suggest call below, because xrSuggestInteractionProfileBindings REPLACES a profile's
             // suggestions -- a second call for the haptic alone would drop every input binding.
@@ -767,6 +848,14 @@ bool OpenXRManager::Init() {
                 XrPath p = XR_NULL_PATH;
                 if (XR_SUCCEEDED(xrStringToPath(m_instance, b.path, &p))) {
                     v.push_back({ b.action, p });
+                }
+            }
+            if (IsRuntimePsvr2() && inputActionsEnabled &&
+                strcmp(profileStr, "/interaction_profiles/oculus/touch_controller") == 0) {
+                XrPath triangle = XR_NULL_PATH;
+                if (m_psvr2TriangleTouchAction != XR_NULL_HANDLE &&
+                    XR_SUCCEEDED(xrStringToPath(m_instance, "/user/hand/left/input/y/touch", &triangle))) {
+                    v.push_back({m_psvr2TriangleTouchAction, triangle});
                 }
             }
             XrInteractionProfileSuggestedBinding sb{XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
@@ -1009,14 +1098,31 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
 
     Log("OpenXRManager: Pose-only mode active until xr_mono_submit is enabled.\n");
 
+    // THE TRACKING SPACE IS STAGE ON STEAMVR. SteamVR serves LOCAL from its seated universe, and the
+    // seated zero pose of a universe is only written by a recenter: the oculus driver (Quest over Link)
+    // rewrites its chaperone file at every SteamVR start with a standing transform and no seated one.
+    // Until the player recentered, LOCAL then had the head 1.17 m BELOW its origin with the world upside
+    // down (2026-11-02, SteamVR 2.18.4; after the recenter the head sat at +0.06). STAGE is the standing
+    // universe, which that file does carry, so it is level from the first frame. Nothing here needs
+    // LOCAL's origin: the base pose takes heading and position from the head (yaw-only), and floor-level
+    // origins are what the simulator's LOCAL has always had. A file cvr_steamvr_local_space.txt next to
+    // the game's exe keeps LOCAL for an A/B.
+    const bool stageTracking = IsRuntimeSteamVR() && !cvr::TestMarker("cvr_steamvr_local_space.txt");
     XrReferenceSpaceCreateInfo localSpaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
-    localSpaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+    localSpaceInfo.referenceSpaceType = stageTracking ? XR_REFERENCE_SPACE_TYPE_STAGE : XR_REFERENCE_SPACE_TYPE_LOCAL;
     localSpaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
     res = xrCreateReferenceSpace(m_session, &localSpaceInfo, &m_localSpace);
+    if (XR_FAILED(res) && stageTracking) {
+        Log("OpenXRManager: STAGE space unavailable (res=%d), tracking in LOCAL\n", res);
+        localSpaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+        res = xrCreateReferenceSpace(m_session, &localSpaceInfo, &m_localSpace);
+    }
     if (XR_FAILED(res)) {
         Log("OpenXRManager: Failed to create local space (res=%d)\n", res);
         return false;
     }
+    Log("OpenXRManager: tracking space %s\n",
+        localSpaceInfo.referenceSpaceType == XR_REFERENCE_SPACE_TYPE_STAGE ? "STAGE (SteamVR)" : "LOCAL");
 
     XrReferenceSpaceCreateInfo viewSpaceInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
     viewSpaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
@@ -1089,6 +1195,10 @@ void OpenXRManager::EndSession() {
     Log("OpenXRManager: Session ended.\n");
 }
 
+// 1 = recenter automatically when the player puts the headset back on (xr_auto_recenter, see
+// Runtimes/PresenceRecenter.hpp). 0 = only F7 / the controller gesture / the runtime's own recenter.
+extern "C" __declspec(dllexport) int CyberpunkVR_AutoRecenter = 1;
+
 void OpenXRManager::PollEvents() {
     if (m_instance == XR_NULL_HANDLE) return;
 
@@ -1096,8 +1206,27 @@ void OpenXRManager::PollEvents() {
     while (xrPollEvent(m_instance, &event) == XR_SUCCESS) {
         if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* changed = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
+            const XrSessionState previous = m_sessionState;
             m_sessionState = changed->state;
+            m_sessionFocused.store(m_sessionState == XR_SESSION_STATE_FOCUSED, std::memory_order_relaxed);
+            if (m_sessionState != XR_SESSION_STATE_FOCUSED) {
+                // A stopped/nonfocused session may not publish another frame.
+                // Do not let a stale held Create become a Back event later.
+                std::lock_guard<std::mutex> lock(m_inputMutex);
+                m_controllerState.psvr2SystemAvailable = false;
+                m_controllerState.psvr2SystemPressed = false;
+                m_controllerState.psvr2DpadShift = false;
+            }
             Log("OpenXRManager: Session state -> %d\n", static_cast<int>(m_sessionState));
+            static cvr::presence::AwayTracker s_away;
+            if (cvr::presence::OnSessionState(s_away, previous, m_sessionState)) {
+                if (CyberpunkVR_AutoRecenter) {
+                    RequestRecenter();
+                    Log("OpenXRManager: headset back on after an absence -> automatic recenter.\n");
+                } else {
+                    Log("OpenXRManager: headset back on after an absence (xr_auto_recenter=0, not recentering).\n");
+                }
+            }
 
             if (m_sessionState == XR_SESSION_STATE_READY) {
                 BeginSession();
@@ -1172,6 +1301,18 @@ bool OpenXRManager::GetHandPose(int handIndex, OpenXRHeadPose* out) const {
     std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
     *out = m_hands[handIndex];
     return out->valid;
+}
+
+bool OpenXRManager::GetHandMotion(int handIndex, float linear[3], float angular[3]) const {
+    if (!linear || !angular || handIndex < 0 || handIndex > 1) return false;
+    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
+    const HandMotion& m = m_handMotion[handIndex];
+    if (!m.valid || !m_hands[handIndex].valid) return false;
+    for (int k = 0; k < 3; ++k) {
+        linear[k] = m.linear[k];
+        angular[k] = m.angular[k];
+    }
+    return true;
 }
 
 bool OpenXRManager::GetGestureHandFrame(OpenXRHeadPose* head,OpenXRHeadPose hands[2],uint64_t* sequence,uint64_t* stampUs,bool rawMelee) const {
@@ -1925,6 +2066,26 @@ void OpenXRManager::FlushHandsToShared(const OpenXRHeadPose* frameHead, XrTime f
     // Ordinary melee measures physical grip speed before visual smoothing.
     // Keep its coherent head basis, sample time and tracking validity.
     const OpenXRHeadPose rawMeleeHands[2]={srcHands[0],srcHands[1]};
+    // A hand coming back into tracking glides to where it is instead of jumping there (Runtimes/TrackingReacquire.hpp).
+    // Head-local, as published; a new tracking origin starts over.
+    {
+        static cvr::tracking::Reacquire s_reacquire[2];
+        static uint64_t s_origin=0, s_lastUs=0;
+        const uint64_t nowUs=XrDiagNowUs();
+        const float dt=(s_lastUs && nowUs>s_lastUs) ? static_cast<float>(static_cast<double>(nowUs-s_lastUs)*1e-6) : 0.0f;
+        s_lastUs=nowUs;
+        if(s_origin!=reference.originSerial) { for(auto& hand:s_reacquire) hand.Reset(); s_origin=reference.originSerial; }
+        for(int h=0;h<2;++h) {
+            auto& src=srcHands[h];
+            cvr::tracking::HandPose pose;
+            pose.p[0]=src.posX; pose.p[1]=src.posY; pose.p[2]=src.posZ;
+            pose.q[0]=src.oriX; pose.q[1]=src.oriY; pose.q[2]=src.oriZ; pose.q[3]=src.oriW;
+            pose=s_reacquire[h].Step(pose,src.valid,dt);
+            if(!src.valid) continue;
+            src.posX=pose.p[0]; src.posY=pose.p[1]; src.posZ=pose.p[2];
+            src.oriX=pose.q[0]; src.oriY=pose.q[1]; src.oriZ=pose.q[2]; src.oriW=pose.q[3];
+        }
+    }
     // Body inference must not see the head-local hand filter: that filter lags
     // during head turns and can turn stationary world-space hands into a false
     // torso turn. bodyFrame above retains its own coherent raw reference.
@@ -2235,6 +2396,8 @@ void OpenXRManager::Shutdown() {
     m_basiliskQuad.Shutdown();
     m_surveillanceQuad.Shutdown();
     m_hitMarkerQuad.Shutdown();
+    m_introOverlay.Shutdown();
+    m_loadingScreen.Shutdown();
     cvr::hud::Shutdown();
     cvr::hud::Shutdown(cvr::hud::Channel::Interaction);
     cvr::hud::Shutdown(cvr::hud::Channel::Basilisk);
@@ -2272,6 +2435,11 @@ void OpenXRManager::Shutdown() {
         xrDestroySpace(m_localSpace);
         m_localSpace = XR_NULL_HANDLE;
     }
+    if (m_stageSpace != XR_NULL_HANDLE) {
+        xrDestroySpace(m_stageSpace);
+        m_stageSpace = XR_NULL_HANDLE;
+    }
+    m_stageUnavailable = false;
 
     if (m_session != XR_NULL_HANDLE) {
         xrDestroySession(m_session);

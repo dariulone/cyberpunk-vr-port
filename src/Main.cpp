@@ -27,6 +27,15 @@
 // REMOVED. Running both means two copies of every hook fighting for the same addresses.
 
 #include <windows.h>
+#include "Core/Paths.hpp"
+#include "Core/InputConfig.hpp"
+#include "Core/TweakRecords.hpp"
+#include "Core/ArchiveExtensions.hpp"
+#include "Lobby/Notice.hpp"
+#include "Core/ScriptCompiler.hpp"
+#include "Lua/Host.hpp"
+#include "Natives/NativeFunctions.hpp"
+#include <memory>
 #include <d3d12.h>
 #include <atomic>
 #include <cstring>
@@ -38,6 +47,7 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Natives/VendorRoute.hpp"
+#include "Hooks/PromptButtons.hpp"
 
 extern void Log(const char* fmt, ...);
 
@@ -48,6 +58,8 @@ extern void InitRuntimePaths();
 // afterwards. As early as we get -- the game may still have read its settings first, in which case
 // they take on the next launch.
 extern "C" void ApplyFirstLaunchGameSettings();
+// Every launch: the game's window starts borderless (/video/display WindowMode), whatever it was left at.
+extern "C" void ApplyLaunchWindowMode();
 // The game-hook pass: camera, FOV, LoD, DLSS resolution, XInput. Sleeps ~8 s first, then
 // pattern-scans. Unchanged -- none of it depended on being the proxy.
 extern DWORD WINAPI WorkerThread(LPVOID);
@@ -92,6 +104,28 @@ DWORD WINAPI UnsupportedBuildMessage(LPVOID) {
     return 0;
 }
 
+// Two copies of the port in red4ext\plugins: said once, off the loader's thread, like the build message.
+DWORD WINAPI OtherCopyMessage(LPVOID parameter) {
+    std::unique_ptr<std::wstring> other(static_cast<std::wstring*>(parameter));
+    const std::wstring root = cvr::paths::Dir(cvr::paths::Folder::Root);
+    wchar_t text[1024];
+    if (other->rfind(root, 0) == 0)
+        swprintf_s(text,
+                   L"An older copy of CyberpunkVRPort was left beside this one:\n\n%ls\n\n"
+                   L"It started first, so it runs this launch and this one stays off. It has been renamed to "
+                   L"CyberpunkVR_Stereo.dll.old (the plugin is cyberpunkvrport.dll now): start the game again.",
+                   other->c_str());
+    else
+        swprintf_s(text,
+                   L"Two copies of CyberpunkVRPort are installed:\n\n%ls\n%ls\n\n"
+                   L"Both would hook the game, so this one stays off for this launch. Delete the folder of the one "
+                   L"you do not want (an earlier release's red4ext\\plugins\\CyberpunkVR_Stereo is replaced by "
+                   L"red4ext\\plugins\\cyberpunkvrport) and start the game again.",
+                   root.c_str(), other->c_str());
+    MessageBoxW(nullptr, text, L"CyberpunkVRPort", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST);
+    return 0;
+}
+
 // The game hooks (camera, FOV, LoD, DLSS resolution, XInput) on their own thread, exactly as
 // DllMain used to start them. WorkerThread does its own wait before pattern-scanning.
 void StartWorkerThread() {
@@ -105,12 +139,37 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
     switch (reason) {
     case RED4ext::v1::EMainReason::Load: {
         if (g_started.exchange(true)) break;
+        // TWO COPIES HOOK EVERYTHING TWICE, natives included. An earlier release's folder left beside this one
+        // is the usual way to get there, and that release does not look for us: so this copy stays out, before
+        // it registers or hooks anything, and says why.
+        // The same with an older copy beside this one, under the plugin's old file name: renamed out of the way,
+        // and when it already runs this launch this copy stays out of it.
+        std::wstring other = cvr::paths::RetireOldName();
+        if (other.empty()) other = cvr::paths::OtherCopy();
+        if (!other.empty()) {
+            g_disabled = true;
+            Log("[paths] another copy of the port is installed (%ls): this one (%ls) stays off\n", other.c_str(),
+                cvr::paths::Dir(cvr::paths::Folder::Root).c_str());
+            if (HANDLE h = CreateThread(nullptr, 0, OtherCopyMessage, new std::wstring(std::move(other)), 0, nullptr))
+                CloseHandle(h);
+            break;
+        }
+        // Everything lives in the plugin's own folder now; what an earlier release kept elsewhere moves in first.
+        cvr::paths::MigrateLegacyLayout();
         InitRuntimePaths();
         Log("=== CyberpunkVRPort red4ext plugin loaded (no dxgi proxy) ===\n");
         // FIRST, and deliberately: registering the RTTI callbacks is cheap and has a window. The
         // graphics init below waits on the game's device and can take seconds; doing it first is
         // how the natives would come back nil in Lua.
         CyberpunkVR_RegisterHandsNatives();
+        // Native signatures whose types RTTI made only after registration (Natives/Registration.cpp), before any Lua.
+        RED4ext::v1::GameState signatures{&cvr::natives::CompleteSignatures,nullptr,nullptr};
+        sdk->gameStates->Add(handle,RED4ext::EGameStateType::Initialization,&signatures);
+        RED4ext::v1::GameState signaturesLate{&cvr::natives::CompleteSignatures,nullptr,nullptr};
+        sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&signaturesLate);
+        // The port's spawn system joins the game's systems once there is a game instance (Natives/SpawnSystem.cpp).
+        RED4ext::v1::GameState spawnSystem{&cvr::spawn::AddToGame,nullptr,nullptr};
+        sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&spawnSystem);
         RED4ext::v1::GameState vendorWatchdog{nullptr,&cvr::vendor_route::Update,&cvr::vendor_route::Reset};
         const bool vendorWatchdogReady=sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&vendorWatchdog);
         cvr::vendor_route::WatchdogRegistered(vendorWatchdogReady);
@@ -132,7 +191,27 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
                 cvr::game_build::Running(), cvr::game_build::Expected());
         else
             Log("[build] game %s matches the port's build.\n", cvr::game_build::Running());
+        // The port's input bindings, before the engine reads its input configuration (Core/InputConfig.hpp).
+        cvr::input_config::Apply();
+        // The port's TweakDB records, applied as the engine loads its TweakDB (Core/TweakRecords.hpp).
+        cvr::tweak_records::Install(handle, sdk);
+        // The boot's notice in the game's language, set as the game's ink settings load (Lobby/Notice.hpp).
+        cvr::lobby::notice::Install();
+        // The port's archive, mounted from the plugin's folder, and its manifest (Core/ArchiveExtensions.hpp).
+        cvr::archive::Install(handle, sdk);
+        // The port's scripts, compiled with the game's -- by redscript's compiler, the plugin's own when redscript is
+        // not installed (Core/ScriptCompiler.hpp).
+        cvr::scripts::Install(handle, sdk);
+        // The plugin's Lua host (src/Lua): the runtime checked, then the host made -- it hooks the engine's script
+        // load, TweakDB load, player spawn and main thread, as CET does.
+        if (cvr::lua::SelfTest()) cvr::lua::Install();
+        // The key icons on screen follow the button layout (left-handed, a seat's mirrors): looked up again on the
+        // main thread when it changes.
+        RED4ext::v1::GameState promptIcons{nullptr,&cvr::input::UpdatePromptIcons,nullptr};
+        Log("[prompt-icon] main-thread refresh registered=%d\n",
+            sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&promptIcons));
         ApplyFirstLaunchGameSettings();
+        ApplyLaunchWindowMode();
         // Must run before the game's D3D12CreateDevice: this is what captures the device and
         // queue, and what patches the descriptor-heap size the second view needs.
         CyberpunkVRPort_InitStereo();
@@ -166,7 +245,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
 RED4EXT_C_EXPORT void RED4EXT_CALL Query(RED4ext::v1::PluginInfo* info) {
     info->name = L"CyberpunkVRPort";
     info->author = L"CyberpunkVRPort";
-    info->version = RED4EXT_V1_SEMVER(0, 1, 7);
+    info->version = RED4EXT_V1_SEMVER(CVR_VERSION_MAJOR, CVR_VERSION_MINOR, CVR_VERSION_PATCH);
     // Matches the loader actually installed here (runtime 1.29.1), which predates API v1 and
     // skips plugins that declare it outright -- the testbed plugin had to do the same.
     info->runtime = RED4EXT_V1_RUNTIME_VERSION_INDEPENDENT;

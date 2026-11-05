@@ -30,6 +30,7 @@
 
 #include "Anim/AdsEyeAlign.hpp"
 #include "Anim/CharacterRig.hpp"
+#include "Anim/LeftHanded.hpp"
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
 #include "Utils/SharedSlots.hpp"
@@ -55,8 +56,8 @@ bool IsHeadAimWeaponActive() {
 void ApplyHeadAimWeaponOrientation(uint8_t* boneBuf) {
     if (!IsHeadAimWeaponActive()) return;
 
-    // WeaponRight (the global's name is a leftover from the smoking pose, which rides the same bone).
-    const int weaponIdx = static_cast<int>(g_VRSmokeCigIdx);
+    // The weapon in hand's bone: WeaponRight, or WeaponLeft with the weapon in the left hand.
+    const int weaponIdx = HeldWeaponBone();
     if (weaponIdx < 0 || weaponIdx >= VRIK_FKCount() || !g_viewPktValid) return;
 
     float viewQ[4] = { g_viewPkt[0], g_viewPkt[1], g_viewPkt[2], g_viewPkt[3] };
@@ -69,12 +70,12 @@ void ApplyHeadAimWeaponOrientation(uint8_t* boneBuf) {
     VRIK_QuatMul(invEnt, viewQ, viewModel);
     VRIK_QuatNorm(viewModel);
 
-    // THROUGH THE HAND, not onto the weapon bone (dabinn, TofuExpress 73bdf668). Writing
-    // WeaponRight directly replaced the authored GRIP with the aim rotation, which is how a pistol
+    // THROUGH THE HAND, not onto the weapon bone (dabinn, TofuExpress 73bdf668). Writing the
+    // weapon bone directly replaced the authored GRIP with the aim rotation, which is how a pistol
     // ends up held sideways; rotating its parent moves the weapon by the same amount and leaves the
     // grip exactly as animated.
     VRIK_ComputeFK(boneBuf, VRIK_FKCount());
-    WriteWeaponModelRotViaRightHand(boneBuf, weaponIdx, viewModel);
+    WriteWeaponModelRotViaHand(boneBuf, weaponIdx, viewModel);
 }
 
 }  // namespace cvr::anim

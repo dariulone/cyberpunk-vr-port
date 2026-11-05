@@ -6,6 +6,7 @@
 #include <cstdint>
 #include "Runtimes/HudChannels.hpp"
 
+namespace RED4ext { struct DynamicTexture; }
 namespace cvr::hud {
 constexpr size_t MaxSprites = 64;
 struct TextureLease {
@@ -13,6 +14,11 @@ struct TextureLease {
     Microsoft::WRL::ComPtr<ID3D12Resource> resource;
     ~TextureLease();
 };
+// An engine colour target held for one of the port's own reads (Natives/HudPanel.cpp): its pool handle is
+// referenced, so the resource outlives the engine's release while the read is in flight. Empty unless it is a
+// single-sample 2D RGBA target resting in the engine's shader-read state -- or, with `idle`, in COMMON: an ink
+// target the engine leaves to decay after each write (Natives/MenuSurface.cpp), which a read promotes implicitly.
+std::shared_ptr<TextureLease> Lease(RED4ext::DynamicTexture* texture, bool idle = false);
 struct Sprite {
     std::shared_ptr<TextureLease> texture;
     float x = 0, y = 0, width = 0, height = 0;

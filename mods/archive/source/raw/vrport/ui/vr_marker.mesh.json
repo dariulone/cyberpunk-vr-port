@@ -1,0 +1,2723 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-29T09:46:32.5246733Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": ""
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 1036,
+  "RootChunk": {
+   "$type": "CMesh",
+   "appearances": [
+    {
+     "HandleId": "4",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l0"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "off"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "5",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l1"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_1"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_1"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "6",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l2"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_2"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_2"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "7",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l3"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_3"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_3"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "8",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l4"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_4"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_4"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "9",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l5"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_5"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_5"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "10",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l6"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_6"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_6"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "11",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l7"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_7"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_7"
+       }
+      ]
+     }
+    },
+    {
+     "HandleId": "12",
+     "Data": {
+      "$type": "meshMeshAppearance",
+      "name": {
+       "$type": "CName",
+       "$storage": "string",
+       "$value": "l8"
+      },
+      "tags": [],
+      "chunkMaterials": [
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "white_line_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "cyan_soft_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_line_8"
+       },
+       {
+        "$type": "CName",
+        "$storage": "string",
+        "$value": "amber_soft_8"
+       }
+      ]
+     }
+    }
+   ],
+   "boneNames": [],
+   "boneRigMatrices": [],
+   "boneVertexEpsilons": [],
+   "boundingBox": {
+    "$type": "Box",
+    "Max": {
+     "$type": "Vector4",
+     "W": 1,
+     "X": 0.0190113746,
+     "Y": 0,
+     "Z": 0.0190113746
+    },
+    "Min": {
+     "$type": "Vector4",
+     "W": 1,
+     "X": -0.0190113746,
+     "Y": 0,
+     "Z": -0.0190113746
+    }
+   },
+   "castGlobalShadowsCachedInCook": 1,
+   "castLocalShadowsCachedInCook": 1,
+   "castsRayTracedShadowsFromOriginalGeometry": 1,
+   "consoleBias": 0,
+   "constrainAutoHideDistanceToTerrainHeightMap": 0,
+   "cookingPlatform": "PLATFORM_PC",
+   "externalMaterials": [
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\off.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_1.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_2.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_3.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_4.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_5.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_6.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_7.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\white_line_8.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_1.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_2.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_3.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_4.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_5.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_6.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_7.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\cyan_soft_8.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_1.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_2.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_3.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_4.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_5.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_6.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_7.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_line_8.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_1.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_2.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_3.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_4.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_5.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_6.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_7.mi"
+     },
+     "Flags": "Default"
+    },
+    {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "string",
+      "$value": "vrport\\ui\\marker\\amber_soft_8.mi"
+     },
+     "Flags": "Default"
+    }
+   ],
+   "floatTrackNames": [],
+   "forceLoadAllAppearances": 1,
+   "geometryHash": "3989740986366296075",
+   "inplaceResources": [],
+   "isPlayerShadowMesh": 0,
+   "isShadowMesh": 0,
+   "localMaterialBuffer": {
+    "$type": "meshMeshMaterialBuffer",
+    "materials": [],
+    "rawData": null,
+    "rawDataHeaders": []
+   },
+   "localMaterialInstances": [],
+   "lodBoneMask": [],
+   "lodLevelInfo": [
+    0
+   ],
+   "materialEntries": [
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 0,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "off"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 1,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_1"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 2,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_2"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 3,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_3"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 4,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_4"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 5,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_5"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 6,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_6"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 7,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_7"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 8,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "white_line_8"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 9,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_1"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 10,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_2"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 11,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_3"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 12,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_4"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 13,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_5"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 14,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_6"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 15,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_7"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 16,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "cyan_soft_8"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 17,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_1"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 18,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_2"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 19,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_3"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 20,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_4"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 21,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_5"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 22,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_6"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 23,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_7"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 24,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_line_8"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 25,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_1"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 26,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_2"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 27,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_3"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 28,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_4"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 29,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_5"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 30,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_6"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 31,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_7"
+     }
+    },
+    {
+     "$type": "CMeshMaterialEntry",
+     "index": 32,
+     "isLocalInstance": 0,
+     "name": {
+      "$type": "CName",
+      "$storage": "string",
+      "$value": "amber_soft_8"
+     }
+    }
+   ],
+   "objectType": "ROT_Static",
+   "parameters": [
+    {
+     "HandleId": "1",
+     "Data": {
+      "$type": "meshMeshParamUICollisionData",
+      "trianglesIndices": [
+       0,
+       1,
+       2,
+       3,
+       1,
+       0
+      ],
+      "uvs": [
+       {
+        "$type": "Vector2",
+        "X": 0,
+        "Y": 1
+       },
+       {
+        "$type": "Vector2",
+        "X": 1,
+        "Y": 0
+       },
+       {
+        "$type": "Vector2",
+        "X": 1,
+        "Y": 1
+       },
+       {
+        "$type": "Vector2",
+        "X": 0,
+        "Y": 0
+       }
+      ],
+      "vertices": [
+       {
+        "$type": "Vector3",
+        "X": 0.5,
+        "Y": -0.5,
+        "Z": 0
+       },
+       {
+        "$type": "Vector3",
+        "X": -0.5,
+        "Y": 0.5,
+        "Z": 0
+       },
+       {
+        "$type": "Vector3",
+        "X": -0.5,
+        "Y": -0.5,
+        "Z": 0
+       },
+       {
+        "$type": "Vector3",
+        "X": 0.5,
+        "Y": 0.5,
+        "Z": 0
+       }
+      ]
+     }
+    }
+   ],
+   "preloadExternalMaterials": [],
+   "preloadLocalMaterialInstances": [],
+   "renderResourceBlob": {
+    "HandleId": "3",
+    "Data": {
+     "$type": "rendRenderMeshBlob",
+     "header": {
+      "$type": "rendRenderMeshBlobHeader",
+      "bonePositions": [],
+      "customData": [],
+      "customDataElemStride": 0,
+      "dataProcessing": 1,
+      "indexBufferOffset": 18816,
+      "indexBufferSize": 2016,
+      "opacityMicromaps": [],
+      "quantizationOffset": {
+       "$type": "Vector4",
+       "W": 1,
+       "X": 0,
+       "Y": 0,
+       "Z": 0
+      },
+      "quantizationScale": {
+       "$type": "Vector4",
+       "W": 0,
+       "X": 0.0190113746,
+       "Y": 0,
+       "Z": 0.0190113746
+      },
+      "renderChunkInfos": [
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 0
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           0,
+           1664,
+           2496,
+           4160,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 312,
+        "numVertices": 208,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 624
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           5824,
+           7488,
+           8320,
+           9984,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 312,
+        "numVertices": 208,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1248
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           11648,
+           11904,
+           12032,
+           12288,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1344
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           12544,
+           12800,
+           12928,
+           13184,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1440
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           13440,
+           13696,
+           13824,
+           14080,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1536
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           14336,
+           14592,
+           14720,
+           14976,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1632
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           15232,
+           15488,
+           15616,
+           15872,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1728
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           16128,
+           16384,
+           16512,
+           16768,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1824
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           17024,
+           17280,
+           17408,
+           17664,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       },
+       {
+        "$type": "rendChunk",
+        "baseRenderMask": 0,
+        "chunkIndices": {
+         "$type": "rendIndexBufferChunk",
+         "pe": "IBCT_IndexUShort",
+         "teOffset": 1920
+        },
+        "chunkVertices": {
+         "$type": "rendVertexBufferChunk",
+         "byteOffsets": {
+          "Elements": [
+           17920,
+           18176,
+           18304,
+           18560,
+           0
+          ]
+         },
+         "vertexLayout": {
+          "$type": "GpuWrapApiVertexLayoutDesc",
+          "elements": {
+           "Elements": [
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Short4N",
+             "usage": "PS_Position",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 1,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Normal",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 2,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Dec4",
+             "usage": "PS_Tangent",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Color",
+             "usage": "PS_Color",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 3,
+             "streamType": "ST_PerVertex",
+             "type": "PT_Float16_2",
+             "usage": "PS_TexCoord",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 0
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 1
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 7,
+             "streamType": "ST_PerInstance",
+             "type": "PT_Float4",
+             "usage": "PS_InstanceTransform",
+             "usageIndex": 2
+            },
+            {
+             "$type": "GpuWrapApiVertexPackingPackingElement",
+             "streamIndex": 0,
+             "streamType": "ST_Invalid",
+             "type": "PT_Invalid",
+             "usage": "PS_Invalid",
+             "usageIndex": 0
+            }
+           ]
+          },
+          "hash": 0,
+          "slotMask": 143,
+          "slotStrides": {
+           "Elements": [
+            8,
+            4,
+            8,
+            8,
+            0,
+            0,
+            0,
+            48
+           ]
+          }
+         }
+        },
+        "lodMask": 1,
+        "materialId": [],
+        "mergedRenderMask": 0,
+        "numIndices": 48,
+        "numVertices": 32,
+        "renderMask": "MCF_RenderInScene, MCF_RenderInShadows",
+        "vertexFactory": 2
+       }
+      ],
+      "renderChunks": [],
+      "renderLODs": [
+       0
+      ],
+      "speedTreeWind": [],
+      "topology": [
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       },
+       {
+        "$type": "rendTopologyData",
+        "data": [],
+        "dataStride": 0,
+        "metadata": [],
+        "metadataStride": 0
+       }
+      ],
+      "topologyData": [],
+      "topologyDataStride": 0,
+      "topologyMetadata": [],
+      "topologyMetadataStride": 0,
+      "version": 20,
+      "vertexBufferSize": 18816
+     },
+     "renderBuffer": {
+      "BufferId": "0",
+      "Flags": 4063232,
+      "Bytes": "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uwK4PQACACC7Arg9AAIAILsCuD0AAgAgjAK4PgACACCMArg+AAIAIIwCuD4AAgAgjAK4PgACACBcAng/AAIAIFwCeD8AAgAgXAJ4PwACACBcAng/AAIAICoC2D8AAgAgKgLYPwACACAqAtg/AAIAICoC2D8AAgAg+QH4PwACACD5Afg/AAIAIPkB+D8AAgAg+QH4PwACACDHAcg/AAIAIMcByD8AAgAgxwHIPwACACDHAcg/AAIAIJYBSD8AAgAglgFIPwACACCWAUg/AAIAIJYBSD8AAgAgZgF4PgACACBmAXg+AAIAIGYBeD4AAgAgZgF4PgACACA3AWg9AAIAIDcBaD0AAgAgNwFoPQACACA3AWg9AAIAIAoBCDwAAgAgCgEIPAACACAKAQg8AAIAIAoBCDwAAgAg4ABoOgACACDgAGg6AAIAIOAAaDoAAgAg4ABoOgACACC4AIg4AAIAILgAiDgAAgAguACIOAACACC4AIg4AAIAIJMAeDYAAgAgkwB4NgACACCTAHg2AAIAIJMAeDYAAgAgcgAoNAACACByACg0AAIAIHIAKDQAAgAgcgAoNAACACBVAKgxAAIAIFUAqDEAAgAgVQCoMQACACBVAKgxAAIAIDsA+C4AAgAgOwD4LgACACA7APguAAIAIDsA+C4AAgAgJgAoLAACACAmACgsAAIAICYAKCwAAgAgJgAoLAACACAWADgpAAIAIBYAOCkAAgAgFgA4KQACACAWADgpAAIAIAoAKCYAAgAgCgAoJgACACAKACgmAAIAIAoAKCYAAgAgAgAYIwACACACABgjAAIAIAIAGCMAAgAgAgAYIwACACAAAAggAAIAIAAACCAAAgAgAAAIIAACACAAAAggAAIAIAIA6BwAAgAgAgDoHAACACACAOgcAAIAIAIA6BwAAgAgCgDYGQACACAKANgZAAIAIAoA2BkAAgAgCgDYGQACACAWAMgWAAIAIBYAyBYAAgAgFgDIFgACACAWAMgWAAIAICYA2BMAAgAgJgDYEwACACAmANgTAAIAICYA2BMAAgAgOwAIEQACACA7AAgRAAIAIDsACBEAAgAgOwAIEQACACBVAFgOAAIAIFUAWA4AAgAgVQBYDgACACBVAFgOAAIAIHIA2AsAAgAgcgDYCwACACByANgLAAIAIHIA2AsAAgAgkwCICQACACCTAIgJAAIAIJMAiAkAAgAgkwCICQACACC4AHgHAAIAILgAeAcAAgAguAB4BwACACC4AHgHAAIAIOAAmAUAAgAg4ACYBQACACDgAJgFAAIAIOAAmAUAAgAgCgH4AwACACAKAfgDAAIAIAoB+AMAAgAgCgH4AwACACA3AZgCAAIAIDcBmAIAAgAgNwGYAgACACA3AZgCAAIAIGYBiAEAAgAgZgGIAQACACBmAYgBAAIAIGYBiAEAAgAglgG4AAACACCWAbgAAAIAIJYBuAAAAgAglgG4AAACACDHATgAAAIAIMcBOAAAAgAgxwE4AAACACDHATgAAAIAIPkBCAAAAgAg+QEIAAACACD5AQgAAAIAIPkBCAAAAgAgKgIoAAACACAqAigAAAIAICoCKAAAAgAgKgIoAAACACBcAogAAAIAIFwCiAAAAgAgXAKIAAACACBcAogAAAIAIIwCSAEAAgAgjAJIAQACACCMAkgBAAIAIIwCSAEAAgAguwJIAgACACC7AkgCAAIAILsCSAIAAgAguwJIAgACACDpAogDAAIAIOkCiAMAAgAg6QKIAwACACDpAogDAAIAIBQDGAUAAgAgFAMYBQACACAUAxgFAAIAIBQDGAUAAgAgPAPoBgACACA8A+gGAAIAIDwD6AYAAgAgPAPoBgACACBiA/gIAAIAIGID+AgAAgAgYgP4CAACACBiA/gIAAIAIIQDOAsAAgAghAM4CwACACCEAzgLAAIAIIQDOAsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA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ADwAAAA8ADwAAAA8AAAAAAA8AAAAPAA8AAAAPAAAAAAAPAAAADwAPAAAADwAAAAAADwAAAA8ADwAAAA8AAAAAAA8AAAAPAA8AAAAPAAAAAAAPAAAADwAPAAAADwAAAAAADwAAAA8ADwAAAA8AAAAAAA8AAAAPAA8AAAAPAAAAAAAPAAAADwAPAAAADwAAAAAADwAAAA8ADwAAAA8AAAAAAA8AAAAPAA8AAAAPAAAAAAAPAAAADwAPAAAADwAAAAAADwAAAA8ADwAAAA8AAAAAAA8AAAAPAA8AAAAPAACACCiA1gyAAIAIKIDWDIAAgAgogNYMgACACCiA1gyAAIAIIQDyDQAAgAghAPINAACACCEA8g0AAIAIIQDyDQAAgAgYgMINwACACBiAwg3AAIAIGIDCDcAAgAgYgMINwACACA8Axg5AAIAIDwDGDkAAgAgPAMYOQACACA8Axg5AAIAIBQD6DoAAgAgFAPoOgACACAUA+g6AAIAIBQD6DoAAgAg6QJ4PAACACDpAng8AAIAIOkCeDwAAgAg6QJ4PAACACC7Arg9AAIAILsCuD0AAgAguwK4PQACACC7Arg9AAIAIIwCuD4AAgAgjAK4PgACACCMArg+AAIAIIwCuD4AAgAgXAJ4PwACACBcAng/AAIAIFwCeD8AAgAgXAJ4PwACACAqAtg/AAIAICoC2D8AAgAgKgLYPwACACAqAtg/AAIAIPkB+D8AAgAg+QH4PwACACD5Afg/AAIAIPkB+D8AAgAgxwHIPwACACDHAcg/AAIAIMcByD8AAgAgxwHIPwACACCWAUg/AAIAIJYBSD8AAgAglgFIPwACACCWAUg/AAIAIGYBeD4AAgAgZgF4PgACACBmAXg+AAIAIGYBeD4AAgAgNwFoPQACACA3AWg9AAIAIDcBaD0AAgAgNwFoPQACACAKAQg8AAIAIAoBCDwAAgAgCgEIPAACACAKAQg8AAIAIOAAaDoAAgAg4ABoOgACACDgAGg6AAIAIOAAaDoAAgAguACIOAACACC4AIg4AAIAILgAiDgAAgAguACIOAACACCTAHg2AAIAIJMAeDYAAgAgkwB4NgACACCTAHg2AAIAIHIAKDQAAgAgcgAoNAACACByACg0AAIAIHIAKDQAAgAgVQCoMQACACBVAKgxAAIAIFUAqDEAAgAgVQCoMQACACA7APguAAIAIDsA+C4AAgAgOwD4LgACACA7APguAAIAICYAKCwAAgAgJgAoLAACACAmACgsAAIAICYAKCwAAgAgFgA4KQACACAWADgpAAIAIBYAOCkAAgAgFgA4KQACACAKACgmAAIAIAoAKCYAAgAgCgAoJgACACAKACgmAAIAIAIAGCMAAgAgAgAYIwACACACABgjAAIAIAIAGCMAAgAgAAAIIAACACAAAAggAAIAIAAACCAAAgAgAAAIIAACACACAOgcAAIAIAIA6BwAAgAgAgDoHAACACACAOgcAAIAIAoA2BkAAgAgCgDYGQACACAKANgZAAIAIAoA2BkAAgAgFgDIFgACACAWAMgWAAIAIBYAyBYAAgAgFgDIFgACACAmANgTAAIAICYA2BMAAgAgJgDYEwACACAmANgTAAIAIDsACBEAAgAgOwAIEQACACA7AAgRAAIAIDsACBEAAgAgVQBYDgACACBVAFgOAAIAIFUAWA4AAgAgVQBYDgACACByANgLAAIAIHIA2AsAAgAgcgDYCwACACByANgLAAIAIJMAiAkAAgAgkwCICQACACCTAIgJAAIAIJMAiAkAAgAguAB4BwACACC4AHgHAAIAILgAeAcAAgAguAB4BwACACDgAJgFAAIAIOAAmAUAAgAg4ACYBQACACDgAJgFAAIAIAoB+AMAAgAgCgH4AwACACAKAfgDAAIAIAoB+AMAAgAgNwGYAgACACA3AZgCAAIAIDcBmAIAAgAgNwGYAgACACBmAYgBAAIAIGYBiAEAAgAgZgGIAQACACBmAYgBAAIAIJYBuAAAAgAglgG4AAACACCWAbgAAAIAIJYBuAAAAgAgxwE4AAACACDHATgAAAIAIMcBOAAAAgAgxwE4AAACACD5AQgAAAIAIPkBCAAAAgAg+QEIAAACACD5AQgAAAIAICoCKAAAAgAgKgIoAAACACAqAigAAAIAICoCKAAAAgAgXAKIAAACACBcAogAAAIAIFwCiAAAAgAgXAKIAAACACCMAkgBAAIAIIwCSAEAAgAgjAJIAQACACCMAkgBAAIAILsCSAIAAgAguwJIAgACACC7AkgCAAIAILsCSAIAAgAg6QKIAwACACDpAogDAAIAIOkCiAMAAgAg6QKIAwACACAUAxgFAAIAIBQDGAUAAgAgFAMYBQACACAUAxgFAAIAIDwD6AYAAgAgPAPoBgACACA8A+gGAAIAIDwD6AYAAgAgYgP4CAACACBiA/gIAAIAIGID+AgAAgAgYgP4CAACACCEAzgLAAIAIIQDOAsAAgAghAM4CwACACCEAzgLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAjAAAAIz/f8LbAAAAjP9/wtsAAACb/38AjAAAAJv/fwCbAAAAjP9/AJsAAMLb/38AjAAA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HQAcAB4AHgAcAB8AIQAgACIAIgAgACMAJQAkACYAJgAkACcAKQAoACoAKgAoACsALQAsAC4ALgAsAC8AMQAwADIAMgAwADMANQA0ADYANgA0ADcAOQA4ADoAOgA4ADsAPQA8AD4APgA8AD8AQQBAAEIAQgBAAEMARQBEAEYARgBEAEcASQBIAEoASgBIAEsATQBMAE4ATgBMAE8AUQBQAFIAUgBQAFMAVQBUAFYAVgBUAFcAWQBYAFoAWgBYAFsAXQBcAF4AXgBcAF8AYQBgAGIAYgBgAGMAZQBkAGYAZgBkAGcAaQBoAGoAagBoAGsAbQBsAG4AbgBsAG8AcQBwAHIAcgBwAHMAdQB0AHYAdgB0AHcAeQB4AHoAegB4AHsAfQB8AH4AfgB8AH8AgQCAAIIAggCAAIMAhQCEAIYAhgCEAIcAiQCIAIoAigCIAIsAjQCMAI4AjgCMAI8AkQCQAJIAkgCQAJMAlQCUAJYAlgCUAJcAmQCYAJoAmgCYAJsAnQCcAJ4AngCcAJ8AoQCgAKIAogCgAKMApQCkAKYApgCkAKcAqQCoAKoAqgCoAKsArQCsAK4ArgCsAK8AsQCwALIAsgCwALMAtQC0ALYAtgC0ALcAuQC4ALoAugC4ALsAvQC8AL4AvgC8AL8AwQDAAMIAwgDAAMMAxQDEAMYAxgDEAMcAyQDIAMoAygDIAMsAzQDMAM4AzgDMAM8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AIQAgACIAIgAgACMAJQAkACYAJgAkACcAKQAoACoAKgAoACsALQAsAC4ALgAsAC8AMQAwADIAMgAwADMANQA0ADYANgA0ADcAOQA4ADoAOgA4ADsAPQA8AD4APgA8AD8AQQBAAEIAQgBAAEMARQBEAEYARgBEAEcASQBIAEoASgBIAEsATQBMAE4ATgBMAE8AUQBQAFIAUgBQAFMAVQBUAFYAVgBUAFcAWQBYAFoAWgBYAFsAXQBcAF4AXgBcAF8AYQBgAGIAYgBgAGMAZQBkAGYAZgBkAGcAaQBoAGoAagBoAGsAbQBsAG4AbgBsAG8AcQBwAHIAcgBwAHMAdQB0AHYAdgB0AHcAeQB4AHoAegB4AHsAfQB8AH4AfgB8AH8AgQCAAIIAggCAAIMAhQCEAIYAhgCEAIcAiQCIAIoAigCIAIsAjQCMAI4AjgCMAI8AkQCQAJIAkgCQAJMAlQCUAJYAlgCUAJcAmQCYAJoAmgCYAJsAnQCcAJ4AngCcAJ8AoQCgAKIAogCgAKMApQCkAKYApgCkAKcAqQCoAKoAqgCoAKsArQCsAK4ArgCsAK8AsQCwALIAsgCwALMAtQC0ALYAtgC0ALcAuQC4ALoAugC4ALsAvQC8AL4AvgC8AL8AwQDAAMIAwgDAAMMAxQDEAMYAxgDEAMcAyQDIAMoAygDIAMsAzQDMAM4AzgDMAM8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8AAQAAAAIAAgAAAAMABQAEAAYABgAEAAcACQAIAAoACgAIAAsADQAMAA4ADgAMAA8AEQAQABIAEgAQABMAFQAUABYAFgAUABcAGQAYABoAGgAYABsAHQAcAB4AHgAcAB8A"
+     }
+    }
+   },
+   "resourceVersion": 3,
+   "saveDateTime": "1048576",
+   "surfaceAreaPerAxis": {
+    "$type": "Vector3",
+    "X": 0,
+    "Y": 0,
+    "Z": 1
+   },
+   "useRayTracingShadowLODBias": 0
+  },
+  "EmbeddedFiles": []
+ }
+}

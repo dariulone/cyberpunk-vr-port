@@ -21,7 +21,7 @@ parser.add_argument('--frames',type=int,default=3,choices=range(1,5))
 parser.add_argument('--out',type=Path,required=True)
 parser.add_argument('--native-upload',action='store_true',help='Compare the opt-in native 2048-byte camera upload/binding path')
 args=parser.parse_args()
-dll=root/'build/bin/red4ext/plugins/CyberpunkVR_Stereo/Release/CyberpunkVR_Stereo.dll'
+dll=root/'build/bin/red4ext/plugins/cyberpunkvrport/Release/cyberpunkvrport.dll'
 symbols=resolve(args.pid,dll,['CyberpunkVR_SinglePassTrace*','CyberpunkVR_SinglePassTwin*','g_menuModeValue'])
 reader=Reader(args.pid,r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe',0,0)
 k=reader.k;k.WriteProcessMemory.argtypes=[w.HANDLE,c.c_void_p,c.c_void_p,c.c_size_t,c.POINTER(c.c_size_t)]

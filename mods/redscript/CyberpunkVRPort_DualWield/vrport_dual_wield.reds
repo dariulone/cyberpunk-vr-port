@@ -15,19 +15,19 @@
 native func GetVRSharedSlot(idx: Int32) -> Float;
 
 public abstract class VRDualWieldTriggers {
-  // include/Utils/SharedSlots.hpp: kDualWieldActive, kLeftTriggerAnalog, kRightTriggerAnalog.
+  // include/Utils/SharedSlots.hpp: kDualWieldActive, 1 plus kDualWieldLeftFires (2) and kDualWieldRightFires (4).
   public static func Active() -> Bool {
     return GetVRSharedSlot(165) > 0.5;
   }
 
-  // A lighter squeeze than the fire action needs (0.35 in the merge), so the hand is chosen before the
-  // press reaches the game.
+  // The trigger has broken, published by the merge before it lets the press reach the game: the hand is
+  // chosen by then, and a finger merely resting on the other trigger chooses nothing.
   public static func Left() -> Bool {
-    return GetVRSharedSlot(154) > 0.2;
+    return (Cast<Int32>(GetVRSharedSlot(165)) / 2) % 2 == 1;
   }
 
   public static func Right() -> Bool {
-    return GetVRSharedSlot(160) > 0.2;
+    return (Cast<Int32>(GetVRSharedSlot(165)) / 4) % 2 == 1;
   }
 }
 

@@ -5,16 +5,17 @@
 -- the body's lateral direction (plugin publishes the distances). Side is classified by the equipped
 -- outfit item names (katana / pistol / holster keywords).
 --
--- Plugin (after VRIK FK):
---   shared[20] = right wrist -> right hip prop point  (hip + bodyRight * 0.18m)
---   shared[21] = right wrist -> left  hip prop point  (hip - bodyRight * 0.05m, closer for cross-body reach)
---   shared[22] = right wrist -> back-strap anchor (over right shoulder, for rifle/sniper)
---   shared[49] = right grip binary
+-- Plugin (after VRIK FK), from the DRAWING hand -- the right one, the left one with the left-handed
+-- controls (VRLeftHanded), every zone then the mirror:
+--   shared[20] = wrist -> drawing-side hip prop point  (hip + bodyRight * 0.18m outward)
+--   shared[21] = wrist -> other hip prop point  (0.05m, closer for cross-body reach)
+--   shared[22] = wrist -> back-strap anchor (over the drawing side's shoulder, for rifle/sniper)
+--   shared[49] / shared[155] = right / left grip binary, per physical hand
 --
 -- Zone -> equip:
---   B (back, no VH required) -> primary weapon (slot 1, rifle/sniper)
---   L (left hip, VH katana)  -> melee
---   R (right hip, VH pistol) -> one-handed ranged (pistol — not sniper)
+--   B (back, no VH required)          -> primary weapon (slot 1, rifle/sniper)
+--   L (other hip, VH katana)          -> melee
+--   R (drawing-side hip, VH pistol)   -> one-handed ranged (pistol — not sniper)
 
 local PROX_R           = 0.25
 local PROX_L           = 0.40
@@ -35,6 +36,7 @@ local RANGED_KW = { "pistol", "revolver", "holster" }
 local TransactionSystem = nil
 local SlotIDs = nil
 local WeaponRightSlot = nil
+local WeaponLeftSlot = nil
 local cache = { L = nil, R = nil }
 local sinceScan = 0.0
 local rightGripPrev = 0
@@ -60,14 +62,21 @@ local function classifySide(pl, slots)
     return nil
 end
 
+-- The drawing hand: the left one with the left-handed controls. Zone R is then the LEFT hip and zone L the right.
+local function drawLeft()
+    return type(VRLeftHanded) == 'function' and VRLeftHanded() == true
+end
+
 local function rescan(pl)
-    cache.L = classifySide(pl, LEFT_SLOTS)
-    cache.R = classifySide(pl, RIGHT_SLOTS)
+    local l, r = classifySide(pl, LEFT_SLOTS), classifySide(pl, RIGHT_SLOTS)
+    if drawLeft() then l, r = r, l end
+    cache.L, cache.R = l, r      -- L the other hip's holster, R the drawing side's
 end
 
 registerForEvent('onInit', function()
     TransactionSystem = Game.GetTransactionSystem()
     WeaponRightSlot = TweakDBID.new("AttachmentSlots.WeaponRight")
+    WeaponLeftSlot = TweakDBID.new("AttachmentSlots.WeaponLeft")
     SlotIDs = {}
     for _, s in ipairs(LEFT_SLOTS)  do SlotIDs[s] = TweakDBID.new(s) end
     for _, s in ipairs(RIGHT_SLOTS) do SlotIDs[s] = TweakDBID.new(s) end
@@ -89,18 +98,20 @@ registerForEvent('onUpdate', function(dt)
     if okSmoke and smoking then return end
 
     -- WHEEL GRAB owns the grip while a hand is at the steering wheel: shared[163] bit0 = the right
-    -- hand is there. The grip that grabs the wheel must not also equip a weapon, and the flag is
+    -- hand is there, bit1 the left. The grip that grabs the wheel must not also equip a weapon, and the flag is
     -- raised on PROXIMITY -- before the press -- so there is no edge to race.
+    local left = drawLeft()
+    local gripSlot = left and 155 or 49
     local wheelArmed = GetVRSharedSlot(163)
-    if wheelArmed and (math.floor(wheelArmed) % 2) == 1 then
-        rightGripPrev = (GetVRSharedSlot(49) > 0.5) and 1 or 0   -- swallow the edge, don't queue it
+    if wheelArmed and (math.floor(wheelArmed / (left and 2 or 1)) % 2) == 1 then
+        rightGripPrev = (GetVRSharedSlot(gripSlot) > 0.5) and 1 or 0   -- swallow the edge, don't queue it
         return
     end
 
     sinceScan = sinceScan + dt
     if sinceScan >= 1.0 then sinceScan = 0.0; rescan(pl) end
 
-    local g = (GetVRSharedSlot(49) > 0.5) and 1 or 0
+    local g = (GetVRSharedSlot(gripSlot) > 0.5) and 1 or 0
     local edge = (g == 1 and rightGripPrev == 0)
     rightGripPrev = g
     if not edge or cooldown > 0 then return end
@@ -111,7 +122,7 @@ registerForEvent('onUpdate', function(dt)
     -- with a weapon in hand, so holstering at the belt is unaffected.
     local okBelt, grenadeGrip = pcall(function()
         local belt = GetMod('CyberpunkVRPort_TacticalBelt')
-        return belt ~= nil and belt.grenadeReach ~= nil and belt.grenadeReach(1)
+        return belt ~= nil and belt.grenadeReach ~= nil and belt.grenadeReach(left and 0 or 1)
     end)
     if okBelt and grenadeGrip then return end
 
@@ -144,11 +155,12 @@ registerForEvent('onUpdate', function(dt)
     end
     if not zone then return end
 
-    -- Reliable "is a weapon in the right hand": read the WeaponRight slot directly. GetActiveWeapon()
+    -- Reliable "is a weapon in the drawing hand": read that hand's slot directly -- WeaponRight, or left-handed
+    -- WeaponLeft, where the game hangs a weapon drawn on its own (CyberpunkVRPort_LeftHanded). GetActiveWeapon()
     -- can return null / lag for a melee weapon right after an equip (or while it's in a lowered state),
     -- which would wrongly reset lastZone and send us into the RE-EQUIP branch instead of holstering —
     -- exactly the "it equips again instead of putting away" the katana shows.
-    local rightItem = TransactionSystem:GetItemInSlot(pl, WeaponRightSlot)
+    local rightItem = TransactionSystem:GetItemInSlot(pl, left and WeaponLeftSlot or WeaponRightSlot)
     local hasWeapon = rightItem ~= nil
 
     -- shared[23]: 0/unset = immersive (classify by visual holster), 1 = simple slot mapping.

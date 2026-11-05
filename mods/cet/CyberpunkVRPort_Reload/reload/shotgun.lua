@@ -328,7 +328,7 @@ local function bodyPlace(b)
         local tr = WorldTransform.new()
         tr:SetPosition(Vector4.new(T[1], T[2], T[3], 1.0))
         tr:SetOrientation(Quaternion.new(T[4], T[5], T[6], T[7]))
-        e:SetWorldTransform(tr)
+        Game.VREntitySetWorldTransform(e, tr)
     end)
 end
 
@@ -658,7 +658,7 @@ local function bHeldParts(H, sc, h)
             TweakDBID.new((h.side == 0) and 'AttachmentSlots.WeaponLeft' or 'AttachmentSlots.WeaponRight'))
     end)
     if not (ok and e) then return nil end
-    local okc, cs = pcall(function() return e:GetComponents() end)
+    local okc, cs = pcall(function() return Game.VREntityComponents(e) end)
     if not (okc and cs) then return nil end
     local parts = {}
     for i = 1, #cs do
@@ -1306,12 +1306,14 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
     local Rel = wristToSlot(free, P.Rel); P.Rel = Rel
     local bx, by, bz = qrot(Wm[4], Wm[5], Wm[6], Wm[7], pc.dir[1], pc.dir[2], pc.dir[3])   -- rearward, model
     local rx, ry, rz = pc.restW[1], pc.restW[2], pc.restW[3]
-    local go = pc.grip.off
+    local pg = H.handGrip(pc.grip, free, 1)         -- recorded for the left hand; the right one's is its mirror
+    local go = pg.off
+    local sup = free == H.supportHand()             -- the two-hand hold's hand: the free one, whichever it is
     -- the wrist on the fore-end at the current travel: rest + travel along the stroke + the measured hold
     local function gripAt(s, o)
         local x, y, z = rx + pc.dir[1] * s + go[1], ry + pc.dir[2] * s + go[2], rz + pc.dir[3] * s + go[3]
         local wx, wy, wz = qrot(Wm[4], Wm[5], Wm[6], Wm[7], x, y, z)
-        local q1, q2, q3, q4 = qmul(Wm[4], Wm[5], Wm[6], Wm[7], pc.grip.rot[1], pc.grip.rot[2], pc.grip.rot[3], pc.grip.rot[4])
+        local q1, q2, q3, q4 = qmul(Wm[4], Wm[5], Wm[6], Wm[7], pg.rot[1], pg.rot[2], pg.rot[3], pg.rot[4])
         return fset(o or {}, Wm[1] + wx, Wm[2] + wy, Wm[3] + wz, q1, q2, q3, q4)
     end
     local T0 = gripAt(P.s, P.T0); P.T0 = T0
@@ -1319,12 +1321,17 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
     -- the hand's place along the barrel, from the gun's own origin. Under a closed hold the published wrist is the
     -- weld, which rides the gun and so never moves along it: the stroke is read off the controller itself.
     local Wa = Wr
-    if twoH and free == 0 then Wa = H.twoHandCtrl(P.Wc) or Wr; P.Wc = Wa end
+    if twoH and sup then Wa = H.twoHandCtrl(P.Wc) or Wr; P.Wc = Wa end
     local along = Wa and ((Wa[1] - Wm[1]) * bx + (Wa[2] - Wm[2]) * by + (Wa[3] - Wm[3]) * bz) or 0.0
-    local onFore = (twoH and free == 0) or dHand <= (pc.grabRadius or 0.10)
+    local onFore = (twoH and sup) or dHand <= (pc.grabRadius or 0.10)
     -- THE SAME SQUEEZE MUST NOT AIM: the left trigger is the game's aim, and grip + trigger on the fore-end is the
     -- rack. Held off the game for as long as the gripping hand is on the fore-end.
-    H.ltBlock(free == 0 and grip and onFore and not P.shell)
+    H.ltBlock(free == H.aimHand() and grip and onFore and not P.shell)
+    -- THE REACH MARKER on the fore-end while a rack is owed (a fired hull in the chamber, or nothing chambered with
+    -- rounds in the tube) and the hand is on it or in reach of it
+    if not P.engaged and onFore and not P.shell and Wr and (P.spentIn or (not P.chambered and am > 0)) then
+        H.reachMark(free, T0[1], T0[2], T0[3], Wr[1], Wr[2], Wr[3])
+    end
     if not P.engaged then
         if work and onFore and not P.shell and Wr then
             P.engaged, P.along0, P.s0, P.viaHold = true, along, P.s, twoH
@@ -1369,7 +1376,7 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
         if finS.key == pc.pose then finOff() end
     end
     -- the two-hand hold's drawn hand, wherever the fore-end is: run back by the stroke, along the barrel
-    if twoH and free == 0 and P.s > 0.0005 then H.twoHandSlide(bx * P.s, by * P.s, bz * P.s)
+    if twoH and sup and P.s > 0.0005 then H.twoHandSlide(bx * P.s, by * P.s, bz * P.s)
     else H.twoHandSlide(0.0, 0.0, 0.0) end
 
     -- SHELLS, one at a time: off the row on the belt (or out of nowhere without one), into the tube through the

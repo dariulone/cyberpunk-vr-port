@@ -9,7 +9,7 @@ local function englishLabel(a)
     return ({Save="SAVE GAME",QuickSave="QUICKSAVE",ExitToMainMenu="MAIN MENU",ExitGame="QUIT GAME"})[kind] or "GAME ACTION"
 end
 local function controllers()
-    local layer=Game.GetInkSystem():GetLayer(CName.new("inkMenuLayer"))
+    local layer=Game.VRInkLayer(CName.new("inkMenuLayer"))
     local pause, ingame, background
     for _,c in ipairs(layer and layer:GetGameControllers() or {}) do
         local name=NameToString(c:GetClassName())

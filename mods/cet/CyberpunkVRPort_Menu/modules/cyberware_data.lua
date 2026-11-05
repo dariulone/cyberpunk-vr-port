@@ -45,9 +45,28 @@ function D.item(ctx,raw,vendor,ui)
   item.upgrade=not item.vendor and D.upgrade(item) or nil
   return item
 end
+-- Every implant the player owns, by equipment area: installed or not. UIInventoryScriptableSystem's GetPlayerAreaItems
+-- answers the installed ones only (GetRawEquippedItems), so one bought earlier and never installed -- or a second
+-- one for another slot -- was offered nowhere; the native ripperdoc lists the player's whole item map by area.
+local function ownedByArea(p)
+  local out={}
+  local _,items=Game.GetTransactionSystem():GetItemList(p)
+  for _,data in ipairs(items or {}) do
+    local id=data:GetID()
+    if not ItemID.HasFlag(id,gameEItemIDFlag.Preview) then
+      local ok,area=pcall(function() return tonumber(EnumInt(EquipmentSystem.GetEquipAreaType(id))) end)
+      if ok and area then
+        local list=out[area];if not list then list={};out[area]=list end
+        list[#list+1]=data
+      end
+    end
+  end
+  return out
+end
 function D.snapshot(ctx,kit)
   local p=Game.GetPlayer();local equip=EquipmentSystem.GetData(p)
   local out={groups={},byKey={},stats=D.stats(),vendor=D.session(kit)~=nil}
+  local owned=ownedByArea(p)
   for _,area in ipairs(D.areas) do
     local enum=gamedataEquipmentArea[area];local group={area=area,slots={},items={},count=equip:GetNumberOfSlots(enum)}
     group.name=I.loc(TweakDBInterface.GetEquipmentAreaRecord(TweakDBID.new("EquipmentArea."..area)):LocalizedName())
@@ -57,8 +76,8 @@ function D.snapshot(ctx,kit)
       if item then item.slot=slot;out.byKey[item.key]=item end
       group.slots[#group.slots+1]={index=slot,item=item}
     end
-    for _,ui in ipairs(ctx.uiInventory:GetPlayerAreaItems(enum)) do
-      local item=D.item(ctx,ui:GetItemData(),false,ui)
+    for _,data in ipairs(owned[tonumber(EnumInt(enum))] or {}) do
+      local item=D.item(ctx,data,false,ctx.uiInventory:GetPlayerItem(data:GetID()))
       if item then group.items[#group.items+1]=item;out.byKey[item.key]=item end
     end
     table.sort(group.items,function(a,b) if a.equipped~=b.equipped then return a.equipped end;return a.name<b.name end)

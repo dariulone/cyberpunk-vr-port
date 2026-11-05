@@ -1,0 +1,338 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-10-31T07:10:44.4297967Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "C:\\Users\\dariulone\\Desktop\\CyberpunkVRPort\\build\\wheel-art\\template\\base\\gameplay\\gui\\fullscreen\\main_menu\\menu_background.inkatlas"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "inkTextureAtlas",
+   "activeTexture": "StaticTexture",
+   "cookingPlatform": "PLATFORM_PC",
+   "dynamicTexture": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "dynamicTextureSlot": {
+    "$type": "inkDynamicTextureSlot",
+    "parts": [],
+    "texture": {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "Flags": "Soft"
+    }
+   },
+   "isSingleTextureMode": 1,
+   "parts": [],
+   "slices": [],
+   "slots": {
+    "Elements": [
+     {
+      "$type": "inkTextureSlot",
+      "parts": [
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.35546875,
+         "Left": 0.001953125,
+         "Right": 0.21435546875,
+         "Top": 0.00390625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "weapon_fill"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.35546875,
+         "Left": 0.21630859375,
+         "Right": 0.4287109375,
+         "Top": 0.00390625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "weapon_edge"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.35546875,
+         "Left": 0.4306640625,
+         "Right": 0.64306640625,
+         "Top": 0.00390625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "weapon_band"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2939453125,
+         "Left": 0.64501953125,
+         "Right": 0.81591796875,
+         "Top": 0.00390625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "arm_fill"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2939453125,
+         "Left": 0.81787109375,
+         "Right": 0.98876953125,
+         "Top": 0.00390625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "arm_edge"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6494140625,
+         "Left": 0.001953125,
+         "Right": 0.1728515625,
+         "Top": 0.359375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "arm_band"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6064453125,
+         "Left": 0.1748046875,
+         "Right": 0.30810546875,
+         "Top": 0.359375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "holster_fill"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6064453125,
+         "Left": 0.31005859375,
+         "Right": 0.443359375,
+         "Top": 0.359375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "holster_edge"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6064453125,
+         "Left": 0.4453125,
+         "Right": 0.57861328125,
+         "Top": 0.359375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "holster_band"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5390625,
+         "Left": 0.58056640625,
+         "Right": 0.67041015625,
+         "Top": 0.359375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "disc_fill"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5390625,
+         "Left": 0.67236328125,
+         "Right": 0.76220703125,
+         "Top": 0.359375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "disc_edge"
+        }
+       }
+      ],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "string",
+        "$value": "vrport\\ui\\vr_wheel.xbm"
+       },
+       "Flags": "Soft"
+      }
+     },
+     {
+      "$type": "inkTextureSlot",
+      "parts": [],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "Flags": "Soft"
+      }
+     },
+     {
+      "$type": "inkTextureSlot",
+      "parts": [],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "Flags": "Soft"
+      }
+     }
+    ]
+   },
+   "texture": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "textureResolution": "UltraHD_3840_2160"
+  },
+  "EmbeddedFiles": []
+ }
+}

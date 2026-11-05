@@ -21,9 +21,60 @@
 #include "Hooks/Hook.hpp"
 #include <MinHook.h>
 #include "Anim/SmokingPose.hpp"
+#include "Anim/LeftHanded.hpp"
 
 namespace cvr {
 namespace anim {
+
+namespace {
+
+// The lighter thumb's press, 0..1: the trigger of the hand holding it, analog, or the manual override (tuning).
+float ThumbPress(int trigger) {
+    float press = g_pSharedHands ? g_pSharedHands[trigger] : 0.0f;
+    if (g_VRSmokeThumbPressManualL > press) press = g_VRSmokeThumbPressManualL;
+    return press < 0.0f ? 0.0f : (press > 1.0f ? 1.0f : press);
+}
+
+// LEFT-HANDED: the lighter in the RIGHT hand. The left hand's lighter hold -- its fingers, the thumb on the wheel and
+// the lighter's seat on WeaponLeft -- mirrored onto the right hand through the rig's twins (Anim/LeftHanded.cpp), the
+// thumb worked by the right trigger as the left trigger works it in the left hand.
+void RightLighterPose(uint8_t* boneBuf) {
+    if (g_VRSmokeFingerHaveL) {
+        const float press = ThumbPress(vrshared::kRightTriggerAnalog);
+        float fq[4] = { g_VRSmokeThumbFlickL[0]*press, g_VRSmokeThumbFlickL[1]*press,
+                        g_VRSmokeThumbFlickL[2]*press, g_VRSmokeThumbFlickL[3]*press + (1.0f - press) };
+        VRIK_QuatNorm(fq);
+        for (int k = 0; k < g_VRSmokeFingerCountL && k < 32; ++k) {
+            const int bi = g_VRSmokeFingerIdxL[k];
+            if (bi < 0 || bi >= VRIK_MAX_BONES) continue;
+            float local[4] = { g_VRSmokeFingerRotL[k][0], g_VRSmokeFingerRotL[k][1],
+                               g_VRSmokeFingerRotL[k][2], g_VRSmokeFingerRotL[k][3] };
+            if (press > 0.0001f && g_VRSmokeThumbIsL[k]) { VRIK_QuatMul(g_VRSmokeFingerRotL[k], fq, local); VRIK_QuatNorm(local); }
+            int right = -1;
+            float out[4];
+            if (!MirrorFingerToRight(bi, local, &right, out) || right < 0 || right >= VRIK_MAX_BONES) continue;
+            float* q = reinterpret_cast<float*>(boneBuf + right * 48 + VRIK_ROT_OFF);
+            q[0] = out[0]; q[1] = out[1]; q[2] = out[2]; q[3] = out[3];
+        }
+    }
+    if (g_VRSmokeLighterEnable && g_VRSmokeLighterHave && g_VRSmokeCigIdx >= 0 && g_VRSmokeCigIdx < VRIK_MAX_BONES) {
+        const float pos[3] = { g_VRSmokeLighterPos[0] + g_VRSmokeLighterOffP[0], g_VRSmokeLighterPos[1] + g_VRSmokeLighterOffP[1],
+                               g_VRSmokeLighterPos[2] + g_VRSmokeLighterOffP[2] };
+        const float base[4] = { g_VRSmokeLighterRot[0], g_VRSmokeLighterRot[1], g_VRSmokeLighterRot[2], g_VRSmokeLighterRot[3] };
+        const float off[4]  = { g_VRSmokeLighterOffQ[0], g_VRSmokeLighterOffQ[1], g_VRSmokeLighterOffQ[2], g_VRSmokeLighterOffQ[3] };
+        float rot[4]; VRIK_QuatMul(base, off, rot); VRIK_QuatNorm(rot);
+        float p[3], r[4];
+        if (MirrorWeaponSlotToRight(pos, rot, p, r)) {
+            VRIK_QuatNorm(r);
+            float* t = reinterpret_cast<float*>(boneBuf + g_VRSmokeCigIdx * 48 + VRIK_TRANS_OFF);
+            float* q = reinterpret_cast<float*>(boneBuf + g_VRSmokeCigIdx * 48 + VRIK_ROT_OFF);
+            t[0] = p[0]; t[1] = p[1]; t[2] = p[2];
+            q[0] = r[0]; q[1] = r[1]; q[2] = r[2]; q[3] = r[3];
+        }
+    }
+}
+
+}  // namespace
 
 void VrikSmokingCigPose(uint8_t* boneBuf) {
                     if (g_VRSmokeFingerCapture) {
@@ -46,7 +97,9 @@ void VrikSmokingCigPose(uint8_t* boneBuf) {
                         }
                         g_VRSmokeFingerCapture = 0;
                     } else if (g_VRSmokeFingerActive) {
-                        if (g_VRSmokeFingerHave) {
+                        // Left-handed the right hand holds the lighter, not the cigarette.
+                        if (g_VRSmokeRightLighter) RightLighterPose(boneBuf);
+                        if (g_VRSmokeFingerHave && !g_VRSmokeRightLighter) {
                             for (int k = 0; k < g_VRSmokeFingerCount && k < 32; ++k) {
                                 const int bi = g_VRSmokeFingerIdx[k];
                                 if (bi < 0 || bi >= VRIK_MAX_BONES) continue;
@@ -62,7 +115,7 @@ void VrikSmokingCigPose(uint8_t* boneBuf) {
                         // otherwise the captured grip local + live nudge (cig in the hand).
                         // GRIP (cig in the RIGHT hand): pose WeaponRight with the captured grip local +
                         // nudge -- ONLY when NOT mouth-anchored.
-                        if (g_VRSmokeCigEnable && g_VRSmokeCigHave && !(g_VRSmokeMouthAnchor && g_VRSmokeAnchorValid)
+                        if (!g_VRSmokeRightLighter && g_VRSmokeCigEnable && g_VRSmokeCigHave && !(g_VRSmokeMouthAnchor && g_VRSmokeAnchorValid)
                             && g_VRSmokeCigIdx >= 0 && g_VRSmokeCigIdx < VRIK_MAX_BONES) {
                             float* t = reinterpret_cast<float*>(boneBuf + g_VRSmokeCigIdx * 48 + VRIK_TRANS_OFF);
                             float* q = reinterpret_cast<float*>(boneBuf + g_VRSmokeCigIdx * 48 + VRIK_ROT_OFF);
@@ -129,10 +182,7 @@ void VrikSmokingLighterPose(uint8_t* boneBuf) {
                             // permanent 1.0, so the thumb sat fully flicked and never answered the
                             // trigger at all. Same reassignment that had the lighter igniting by
                             // itself; this was the last reader left on the old number.
-                            float press = g_pSharedHands
-                                        ? g_pSharedHands[vrshared::kLeftTriggerAnalog] : 0.0f;
-                            if (g_VRSmokeThumbPressManualL > press) press = g_VRSmokeThumbPressManualL;
-                            if (press < 0.0f) press = 0.0f; else if (press > 1.0f) press = 1.0f;
+                            const float press = ThumbPress(vrshared::kLeftTriggerAnalog);
                             float fq[4] = { g_VRSmokeThumbFlickL[0]*press,
                                             g_VRSmokeThumbFlickL[1]*press,
                                             g_VRSmokeThumbFlickL[2]*press,

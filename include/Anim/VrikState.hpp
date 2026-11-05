@@ -44,7 +44,11 @@ inline constexpr float    VRRIG_OFF_MAX = 0.80f;
 inline constexpr int VRPOSE_CENSUS_MAX = 96;
 inline constexpr int VRIK_TRANS_OFF = 0;   // Translation (Vector4)
 inline constexpr int VRIK_ROT_OFF   = 16;  // Rotation (Quaternion x,y,z,w)
-inline constexpr int VRIK_MAX_BONES = 800;  // was 256; raised so custom rig bones (WeaponRight1 ~767) fit
+// The player's meta-rig grows with what is worn and drawn: clothing with its own dangle bones plus drawn arm
+// cyberware took a woman's rig past the old 800 (686 holstered, more with the mantis blades out), and a rig over
+// the limit is refused -- VRIK let go of the arms, which stayed in the game's flat idle, and the implants'
+// swings never started. Fixed-size arrays below are this long; the configure-time scratch is static, not stack.
+inline constexpr int VRIK_MAX_BONES = 2048;
 
 // One player solve or rebind owns the shared bone indices, FK scratch and solve
 // cache. Weapon/cyberware changes can replace a768-bone meta-rig with a620-bone
@@ -239,6 +243,7 @@ extern volatile float     g_VRSmokeThumbFlickL[4];
 extern volatile float     g_VRSmokeThumbPressManualL;
 extern int                g_VRSmokeThumbIsL[32];
 extern volatile int       g_VRSmokeLeftUseCig;
+extern volatile int       g_VRSmokeRightLighter;
 extern volatile int       g_VRSmokeCigLHave;
 extern float              g_VRSmokeFingerRotLC[32][4];
 extern float              g_VRSmokeCigLPos[3];
@@ -294,6 +299,10 @@ extern volatile float     g_VREntityQI, g_VREntityQJ, g_VREntityQK, g_VREntityQR
 // toggling the sprint back off. The state machine itself is unambiguous.
 extern volatile int       g_VRSprintActive;
 extern volatile int       g_VRLocomotionState;
+// The DETAILED locomotion state (gamePSMDetailedLocomotionStates: 5 Slide, 14 Fall, 18-22 the jumps, 23-25 the
+// landings), from the same blackboard and push. -1 = nobody has told us. The body under the view takes the clip's
+// own torso in those (VRIK_PlaceBodyUnderHMD); the plain state cannot tell a fall from standing (it stays Default).
+extern volatile int       g_VRLocomotionDetailed;
 // THE TAKEDOWN, BODY-CARRYING AND BODY-DISPOSAL STATES, published together by SetVRPairedAnimationState
 // from the VRIK CET mod beside the locomotion value (-1 = nobody has told us). gamePSMTakedown:
 // 1 EnteringGrapple, 2 Grapple, 3 Leap, 4 Takedown. gamePSMBodyCarrying: 1 PickUp, 2 Carry, 3 Dispose,
@@ -365,7 +374,7 @@ extern "C" __declspec(dllexport) extern volatile int CyberpunkVR_VrikHandFrameOn
 extern volatile int       CyberpunkVR_VrikHandFrameAlign;
 extern volatile float     g_VRIKDbgClav[2][8];
 extern volatile float     g_VRIKDbgChestTgt[3];
-extern int16_t            g_VRBoneParent[800];     // metaRig parent index per bone
+extern int16_t            g_VRBoneParent[VRIK_MAX_BONES]; // metaRig parent index per bone
 extern volatile int       g_VRBoneCount;           // bone count (0 = not resolved)
 extern volatile int       g_VRFKCount;             // solver-touched bone prefix (0 = full count)
 extern volatile int       g_VRRightUpperArmIdx;    // RightArm  (shoulder joint / upper-arm start)
