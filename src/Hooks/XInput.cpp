@@ -450,8 +450,12 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // the game as Exit_Button, and the magazine drop is held back instead (see the publish below), so
     // the press that closes a popup cannot also eject a magazine.
     const bool uiPopupOpen = g_uiPopupOpen.load(std::memory_order_relaxed) != 0;
+    const auto armBStamp = g_armCyberwareBHeartbeat.load(std::memory_order_relaxed);
+    const float* armBShared = GetShotShared();
+    const bool armBDevice = armBShared && reinterpret_cast<const volatile uint32_t*>(armBShared)[vrshared::kDeviceScreenOpen] != 0u;
+    const bool armBReady = armBStamp != 0 && GetTickCount64() - armBStamp < 1000 && !armBDevice;
     const uint16_t kPortOwnedButtons =
-        static_cast<uint16_t>(0x0080 | ((g_hasWeaponEquipped && !uiPopupOpen) ? 0x2000 : 0x0000));
+        static_cast<uint16_t>(0x0080 | (((g_hasWeaponEquipped || armBReady) && !uiPopupOpen) ? 0x2000 : 0x0000));
     // X AND B BOTH, and B is the correction: letting the raw B through in a car looked more
     // forgiving and was the opposite. B is ExitVehicle_Button, so a stray press ejects the
     // player from a moving car -- which reads as being thrown across the street, not as a

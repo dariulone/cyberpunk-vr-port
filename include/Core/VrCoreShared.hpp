@@ -99,6 +99,7 @@ extern std::atomic<bool> g_isDriving;
 // opposite reasons: B must reach the game (it is Exit_Button there) and B must NOT reach the physical
 // reload (a magazine drop while closing a popup is the accident this exists to prevent).
 extern std::atomic<int> g_uiPopupOpen;
+extern std::atomic<unsigned long long> g_armCyberwareBHeartbeat;
 // When that flag last went down, so the magazine drop can stay blocked for a moment afterwards.
 extern std::atomic<unsigned long long> g_uiPopupClosedMs;
 

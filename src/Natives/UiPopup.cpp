@@ -19,7 +19,16 @@
 #include <atomic>
 
 std::atomic<int> g_uiPopupOpen{0};
+std::atomic<unsigned long long> g_armCyberwareBHeartbeat{0};
 std::atomic<unsigned long long> g_uiPopupClosedMs{0};
+
+void VRArmCyberwareBHeartbeat(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
+    int32_t active = 0;
+    RED4ext::GetParameter(frame, &active);
+    frame->code++;
+    g_armCyberwareBHeartbeat.store(active ? GetTickCount64() : 0, std::memory_order_relaxed);
+    if (out) *out = active;
+}
 
 void VRUiPopup(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4)
 {
