@@ -210,7 +210,6 @@ void VRDevCamOffset(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
 void VRTakeoverEntity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
 // 1 while a UI overlay that owns the B button is open (phone, radio port, vehicle list).
 void VRUiPopup(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
-void VRArmCyberwareBHeartbeat(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void VRPopupVisualState(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 // A braindance is running, and the FOV the game reports for its camera -- the only identity script can
 // give for a camera that belongs to a scene.

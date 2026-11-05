@@ -459,8 +459,6 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto fUP = RED4ext::CGlobalFunction::Create("VRUiPopup", "VRUiPopup", &VRUiPopup);
     fUP->flags = flags; fUP->SetReturnType("Int32");
     fUP->AddParam("Int32", "active"); rtti->RegisterFunction(fUP);
-    auto armB = RED4ext::CGlobalFunction::Create("VRArmCyberwareBHeartbeat", "VRArmCyberwareBHeartbeat", &VRArmCyberwareBHeartbeat);
-    armB->flags = flags; armB->SetReturnType("Int32"); armB->AddParam("Int32", "active"); rtti->RegisterFunction(armB);
     // The popups' visual state, which VR does not enter (Natives/UiPopup.cpp).
     auto fPV = RED4ext::CGlobalFunction::Create("VRPopupVisualState", "VRPopupVisualState", &VRPopupVisualState);
     fPV->flags = flags; fPV->SetReturnType("Bool");

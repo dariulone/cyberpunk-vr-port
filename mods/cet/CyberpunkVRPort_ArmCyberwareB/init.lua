@@ -1,18 +1,14 @@
 -- B draws the installed arm cyberware from empty hands and holsters it on the next press.
--- The native heartbeat captures the physical B in gameplay, leaving menus and popups to the game.
 local previousDown = true
 local cooldown = 0
 local launcherPending = 0
 
-local function heartbeat(active)
-    if type(VRArmCyberwareBHeartbeat) == 'function' then VRArmCyberwareBHeartbeat(active and 1 or 0) end
-end
 
 local function update(dt)
     cooldown = math.max(0, cooldown - (dt or 0))
     local player = Game.GetPlayer()
     if not player or type(GetVRSharedSlot) ~= 'function' then
-        heartbeat(false); previousDown = true; return
+        previousDown = true; return
     end
     if launcherPending > 0 then
         launcherPending = math.max(0, launcherPending - (dt or 0))
@@ -20,15 +16,15 @@ local function update(dt)
     end
     local equipment = Game.GetScriptableSystemsContainer():Get(CName.new('EquipmentSystem'))
     local data = equipment and equipment:GetPlayerData(player)
-    if not data then heartbeat(false); previousDown = true; return end
+    if not data then player:VRArmBSetInputGuard(false); previousDown = true; return end
     local item = data:GetActiveItem(gamedataEquipmentArea.ArmsCW)
-    if not item or not ItemID.IsValid(item) then heartbeat(false); previousDown = true; return end
+    if not item or not ItemID.IsValid(item) then player:VRArmBSetInputGuard(false); previousDown = true; return end
     local launcher = WeaponObject.IsOfType(item, gamedataItemType.Cyb_Launcher)
     local melee = WeaponObject.IsOfType(item, gamedataItemType.Cyb_MantisBlades)
         or WeaponObject.IsOfType(item, gamedataItemType.Cyb_NanoWires)
         or WeaponObject.IsOfType(item, gamedataItemType.Cyb_StrongArms)
-    if not launcher and not melee then heartbeat(false); previousDown = true; return end
-    heartbeat(true)
+    if not launcher and not melee then player:VRArmBSetInputGuard(false); previousDown = true; return end
+    player:VRArmBSetInputGuard(true)
     if (GetVRSharedSlot(31) or 0) ~= 0 or (GetVRSharedSlot(164) or 0) ~= 0 then
         previousDown = true; return
     end
@@ -67,9 +63,12 @@ local function update(dt)
     equipment:QueueRequest(request)
 end
 
-registerForEvent('onInit', function() previousDown = true; cooldown = 0; heartbeat(false) end)
+registerForEvent('onInit', function() previousDown = true; cooldown = 0 end)
 registerForEvent('onUpdate', function(dt)
     local ok, err = pcall(update, dt)
-    if not ok then heartbeat(false); previousDown = true; spdlog.error('[Arm Cyberware B] ' .. tostring(err)) end
+    if not ok then previousDown = true; spdlog.error('[Arm Cyberware B] ' .. tostring(err)) end
 end)
-registerForEvent('onShutdown', function() heartbeat(false) end)
+registerForEvent('onShutdown', function()
+    local player = Game.GetPlayer()
+    if player then pcall(function() player:VRArmBSetInputGuard(false) end) end
+end)
