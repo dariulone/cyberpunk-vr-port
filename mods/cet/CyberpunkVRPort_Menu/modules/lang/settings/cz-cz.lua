@@ -1,6 +1,8 @@
 -- Czech (cz-cz): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/cz-cz.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Sledování prstů prázdných rukou",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Prsty prázdné ruky sledují snímání prstů ovladače (ovladače Index ve SteamVR).\nVypnuto, nebo pokud to běhové prostředí nenabízí: sledují úchop a spoušť.\nOvlivňuje jen vykreslení prstů. Ruka se zbraní nebo předmětem si drží svůj úchop.",
   ["Use OpenXR runtime projection FOV"] = "Použít FOV projekce z běhového prostředí OpenXR",
   ["OpenXR projection layer FOV"] = "FOV projekční vrstvy OpenXR",
   ["%.1f deg"] = "%.1f°",

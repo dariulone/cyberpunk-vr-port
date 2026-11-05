@@ -1,6 +1,8 @@
 -- Ukrainian (ua-ua): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/ua-ua.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Відстеження пальців порожніх рук",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Пальці порожньої руки стежать за датчиками пальців контролера (контролери Index у SteamVR).\nВимкнено або середовище виконання цього не підтримує: вони стежать за хватом і курком.\nВпливає лише на малювання пальців. Рука зі зброєю або предметом зберігає хват.",
   ["Use OpenXR runtime projection FOV"] = "FOV проєкції із середовища OpenXR",
   ["OpenXR projection layer FOV"] = "FOV шару проєкції OpenXR",
   ["%.1f deg"] = "%.1f°",

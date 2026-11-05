@@ -1,6 +1,8 @@
 -- Chinese (Simplified) (zh-cn): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/zh-cn.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "空手手指追踪",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "空手的手指跟随控制器的手指感应(SteamVR 上的 Index 控制器)。\n关闭或运行时不支持时:手指跟随握把和扳机。\n只影响手指的显示。持有武器或物品的手保持握持。",
   ["Use OpenXR runtime projection FOV"] = "使用 OpenXR 运行时投影 FOV",
   ["OpenXR projection layer FOV"] = "OpenXR 投影层 FOV",
   ["%.1f deg"] = "%.1f°",

@@ -1,6 +1,8 @@
 -- Thai (th-th): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/th-th.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "การติดตามนิ้วเมื่อมือว่าง",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "นิ้วของมือที่ว่างจะตามการตรวจจับนิ้วของคอนโทรลเลอร์ (คอนโทรลเลอร์ Index บน SteamVR)\nเมื่อปิด หรือรันไทม์ไม่รองรับ: นิ้วจะตามปุ่มจับและไกปืน\nมีผลเฉพาะการแสดงนิ้ว มือที่ถืออาวุธหรือไอเทมจะยังคงจับอยู่",
   ["Use OpenXR runtime projection FOV"] = "ใช้ FOV การฉายของรันไทม์ OpenXR",
   ["OpenXR projection layer FOV"] = "FOV เลเยอร์การฉาย OpenXR",
   ["%.1f deg"] = "%.1f°",

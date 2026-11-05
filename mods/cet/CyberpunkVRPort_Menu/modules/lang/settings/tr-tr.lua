@@ -1,6 +1,8 @@
 -- Turkish (tr-tr): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/tr-tr.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Boş ellerde parmak takibi",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Boş elin parmakları kumandanın parmak algılamasını izler (SteamVR'da Index kumandalar).\nKapalıysa veya çalışma zamanı sunmuyorsa: kavrama ve tetiği izler.\nYalnızca parmakların çizimini etkiler. Silah veya eşya tutan el kavrayışını korur.",
   ["Use OpenXR runtime projection FOV"] = "OpenXR çalışma zamanının projeksiyon FOV'unu kullan",
   ["OpenXR projection layer FOV"] = "OpenXR projeksiyon katmanı FOV",
   ["%.1f deg"] = "%.1f°",

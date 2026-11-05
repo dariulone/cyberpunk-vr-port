@@ -1,6 +1,8 @@
 -- Korean (kr-kr): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/kr-kr.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "빈손 손가락 추적",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "빈손의 손가락이 컨트롤러의 손가락 감지를 따릅니다(SteamVR의 Index 컨트롤러).\n끄거나 런타임이 지원하지 않으면 그립과 트리거를 따릅니다.\n손가락 표시에만 영향을 줍니다. 무기나 아이템을 든 손은 그대로 쥐고 있습니다.",
   ["Use OpenXR runtime projection FOV"] = "OpenXR 런타임 투영 FOV 사용",
   ["OpenXR projection layer FOV"] = "OpenXR 투영 레이어 FOV",
   ["%.1f deg"] = "%.1f°",

@@ -1,6 +1,8 @@
 -- Japanese (jp-jp): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/jp-jp.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "空の手のフィンガートラッキング",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "空の手の指がコントローラーの指センサーに追従します(SteamVRのIndexコントローラー)。\nオフ、またはランタイムが非対応の場合:グリップとトリガーに追従します。\n指の表示だけに影響します。武器やアイテムを持つ手は握ったままです。",
   ["Use OpenXR runtime projection FOV"] = "OpenXRランタイムの投影FOVを使用",
   ["OpenXR projection layer FOV"] = "OpenXR投影レイヤーFOV",
   ["%.1f deg"] = "%.1f°",

@@ -1,6 +1,8 @@
 -- Hungarian (hu-hu): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/hu-hu.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Ujjkövetés üres kéznél",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Az üres kéz ujjai a kontroller ujjérzékelését követik (Index kontrollerek SteamVR alatt).\nKikapcsolva, vagy ha a futtatókörnyezet nem kínálja: a markolatot és a ravaszt követik.\nCsak az ujjak megjelenítését érinti. A fegyvert vagy tárgyat tartó kéz megtartja a fogását.",
   ["Use OpenXR runtime projection FOV"] = "Az OpenXR futtatókörnyezet vetítési FOV-jának használata",
   ["OpenXR projection layer FOV"] = "OpenXR vetítési réteg FOV",
   ["%.1f deg"] = "%.1f°",

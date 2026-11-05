@@ -1,6 +1,8 @@
 -- French (fr-fr): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/fr-fr.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Suivi des doigts des mains vides",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Les doigts d'une main vide suivent la détection des doigts de la manette (manettes Index sous SteamVR).\nDésactivé, ou si le runtime n'en dispose pas : ils suivent la poignée et la gâchette.\nN'affecte que l'affichage des doigts. Une main tenant une arme ou un objet garde sa prise.",
   ["Use OpenXR runtime projection FOV"] = "Utiliser le FOV de projection du runtime OpenXR",
   ["OpenXR projection layer FOV"] = "FOV de la couche de projection OpenXR",
   ["%.1f deg"] = "%.1f°",

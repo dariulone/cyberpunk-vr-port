@@ -1,6 +1,8 @@
 -- Spanish (Latin America) (es-mx): the VR settings pages' words, keyed by the English (modules/locale.lua).
 -- Written by tools/menu_locale/build_lang.py from tools/menu_locale/tr_settings/es-mx.json -- edit that, not this.
 return {
+  ["Finger tracking on empty hands"] = "Seguimiento de dedos con las manos vacías",
+  ["An empty hand's fingers follow the controller's finger sensing (Index controllers on SteamVR).\nOff, or where the runtime has none: they follow grip and trigger.\nOnly draws the fingers. A hand holding a weapon or an item keeps its grip."] = "Los dedos de una mano vacía siguen la detección de dedos del control (controles Index en SteamVR).\nDesactivado, o si el entorno de ejecución no la ofrece: siguen el agarre y el gatillo.\nSolo afecta cómo se dibujan los dedos. Una mano con un arma o un objeto mantiene su agarre.",
   ["Use OpenXR runtime projection FOV"] = "Usar el FOV de proyección del runtime OpenXR",
   ["OpenXR projection layer FOV"] = "FOV de la capa de proyección OpenXR",
   ["%.1f deg"] = "%.1f°",
