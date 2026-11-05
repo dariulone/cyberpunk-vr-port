@@ -244,7 +244,8 @@ void VRMenuPointer(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     const float nz[3] = {rx[1] * uy[2] - rx[2] * uy[1], rx[2] * uy[0] - rx[0] * uy[2], rx[0] * uy[1] - rx[1] * uy[0]};
     const float w = size.X > 0.01f ? size.X : 1.0f, h = size.Y > 0.01f ? size.Y : 1.0f;
     VRControllerState input{};
-    const bool haveInput = OpenXRManager::Get().GetControllerState(&input);
+    // Raw: the native overlay's capture must not take the menu's own trigger away.
+    const bool haveInput = OpenXRManager::Get().GetRawControllerState(&input);
     float m2w[4];
     const bool frame = ModelToWorldFrame(m2w) && g_VRFKSnapCount > kIndex3[1];
     for (int side = 0; side < 2; ++side) {

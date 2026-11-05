@@ -1441,6 +1441,13 @@ XrPosef OpenXRManager::ComputeMenuQuadPose(bool headPoseLocated, const XrPosef& 
     return pose;
 }
 
+bool OpenXRManager::GetRawControllerState(VRControllerState* out) const {
+    if (!out) return false;
+    std::lock_guard<std::mutex> lock(m_inputMutex);
+    *out = m_rawControllerState;
+    return true;
+}
+
 bool OpenXRManager::GetControllerState(VRControllerState* out) const {
     if (!out) return false;
     std::lock_guard<std::mutex> lock(m_inputMutex);

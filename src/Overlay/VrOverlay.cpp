@@ -55,7 +55,13 @@ void UpdateTracking(const Tracking& t){
     // be arbitrarily old while closed. Give each new request its opening window;
     // require a live heartbeat only after that request has made the panel visible.
     if(wanted && ((visible && bridgeStamp && now-bridgeStamp>1500) || (!visible && now-requestStamp>3000))){wanted=false;visible=false;ReleasePointer();}
-    if(releasePending && !both && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && t.hands[0].grip<.5f && t.hands[1].grip<.5f)releasePending=false;
+    // A grip that stays above half (a resting hand on Index controllers, or a grip held through the whole menu) kept this
+    // pending forever, and with it the capture that zeroes all controller input for the game. Grips still have to let go
+    // first, but only for 1.5 s; sticks and triggers as before.
+    static uint64_t pendingSince=0;
+    if(!releasePending)pendingSince=0;else if(!pendingSince)pendingSince=now;
+    const bool gripsFree=(t.hands[0].grip<.5f && t.hands[1].grip<.5f) || (pendingSince && now-pendingSince>1500);
+    if(releasePending && !both && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsFree)releasePending=false;
     capture=visible || wanted || both || releasePending;
     view.hold=float(chord.held);
     if(!visible){view.valid=false;return;}

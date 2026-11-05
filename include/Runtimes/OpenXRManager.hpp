@@ -861,6 +861,9 @@ public:
     // Per-frame snapshot of all controller buttons/axes (OpenXR action state).
     // Filled by the frame thread under m_inputMutex; copied out by readers.
     bool GetControllerState(VRControllerState* out) const;
+    // The snapshot before the native overlay's capture clears it. The VR menu reads its trigger here, so a lingering
+    // capture cannot leave the menu without input.
+    bool GetRawControllerState(VRControllerState* out) const;
 
     float GetRuntimeHorizontalFovDeg() const { return m_runtimeHorizontalFovDeg.load(std::memory_order_relaxed); }
     const char* GetSystemName() const { return m_systemName; }
@@ -974,6 +977,7 @@ private:
     // Latest controller snapshot, owned by the frame thread.
     mutable std::mutex m_inputMutex;
     VRControllerState m_controllerState{};
+    VRControllerState m_rawControllerState{};
     // Yaws (radians, recenter-base relative) for hand-oriented locomotion.
     std::atomic<float> m_handYawRelToBody[2]{ {0.0f}, {0.0f} };
     std::atomic<bool>  m_handYawValid[2]{ {false}, {false} };

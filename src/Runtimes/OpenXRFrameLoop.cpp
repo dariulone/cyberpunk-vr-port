@@ -1901,6 +1901,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 if(gameplayInputActive)ctrl.buttons|=m_steamFrameActions.GlobalButtons(getGlobalBool);
                 // The extra physical Frame buttons obey the same overlay capture
                 // as Touch controls. Menu/Start retains the existing escape path.
+                {std::lock_guard<std::mutex> rawLock(m_inputMutex);m_rawControllerState=ctrl;}
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
                     const bool menuPressed = getGlobalBool(m_menuButtonAction);
