@@ -453,7 +453,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     const auto armBStamp = g_armCyberwareBHeartbeat.load(std::memory_order_relaxed);
     const float* armBShared = GetShotShared();
     const bool armBDevice = armBShared && reinterpret_cast<const volatile uint32_t*>(armBShared)[vrshared::kDeviceScreenOpen] != 0u;
-    const bool armBReady = armBStamp != 0 && GetTickCount64() - armBStamp < 1000 && !armBDevice;
+    const bool armBReady = armBStamp != 0 && GetTickCount64() - armBStamp < 1000 && !armBDevice && !cvr::lobby::WorldShown();
     const uint16_t kPortOwnedButtons =
         static_cast<uint16_t>(0x0080 | (((g_hasWeaponEquipped || armBReady) && !uiPopupOpen) ? 0x2000 : 0x0000));
     // X AND B BOTH, and B is the correction: letting the raw B through in a car looked more
@@ -877,7 +877,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         const int32_t blockMs = (CyberpunkVR_PopupMagBlockMs > 0) ? CyberpunkVR_PopupMagBlockMs : 0;
         const bool justClosed = closedMs != 0ull &&
                                 (GetTickCount64() - closedMs) < static_cast<unsigned long long>(blockMs);
-        const bool magBlocked = uiPopupOpen || justClosed;
+        const bool magBlocked = uiPopupOpen || justClosed || cvr::lobby::WorldShown();
         OpenXRManager::Get().SetSharedSlot(vrshared::kRightSecondaryBtn,
                                            (!magBlocked && (vr.buttons & 0x2000)) ? 1.0f : 0.0f);
     }
