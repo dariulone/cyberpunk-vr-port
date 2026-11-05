@@ -36,6 +36,9 @@
 #include "Hooks/BodyHeading.hpp"
 #include "Hooks/Trampoline.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Render/Afw.hpp"
+extern "C" int GetMenuRectMode();
+extern "C" int GetMenuMode();
 #include "Utils/AobScanner.hpp"
 #include "Utils/MemorySafe.hpp"
 
@@ -46,6 +49,7 @@
 #include <cstddef>
 #include <cstring>
 #include <mutex>
+#include "Fbt/Game/Body.hpp"
 
 extern "C" __declspec(dllexport) extern float CyberpunkVR_SceneStickYawDps;
 extern "C" __declspec(dllexport) extern int   CyberpunkVR_SceneStickYawTier;
@@ -1255,6 +1259,9 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
             // Published for MAIN only: it is the gameplay camera, and VRCAM is the same transform one
             // eye over.
             for (int i = 0; i < 3; ++i) p[i] += d[i];
+            // Full-body tracking: the camera at V's eyes (Fbt/Game/Body.hpp), an absolute height over the entity.
+            if (float eyeZ = 0.0f; cvr::fbt::game::CameraEyeHeight(&eyeZ))
+                p[2] = static_cast<int32_t>((CyberpunkVR_PlayerEntityPos[2] + eyeZ) * 131072.0f);
             dirty = true;
             if (camKind == 2) CVR_DIAGNOSTIC(++CyberpunkVR_DebugVrcamPosWrites);
             else              CVR_DIAGNOSTIC(++CyberpunkVR_DebugMainPosWrites);
@@ -1308,6 +1315,16 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                     g_bdActive.load(std::memory_order_relaxed) &&
                     g_bdScenePoseValid.load(std::memory_order_acquire);
                 if (IsPlausibleUnitVector3(r) && !bdMainSkip) {
+                    // AFW (Render/Afw.hpp): MAIN is this frame's eye, the eyes taking turns, and the picture carries
+                    // which one it was drawn for in its pose label -- it is captured while the next frame is placed.
+                    if (camKind == 1 && cvr::afw::Active()) {
+                        // Under a menu the frame is one picture for both eyes (Runtimes/OpenXRCapture.cpp): the eye
+                        // stays where it is, or the world behind the menu would jump by the separation every frame.
+                        const bool menu = GetMenuRectMode() != 0 || GetMenuMode() != 0;
+                        const int afwEye = menu ? (CyberpunkVR_MainIsRightEye ? 1 : 0) : cvr::afw::FrameEye();
+                        CyberpunkVR_MainIsRightEye = afwEye;
+                        writtenPose.afwEye = static_cast<int8_t>(afwEye);
+                    }
                     // MAIN is the left eye by default; with the swap it becomes the right one,
                     // so the separation has to change hands too or each eye gets the other's
                     // viewpoint -- pseudo-stereo, which reads as depth turned inside out.

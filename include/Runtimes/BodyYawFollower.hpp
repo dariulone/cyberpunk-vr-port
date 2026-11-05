@@ -30,7 +30,7 @@ public:
         if(m_stamp && stamp-m_stamp>250000)m_zone.Reset();
         m_stamp=stamp;
         const float residual=std::remainder(headYaw-m_offset,6.28318530718f);
-        const float step=residual*m_zone.Fraction(std::fabs(residual),std::max(cone,0.0f),dt);
+        const float step=m_zone.Step(residual,std::max(cone,0.0f),dt);
         m_offset=std::remainder(m_offset+step,6.28318530718f);
         return step;
     }

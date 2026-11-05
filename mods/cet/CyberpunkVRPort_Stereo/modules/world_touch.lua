@@ -23,14 +23,16 @@ local function clear()
     for h=1,2 do hoverOff(h);Contact.reset(hands[h]);hands[h].drag=nil;hands[h].pending=nil;hands[h].glide=nil end
     components={};M.active=false;M.hands={}
 end
+-- The UI board's definition and the menu mod are fixed for the game's life: looked up once, not every frame.
+local uiDefs,menuMod
 local function allowed(overlayOpen)
     if overlayOpen then return nil end
     local p=Game.GetPlayer();if not p then return nil end
-    local defs=GetAllBlackboardDefs()
-    local board=Game.GetBlackboardSystem():Get(defs.UI_System)
-    if not board or board:GetBool(defs.UI_System.IsInMenu) then return nil end
-    local menu=GetMod('CyberpunkVRPort_Menu')
-    if menu and menu.debugState and menu.debugState().open then return nil end
+    uiDefs=uiDefs or GetAllBlackboardDefs().UI_System
+    local board=Game.GetBlackboardSystem():Get(uiDefs)
+    if not board or board:GetBool(uiDefs.IsInMenu) then return nil end
+    menuMod=menuMod or GetMod('CyberpunkVRPort_Menu') or false
+    if menuMod and menuMod.debugState and menuMod.debugState().open then return nil end
     return p
 end
 local function collectButtons(root,gameController)
@@ -189,7 +191,7 @@ local function tick(dt,overlayOpen)
     local p=allowed(overlayOpen)
     if not p or type(VRWorldTouchPointer)~='function' then clear();return end
     local id=tostring(p:GetEntityID().hash)
-    if id~=playerID then clear();playerID=id end
+    if id~=playerID then clear();Sources.reset();playerID=id end
     elapsed=elapsed+dt
     if elapsed>=.1 then elapsed=0;discover() end
     local chosen={}

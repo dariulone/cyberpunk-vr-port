@@ -53,9 +53,9 @@ Type& Type::operator=(const Type& acOther)
     return *this;
 }
 
-sol::object Type::Index(const std::string& acName, sol::this_environment aThisEnv)
+sol::object Type::Index(const std::string& acName)
 {
-    return Index_Impl(acName, aThisEnv);
+    return Index_Impl(acName);
 }
 
 sol::object Type::NewIndex(const std::string& acName, sol::optional<sol::object> aParam)
@@ -63,7 +63,7 @@ sol::object Type::NewIndex(const std::string& acName, sol::optional<sol::object>
     return NewIndex_Impl(acName, aParam.has_value() ? aParam.value() : sol::nil);
 }
 
-sol::object Type::Index_Impl(const std::string& acName, sol::this_environment aThisEnv)
+sol::object Type::Index_Impl(const std::string& acName)
 {
     if (!m_properties)
         return sol::nil;
@@ -250,7 +250,7 @@ Type::Descriptor ClassType::Dump(bool aWithHashes) const
     return descriptor;
 }
 
-sol::object ClassType::Index_Impl(const std::string& acName, sol::this_environment aThisEnv)
+sol::object ClassType::Index_Impl(const std::string& acName)
 {
     auto* pClass = static_cast<RED4ext::CClass*>(m_pType);
 
@@ -268,7 +268,7 @@ sol::object ClassType::Index_Impl(const std::string& acName, sol::this_environme
             return result;
     }
 
-    auto result = Type::Index_Impl(acName, aThisEnv);
+    auto result = Type::Index_Impl(acName);
 
     if (result != sol::nil)
         return result;

@@ -15,11 +15,24 @@ namespace cvr::stereo::geometry_cost {
 enum class Action : uint8_t { Forward = 0, EmptyScissor = 1, Skip = 2 };
 
 // Control word layout: bits 0..1 action (0 off, 1 empty scissor, 2 skip, 3 invalid -> off),
-// bit 4 selects side 0 (MAIN), bit 5 selects side 1 (VRCAM). Other bits must be zero.
+// bit 4 selects side 0 (MAIN), bit 5 selects side 1 (VRCAM). Engine stereo draws both eyes in side 0, each
+// into its half of one side-by-side target: bit 6 restricts the action to draws whose viewport starts at x = 0
+// (the left eye), bit 7 to draws whose viewport starts at its own width (the right half). Other bits must be zero.
 constexpr uint32_t kActionMask = 0x3u;
 constexpr uint32_t kSide0 = 0x10u;
 constexpr uint32_t kSide1 = 0x20u;
-constexpr uint32_t kKnownBits = kActionMask | kSide0 | kSide1;
+constexpr uint32_t kLeftHalf = 0x40u;
+constexpr uint32_t kRightHalf = 0x80u;
+constexpr uint32_t kKnownBits = kActionMask | kSide0 | kSide1 | kLeftHalf | kRightHalf;
+
+// The eye bits against the draw's viewport (x = TopLeftX, width = Width, rounded); unknown viewport -> no.
+constexpr bool EyeAllows(uint32_t control, bool known, uint32_t x, uint32_t width) {
+    if (!(control & (kLeftHalf | kRightHalf))) return true;
+    if (!known) return false;
+    const bool right = x > 0 && (x > width ? x - width : width - x) <= 1;
+    const bool left = x == 0;
+    return ((control & kLeftHalf) && left) || ((control & kRightHalf) && right);
+}
 // RenderElements work function RVA (src/Stereo/NodeNames.inc), the geometry passes of both eyes.
 constexpr uint32_t kRenderElementsNode = 0x33DDA4u;
 

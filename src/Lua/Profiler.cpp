@@ -3,6 +3,7 @@
 #include <luajit.h>
 
 #include <algorithm>
+#include <map>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -25,6 +26,9 @@ struct Calls
     double ms = 0;
 };
 std::unordered_map<RED4ext::CBaseFunction*, Calls> g_overrides;
+// The game functions Lua calls (RTTIHelper::ExecuteFunction), per mod running at the time: which calls a mod's frame is
+// made of, the list to move native or to call less often.
+std::map<std::pair<const char*, RED4ext::CBaseFunction*>, Calls> g_calls;
 int g_states[256]{};
 int g_total = 0;
 const char* g_mod = "-";
@@ -44,6 +48,8 @@ void OnSample(void*, lua_State* L, int samples, int vmstate)
         key.erase(0, at + 5);
     if (g_mod[0] == '-' && !g_mod[1])
         key += " (outside onUpdate)";
+    else if (key.find('\\') == std::string::npos)
+        key = std::string(g_mod) + "\\" + key; // a mod's own init.lua comes without its folder
     std::lock_guard guard(g_lock);
     ++g_lines[key];
     ++g_states[vmstate & 0xFF];
@@ -76,6 +82,15 @@ extern "C" void CvrProfileOverride(RED4ext::CBaseFunction* apFunction, double aM
     calls.ms += aMs;
 }
 
+// A game function called from Lua (RTTIHelper::ExecuteFunction), with the mod whose onUpdate runs ("-" outside one).
+extern "C" void CvrProfileCall(RED4ext::CBaseFunction* apFunction, double aMs)
+{
+    std::lock_guard guard(g_lock);
+    auto& calls = g_calls[{g_mod, apFunction}];
+    ++calls.count;
+    calls.ms += aMs;
+}
+
 // Set by the store around each mod's onUpdate (main thread; the samples come from the thread running Lua).
 extern "C" void CvrProfileMod(const char* acMod)
 {
@@ -89,12 +104,15 @@ extern "C" void CvrProfileReport(size_t aTicks)
         return;
     std::vector<std::pair<std::string, int>> lines;
     std::vector<std::pair<RED4ext::CBaseFunction*, Calls>> overrides;
+    std::vector<std::pair<std::pair<const char*, RED4ext::CBaseFunction*>, Calls>> gameCalls;
     int states[256];
     int total;
     {
         std::lock_guard guard(g_lock);
         overrides.assign(g_overrides.begin(), g_overrides.end());
         g_overrides.clear();
+        gameCalls.assign(g_calls.begin(), g_calls.end());
+        g_calls.clear();
         lines.assign(g_lines.begin(), g_lines.end());
         std::copy(std::begin(g_states), std::end(g_states), std::begin(states));
         total = g_total;
@@ -108,10 +126,49 @@ extern "C" void CvrProfileReport(size_t aTicks)
     std::string text = fmt::format("[lua] profile: {} samples; compiled {:.0f}%, interpreted {:.0f}%, C {:.0f}%, GC {:.0f}%, JIT {:.0f}%;", total,
                                    100.0 * states['N'] / total, 100.0 * states['I'] / total, 100.0 * states['C'] / total,
                                    100.0 * states['G'] / total, 100.0 * states['J'] / total);
-    for (size_t i = 0; i < lines.size() && i < 16; ++i)
+    for (size_t i = 0; i < lines.size() && i < 48; ++i)
         text += fmt::format("{} {} {:.1f}%", i ? "," : "", lines[i].first, 100.0 * lines[i].second / total);
     text += '\n';
     CvrLogText(text.c_str());
+
+    // The same samples per file: which module of a mod its time is in.
+    std::unordered_map<std::string, int> files;
+    for (const auto& [line, count] : lines)
+    {
+        auto file = line;
+        if (const auto colon = file.rfind(':'); colon != std::string::npos)
+        {
+            const auto rest = file.find(' ', colon);
+            file.erase(colon, rest == std::string::npos ? std::string::npos : rest - colon);
+        }
+        files[file] += count;
+    }
+    std::vector<std::pair<std::string, int>> byFile(files.begin(), files.end());
+    std::sort(byFile.begin(), byFile.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+    std::string fileText = "[lua] profile by file:";
+    for (size_t i = 0; i < byFile.size() && i < 24; ++i)
+        fileText += fmt::format("{} {} {:.1f}%", i ? "," : "", byFile[i].first, 100.0 * byFile[i].second / total);
+    fileText += '\n';
+    CvrLogText(fileText.c_str());
+
+    if (!gameCalls.empty() && aTicks)
+    {
+        std::sort(gameCalls.begin(), gameCalls.end(), [](const auto& a, const auto& b) { return a.second.ms > b.second.ms; });
+        double sum = 0;
+        for (const auto& c : gameCalls)
+            sum += c.second.ms;
+        std::string line = fmt::format("[lua] game calls per tick ({:.3f} ms in all):", sum / aTicks);
+        for (size_t i = 0; i < gameCalls.size() && i < 24; ++i)
+        {
+            auto* pFunction = gameCalls[i].first.second;
+            auto* pClass = pFunction->GetParent();
+            line += fmt::format("{} {} {}{}{} {:.1f} x {:.3f} ms", i ? "," : "", gameCalls[i].first.first,
+                                pClass ? pClass->GetName().ToString() : "", pClass ? "::" : "", pFunction->shortName.ToString(),
+                                double(gameCalls[i].second.count) / aTicks, gameCalls[i].second.ms / aTicks);
+        }
+        line += '\n';
+        CvrLogText(line.c_str());
+    }
 
     if (overrides.empty() || !aTicks)
         return;

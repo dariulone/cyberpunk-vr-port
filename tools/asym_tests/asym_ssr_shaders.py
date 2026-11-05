@@ -1086,12 +1086,14 @@ def stereo_cross(ir):
     if len(set(fpp)) != 1:
         raise ValueError('no first-person projection select')
     fpp = fpp[0]
-    # the march: its step counter (+4 up to 128), the header's u, v, depth phis and their start / step
-    inc = [k for k, v in D.items() if re.fullmatch(r'add nuw nsw i32 %s, [2-9]' % V, v) and any(
+    # the march: its step counter (+4 up to 128; Insane's limit is a constant and its add has no nuw nsw), the
+    # header's u, v, depth phis and their start / step
+    ADD = r'add (?:nuw )?(?:nsw )?i32 %s, ' % V
+    inc = [k for k, v in D.items() if re.fullmatch(ADD + '[2-9]', v) and any(
         re.fullmatch(r'icmp ult i32 %s, %s' % (re.escape(k), r'(\d+|%[\w.]+)'), vv) for vv in D.values())]
     if len(inc) != 1:
         raise ValueError('march counter: %d' % len(inc))
-    counter, per = op(inc[0], r'add nuw nsw i32 %s, (\d+)' % V)
+    counter, per = op(inc[0], ADD + r'(\d+)')
     header = block_of(line_of(counter))
     hl = label_line(header)
     pre = re.fullmatch(r'phi i32 \[ 0, (%%\d+) \], \[ %s, %%\d+ \]' % re.escape(inc[0]), D[counter])
@@ -1140,13 +1142,16 @@ def stereo_cross(ir):
     z0, dz, _ = starts[zphi]
     if len(samples) != 4:
         raise ValueError('march samples: %d' % len(samples))
-    unit = op(du, FMULC)
-    unit_c = [x for x in unit if not x.startswith('%')]
-    dirx = [x for x in unit if x.startswith('%')][0]
-
     def flt_of(text):
         return struct.unpack('<d', struct.pack('<Q', int(text, 16)))[0] if text.startswith('0x') else float(text)
-    c1 = flt_of(unit_c[0])
+    if D[du].startswith('fdiv'):
+        # Insane: the step is direction / (steps + 1), steps from the block, and the samples are step * k
+        dirx, c1 = du, 1.0
+    else:
+        unit = op(du, FMULC)
+        unit_c = [x for x in unit if not x.startswith('%')]
+        dirx = [x for x in unit if x.startswith('%')][0]
+        c1 = flt_of(unit_c[0])
 
     def offset(u):
         if u == uphi:

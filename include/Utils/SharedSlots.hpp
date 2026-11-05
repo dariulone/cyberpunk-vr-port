@@ -226,6 +226,9 @@ constexpr int kLeftMuzzleValid    = 172;
 // switch on release, the wheel held on). The merge times the press and counts the taps here, plugin -> CET;
 // the reload mod drops on every change, so a tap can never be missed or read twice. A graveyard slot.
 constexpr int kDualWieldYTap      = 57;
+// 1 = HANDS ONLY (xr_body_hands_only): the player's body is drawn as its hands alone. openxr -> the CET HandsOnly
+// mod (which hides the body, the garments and the arms above the wrists) and NeckCap (the neck cap stays off).
+constexpr int kBodyHandsOnly      = 173;
 constexpr int kWheelArmedRightBit = 1;
 constexpr int kWheelArmedLeftBit  = 2;
 } // namespace vrshared

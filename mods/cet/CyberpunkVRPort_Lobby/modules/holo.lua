@@ -327,7 +327,8 @@ local function drawRow(P, c, row, hitY)
     local gap = 60
     local rh = rowHeight(row)
     local cw = math.floor((ROW_W - gap * (#row.cards - 1)) / #row.cards)
-    local pw = row.poster and math.min(cw - 60, math.floor((rh - 220) * row.poster)) or rh - 220
+    -- (a square picture no wider than its card: three cards to a row are narrower than the row is high)
+    local pw = row.poster and math.min(cw - 60, math.floor((rh - 220) * row.poster)) or math.min(rh - 220, cw - 60)
     local ph = row.poster and math.floor(pw / row.poster) or pw
     for i, card in ipairs(row.cards) do
       local x = (i - 1) * (cw + gap)

@@ -468,6 +468,8 @@ local function standInUpdate(player)
     tone = arms and arms.meshAppearance.value
   end
   local want = not real and tone ~= nil and player:FindComponentByName(names.shadow) ~= nil
+  -- hands only (shared[173], the CyberpunkVRPort_HandsOnly mod): the body is hidden on purpose, no stand-in for it
+  if want and type(GetVRSharedSlot) == "function" and (GetVRSharedSlot(173) or 0) > 0.5 then want = false end
   if want and stand.meshAppearance.value ~= tone then Game.VRComponentChangeAppearance(stand, CName.new(tone), false) end
   if stand:IsEnabled() ~= want then
     stand:Toggle(want)

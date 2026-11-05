@@ -4,25 +4,28 @@ local fast = -1
 local reportedError = false
 
 registerForEvent("onInit", function()
-    -- Script decisions and native locomotion must see the same gesture input.
-    -- Keep other actors/actions and the original input values in their chain.
-    local actions = { MoveY = 20, ToggleSprint = 21, Jump = 22, Dive = 23 }
-    local function valueFor(owner, name)
-        local player = Game.GetPlayer()
-        if not owner or not player or owner:GetEntityID().hash ~= player:GetEntityID().hash then return 0 end
-        local index = actions[name.value]
-        return index and Game.GetVRSwimmingDebug(index) or 0
+    -- Script decisions and native locomotion must see the same gesture input. The plugin adds the gestures to the
+    -- state machines' reads natively (src/Natives/SwimmingScript.cpp, debug value 16 = 1); these overrides are the
+    -- fallback for a plugin that could not, and they cost ~0.3 ms a tick on the game thread.
+    if Game.GetVRSwimmingDebug(16) ~= 1 then
+        local actions = { MoveY = 20, ToggleSprint = 21, Jump = 22, Dive = 23 }
+        local function valueFor(owner, name)
+            local player = Game.GetPlayer()
+            if not owner or not player or owner:GetEntityID().hash ~= player:GetEntityID().hash then return 0 end
+            local index = actions[name.value]
+            return index and Game.GetVRSwimmingDebug(index) or 0
+        end
+        Override("gamestateMachineGameScriptInterface", "GetActionValue", function(self, name, wrapped)
+            local value = wrapped(name)
+            local added = valueFor(self.owner, name)
+            return added > 0 and math.max(value, added) or value
+        end)
+        Override("gamestateMachineGameScriptInterface", "IsActionJustPressed", function(self, name, wrapped)
+            local pressed = wrapped(name)
+            -- Dive is a surface transition; the command clears upon entering water.
+            return pressed or (name.value == "Dive" and valueFor(self.owner, name) > 0)
+        end)
     end
-    Override("gamestateMachineGameScriptInterface", "GetActionValue", function(self, name, wrapped)
-        local value = wrapped(name)
-        local added = valueFor(self.owner, name)
-        return added > 0 and math.max(value, added) or value
-    end)
-    Override("gamestateMachineGameScriptInterface", "IsActionJustPressed", function(self, name, wrapped)
-        local pressed = wrapped(name)
-        -- Dive is a surface transition; the command clears upon entering water.
-        return pressed or (name.value == "Dive" and valueFor(self.owner, name) > 0)
-    end)
     local function watch(class, method, value)
         ObserveAfter(class, method, function() fast = value end)
     end

@@ -1,14 +1,17 @@
 """The first-launch setup's pictures (mods/cet/CyberpunkVRPort_Lobby modules/setup.lua): the two hands to choose the
-weapon hand by and the T-pose, as one ink atlas.
+weapon hand by, the left hand's three bindings (the right hand's copied, the left stick walking, the left stick turning),
+the whole body and the hands alone to choose how the body is drawn by, and the T-pose, as one ink atlas.
 
     py -3.13 -B tools/vr_lobby_assets/make_setup_art.py
 
   setup_art/hand_left.png, hand_right.png, tpose.png   the sources (1254 px squares, black figures outlined in
-                                                white)
-  vrport\\ui\\vr_lobby_setup.xbm                 the three at 1024 px in a 2048 px sheet (hand_left top left,
-                                                hand_right top right, tpose bottom left), imported over the
-                                                phone's UI texture so it is set up as the game's UI textures are
-                                                (true colour, quality compression, one mip)
+  setup_art/bind_same.png, bind_walk.png, bind_turn.png  white on transparent; the two body ones 1024 px, the
+  setup_art/body_full.png, body_hands.png              players' pictures with the background made transparent)
+  vrport\\ui\\vr_lobby_setup.xbm                 the eight at 1024 px in a 4096 x 2048 sheet (CELLS: the hands and
+                                                the bodies along the top, the T-pose and the bindings below),
+                                                premultiplied, imported over the phone's UI texture so it is set
+                                                up as the game's UI textures are (true colour, quality
+                                                compression, one mip)
   vrport\\ui\\vr_lobby_setup.inkatlas            its parts, named as the files; only slot 0 (the 4K one) has a
                                                 texture: ink takes slot 0 when the lower slots are empty
 
@@ -31,17 +34,30 @@ RAW = S.ROOT / 'mods/archive/source/raw/vrport/ui'
 GAME = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
 NAME = 'vr_lobby_setup'
 DEPOT = 'vrport\\ui\\'
-SHEET, CELL = 2048, 1024
-CELLS = {'hand_left': (0, 0), 'hand_right': (1, 0), 'tpose': (0, 1)}
+SHEET_W, SHEET_H, CELL = 4096, 2048, 1024
+CELLS = {'hand_left': (0, 0), 'hand_right': (1, 0), 'tpose': (0, 1), 'body_full': (2, 0), 'body_hands': (3, 0),
+         'bind_same': (1, 1), 'bind_walk': (2, 1), 'bind_turn': (3, 1)}
 TEMPLATE = 'base\\gameplay\\gui\\widgets\\phone\\new_phone_assets.xbm'
+
+
+def premultiplied(im):
+    """The colour multiplied by the alpha: the lobby's ink draws its pictures premultiplied, so whatever colour lies
+    under a transparent pixel shows (a picture whose background was white under alpha 0 came up as a white square,
+    tinted by the card)."""
+    from PIL import Image
+    alpha = im.getchannel('A')
+    rgb = Image.new('RGB', im.size, (0, 0, 0))
+    rgb.paste(im.convert('RGB'), mask=alpha)
+    rgb.putalpha(alpha)
+    return rgb
 
 
 def sheet(out):
     from PIL import Image
-    im = Image.new('RGBA', (SHEET, SHEET), (0, 0, 0, 0))
+    im = Image.new('RGBA', (SHEET_W, SHEET_H), (0, 0, 0, 0))
     for name, (cx, cy) in CELLS.items():
-        im.paste(Image.open(ART / (name + '.png')).convert('RGBA').resize((CELL, CELL), Image.LANCZOS),
-                 (cx * CELL, cy * CELL))
+        part = Image.open(ART / (name + '.png')).convert('RGBA').resize((CELL, CELL), Image.LANCZOS)
+        im.paste(premultiplied(part), (cx * CELL, cy * CELL))
     im.save(out)
 
 
@@ -72,11 +88,11 @@ def path(value):
 
 
 def part(name, cx, cy):
-    f = CELL / SHEET
+    fx, fy = CELL / SHEET_W, CELL / SHEET_H
     return {'$type': 'inkTextureAtlasMapper',
             'clippingRectInPixels': {'$type': 'Rect', 'bottom': 0, 'left': 0, 'right': 0, 'top': 0},
-            'clippingRectInUVCoords': {'$type': 'RectF', 'Bottom': (cy + 1) * f, 'Left': cx * f, 'Right': (cx + 1) * f,
-                                       'Top': cy * f},
+            'clippingRectInUVCoords': {'$type': 'RectF', 'Bottom': (cy + 1) * fy, 'Left': cx * fx, 'Right': (cx + 1) * fx,
+                                       'Top': cy * fy},
             'partName': {'$type': 'CName', '$storage': 'string', '$value': name}}
 
 

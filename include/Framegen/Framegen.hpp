@@ -21,7 +21,9 @@ struct Settings {
 };
 struct Statistics {
     double realFps{},generatedFps{},outputFps{},repeatFps{};
-    double cpuMs{},cpuPeakMs{},gpuMs{},gpuPeakMs{},generationMs{};
+    // generationMs: the GPU time of a pair's generation (its command lists); generationSpanMs: from its start to its
+    // end on the GPU timeline, the optical flow engine's wait and other work in between included.
+    double cpuMs{},cpuPeakMs{},gpuMs{},gpuPeakMs{},generationMs{},generationSpanMs{};
     double averageFps{},minimumFps{},maximumFps{},low1Fps{},low01Fps{},cpuAverageMs{},gpuAverageMs{},cpuP99Ms{},cpuP999Ms{},gpuP99Ms{},gpuP999Ms{};
     double elapsedSeconds{},budgetMs{},repeatPercent{};
     uint32_t historySamples{};
@@ -42,6 +44,8 @@ bool Enabled();
 // Depth submission uses the same camera-labelled snapshots even with framegen off.
 bool DepthCaptureEnabled();
 bool CaptureInputsEnabled();
+// The motion vectors are collected with the depth: for framegen, and for AFW's frame warp (Render/Afw.hpp).
+bool MotionWanted();
 void SetDepthCaptureEnabled(bool enabled);
 bool MetricsEnabled();
 void SetSettings(Settings value);
@@ -53,7 +57,7 @@ void Status(const char* text,bool active=false);
 void OnRealFrame(uint64_t serial,double nowMs);
 void OnSubmitted(uint64_t serial,bool generated,bool repeat,double nowMs);
 void OnGpuFrame(double milliseconds);
-void OnGeneration(double milliseconds);
+void OnGeneration(double milliseconds,double spanMilliseconds);
 void OnInput(unsigned eye,uint32_t width,uint32_t height);
 void OnSkip();
 void SetVram(uint64_t bytes);

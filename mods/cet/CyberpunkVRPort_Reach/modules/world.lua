@@ -143,19 +143,25 @@ local function holdSlot(pl, hand)
 end
 
 local bbDefs = nil
-local function blocked(pl)
-  local no = false
-  pcall(function()
-    if VRLobbyActive ~= nil and VRLobbyActive() then no = true; return end
-    if Game.GetSystemRequestsHandler():IsGamePaused() then no = true; return end
-    if Game.GetMountedVehicle(pl) ~= nil then no = true; return end
+-- The three state ids, read once (blackboard definitions live as long as the game): every frame each read of
+-- `bbDefs.PlayerStateMachine.X` was a trip through the bindings, as the closure for pcall was an allocation.
+local VISION, CARRYING, TAKEDOWN = nil, nil, nil
+local function blockedNow(pl)
+  if VRLobbyActive ~= nil and VRLobbyActive() then return true end
+  if Game.GetSystemRequestsHandler():IsGamePaused() then return true end
+  if Game.GetMountedVehicle(pl) ~= nil then return true end
+  if VISION == nil then
     bbDefs = bbDefs or GetAllBlackboardDefs()
-    local psm = Game.GetBlackboardSystem():GetLocalInstanced(pl:GetEntityID(), bbDefs.PlayerStateMachine)
     local d = bbDefs.PlayerStateMachine
-    -- The scanner up, a body carried, a grapple or a takedown: both hands are taken.
-    if psm:GetInt(d.Vision) ~= 0 or psm:GetBool(d.Carrying) or psm:GetInt(d.Takedown) ~= 0 then no = true end
-  end)
-  return no
+    VISION, CARRYING, TAKEDOWN = d.Vision, d.Carrying, d.Takedown
+  end
+  local psm = pl:GetPlayerStateMachineBlackboard()
+  -- The scanner up, a body carried, a grapple or a takedown: both hands are taken.
+  return psm:GetInt(VISION) ~= 0 or psm:GetBool(CARRYING) or psm:GetInt(TAKEDOWN) ~= 0
+end
+local function blocked(pl)
+  local ok, no = pcall(blockedNow, pl)
+  return ok and no == true
 end
 
 -- What the game offers now: the owner of its loot prompt, and whether a choice hub is up.
@@ -227,13 +233,13 @@ end
 local AXES = nil
 local function hands(pl, dt)
   local hits = nil
+  local wp = pl:GetWorldPosition()
   if type(VRMenuPointer) == "function" then
     AXES = AXES or { Vector4.new(1, 0, 0, 0), Vector4.new(0, 0, 1, 0), Vector4.new(1, 1, 0, 0) }
-    local pp = pl:GetWorldPosition()
-    local ok, h = pcall(VRMenuPointer, Vector4.new(pp.x, pp.y, pp.z, 1), AXES[1], AXES[2], AXES[3])
+    local ok, h = pcall(VRMenuPointer, Vector4.new(wp.x, wp.y, wp.z, 1), AXES[1], AXES[2], AXES[3])
     if ok and h ~= nil and #h >= 8 then hits = h end
   end
-  local pp, pq = v3(pl:GetWorldPosition()), pl:GetWorldOrientation()
+  local pp, pq = v3(wp), pl:GetWorldOrientation()
   for hand = 1, 2 do
     local H = S.hands[hand]
     H.pos, H.ray, H.palm = nil, nil, nil

@@ -31,6 +31,7 @@
 #include <share.h>
 #include "Utils/AobScanner.hpp"
 #include "Overlay/LiveControlsUi.hpp"
+#include "Runtimes/FingerGrip.hpp"   // xr_grip_from_fingers, live
 namespace overlay { extern bool g_drawBarrelCross; }
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Overlay/LauncherDialog.hpp"
@@ -298,7 +299,18 @@ extern "C" __declspec(dllexport) extern int32_t  CyberpunkVR_FixLodEnable;
 // reaches that view through DrawComposition + CompositionPostProcess (xr_comp_lend_set), so this
 // path is a candidate for retirement and wants an A/B without a rebuild.
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudToSecondEye;
+// xr_vive_trackers: kept here so a save keeps it; Fbt/Game/Trackers.cpp reads it when the session starts.
+static int g_viveTrackersSetting = 0;
+// The HUD in front of the world and the prompt at its object's depth (Runtimes/HudClearance.hpp, InteractionDepth.hpp).
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_InteractionAnchor;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudClearance;
+extern "C" __declspec(dllexport) extern float    CyberpunkVR_HudClearanceGrow;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_HudClearanceHands;
+extern "C" __declspec(dllexport) extern float    CyberpunkVR_HudClearanceHandsScale;
 extern "C" __declspec(dllexport) extern int      CyberpunkVR_AutoRecenter;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_FingerBones;
+extern "C" __declspec(dllexport) extern float    CyberpunkVR_FingerSpread;
+extern "C" __declspec(dllexport) extern int      CyberpunkVR_FingerSpreadOn;
 // 1 = each eye renders its own off-centre window and is submitted with it (src/Stereo/AsymProjection.cpp);
 // 0 = the old symmetric frustum sized to the widest half-angle. 2 = test values (CyberpunkVR_AsymTest).
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_AsymProjection;
@@ -465,6 +477,8 @@ void PollLiveControls() {
     cvr::hidden_area::Settings hiddenArea{};
     uint32_t monoCascades=CyberpunkVR_MonoCascades.load(std::memory_order_relaxed);
     int monoMode=CyberpunkVR_MonoMode;
+    int afw=CyberpunkVR_Afw==cvr::afw::kModeAfw;
+    int osr=CyberpunkVR_Afw==cvr::afw::kModeOsr;
     int scopeStabilize=cvr::optics::source::GetStabilize();
     int nvidiaReflex=cvr::reflex::DefaultMode;
     int fpsCap=1;
@@ -562,7 +576,16 @@ void PollLiveControls() {
     int xrLightContent = CyberpunkVR_LightContent;
     int32_t  xrFixLod = CyberpunkVR_FixLodEnable;
     int      xrHudTo2 = CyberpunkVR_HudToSecondEye;
+    int      xrInteractionAnchor = CyberpunkVR_InteractionAnchor;
+    int      xrHudClearance = CyberpunkVR_HudClearance;
+    float    xrHudClearanceGrow = CyberpunkVR_HudClearanceGrow;
+    int      xrHudClearanceHands = CyberpunkVR_HudClearanceHands;
+    float    xrHudClearanceHandsScale = CyberpunkVR_HudClearanceHandsScale;
     int      xrAutoRecenter = CyberpunkVR_AutoRecenter;
+    int      xrFingerBones = CyberpunkVR_FingerBones;
+    int      xrGripFromFingers = cvr::fingergrip::GripFromFingers() ? 1 : 0;
+    float    xrFingerSpread = CyberpunkVR_FingerSpread;
+    int      xrFingerSpreadOn = CyberpunkVR_FingerSpreadOn;
     int32_t  xrAsym = CyberpunkVR_AsymProjection;
     float    xrAsymGuard = CyberpunkVR_AsymInnerGuard;
     int      xrVisionTo2 = CyberpunkVR_VisionToSecondEye;
@@ -613,6 +636,7 @@ void PollLiveControls() {
     float xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg > 0.0f ? g_liveControls.xrSnapTurnAngleDeg : 30.0f;
     int xrMovementSource = g_liveControls.xrMovementSource;
     int xrMovementSpeedMode=0;
+    int xrSprintMode=0;
     float xrLeftStickDeadzone=.15f,xrRightStickDeadzone=.15f,xrMaxInputThreshold=.90f;
     int xrXInputInstall = g_liveControls.xrXInputInstall;
     int xrInputActions = g_liveControls.xrInputActions;
@@ -621,6 +645,7 @@ void PollLiveControls() {
     int xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
     int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
     int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
+    int xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
     int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
     int xrTrackedBodyRotation = g_liveControls.xrTrackedBodyRotation;
     int xrHybridBodyRotation = g_liveControls.xrHybridBodyRotation;
@@ -630,6 +655,7 @@ void PollLiveControls() {
     int xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
     int xrLadderGripClimb = g_liveControls.xrLadderGripClimb;
     int xrLeftHanded = g_liveControls.xrLeftHanded;
+    int xrLeftHandedBindings = g_liveControls.xrLeftHandedBindings;
     int xrLadderAutoFinish = g_liveControls.xrLadderAutoFinish;
     float xrLadderFinishDistance = g_liveControls.xrLadderFinishDistance;
     float xrBodyFreeLookDeg = g_liveControls.xrBodyFreeLookDeg;
@@ -647,7 +673,7 @@ void PollLiveControls() {
     int xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
     float xrWheelRadius = g_liveControls.xrWheelRadius > 0.0f ? g_liveControls.xrWheelRadius : 0.28f;
     float xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(g_liveControls.xrWheelSteerMaxDeg);
-    float xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg >= 0.0f ? g_liveControls.xrWheelSteerDeadDeg : 1.5f;
+    float xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg >= 0.0f ? g_liveControls.xrWheelSteerDeadDeg : 0.0f;
     int xrWheelPrediction = g_liveControls.xrWheelPrediction;
     float xrWheelPredictionMs = g_liveControls.xrWheelPredictionMs;
     int xrWheelHorn = g_liveControls.xrWheelHorn;
@@ -737,6 +763,8 @@ void PollLiveControls() {
         if (cvr::hidden_area::ParseSetting(line,hiddenArea)) continue;
         if(sscanf_s(line,"xr_mono_cascades = %d",&intValue)==1){monoCascades=intValue!=0;continue;}
         if(sscanf_s(line,"xr_mono_mode = %d",&intValue)==1){monoMode=intValue!=0;continue;}
+        if(sscanf_s(line,"xr_afw = %d",&intValue)==1){afw=intValue!=0;continue;}
+        if(sscanf_s(line,"xr_osr = %d",&intValue)==1){osr=intValue!=0;continue;}
         if(sscanf_s(line,"xr_scope_stabilize = %d",&intValue)==1){scopeStabilize=intValue;continue;}
         if (tryParseIntKey(line,"xr_nvidia_reflex",&intValue)) {nvidiaReflex=cvr::reflex::NormalizeMode(intValue);continue;}
         if(sscanf_s(line,"xr_fps_cap = %d",&intValue)==1){fpsCap=intValue!=0;continue;}
@@ -859,7 +887,9 @@ void PollLiveControls() {
         }
         if (sscanf_s(line, "xr_hand_lerp_framegen_scale=%f", &value) == 1 ||
             sscanf_s(line, "xr_hand_lerp_framegen_scale = %f", &value) == 1) {
-            xrLerpFramegen = value;
+            // 1.5 was the shipped default until 2026-11-05 and every save wrote it back; it reads as the new
+            // default, 1.25.
+            xrLerpFramegen = std::abs(value - 1.5f) < 0.0001f ? 1.25f : value;
             continue;
         }
         // Three numbers on one line per piece, because twelve keys for one feature is a wall of ini
@@ -889,6 +919,56 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_auto_recenter=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_auto_recenter = %d", &intValue) == 1) {
             xrAutoRecenter = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_vive_trackers=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_vive_trackers = %d", &intValue) == 1) {
+            g_viveTrackersSetting = intValue == 1 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_grip_from_fingers=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_grip_from_fingers = %d", &intValue) == 1) {
+            xrGripFromFingers = intValue == 1 ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_spread_enabled=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_finger_spread_enabled = %d", &intValue) == 1) {
+            xrFingerSpreadOn = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_spread=%f", &value) == 1 ||
+            sscanf_s(line, "xr_finger_spread = %f", &value) == 1) {
+            xrFingerSpread = std::isfinite(value) ? std::clamp(value, 0.0f, 2.0f) : 1.0f;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_bones=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_finger_bones = %d", &intValue) == 1) {
+            xrFingerBones = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_interaction_anchor=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_interaction_anchor = %d", &intValue) == 1) {
+            xrInteractionAnchor = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance_hands_scale=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hud_clearance_hands_scale = %f", &value) == 1) {
+            xrHudClearanceHandsScale = std::isfinite(value) ? std::clamp(value, 1.0f, 3.0f) : 2.0f;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance_hands=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hud_clearance_hands = %d", &intValue) == 1) {
+            xrHudClearanceHands = intValue ? 1 : 0;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance_grow=%f", &value) == 1 ||
+            sscanf_s(line, "xr_hud_clearance_grow = %f", &value) == 1) {
+            xrHudClearanceGrow = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.5f;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hud_clearance=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hud_clearance = %d", &intValue) == 1) {
+            xrHudClearance = intValue ? 1 : 0;
             continue;
         }
         if (sscanf_s(line, "xr_hud_to_second_eye=%d", &intValue) == 1 ||
@@ -1441,6 +1521,7 @@ void PollLiveControls() {
             continue;
         }
         if(sscanf_s(line,"xr_movement_speed_mode = %d",&intValue)==1){xrMovementSpeedMode=intValue;continue;}
+        if(sscanf_s(line,"xr_sprint_mode = %d",&intValue)==1){xrSprintMode=intValue;continue;}
         if(sscanf_s(line,"xr_left_stick_deadzone = %f",&value)==1){xrLeftStickDeadzone=value;continue;}
         if(sscanf_s(line,"xr_right_stick_deadzone = %f",&value)==1){xrRightStickDeadzone=value;continue;}
         if(sscanf_s(line,"xr_max_input_threshold = %f",&value)==1){xrMaxInputThreshold=value;continue;}
@@ -1464,6 +1545,7 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_physical_crouch_depth=%f", &value) == 1) xrPhysicalCrouchDepth=value;
         if (sscanf_s(line, "xr_ladder_grip_climb=%d", &intValue) == 1) xrLadderGripClimb=intValue;
         if (sscanf_s(line, "xr_left_handed=%d", &intValue) == 1) xrLeftHanded=intValue;
+        if (sscanf_s(line, "xr_left_handed_bindings=%d", &intValue) == 1) xrLeftHandedBindings=intValue;
         if (sscanf_s(line, "xr_ladder_auto_finish=%d", &intValue) == 1) xrLadderAutoFinish=intValue;
         if (sscanf_s(line, "xr_ladder_finish_distance=%f", &value) == 1) xrLadderFinishDistance=value;
         if (sscanf_s(line, "xr_breaststroke_swim=%d", &intValue) == 1) {
@@ -1516,6 +1598,11 @@ void PollLiveControls() {
             xrImmersiveHolsters = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_body_hands_only=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_body_hands_only = %d", &intValue) == 1) {
+            xrBodyHandsOnly = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_veh_head_offset_x=%f", &value) == 1 ||
             sscanf_s(line, "xr_veh_head_offset_x = %f", &value) == 1) {
             xrVehHeadOffsetX = value;
@@ -1558,7 +1645,9 @@ void PollLiveControls() {
         }
         if (sscanf_s(line, "xr_wheel_steer_dead_deg=%f", &value) == 1 ||
             sscanf_s(line, "xr_wheel_steer_dead_deg = %f", &value) == 1) {
-            xrWheelSteerDeadDeg = value;
+            // 1.5 was the shipped default until 2026-11-04 (a wheel with play round its centre); it reads as the
+            // new default, none.
+            xrWheelSteerDeadDeg = std::abs(value - 1.5f) < 0.0001f ? 0.0f : value;
             continue;
         }
         if (sscanf_s(line, "xr_wheel_prediction=%d", &intValue) == 1 ||
@@ -1640,6 +1729,9 @@ void PollLiveControls() {
     cvr::hidden_area::SetSettings(hiddenArea);
     CyberpunkVR_MonoCascades.store(monoCascades,std::memory_order_relaxed);
     cvr::engine_stereo::ApplyMonoMode(monoMode!=0);
+    // on or off takes effect at the next launch (Stereo/EngineStereo.hpp RestartPending), AFW <-> OSR at once
+    CyberpunkVR_Afw=cvr::afw::ModeOf(afw!=0,osr!=0);
+    if(cvr::afw::Launch())cvr::afw::SetMode(CyberpunkVR_Afw);
     cvr::optics::source::SetStabilize(scopeStabilize);
     cvr::reflex::SetMode(nvidiaReflex);
     cvr::framegen::SetFpsCap(fpsCap!=0);
@@ -1681,6 +1773,7 @@ void PollLiveControls() {
     if (xrMovementSource < 0 || xrMovementSource > 3) xrMovementSource = xrMovementControl != 0 ? 1 : 0;
     g_liveControls.xrMovementSource = xrMovementSource;
     g_liveControls.xrMovementSpeedMode=xrMovementSpeedMode==1;
+    g_liveControls.xrSprintMode=xrSprintMode==1;
     g_liveControls.xrLeftStickDeadzone=cvr::input::StickDeadzone(xrLeftStickDeadzone);
     g_liveControls.xrRightStickDeadzone=cvr::input::StickDeadzone(xrRightStickDeadzone);
     g_liveControls.xrMaxInputThreshold=cvr::input::StickFullInput(xrMaxInputThreshold);
@@ -1696,6 +1789,7 @@ void PollLiveControls() {
     g_liveControls.xrBreaststrokeSwim = xrBreaststrokeSwim != 0 ? 1 : 0;
     g_liveControls.xrLadderGripClimb = xrLadderGripClimb != 0 ? 1 : 0;
     g_liveControls.xrLeftHanded = xrLeftHanded != 0 ? 1 : 0;
+    g_liveControls.xrLeftHandedBindings = std::clamp(xrLeftHandedBindings, 0, 2);
     g_liveControls.xrLadderAutoFinish = xrLadderAutoFinish != 0 ? 1 : 0;
     g_liveControls.xrLadderFinishDistance=std::clamp(std::isfinite(xrLadderFinishDistance) ? xrLadderFinishDistance:1.0f,.2f,1.2f);
     g_liveControls.xrBodyFreeLookDeg=std::clamp(xrBodyFreeLookDeg,0.0f,60.0f);
@@ -1718,6 +1812,8 @@ void PollLiveControls() {
     g_liveControls.xrSnapTurnYawIndex = (xrSnapTurnYawIndex >= 0 && xrSnapTurnYawIndex <= 3) ? xrSnapTurnYawIndex : 1;
     g_liveControls.xrImmersiveHolsters = xrImmersiveHolsters != 0 ? 1 : 0;
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
+    g_liveControls.xrBodyHandsOnly = xrBodyHandsOnly != 0 ? 1 : 0;
+    OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);
     // Clamped wider than the slider (+/-0.50) but still bounded: the value can arrive from a
     // hand-edited ini, and a metre of head offset is not a setting, it is a typo.
     auto clampVehOff = [](float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); };
@@ -1756,7 +1852,7 @@ void PollLiveControls() {
     CyberpunkVR_HandLerpShotgun = clampLerp(xrLerpShotgun);
     CyberpunkVR_HandLerpSniper  = clampLerp(xrLerpSniper);
     CyberpunkVR_HandLerpMelee   = clampLerp(xrLerpMelee);
-    CyberpunkVR_HandLerpFramegenScale = std::isfinite(xrLerpFramegen) ? std::clamp(xrLerpFramegen, 0.0f, 4.0f) : 1.5f;
+    CyberpunkVR_HandLerpFramegenScale = std::isfinite(xrLerpFramegen) ? std::clamp(xrLerpFramegen, 0.0f, 4.0f) : 1.25f;
     // Clamped rather than trusted: at 0 the hold can never be offered and at a third of a metre it is
     // offered for a hand nowhere near the weapon, and both read as "the feature is broken".
     // Seventeen candidate bits: 0-7 the original unidentified words, 8-14 the grading values that
@@ -1861,7 +1957,16 @@ void PollLiveControls() {
     CyberpunkVR_LightContent = xrLightContent;
     CyberpunkVR_FixLodEnable = xrFixLod;
     CyberpunkVR_HudToSecondEye = xrHudTo2;
+    CyberpunkVR_InteractionAnchor = xrInteractionAnchor;
+    CyberpunkVR_HudClearance = xrHudClearance;
+    CyberpunkVR_HudClearanceGrow = xrHudClearanceGrow;
+    CyberpunkVR_HudClearanceHands = xrHudClearanceHands;
+    CyberpunkVR_HudClearanceHandsScale = xrHudClearanceHandsScale;
     CyberpunkVR_AutoRecenter = xrAutoRecenter;
+    CyberpunkVR_FingerBones = xrFingerBones;
+    cvr::fingergrip::SetGripFromFingers(xrGripFromFingers != 0);
+    CyberpunkVR_FingerSpread = xrFingerSpread;
+    CyberpunkVR_FingerSpreadOn = xrFingerSpreadOn;
     CyberpunkVR_AsymProjection = xrAsym;
     CyberpunkVR_AsymInnerGuard = xrAsymGuard;
     CyberpunkVR_VisionToSecondEye = xrVisionTo2;
@@ -1984,6 +2089,15 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrHudDistance=g_liveControls.xrHudDistance;
     state.xrHudFollowMode=g_liveControls.xrHudFollowMode;
     state.xrHudStereoDepth=g_liveControls.xrHudStereoDepth;
+    state.xrGripFromFingers=cvr::fingergrip::GripFromFingers()?1:0;
+    state.xrFingerBones=CyberpunkVR_FingerBones;
+    state.xrFingerSpreadOn=CyberpunkVR_FingerSpreadOn;
+    state.xrFingerSpread=CyberpunkVR_FingerSpread;
+    state.xrHudClearance=CyberpunkVR_HudClearance;
+    state.xrHudClearanceGrow=CyberpunkVR_HudClearanceGrow;
+    state.xrHudClearanceHands=CyberpunkVR_HudClearanceHands;
+    state.xrHudClearanceHandsScale=CyberpunkVR_HudClearanceHandsScale;
+    state.xrInteractionAnchor=CyberpunkVR_InteractionAnchor;
     state.xrHudBrightness=g_liveControls.xrHudBrightness;
     state.xrHudShadow=g_liveControls.xrHudShadow;
     state.xrHudGlow=g_liveControls.xrHudGlow;
@@ -1994,6 +2108,8 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.hiddenArea=cvr::hidden_area::GetSettings();
     state.monoCascades=int(CyberpunkVR_MonoCascades.load(std::memory_order_relaxed));
     state.monoMode=CyberpunkVR_MonoMode!=0;
+    state.afw=CyberpunkVR_Afw==cvr::afw::kModeAfw;
+    state.osr=CyberpunkVR_Afw==cvr::afw::kModeOsr;
     state.scopeStabilize=cvr::optics::source::GetStabilize();
     state.nvidiaReflex=cvr::reflex::GetMode();
     state.fpsCap=cvr::framegen::FpsCap()?1:0;
@@ -2020,6 +2136,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrSnapTurnAngleDeg = g_liveControls.xrSnapTurnAngleDeg;
     state.xrMovementSource = g_liveControls.xrMovementSource;
     state.xrMovementSpeedMode=g_liveControls.xrMovementSpeedMode;
+    state.xrSprintMode=g_liveControls.xrSprintMode;
     state.xrLeftStickDeadzone=g_liveControls.xrLeftStickDeadzone;
     state.xrRightStickDeadzone=g_liveControls.xrRightStickDeadzone;
     state.xrMaxInputThreshold=g_liveControls.xrMaxInputThreshold;
@@ -2036,6 +2153,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
     state.xrLadderGripClimb = g_liveControls.xrLadderGripClimb;
     state.xrLeftHanded = g_liveControls.xrLeftHanded;
+    state.xrLeftHandedBindings = g_liveControls.xrLeftHandedBindings;
     state.xrLadderAutoFinish=g_liveControls.xrLadderAutoFinish;
     state.xrLadderFinishDistance=g_liveControls.xrLadderFinishDistance;
     state.xrBodyFreeLookDeg=g_liveControls.xrBodyFreeLookDeg;
@@ -2050,6 +2168,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
     state.xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs;
     state.xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
+    state.xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
     state.xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
     state.xrVehHeadOffsetY = g_liveControls.xrVehHeadOffsetY;
     state.xrVehHeadOffsetZ = g_liveControls.xrVehHeadOffsetZ;
@@ -2093,6 +2212,8 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     cvr::hidden_area::WriteSettings(file,state.hiddenArea);
     std::fprintf(file,"xr_mono_cascades=%d\n",state.monoCascades?1:0);
     std::fprintf(file,"xr_mono_mode=%d\n",state.monoMode?1:0);
+    std::fprintf(file,"xr_afw=%d\n",state.afw?1:0);
+    std::fprintf(file,"xr_osr=%d\n",state.osr?1:0);
     std::fprintf(file,"xr_scope_stabilize=%d\n",state.scopeStabilize);
     fprintf(file,"xr_nvidia_reflex=%d\n",cvr::reflex::NormalizeMode(state.nvidiaReflex));
     std::fprintf(file,"xr_fps_cap=%d\n",state.fpsCap?1:0);
@@ -2274,8 +2395,29 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_fix_lod=%d\n", CyberpunkVR_FixLodEnable);
     // The port's own HUD composite into the second eye, and whether it applies in a braindance.
     fprintf(file, "xr_hud_to_second_eye=%d\n", CyberpunkVR_HudToSecondEye);
+    // 1 = full-body tracking: read the Vive trackers (waist, feet; Fbt/Game/Trackers.cpp). Next session.
+    fprintf(file, "xr_vive_trackers=%d\n", g_viveTrackersSetting);
+    // 1 = the interaction prompt sits at the depth of the object it is about; 0 = xr_interaction_distance.
+    fprintf(file, "xr_interaction_anchor=%d\n", state.xrInteractionAnchor ? 1 : 0);
+    // 1 = the HUD panels come in front of anything nearer than their configured distance.
+    fprintf(file, "xr_hud_clearance=%d\n", state.xrHudClearance ? 1 : 0);
+    // 0..1: how much a panel grows as it comes in (0 = same size on screen, 1 = same size in the world).
+    fprintf(file, "xr_hud_clearance_grow=%.2f\n", state.xrHudClearanceGrow);
+    // 1 = a tracked hand in front of a HUD panel pushes the panel out of view (with xr_hud_clearance).
+    fprintf(file, "xr_hud_clearance_hands=%d\n", state.xrHudClearanceHands ? 1 : 0);
+    // How far a hand pushes the HUD out: its scale while a hand is in front (1 = not at all, 3 = out of view).
+    fprintf(file, "xr_hud_clearance_hands_scale=%.2f\n", state.xrHudClearanceHandsScale);
     // 1 = recenter automatically when the headset is put back on after being taken off.
     fprintf(file, "xr_auto_recenter=%d\n", CyberpunkVR_AutoRecenter);
+    // 1 = finger tracking: V's fingers follow the player's (OpenXR hand tracking: gloves, Index controllers); turning it
+    // on applies at the next game start. 0 = finger poses from the buttons.
+    fprintf(file, "xr_finger_bones=%d\n", state.xrFingerBones ? 1 : 0);
+    // 1 = with finger tracking, the grip input from the fingers' position (a fist or thumbs-up) instead of the grip sensor.
+    fprintf(file, "xr_grip_from_fingers=%d\n", state.xrGripFromFingers ? 1 : 0);
+    // How far V's fingers spread sideways as the player's do: 0 = off (only curl), 1 = default, up to 2.
+    fprintf(file, "xr_finger_spread=%.2f\n", state.xrFingerSpread);
+    // 1 = with finger tracking, the fingers also spread sideways (xr_finger_spread sets how far); 0 = they only bend.
+    fprintf(file, "xr_finger_spread_enabled=%d\n", state.xrFingerSpreadOn ? 1 : 0);
     // 1 = each eye renders exactly its own lens window (off-centre, the runtime's per-eye FOV, so a FOV
     // cut set in the runtime is followed) and is submitted with it; 0 = the old symmetric frustum.
     fprintf(file, "xr_asym_projection=%d\n", CyberpunkVR_AsymProjection == 1 ? 1 : 0);
@@ -2367,6 +2509,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn=%d\n", state.xrSnapTurn != 0 ? 1 : 0);
     fprintf(file, "xr_snap_turn_angle_deg=%.2f\n", state.xrSnapTurnAngleDeg > 0.0f ? state.xrSnapTurnAngleDeg : 30.0f);
     fprintf(file, "xr_movement_source=%d\n", state.xrMovementSource < 0 ? 0 : (state.xrMovementSource > 3 ? 3 : state.xrMovementSource));
+    fprintf(file,"xr_sprint_mode=%d\n",state.xrSprintMode==1);
     fprintf(file,"xr_movement_speed_mode=%d\nxr_left_stick_deadzone=%.3f\nxr_right_stick_deadzone=%.3f\nxr_max_input_threshold=%.3f\n",
         state.xrMovementSpeedMode==1,cvr::input::StickDeadzone(state.xrLeftStickDeadzone),
         cvr::input::StickDeadzone(state.xrRightStickDeadzone),cvr::input::StickFullInput(state.xrMaxInputThreshold));
@@ -2379,6 +2522,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_breaststroke_swim=%d\n", state.xrBreaststrokeSwim != 0 ? 1 : 0);
     fprintf(file, "xr_ladder_grip_climb=%d\n", state.xrLadderGripClimb != 0 ? 1 : 0);
     fprintf(file, "xr_left_handed=%d\n", state.xrLeftHanded != 0 ? 1 : 0);
+    fprintf(file, "xr_left_handed_bindings=%d\n", std::clamp(state.xrLeftHandedBindings, 0, 2));
     fprintf(file, "xr_ladder_auto_finish=%d\nxr_ladder_finish_distance=%.3f\n",state.xrLadderAutoFinish!=0 ? 1:0,state.xrLadderFinishDistance);
     fprintf(file, "xr_body_free_look_deg=%.3f\n", state.xrBodyFreeLookDeg);
     fprintf(file, "xr_body_free_look_down_deg=%.3f\n", state.xrBodyFreeLookDownDeg);
@@ -2394,6 +2538,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_mono_depth_capture=%d\n", state.xrMonoDepthCapture != 0 ? 1 : 0);
     fprintf(file, "xr_snap_turn_pulse_ms=%d\n", state.xrSnapTurnPulseMs > 0 ? state.xrSnapTurnPulseMs : 30);
     fprintf(file, "xr_immersive_holsters=%d\n", state.xrImmersiveHolsters != 0 ? 1 : 0);
+    fprintf(file, "xr_body_hands_only=%d\n", state.xrBodyHandsOnly != 0 ? 1 : 0);
     fprintf(file, "xr_veh_head_offset_x=%.4f\n", state.xrVehHeadOffsetX);
     fprintf(file, "xr_veh_head_offset_y=%.4f\n", state.xrVehHeadOffsetY);
     fprintf(file, "xr_veh_head_offset_z=%.4f\n", state.xrVehHeadOffsetZ);
@@ -2436,6 +2581,8 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     cvr::hidden_area::SetSettings(state->hiddenArea);
     CyberpunkVR_MonoCascades.store(state->monoCascades?1:0,std::memory_order_relaxed);
     cvr::engine_stereo::ApplyMonoMode(state->monoMode!=0);
+    CyberpunkVR_Afw=cvr::afw::ModeOf(state->afw!=0,state->osr!=0);
+    if(cvr::afw::Launch())cvr::afw::SetMode(CyberpunkVR_Afw);
     cvr::optics::source::SetStabilize(state->scopeStabilize);
     cvr::reflex::SetMode(state->nvidiaReflex);
     cvr::framegen::SetFpsCap(state->fpsCap!=0);
@@ -2455,6 +2602,15 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrHudPanel=state->xrHudPanel!=0;
     g_liveControls.xrHudFollowMode=state->xrHudFollowMode==1;
     g_liveControls.xrHudStereoDepth=state->xrHudStereoDepth!=0;
+    cvr::fingergrip::SetGripFromFingers(state->xrGripFromFingers!=0);
+    CyberpunkVR_FingerBones=state->xrFingerBones!=0;
+    CyberpunkVR_FingerSpread=std::clamp(state->xrFingerSpread,0.0f,2.0f);
+    CyberpunkVR_FingerSpreadOn=state->xrFingerSpreadOn!=0;
+    CyberpunkVR_HudClearance=state->xrHudClearance!=0;
+    CyberpunkVR_HudClearanceGrow=std::clamp(state->xrHudClearanceGrow,0.0f,1.0f);
+    CyberpunkVR_HudClearanceHands=state->xrHudClearanceHands!=0;
+    CyberpunkVR_HudClearanceHandsScale=std::clamp(state->xrHudClearanceHandsScale,1.0f,3.0f);
+    CyberpunkVR_InteractionAnchor=state->xrInteractionAnchor!=0;
     g_liveControls.xrHudBrightness=(state->xrHudBrightness>=0.25f && state->xrHudBrightness<=3) ? state->xrHudBrightness : 1;
     g_liveControls.xrHudShadow=(state->xrHudShadow>=0 && state->xrHudShadow<=2) ? state->xrHudShadow : 1;
     g_liveControls.xrHudGlow=(state->xrHudGlow>=0 && state->xrHudGlow<=2) ? state->xrHudGlow : 1;
@@ -2491,6 +2647,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     }
     g_liveControls.xrPhysicalBodyRotation = state->xrPhysicalBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrMovementSpeedMode=state->xrMovementSpeedMode==1;
+    g_liveControls.xrSprintMode=state->xrSprintMode==1;
     g_liveControls.xrLeftStickDeadzone=cvr::input::StickDeadzone(state->xrLeftStickDeadzone);
     g_liveControls.xrRightStickDeadzone=cvr::input::StickDeadzone(state->xrRightStickDeadzone);
     g_liveControls.xrMaxInputThreshold=cvr::input::StickFullInput(state->xrMaxInputThreshold);
@@ -2509,6 +2666,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrBreaststrokeSwim = state->xrBreaststrokeSwim != 0 ? 1 : 0;
     g_liveControls.xrLadderGripClimb = state->xrLadderGripClimb != 0 ? 1 : 0;
     g_liveControls.xrLeftHanded = state->xrLeftHanded != 0 ? 1 : 0;
+    g_liveControls.xrLeftHandedBindings = std::clamp(state->xrLeftHandedBindings, 0, 2);
     g_liveControls.xrLadderAutoFinish=state->xrLadderAutoFinish!=0 ? 1:0;
     g_liveControls.xrLadderFinishDistance=std::clamp(std::isfinite(state->xrLadderFinishDistance) ? state->xrLadderFinishDistance:1.0f,.2f,1.2f);
     g_liveControls.xrBodyFreeLookDeg=std::clamp(state->xrBodyFreeLookDeg,0.0f,60.0f);
@@ -2531,6 +2689,8 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrSnapTurnPulseMs = state->xrSnapTurnPulseMs > 0 ? state->xrSnapTurnPulseMs : 30;
     g_liveControls.xrImmersiveHolsters = state->xrImmersiveHolsters != 0 ? 1 : 0;
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
+    g_liveControls.xrBodyHandsOnly = state->xrBodyHandsOnly != 0 ? 1 : 0;
+    OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);
     {   // In-vehicle head offset: same bound as the ini path, for the same reason.
         auto cl = [](float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); };
         g_liveControls.xrVehHeadOffsetX = cl(state->xrVehHeadOffsetX);

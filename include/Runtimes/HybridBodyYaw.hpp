@@ -73,7 +73,7 @@ public:
         headBias*=std::exp(-std::min(dt,.1f)/.12f);
         if(std::abs(headBias)<.00001f)headBias=0;
         const float residual=Wrap(in.headYaw+headBias-body);
-        float step=residual*headZone.Fraction(std::abs(residual),cone*.01745329252f,dt);
+        float step=headZone.Step(residual,cone*.01745329252f,dt);
         const float limit=12.566371f*std::max(0.0f,dt); // body-only, 720 deg/s maximum
         step=std::clamp(step,-limit,limit);
         return {Wrap(body+step),cone,false};

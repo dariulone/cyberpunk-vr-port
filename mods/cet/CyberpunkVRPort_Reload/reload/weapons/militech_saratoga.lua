@@ -27,6 +27,7 @@ return {
 
     slide = {
         slot       = 'vrp_cocking',
+        handleSide = 'left',  -- the handle sticks out on the left only (the slide bone's vertices, x -0.045..-0.004 m): reload.lua handGrips
         which      = 1, bone = 5,
         -- THE FRONT HANDLE, the MP5 way: every reload pulls it 53.4 mm back and turns it 20 deg up into its notch, holds
         -- it there through the magazine change and slaps it home (handle_pull / handle_release). Here it is a charging

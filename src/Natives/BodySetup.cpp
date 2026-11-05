@@ -35,6 +35,45 @@ void VRSetLeftHanded(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* o
     if (out) *out = true;
 }
 
+// VRSetLeftHandedBindings(mode): how far the controllers trade left-handed -- xr_left_handed_bindings (0 the
+// right-handed buttons and sticks, 1 the left stick walks with the buttons mirrored, 2 everything mirrored;
+// Hooks/Handedness.hpp), saved as the settings panel saves it (the setup's page after the left hand).
+void VRSetLeftHandedBindings(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    int32_t mode = 2;
+    RED4ext::GetParameter(stack, &mode);
+    stack->code++;
+    LiveControlsUiState state{};
+    GetLiveControlsUiState(&state);
+    state.xrLeftHandedBindings = std::clamp<int32_t>(mode, 0, 2);
+    SetLiveControlsUiState(&state, 1);
+    if (out) *out = true;
+}
+
+// VRLeftHandedBindings() -> Int32: xr_left_handed_bindings.
+void VRLeftHandedBindings(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* out, int64_t) {
+    stack->code++;
+    if (out) *out = g_liveControls.xrLeftHandedBindings;
+}
+
+// VRSetBodyHandsOnly(on): the body drawn whole or as its hands alone -- xr_body_hands_only, saved as the settings
+// panel saves it (the setup's second page, after the weapon hand).
+void VRSetBodyHandsOnly(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    bool on = false;
+    RED4ext::GetParameter(stack, &on);
+    stack->code++;
+    LiveControlsUiState state{};
+    GetLiveControlsUiState(&state);
+    state.xrBodyHandsOnly = on ? 1 : 0;
+    SetLiveControlsUiState(&state, 1);
+    if (out) *out = true;
+}
+
+// VRBodyHandsOnly() -> Bool: the body is drawn as its hands alone.
+void VRBodyHandsOnly(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    stack->code++;
+    if (out) *out = g_liveControls.xrBodyHandsOnly != 0;
+}
+
 // VRCalibrationStart(seconds): the T-pose sample begins (arms straight out to the sides, standing straight).
 void VRCalibrationStart(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
     float seconds = 4.0f;

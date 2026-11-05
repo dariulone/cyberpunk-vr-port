@@ -41,10 +41,15 @@ public:
         if(length<minimum || !std::isfinite(length)) {
             m_valid=false;return Output(m_angle,limit,deadDegrees);
         }
-        if(!rebase && Length(Sub(v,m_previous))<=.5f) {
-            const float cross=m_previous.x*v.y-m_previous.y*v.x;
-            const float dot=m_previous.x*v.x+m_previous.y*v.y;
-            const float delta=-std::atan2(cross,dot)*kDegrees;
+        // The turn since the last sample, however long ago that was (a game freeze leaves a gap the hands may have
+        // turned through): any turn short of 150 degrees reads unambiguously. A vector that changed length more than
+        // twofold is a tracking jump, not a turn, and is not counted. (A cap on the vector's CHANGE, 0.5 m, dropped a
+        // two-handed turn past 82 degrees across a freeze and left the wheel off by all of it.)
+        const float previousLength=Length(m_previous);
+        const float cross=m_previous.x*v.y-m_previous.y*v.x;
+        const float dot=m_previous.x*v.x+m_previous.y*v.y;
+        const float delta=-std::atan2(cross,dot)*kDegrees;
+        if(!rebase && previousLength>0 && length<previousLength*2 && previousLength<length*2 && std::abs(delta)<150) {
             // Preserve the physical grab reference past full lock. Discarding
             // excess travel shifts neutral and counter-steers on the way back.
             // Only the output saturates; returning the hand returns to zero.

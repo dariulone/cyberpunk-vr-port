@@ -174,6 +174,22 @@ bool SprintInput(bool wanted) {
     if(!context || s_paused || !Fresh(now) || !s_input.water) { s_sprint.Reset();s_button=false;return false; }
     s_button=s_sprint.Update(wanted,s_fast,now);return s_button;
 }
+float ScriptAction(uintptr_t owner,uint64_t name,bool justPressed) {
+    constexpr uint64_t moveY=Hash("MoveY"),sprint=Hash("ToggleSprint"),jump=Hash("Jump"),dive=Hash("Dive");
+    int action;
+    if(name==dive)action=Dive;
+    else if(justPressed)return 0;
+    else if(name==moveY)action=Forward;
+    else if(name==sprint)action=Boost;
+    else if(name==jump)action=Ascend;
+    else return 0;
+    if(!IsPlayer(owner))return 0;
+    return NativeAction(action);
+}
+bool IsPlayer(uintptr_t owner) {
+    std::lock_guard lock(s_mutex);
+    return owner && owner==s_player;
+}
 float DebugValue(int index) {
     if(index>=20 && index<=23)return NativeAction(index-20);
     std::lock_guard lock(s_mutex);
@@ -194,6 +210,7 @@ float DebugValue(int index) {
     case 13:return s_waterContext ? 1.0f:0.0f;
     case 14:return s_input.boost ? 1.0f:0.0f;
     case 15:return s_gesture.Speed();
+    case 16:return ScriptHooksActive() ? 1.0f:0.0f;
     default:return -1;
     }
 }

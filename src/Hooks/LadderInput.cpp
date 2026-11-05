@@ -1,4 +1,5 @@
 #include "Hooks/LadderInput.hpp"
+#include "Hooks/SwimmingInput.hpp"
 #include "Hooks/RoomscaleMove.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/SwimmingGesture.hpp"
@@ -45,6 +46,7 @@ void Publish(uintptr_t player,int detailed,bool paused,const Geometry* geometry)
     if(player!=s_player || !OnLadder(detailed) || paused)Clear();
     Geometry next=geometry ? *geometry:Geometry{};
     if(player==s_player && next.valid && s_geometry.identity==next.identity) {
+        next.measuredTop=s_geometry.measuredTop;
         next.topRailCount=s_geometry.topRailCount;
         std::copy_n(s_geometry.topRails,next.topRailCount,next.topRails);
     }
@@ -55,6 +57,11 @@ bool PublishTop(uintptr_t player,Vec ladderPosition,Vec origin,Vec right,Vec nor
     std::lock_guard lock(s_mutex);
     if(player!=s_player || !IsFresh(XrDiagNowUs()) || Length(ladderPosition-s_geometry.position)>.01f)return false;
     return s_geometry.SetTopRails(origin,right,normal,up);
+}
+bool PublishMeasuredTop(uintptr_t player,Vec ladderPosition,float top) {
+    std::lock_guard lock(s_mutex);
+    if(player!=s_player || !IsFresh(XrDiagNowUs()) || Length(ladderPosition-s_geometry.position)>.01f)return false;
+    return s_geometry.SetMeasuredTop(top);
 }
 void ResetInput() { std::lock_guard lock(s_mutex);Clear(); }
 bool SetSimulatorGrip(float left,float right,int milliseconds) {
@@ -169,6 +176,7 @@ float DebugValue(int index) {
     case 16:return float(s_geometry.topRailCount);
     case 17:return s_geometry.PhysicalTop();
     case 18:return s_climber.Finishing() ? 1.0f:0.0f;
+    case 21:return cvr::swimming::ScriptHooksActive() ? 1.0f:0.0f;   // MoveY gets the axis natively (Natives/ActionReads.cpp)
     default:return -1;
     }
 }

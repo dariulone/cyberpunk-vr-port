@@ -21,6 +21,7 @@
 // starts when the main menu is first shown; before it -- splash screens, intro videos, the first loading -- the
 // engine renders mono and the headset shows the window as one picture.
 #include <cstdint>
+#include "Render/Afw.hpp"
 
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_EngineStereo;   // src/Stereo/EngineStereo.cpp
 // 1 = each eye camera renders its own lens window (default); 0 = both render the union, live.
@@ -29,6 +30,9 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_EngineStereoEyeWindows;
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_MonoMode;
 // ... and 1 = this launch shows one picture for both eyes.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_MonoView;
+// The eyes-in-turn switches (xr_afw, xr_osr; Render/Afw.hpp ModeOf: 0 off, 1 AFW, 2 OSR) as the live controls hold
+// them; the launch keeps whether it takes turns.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_Afw;
 
 namespace cvr::engine_stereo {
 
@@ -52,6 +56,9 @@ void ApplyMonoMode(bool mono);
 inline bool MonoView() { return CyberpunkVR_MonoView != 0; }
 // The running launch does not match the switch: engine stereo, and the way out of a mono launch, need a restart.
 inline bool RestartPending() {
+    const bool afw = CyberpunkVR_Afw != 0;
+    if (afw != cvr::afw::Launch()) return true;
+    if (afw) return false;
     return ((Requested() && CyberpunkVR_MonoMode == 0) != Enabled()) || (MonoLaunch() && CyberpunkVR_MonoMode == 0);
 }
 

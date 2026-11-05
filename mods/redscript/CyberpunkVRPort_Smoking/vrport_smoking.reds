@@ -544,11 +544,25 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
     && NotEquals(action, EquipmentManipulationAction.UnequipLeftHandCyberware);
 }
 
+// ...BUT NOT A CIGARETTE IN THE MOUTH. There it sits on Splinter (the WeaponRight1 leaf pinned to the lips), off
+// both hands and both weapon slots, so a weapon drawn takes nothing from it -- and it went out with every draw
+// (players, 2026-11-04: "the cigarette vanishes from the mouth when a weapon is chosen"). Only the lighter, if a
+// hand still holds it, is put away so that hand is free for the weapon.
+@addMethod(PlayerPuppet) public func VRSmokeFreeHands() -> Void {
+  let ts = this.VRSmokeTS();
+  let lighter = ts.GetItemInSlot(this, this.VRSmokeLighterSlot());
+  if IsDefined(lighter) && ItemID.GetTDBID(lighter.GetItemID()) == t"Items.apparel_lighter_a" {
+    GameObjectEffectHelper.StopEffectEvent(lighter, n"ignition_loop");
+    ts.RemoveItemFromSlot(this, this.VRSmokeLighterSlot(), true);
+    this.VRSmokeReleaseLighterHand();
+  }
+}
+
 @wrapMethod(EquipmentSystemPlayerData)
 public final func OnEquipmentSystemWeaponManipulationRequest(request: ref<EquipmentSystemWeaponManipulationRequest>) -> Void {
   let player = this.m_owner as PlayerPuppet;
   if IsDefined(player) && player.VRSmokeHasCig() && player.VRSmokeEndedBy(request.requestType) {
-    player.VRSmokeExtinguish();
+    if player.VRSmokeIsMouth() { player.VRSmokeFreeHands(); } else { player.VRSmokeExtinguish(); }
   }
   wrappedMethod(request);
 }

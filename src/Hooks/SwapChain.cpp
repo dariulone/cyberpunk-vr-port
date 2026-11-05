@@ -33,6 +33,7 @@
 #include <mutex>
 #include <atomic>
 #include <wrl.h>
+#include "Stereo/StereoPairProbe.hpp"
 
 // Defined in Stereo/CommandListCensus.cpp: hooks the game-facing command-list vtable so the port markers
 // land above a capture layer. Declared here because this is where the game-facing device is in hand.
@@ -235,6 +236,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
     cvr::gpu::CollectCommandResources();
     cvr::gpu::profile::Poll();
     cvr::gpu::scene_profile::Poll();
+    cvr::stereo::pair_probe::Poll();
     cvr::cascades::Poll();
     if(CyberpunkVR_PreparationRequest.load() &&
        (CyberpunkVR_EarlyDepthRequest.load() || cvr::stereo::retained_geometry::Active()) &&

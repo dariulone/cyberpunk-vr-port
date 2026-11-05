@@ -1400,8 +1400,32 @@ void final_frame_copy_now() {
     t_final_list = nullptr;
 }
 
+// The engine's barriers by kind (vr_bench ab --counters, per window): [0] ResourceBarrier calls, [1] transitions,
+// [2] aliasing barriers (a render graph reusing heap memory between transient resources), [3] UAV barriers,
+// [4] split-barrier begins, [5] split-barrier ends, [6] transitions of all subresources, [7] time inside the
+// runtime and driver's ResourceBarrier (100 ns units). The port's own (internal) barriers are not counted.
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_BarrierCounts[8]{};
+static uint64_t BarrierClock(){LARGE_INTEGER t;QueryPerformanceCounter(&t);return static_cast<uint64_t>(t.QuadPart);}
+static void CountBarrierTime(uint64_t start){
+    static const uint64_t frequency=[]{LARGE_INTEGER f;QueryPerformanceFrequency(&f);return static_cast<uint64_t>(f.QuadPart);}();
+    CyberpunkVR_BarrierCounts[7].fetch_add((BarrierClock()-start)*10000000ull/frequency,std::memory_order_relaxed);
+}
+static void CountBarriers(UINT count,const D3D12_RESOURCE_BARRIER* barriers){
+    if(!barriers || cvr::stereo::probe::internalCommands)return;
+    uint64_t n[7]{1};
+    for(UINT i=0;i<count;++i){
+        const auto& b=barriers[i];
+        if(b.Type==D3D12_RESOURCE_BARRIER_TYPE_TRANSITION){++n[1];if(b.Transition.Subresource==D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)++n[6];}
+        else if(b.Type==D3D12_RESOURCE_BARRIER_TYPE_ALIASING)++n[2];
+        else if(b.Type==D3D12_RESOURCE_BARRIER_TYPE_UAV)++n[3];
+        if(b.Flags&D3D12_RESOURCE_BARRIER_FLAG_BEGIN_ONLY)++n[4];
+        if(b.Flags&D3D12_RESOURCE_BARRIER_FLAG_END_ONLY)++n[5];
+    }
+    for(size_t i=0;i<7;++i)if(n[i])CyberpunkVR_BarrierCounts[i].fetch_add(n[i],std::memory_order_relaxed);
+}
 void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
         UINT count, const D3D12_RESOURCE_BARRIER* barriers) {
+    CountBarriers(count,barriers);
     cvr::menu_surface::Barriers(self,count,barriers);
     const CommandListVtableHook* e = command_list_hook_entry(self);
     PFN_ResourceBarrier orig = e ? e->barrier_original : nullptr;
@@ -1421,7 +1445,8 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
     const auto hiddenBase=reinterpret_cast<uintptr_t>(g_exe_base);
     const uint32_t hiddenNode=hiddenBase && t_current_node_work>hiddenBase?uint32_t(t_current_node_work-hiddenBase):0;
     if(e && e->cleardsv_original)cvr::hidden_area::BeforeBarriers(self,count,barriers,t_view_side,hiddenNode,e->cleardsv_original);
-    if (orig){orig(self, count, barriers);
+    if (orig){const auto barrierStart=BarrierClock();orig(self, count, barriers);
+        if(!cvr::stereo::probe::internalCommands)CountBarrierTime(barrierStart);
         if(e->cleardsv_original)cvr::hidden_area::AfterBarriers(self,count,barriers,t_view_side,hiddenNode,e->cleardsv_original);cvr::stereo::target_handoff::Barriers(self,count,barriers);
         cvr::stereo::target_access::Barriers(self,count,barriers);}
     cvr::stereo::buffer_read::Barriers(self,count,barriers);

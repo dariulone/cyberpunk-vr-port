@@ -30,6 +30,10 @@
 
 static constexpr bool s_cThrowLuaErrors = true;
 
+// The plugin's native replacements of script functions the mods used to override in Lua (src/Natives/), put in
+// before the mods' onInit so a mod can tell and skip its own.
+extern "C" bool CvrInstallActionReads();
+
 static RTTILocator s_stringType{RED4ext::FNV1a64("String")};
 static RTTILocator s_resRefType{RED4ext::FNV1a64("redResourceReferenceScriptToken")};
 
@@ -526,6 +530,8 @@ void Scripting::PostInitializeMods()
 
     RegisterOverrides();
 
+    CvrInstallActionReads();
+
     TriggerOnInit();
     if (CET::Get().GetOverlay().IsEnabled())
         TriggerOnOverlayOpen();
@@ -536,10 +542,10 @@ void Scripting::RegisterOverrides()
     auto lua = m_lua.Lock();
     auto& luaVm = lua.Get();
 
-    luaVm["RegisterGlobalInputListener"] = [](WeakReference& aSelf, sol::this_environment aThisEnv)
+    luaVm["RegisterGlobalInputListener"] = [](WeakReference& aSelf)
     {
-        const sol::protected_function unregisterInputListener = aSelf.Index("UnregisterInputListener", aThisEnv);
-        const sol::protected_function registerInputListener = aSelf.Index("RegisterInputListener", aThisEnv);
+        const sol::protected_function unregisterInputListener = aSelf.Index("UnregisterInputListener");
+        const sol::protected_function registerInputListener = aSelf.Index("RegisterInputListener");
 
         unregisterInputListener(aSelf, aSelf);
         registerInputListener(aSelf, aSelf);
@@ -815,7 +821,12 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::rtti::IType* 
         if (apRttiType == s_stringType)
         {
             std::string str;
-            if (hasData)
+            // A Lua string as it is; only anything else goes through Lua's tostring (a global lookup and a call).
+            if (hasData && aObject.get_type() == sol::type::string)
+            {
+                str = aObject.as<std::string>();
+            }
+            else if (hasData)
             {
                 sol::state_view v(aObject.lua_state());
                 str = v["tostring"](aObject).get<std::string>();

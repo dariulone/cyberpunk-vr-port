@@ -80,6 +80,7 @@ def launch(args):
     command = [sys.executable, '-B', str(ROOT / 'tools/quickboot_tests/launch_to_save.py'), '--timeout', str(args.timeout), '--pause-at-continue']
     if getattr(args, 'save', None): command += ['--save', args.save]
     if getattr(args, 'hold_file', None): command += ['--hold-file', str(args.hold_file)]
+    if getattr(args, 'launcher_hold', None): command += ['--launcher-hold', str(args.launcher_hold)]
     process = subprocess.run(command,
                              capture_output=True, text=True, errors='replace', timeout=args.timeout + 30)
     ready = None
@@ -121,7 +122,9 @@ def continue_game(args):
     pid, game = state['pid'], boot.DEFAULT_GAME
     check = checker(pid, state['started'], state['baselineReporters'])
     check()
-    status_path = game / 'bin/x64/plugins/cyber_engine_tweaks/mods' / boot.MOD_NAME / 'quickboot_status.json'
+    # QuickBoot runs in the plugin's Lua host, from its lua folder (launch_to_save.py's default mods root); the old
+    # CET mods folder no longer exists, and reading there left the world "never ready".
+    status_path = game / 'red4ext/plugins/cyberpunkvrport/lua' / boot.MOD_NAME / 'quickboot_status.json'
     previous = boot.user32.GetForegroundWindow()
     deadline = time.monotonic() + args.timeout
     presses, next_press = 0, 0.0
@@ -222,6 +225,7 @@ def main():
         if name == 'launch':
             step.add_argument('--save', help='load this save folder instead of the latest one')
             step.add_argument('--hold-file', type=Path, help='stay in the main menu while this file exists')
+            step.add_argument('--launcher-hold', type=Path, help='keep the resolution launcher open while this file exists (inject a capture layer before the D3D12 device)')
         if name == 'measure':
             step.add_argument('--out', type=Path, required=True)
             step.add_argument('--label', required=True)

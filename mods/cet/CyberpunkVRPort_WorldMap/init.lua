@@ -8,7 +8,9 @@
 
 local g_ctrl = nil
 
-local function setMenuOpen(open) pcall(function() Game.SetVRMenuOpen(open and 1 or 0) end) end
+-- Every frame: a plain pcall, no closure per call.
+local function sendMenuOpen(value) Game.SetVRMenuOpen(value) end
+local function setMenuOpen(open) pcall(sendMenuOpen, open and 1 or 0) end
 
 local function gameSaysInMenu()
   local inMenu = false

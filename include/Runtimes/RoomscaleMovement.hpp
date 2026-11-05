@@ -92,6 +92,27 @@ inline bool HeadYaw(float x, float y, float z, float w, float* yaw) {
     return true;
 }
 
+// THE NECK, NOT THE EYES. The view pose is the eyes, and they sit ahead of and above the point the head turns about,
+// so a head turned without a step carries them along an arc round the neck: 13 cm for a quarter turn looking ahead,
+// 20 cm and more looking down, past the free zone (xr_body_move_radius) -- and the body walked after a look round
+// (players, 2026-11-04: "turning the head down and to the left or right moves the avatar"). Roomscale counts the
+// neck: the eyes less this lever, in the head's own axes (OpenXR: +Y up, -Z ahead). The view keeps the eyes.
+inline constexpr float kEyeAboveNeck = 0.10f, kEyeAheadOfNeck = 0.09f;
+// The lever's planar part in movement axes (x right, y forward = -OpenXR Z) for a head orientation; zero for an
+// orientation that is not one.
+inline Vec2 EyeFromNeck(float x, float y, float z, float w) {
+    const float n2 = x*x + y*y + z*z + w*w;
+    if (!std::isfinite(n2) || n2 < 0.5f || n2 > 1.5f) return {};
+    const float inv = 1.0f / std::sqrt(n2);
+    x *= inv; y *= inv; z *= inv; w *= inv;
+    const float v[3]{0.0f, kEyeAboveNeck, -kEyeAheadOfNeck};
+    // v + w*t + q x t, t = 2 (q x v)
+    const float t[3]{2*(y*v[2] - z*v[1]), 2*(z*v[0] - x*v[2]), 2*(x*v[1] - y*v[0])};
+    const float rx = v[0] + w*t[0] + (y*t[2] - z*t[1]);
+    const float rz = v[2] + w*t[2] + (x*t[1] - y*t[0]);
+    return {rx, -rz};
+}
+
 struct Sample {
     Vec2 head{};
     uint64_t sequence{};
@@ -100,6 +121,7 @@ struct Sample {
     bool valid{}; // position AND orientation valid/tracked; session visible or focused
     Vec2 runtimeHead{}; // raw tracking, used only to detect discontinuities hidden by view filtering
     bool runtimeHeadKnown{};
+    Vec2 eyeFromNeck{}; // what `head` left out of the eyes (EyeFromNeck), for the eye's own limits
 };
 
 // The runtime packet qualifies tracking availability. The displacement must
@@ -124,6 +146,7 @@ struct Step {
     Vec2 raw{};
     Vec2 world{};
     float yaw{}, scale{}; // world = Rotate(raw*scale, yaw)
+    float dt{};           // seconds this move covers (Applied only)
     uint64_t origin{};
     uint64_t ticket{};
     Reason reason{Reason::Suspended};
@@ -215,6 +238,7 @@ public:
         step.world = Rotate(step.raw*scale, trackingYaw);
         step.yaw = trackingYaw;
         step.scale = scale;
+        step.dt = dt;
         step.reason = Reason::Applied;
         return step;
     }
@@ -223,6 +247,16 @@ public:
     // the view's fixed offset from the axis (the camera's calibration), the tracking
     // offset adds to it, and the sum stays within radius -- never tighter than where
     // the eye already is without the lead, so the limit never pulls the view.
+    // ONLY AGAINST AN OBSTACLE: the limit holds while the controller refuses part of the
+    // step. In the open the lead is the follow's own lag -- up to the free zone and the
+    // response behind it -- and capping that too stopped the body outright: with the
+    // 0.25 m capsule the eye may lead its axis by 0.20 m, it sits 0.13 m ahead already,
+    // and the 0.07 m left never reached the 0.10 m free zone, so a step straight ahead
+    // was consumed into the view and never walked (players, 2026-11-04: "roomscale
+    // moves in steps again"). Met with more lead than that, the eye is not thrown back
+    // either: it stops where it is and eases back in at kLeadEaseBack.
+    static constexpr float kLeadEaseBack = 0.10f;    // m/s
+    static constexpr float kRefusedMin = 0.0005f;    // m a tick: less is the solver's rounding
     struct LeadLimit {
         Vec2 eyeBase{};
         float radius = std::numeric_limits<float>::infinity();
@@ -244,19 +278,27 @@ public:
         if (Finite(acceptedWorld) && step.scale > 0 && Dot(refusedWorld, refusedWorld) > 1e-14f)
             accepted = step.raw - Rotate(refusedWorld, -step.yaw) * (1.0f / step.scale);
         m_consumed = m_consumed + accepted;
-        if (step.reason != Reason::Applied) return;
+        if (step.reason != Reason::Applied) { m_reach = -1; return; }
         m_pending = m_pending - accepted;
         m_follow.Block(step.raw - accepted);
-        if (!std::isfinite(limit.radius) || !Finite(limit.eyeBase) || step.scale <= 0) return;
+        if (!std::isfinite(limit.radius) || !Finite(limit.eyeBase) || step.scale <= 0) { m_reach = -1; return; }
         const Vec2 base = limit.eyeBase + Rotate((m_previous - m_consumed - m_pending) * step.scale, step.yaw);
-        const Vec2 eye = base + Rotate(m_pending * step.scale, step.yaw);
-        const float reach = std::sqrt(Dot(eye, eye));
-        const float bound = std::max(std::max(limit.radius, 0.0f), std::sqrt(Dot(base, base)));
-        if (reach > bound) {
-            const Vec2 excess = Rotate(eye * (1.0f - bound / reach), -step.yaw) * (1.0f / step.scale);
-            m_consumed = m_consumed + excess;
-            m_pending = m_pending - excess;
+        Vec2 eye = base + Rotate(m_pending * step.scale, step.yaw);
+        float reach = std::sqrt(Dot(eye, eye));
+        const bool blocked = Finite(refusedWorld) && Dot(refusedWorld, refusedWorld) > kRefusedMin * kRefusedMin;
+        if (blocked) {
+            float bound = std::max(std::max(limit.radius, 0.0f), std::sqrt(Dot(base, base)));
+            const float dt = std::isfinite(step.dt) ? std::clamp(step.dt, 0.0f, 0.05f) : 0.0f;
+            if (m_reach >= 0) bound = std::max(bound, m_reach - kLeadEaseBack * dt);
+            if (reach > bound) {
+                const Vec2 excess = Rotate(eye * (1.0f - bound / reach), -step.yaw) * (1.0f / step.scale);
+                m_consumed = m_consumed + excess;
+                m_pending = m_pending - excess;
+                eye = eye * (bound / reach);
+                reach = bound;
+            }
         }
+        m_reach = reach;
     }
 
     Vec2 Consumed(uint64_t origin) const { return origin == m_origin ? m_consumed : Vec2{}; }
@@ -266,6 +308,7 @@ public:
 private:
     Vec2 m_previous{}, m_consumed{};
     Vec2 m_pending{};
+    float m_reach = -1;   // the eye's distance from the axis after the last move; -1 unknown
     BodyTranslationFollow m_follow;
     Vec2 m_previousRuntime{};
     uint64_t m_origin{}, m_sequence{}, m_tickUs{}, m_ticket{}, m_completed{};
@@ -281,12 +324,17 @@ private:
 // Only the refused component along the request is withheld: unlike the velocity
 // attribution above, motion the request did not ask for (a shove, a slide along
 // the wall from the stick) is never credited to the headset.
+// AT MOST THE LOSS ITSELF: the share is clamped to 1. Unclamped, a loss of a hundredth of a
+// millimetre -- the solver's rounding on open floor -- withheld the request's whole component
+// along it: 9.6 mm asked and moved, 5.1 mm accepted. The rest stayed in the lead, the follow
+// asked for it again, and the capsule overran the headset (1.23-1.36 m for a 1 m walk,
+// measured 2026-11-04).
 inline Vec2 AcceptedDisplacement(Vec2 native, Vec2 physical, Vec2 resolved) {
     if (!Finite(native) || !Finite(physical) || !Finite(resolved)) return physical;
     const Vec2 lost = native + physical - resolved;
     const float lost2 = Dot(lost, lost);
     if (lost2 <= 1e-12f) return physical;
-    return physical - lost * std::max(0.0f, Dot(physical, lost) / lost2);
+    return physical - lost * std::clamp(Dot(physical, lost) / lost2, 0.0f, 1.0f);
 }
 
 inline Vec2 PhysicalVelocity(Vec2 native, Vec2 physical, Vec2 resolvedVelocity, float dt) {
@@ -297,7 +345,8 @@ inline Vec2 PhysicalVelocity(Vec2 native, Vec2 physical, Vec2 resolvedVelocity, 
     const float lost2 = Dot(lost, lost);
     Vec2 accepted = physical;
     if (lost2 > 1e-8f) {
-        accepted = physical - lost * std::max(0.0f, Dot(physical, lost) / lost2);
+        // at most the loss itself, as in AcceptedDisplacement
+        accepted = physical - lost * std::clamp(Dot(physical, lost) / lost2, 0.0f, 1.0f);
     }
     return accepted * (1.0f / dt);
 }

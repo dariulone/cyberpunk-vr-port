@@ -445,6 +445,7 @@ struct Request { int shape = kBox; float half[3]{}; Pose obj; };
 struct Side {
     std::mutex lock;
     bool active = false;
+    bool pin = true;      // the slot held at the rig's reference while the hand holds (VRGraspPin)
     unsigned rev = 0, solved = ~0u;
     Request req;
     float blend = 0.0f;
@@ -1004,7 +1005,7 @@ void GraspFingers(uint8_t* buf) {
         bool holding;
         {
             std::lock_guard<std::mutex> lk(S.lock);
-            holding = S.active;
+            holding = S.active && S.pin;
         }
         if (holding) PinSlot(buf, slotBone);
         Palm pm{};
@@ -1120,7 +1121,26 @@ void VRGraspSet(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* aOut,
     S.req.obj.q[0] = q.i; S.req.obj.q[1] = q.j; S.req.obj.q[2] = q.k; S.req.obj.q[3] = q.r;
     VRIK_QuatNorm(S.req.obj.q);
     S.active = true;
+    S.pin = true;
     ++S.rev;
+    if (aOut) *aOut = true;
+}
+
+// VRGraspPin(side, pinned) -> Bool: whether the slot is held at the rig's reference while this grasp lasts (from VRGraspSet
+// it is). A holster's weapon is not on the slot while the fingers close on it, and the weapon itself comes onto the slot
+// while they still are: pinned, the game's animation cannot move the slot to that weapon's hold, and the weapon is
+// seen 10-35 degrees off it until the grasp has gone.
+void VRGraspPin(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t) {
+    int32_t side = -1;
+    bool pinned = true;
+    RED4ext::GetParameter(aFrame, &side);
+    RED4ext::GetParameter(aFrame, &pinned);
+    aFrame->code++;
+    if (aOut) *aOut = false;
+    if (side < 0 || side > 1) return;
+    Side& S = g_side[side];
+    std::lock_guard<std::mutex> lk(S.lock);
+    S.pin = pinned;
     if (aOut) *aOut = true;
 }
 

@@ -41,6 +41,7 @@ return {
 
     slide = {
         slot       = 'vrp_reload_handle',
+        handleSide = 'left',  -- the handle sticks out on the left only (the slide bone's vertices, x -0.036..+0.014 m): reload.lua handGrips
         which      = 1, bone = 5,
         -- 70.0 mm, the same in both empty takes, along the bone's local -Z: straight back along the bore.
         travel     = 0.0700,

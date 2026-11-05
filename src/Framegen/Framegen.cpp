@@ -1,5 +1,6 @@
 #include "Framegen/Framegen.hpp"
 #include "Framegen/FramePolicy.hpp"
+#include "Render/Afw.hpp"
 #include "Utils/DebugGate.hpp"
 #include <windows.h>
 #include <algorithm>
@@ -13,6 +14,13 @@ __declspec(dllexport) char CyberpunkVR_FramegenReport[2048]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FramegenReportSeq{};
 // The frame cap (CapToDisplay): [0] frames held, [1] frames let through (the game at or below the refresh).
 __declspec(dllexport) uint64_t CyberpunkVR_DebugFpsCap[2]{};
+// Every frame's times for benchmarks (tools/vr_bench), written while the FPS metrics run: entry i of a ring is
+// [i % 8192]; [0] counts real frames (CPU: the interval between real frames at the Present), [1] GPU frames (the
+// game queue's span from the frame's first submission to its Present, GpuTimer.cpp). A reader takes the two counts
+// at the start and the end of its window and reads the entries in between: no polling, no frame missed.
+__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_FrameRingCount[2]{};
+__declspec(dllexport) float CyberpunkVR_FrameRingCpu[8192]{};
+__declspec(dllexport) float CyberpunkVR_FrameRingGpu[8192]{};
 }
 
 namespace cvr::framegen {
@@ -84,9 +92,13 @@ const char* BackendName(Backend value) {
 }
 Backend ActiveBackend() {const int v=activeBackend.load(std::memory_order_relaxed);return v<0 ? GetSettings().backend : Backend(v);}
 void PublishActiveBackend(Backend value) {activeBackend.store(int(value),std::memory_order_relaxed);}
-bool Enabled() {return enabled.load(std::memory_order_relaxed);}
+// Off for an AFW launch (Render/Afw.hpp): its pairs are one drawn eye and one warped, and the other eye's frame
+// warp already stands in for a frame the engine did not draw.
+bool Enabled() {return enabled.load(std::memory_order_relaxed) && !cvr::afw::Launch();}
 bool DepthCaptureEnabled() {return depthCapture.load(std::memory_order_relaxed);}
-bool CaptureInputsEnabled() {return Enabled() || DepthCaptureEnabled();}
+// AFW (Render/Afw.hpp) warps with the frame's depth and motion.
+bool CaptureInputsEnabled() {return Enabled() || DepthCaptureEnabled() || cvr::afw::Launch();}
+bool MotionWanted() {return Enabled() || cvr::afw::Launch();}
 void SetDepthCaptureEnabled(bool value) {depthCapture.store(value,std::memory_order_relaxed);}
 bool MetricsEnabled() {return metrics.load(std::memory_order_relaxed);}
 void SetSettings(Settings value) {
@@ -153,10 +165,10 @@ Statistics GetStatistics() {
     CyberpunkVR_FramegenReportSeq.fetch_add(1,std::memory_order_acq_rel);
     std::snprintf(CyberpunkVR_FramegenReport,sizeof(CyberpunkVR_FramegenReport),
         "{\"enabled\":%d,\"active\":%d,\"backend\":%d,\"metrics\":1,\"real_fps\":%.3f,\"fg_fps\":%.3f,\"output_fps\":%.3f,\"repeats_fps\":%.3f,"
-        "\"cpu_ms\":%.3f,\"gpu_ms\":%.3f,\"generation_ms\":%.3f,\"pace_ms\":%.3f,\"real\":%llu,\"generated\":%llu,\"real_submitted\":%llu,\"repeated\":%llu,\"skipped\":%llu,\"vram_bytes\":%llu,"
+        "\"cpu_ms\":%.3f,\"gpu_ms\":%.3f,\"generation_ms\":%.3f,\"generation_span_ms\":%.3f,\"pace_ms\":%.3f,\"real\":%llu,\"generated\":%llu,\"real_submitted\":%llu,\"repeated\":%llu,\"skipped\":%llu,\"vram_bytes\":%llu,"
         "\"inputs\":[%llu,%llu],\"average_fps\":%.3f,\"minimum_fps\":%.3f,\"maximum_fps\":%.3f,\"low1\":%.3f,\"low01\":%.3f,\"cpu_usage\":%.2f,\"gpu_usage\":%.2f,\"gpu_temp\":%.1f,"
         "\"gpu_memory_used\":%llu,\"gpu_memory_total\":%llu,\"ram_used\":%llu,\"ram_total\":%llu,\"status\":\"%s\"}",settings.enabled,result.active,int(settings.backend),result.realFps,result.generatedFps,
-        result.outputFps,result.repeatFps,result.cpuMs,result.gpuMs,result.generationMs,result.budgetMs,result.realFrames,result.generatedFrames,result.realSubmissions,result.repeatedFrames,result.skipped,
+        result.outputFps,result.repeatFps,result.cpuMs,result.gpuMs,result.generationMs,result.generationSpanMs,result.budgetMs,result.realFrames,result.generatedFrames,result.realSubmissions,result.repeatedFrames,result.skipped,
         result.vramBytes,result.inputFrames[0],result.inputFrames[1],result.averageFps,result.minimumFps,result.maximumFps,result.low1Fps,result.low01Fps,
         result.hardware.cpuUsage,result.hardware.gpuUsage,result.hardware.gpuTemperature,result.hardware.gpuMemoryUsed,result.hardware.gpuMemoryTotal,
         result.hardware.ramUsed,result.hardware.ramTotal,result.status);
@@ -173,7 +185,11 @@ void Status(const char* text,bool active) {
 void OnRealFrame(uint64_t serial,double now) {
     if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(!settings.overlay || !serial || serial==lastReal)return;
     if(!started)started=now;
-    if(lastRealTime>0 && now>lastRealTime) {stats.cpuMs=now-lastRealTime;cpu.Add(now,stats.cpuMs);cpuHistory.Add(now,stats.cpuMs);}
+    if(lastRealTime>0 && now>lastRealTime) {
+        stats.cpuMs=now-lastRealTime;cpu.Add(now,stats.cpuMs);cpuHistory.Add(now,stats.cpuMs);
+        const auto n=CyberpunkVR_FrameRingCount[0].load(std::memory_order_relaxed);
+        CyberpunkVR_FrameRingCpu[n%8192]=float(stats.cpuMs);CyberpunkVR_FrameRingCount[0].store(n+1,std::memory_order_release);
+    }
     lastReal=serial;lastRealTime=now;real.Add(now);++stats.realFrames;
 }
 void OnSubmitted(uint64_t,bool synth,bool repeat,double now) {
@@ -184,8 +200,12 @@ void OnSubmitted(uint64_t,bool synth,bool repeat,double now) {
 void OnGpuFrame(double ms) {
     if(!MetricsEnabled() || !std::isfinite(ms) || ms<0 || ms>10000)return;
     std::lock_guard lock(mutex);if(!settings.overlay)return;stats.gpuValid=true;stats.gpuMs=ms;const auto now=NowMs();gpu.Add(now,ms);gpuHistory.Add(now,ms);
+    const auto n=CyberpunkVR_FrameRingCount[1].load(std::memory_order_relaxed);
+    CyberpunkVR_FrameRingGpu[n%8192]=float(ms);CyberpunkVR_FrameRingCount[1].store(n+1,std::memory_order_release);
 }
-void OnGeneration(double ms) {if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay)stats.generationMs=ms;}
+void OnGeneration(double ms,double spanMs) {
+    if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay) {stats.generationMs=ms;stats.generationSpanMs=spanMs;}
+}
 void OnInput(unsigned eye,uint32_t w,uint32_t h) {
     if(eye>1 || !MetricsEnabled())return;std::lock_guard lock(mutex);if(!settings.overlay)return;++stats.inputFrames[eye];
     stats.renderWidth[eye]=w;stats.renderHeight[eye]=h;

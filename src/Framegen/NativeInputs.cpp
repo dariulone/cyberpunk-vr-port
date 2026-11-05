@@ -130,7 +130,7 @@ namespace {
 void Capture(ID3D12GraphicsCommandList* list,bool library) {
     const auto consumer=CurrentConsumer();
     if(consumer==Consumer::None || Library(consumer)!=library)return;
-    if(candidate.copied || !candidate.handles[0] || (Enabled() && !candidate.handles[1]) || candidate.node!=cvr::detail::t_current_node_work)return;
+    if(candidate.copied || !candidate.handles[0] || (MotionWanted() && !candidate.handles[1]) || candidate.node!=cvr::detail::t_current_node_work)return;
     const auto pose=cvr::camera::CurrentNodePoseIdentity();
     if(!pose || !pose.hasRenderFrameId || candidate.frame!=pose.renderFrameId || candidate.view!=pose.view || candidate.pose!=pose.poseId)return;
     ++CyberpunkVR_FramegenNativeStages[1];InputTag tags[2]{};
@@ -138,7 +138,7 @@ void Capture(ID3D12GraphicsCommandList* list,bool library) {
     // FFX state 12, PIXEL_COMPUTE_READ (sub_141D4F220). An input this command context has not touched
     // yet is in that state from an earlier context.
     const uint32_t unused=library ? D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE|D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : 0;
-    if(!ReadTag(candidate.handles[0],0,tags[0],unused) || (Enabled() && !ReadTag(candidate.handles[1],1,tags[1],unused))) {
+    if(!ReadTag(candidate.handles[0],0,tags[0],unused) || (MotionWanted() && !ReadTag(candidate.handles[1],1,tags[1],unused))) {
         ++CyberpunkVR_FramegenNativeStages[2];return;
     }
     cvr::stereo::probe::Scope internal;

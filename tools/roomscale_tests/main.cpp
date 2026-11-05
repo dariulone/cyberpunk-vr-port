@@ -348,20 +348,58 @@ void VehicleReloadInput() {
     Check(hold.Update(seat.exitOnX,true,2100,400),"ordinary seat X hold stopped working");
     Check(!hold.Update(true,false,2200,400),"X release left exit held");
 }
+// The body follows the head CONTINUOUSLY: a slow head turn is a slow body turn, every frame, never a staircase of
+// catch-ups; the turn rate never jumps; after the turn the body comes round under the head and never past it.
 void FreeLookZone() {
+    const float radius=10*pi/180,dt=1.f/90;
+    {
+        BodyFollowZone follow;
+        Near(follow.Step(radius*.9f,radius,dt),0,"small glance turned body");
+        Check(!follow.Following(),"a glance inside the cone started a turn");
+    }
+    {   // a slow head turn, 30 deg/s for three seconds, then the head stops
+        BodyFollowZone follow;
+        float head=0,body=0,prev=0,jerk=0,lag=0;
+        int still=0,first=-1;
+        for(int i=0;i<270;++i) {
+            head+=30*pi/180*dt;
+            const float step=follow.Step(head-body,radius,dt);
+            body+=step;
+            if(first<0 && step!=0)first=i;
+            if(first>=0 && i>first+45 && std::abs(step)<1e-7f)++still;
+            if(first>=0)jerk=std::max(jerk,std::abs(step-prev));
+            prev=step;lag=std::max(lag,head-body);
+        }
+        Check(first>=0,"slow head turn never turned the body");
+        Check(still==0,"slow head turn followed in steps (the staircase)");
+        Near(prev/dt*180/pi,30,"body did not turn at the head's speed",1.5f);
+        Check(lag<radius+2*pi/180,"body fell far behind the cone during a slow turn");
+        Check(jerk*180/pi<.05f,"body turn rate jumped between frames");
+        float closest=head-body;
+        for(int i=0;i<360;++i) {
+            body+=follow.Step(head-body,radius,dt);
+            Check(head-body>=-1e-6f,"body turned past the head");
+            closest=std::min(closest,head-body);
+        }
+        Check(head-body<1.6f*pi/180,"body did not come round under the head after the turn");
+        Near(follow.Step(.5f*pi/180,radius,dt),0,"half a degree of tremor moved the body after the turn");
+    }
+    {   // a fast head turn (90 degrees in a sixth of a second): fast but capped, and never past the head
+        BodyFollowZone follow;
+        float head=0,body=0,top=0;
+        for(int i=0;i<360;++i) {
+            if(i<15)head-=6*pi/180;
+            const float step=follow.Step(head-body,radius,dt);
+            body+=step;top=std::max(top,std::abs(step)/dt);
+            Check(body-head>=-1e-6f,"fast turn carried the body past the head");
+        }
+        Check(top<=BodyFollowZone::kMaxRate*1.0001f,"fast turn exceeded the rate cap");
+        Check(body-head<1.6f*pi/180,"fast turn did not settle under the head");
+    }
     BodyFollowZone follow;
-    const float radius=5*pi/180,head=20*pi/180;
-    float body=0;
-    Near(follow.Fraction(radius*.9f,radius,.01f),0,"small glance turned body");
-    const float first=head*follow.Fraction(head,radius,.01f);
-    Check(first>0 && first<head,"body catch-up is not smooth");body+=first;
-    for(int i=0;i<20;++i)body+=(head-body)*follow.Fraction(std::abs(head-body),radius,.01f);
-    Near(body,head,"free-look follower stopped at edge instead of centre");
-    Near(follow.Fraction(pi/180,radius,.01f),0,"one degree moved body after previous turn");
-    Near(follow.Fraction(4*pi/180,radius,.01f),0,"free-look zone did not recover");
-    for(int i=0;i<30;++i)body+=(-head-body)*follow.Fraction(std::abs(-head-body),radius,.01f);
-    Near(body,-head,"opposite head turn did not settle");
-    follow.Reset();Near(follow.Fraction(radius*.5f,radius,.01f),0,"reset retained a pending turn");
+    follow.Step(30*pi/180,radius,dt);
+    follow.Reset();
+    Near(follow.Step(radius*.5f,radius,dt),0,"reset retained a pending turn");
 }
 void BodyBendTracking() {
     auto observed=[](float forward,float drop,float pitch) {
@@ -430,8 +468,8 @@ void BodyBendTracking() {
         Check(cone>=30 && cone<=60,"bending cone outside requested range");
     }
     BodyFollowZone follow;
-    Check(follow.Fraction(40*pi/180,10*pi/180,.01f)>0,"turn setup failed");
-    Near(follow.Fraction(40*pi/180,60*pi/180,.01f),0,"bending did not release existing body turn");
+    Check(follow.Step(40*pi/180,10*pi/180,.01f)>0,"turn setup failed");
+    Near(follow.Step(40*pi/180,60*pi/180,.01f),0,"bending did not release existing body turn");
 }
 void FloorReachTracking() {
     cvr::body::BendTracker tracker;Movement movement;Vec2 body{};
@@ -482,11 +520,11 @@ void LookDownCone() {
     Near(LookDownFreeLookCone(45,10,10),10,"equal cones did not disable widening");
     Check(std::abs(LookDownFreeLookCone(10.001f,10,30)-LookDownFreeLookCone(9.999f,10,30))<.0001f,"cone jumps at tilt threshold");
     BodyFollowZone follow;
-    Check(follow.Fraction(20*pi/180,10*pi/180,.01f)>0 && follow.Following(),"test did not start a body turn");
-    Near(follow.Fraction(20*pi/180,30*pi/180,.01f),0,"old body turn continues while head is inside widened cone");
+    Check(follow.Step(20*pi/180,10*pi/180,.01f)>0 && follow.Following(),"test did not start a body turn");
+    Near(follow.Step(20*pi/180,30*pi/180,.01f),0,"old body turn continues while head is inside widened cone");
     Check(!follow.Following(),"look-down cone did not release old turn");
-    Near(follow.Fraction(29*pi/180,30*pi/180,.01f),0,"body moved while reaching across chest belt");
-    Check(follow.Fraction(20*pi/180,10*pi/180,.01f)>0,"normal body follow failed to resume after looking up");
+    Near(follow.Step(29*pi/180,30*pi/180,.01f),0,"body moved while reaching across chest belt");
+    Check(follow.Step(20*pi/180,10*pi/180,.01f)>0,"normal body follow failed to resume after looking up");
 }
 void MovementFreeZone() {
     Movement m;uint64_t seq=0;Vec2 entity{};
@@ -671,6 +709,46 @@ void Collision() {
         far.Complete(step, step.world, beyond);
         Near(Vec2{-0.1f, 0} - far.Consumed(1), {}, "a step back toward the capsule was refused");
     }
+    // The 0.25 m capsule as shipped: the eye may lead its axis by 0.20 m and already sits 0.13 m ahead of it, the
+    // follow's free zone 10 cm. In the open a walk straight ahead is walked; the lead limit is no wall (2026-11-04:
+    // the 7 cm left of the limit never reached the free zone, the step went into the view and the body stood).
+    const Movement::LeadLimit shipped{{0.13f, 0}, 0.20f};
+    {
+        Movement m; Vec2 entity{}; uint64_t seq = 0;
+        for (int i = 0; i <= 300; ++i) {
+            auto p = Pose(++seq, std::min(0.005f * i, 1.0f));
+            const auto step = m.Begin(p, p.stampUs, .011f, 1, 0, true, .10f);
+            entity = entity + step.world;
+            m.Complete(step, step.world, shipped);
+        }
+        Near(entity, {1.0f, 0}, "an open walk straight ahead was not walked", .002f);
+        Near(m.Consumed(1), {1.0f, 0}, "an open walk was consumed into the view", .002f);
+    }
+    // ...and walked into a wall with the follow's lag on it, the view stops where it is and eases back inside the
+    // limit; it is not thrown back.
+    {
+        Movement m; Vec2 entity{}; uint64_t seq = 0;
+        float last = -1, worstBack = 0, eye = 0;
+        for (int i = 0; i <= 400; ++i) {
+            const float head = std::min(0.005f * i, 1.2f);
+            auto p = Pose(++seq, head);
+            const auto step = m.Begin(p, p.stampUs, .011f, 1, 0, true, .10f);
+            Vec2 accepted = step.world;
+            if (entity.x + accepted.x > 0.5f) accepted.x = std::max(0.0f, 0.5f - entity.x);
+            entity = entity + accepted;
+            m.Complete(step, accepted, shipped);
+            eye = entity.x + 0.13f + (head - m.Consumed(1).x);
+            if (last >= 0) worstBack = std::max(worstBack, last - eye);
+            last = eye;
+        }
+        Check(worstBack <= Movement::kLeadEaseBack * .011f + .0002f, "the view was thrown back at the wall");
+        Check(eye <= 0.5f + 0.20f + .001f, "the view stayed past the capsule's footprint at the wall");
+        Near(entity, {0.5f, 0}, "the wall let the capsule through", .0002f);
+    }
+    // A loss of a hundredth of a millimetre (the solver's rounding) withholds that much, not the step.
+    Near(AcceptedDisplacement({}, {0.0096f, 0}, {0.00955f, 0}), {0.00955f, 0}, "rounding withheld the step");
+    Near(AcceptedDisplacement({}, {0.0096f, 0.001f}, {0.0096f, 0.00099f}), {0.0096f, 0.00099f},
+         "a sideways rounding withheld the forward step");
 }
 
 void Feedback() {
@@ -1363,8 +1441,9 @@ void BodyFollowSuspend() {
     follower.SetEnabled(IsVrikBodyMovementAllowed(4,false,false,1,2));
     uint64_t stamp=1000000;
     follower.Step(-.68414277f,.08726646f,stamp,1);
-    for(int i=0;i<60;++i)follower.Step(-.68414277f,.08726646f,stamp+=11111,1);
-    Near(follower.Offset(),-.68414277f,"baseline body yaw was not acquired");
+    // the body comes round under the head over a couple of seconds, to within the tremor it ignores
+    for(int i=0;i<450;++i)follower.Step(-.68414277f,.08726646f,stamp+=11111,1);
+    Near(follower.Offset(),-.68414277f,"baseline body yaw was not acquired",1.6f*pi/180);
     // A menu pauses injection without handing the heading to another camera.
     const float before=follower.Offset();
     follower.SetEnabled(true);

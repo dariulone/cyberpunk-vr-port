@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!--
+  CyberpunkVRPort. Photo Mode no longer opens from both sticks pressed at once.
+
+  The game toggles Photo Mode on IK_PAD_LR_THUMB, the left and the right stick clicked together
+  (TogglePhotoModeButton in r6/config/inputUserMappings.xml). Under the port both clicks are gestures:
+  the left stick pushed fully forward is sprint (L3) and the right stick pulled fully down is crouch
+  (R3), so a slide out of a sprint, or walking crouched with the stick held forward, presses both and
+  the game opened Photo Mode in the middle of it (reported 2026-11-04). The two stick clicks together
+  are also the VR menu's chord.
+
+  This mapping replaces the game's one of the same name and keeps its keyboard key only: N still
+  opens Photo Mode, a pad no longer does.
+
+  NOTE ON STYLE: not a double hyphen anywhere in these comments (XML forbids it inside a comment).
+-->
+<bindings>
+	<mapping name="TogglePhotoModeButton" type="Button" >
+		<button id="IK_N" overridableUI="photoMode"/>
+	</mapping>
+</bindings>

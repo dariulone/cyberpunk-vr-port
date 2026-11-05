@@ -33,6 +33,7 @@ return {
 
     slide = {
         slot       = 'vrp_cocking_device',
+        handleSide = 'left',  -- the handle sticks out on the left only (the slide bone's vertices, x -0.040..+0.017 m): reload.lua handGrips
         which      = 1, bone = 6,
         -- home at z +185.0, on the stop at +110.0 (both empty takes); 5 mm past the stop for the hand's release
         -- nudge (the Masamune's), so a pull from the stop has somewhere to go

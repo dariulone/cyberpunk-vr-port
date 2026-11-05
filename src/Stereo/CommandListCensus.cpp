@@ -84,6 +84,8 @@
 #include "Stereo/DetourRegistry.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
+#include "Stereo/StereoPairProbe.hpp"
+#include "Stereo/SinglePass.hpp"
 
 namespace cvr {
 namespace detail {
@@ -1312,13 +1314,14 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_SightAxisProbe = 1;
         UINT start, UINT num, const D3D12_VERTEX_BUFFER_VIEW* views) {
     const CommandListVtableHook* e = command_list_hook_entry(self);
     if (!e || !e->iavb_original) return;
+    cvr::stereo::pair_probe::VertexBuffers(self,start,num,views);
     if(CyberpunkVR_NativeStereoProbeState.load(std::memory_order_relaxed)==1)
         cvr::stereo::native_probe::VertexBuffers(self,start,num,views);
     if (CyberpunkVR_SightAxisProbe && views && num >= 1 && start == 7) {
         t_inst_va = views[0].BufferLocation;
         t_inst_stride = views[0].StrideInBytes;
     }
-    e->iavb_original(self, start, num, views);
+    if(!cvr::single_pass::VertexBuffers(self,start,num,views))e->iavb_original(self, start, num, views);
 }
 
 // Decode the sight's world orientation for this view and print it once. The three rows are the
@@ -1560,7 +1563,8 @@ void lut_src_build_begin() {
     if(CyberpunkVR_NativeStereoProbeState.load(std::memory_order_relaxed)==1)
         cvr::stereo::native_probe::Pipeline(self,pso);
     // Every observer above saw the engine's pipeline; the GPU gets the hidden-area twin when there is one.
-    e->setpso_original(self, sight_scope_twin(cvr::hidden_area::shaders::Bind(pso,t_view_side)));
+    ID3D12PipelineState* const bound=sight_scope_twin(cvr::hidden_area::shaders::Bind(pso,t_view_side));
+    if(!cvr::single_pass::PipelineSet(self,pso,bound))e->setpso_original(self,bound);
 }
 
 // ---- draw census: which nodes draw for one view and never for the other ---------------------
@@ -1830,7 +1834,11 @@ void maybe_marker_in(ID3D12GraphicsCommandList* self, MarkerState& mk) {
 // The REAL-list path. Its markers are invisible to RenderDoc -- measured: vtable[0] belongs to
 // D3D12Core.dll -- so once the wrapper vtable is hooked this stops emitting rather than burning work for
 // nothing. It still earns its keep under PIX and Nsight, which intercept below us.
+extern "C" std::atomic<uint32_t> CyberpunkVR_ShaderCensus;   // Render/HiddenAreaShaders.cpp
+extern "C" uint32_t CyberpunkVR_ProbeLayoutNode;              // Render/SsrWideMerge.cpp
 static void shader_census(cvr::hidden_area::shaders::Kind kind,uint32_t x,uint32_t y,uint32_t z) {
+    // Both diagnostics off (the normal case): the two flags they test first, without the node lookups and calls.
+    if(!CyberpunkVR_ProbeLayoutNode && !CyberpunkVR_ShaderCensus.load(std::memory_order_relaxed))return;
     const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
     cvr::ssr_merge::ProbeLayout(base && t_current_node_work>base?uint32_t(t_current_node_work-base):0);
     cvr::hidden_area::shaders::Command(base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,
@@ -1843,14 +1851,16 @@ void census_dispatch_rays(const D3D12_DISPATCH_RAYS_DESC* desc) {
 void census_pipeline_reset(ID3D12PipelineState* pso) {
     if(!cvr::stereo::probe::internalCommands)t_current_pso=pso;
 }
-void maybe_marker(ID3D12GraphicsCommandList* self) {
+void maybe_marker(ID3D12GraphicsCommandList* self,bool raster=false) {
     if(cvr::gpu::scene_profile::active.load(std::memory_order_relaxed)) {
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
         const auto node=base && t_current_node_work>base?uint32_t(t_current_node_work-base):0;
         // Side 2: the camera scope's RTT view (a named view, t_view_side -1).
         static const uint64_t opticsView=cvr::cname_hash("vr_optics_feed");
         const int side=t_view_side>=0 ? t_view_side : (t_active_view_known && t_active_view_key==opticsView ? 2 : -1);
-        cvr::gpu::scene_profile::Mark(self,node,side,t_current_pso,node==CASCADE_NODE_RVA?uint32_t(t_cascade_idx+1):0);
+        // A draw's viewport tells the eye of a side-by-side pass (CyberpunkVR_SceneGpuViewportDetail).
+        const uint32_t detail=node==CASCADE_NODE_RVA ? uint32_t(t_cascade_idx+1) : (raster ? cvr::gpu::scene_profile::DrawDetail(self) : 0u);
+        cvr::gpu::scene_profile::Mark(self,node,side,t_current_pso,detail);
     }
     if(CyberpunkVR_SinglePassTraceState.load(std::memory_order_relaxed)==1 && g_exe_base) {
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
@@ -1860,6 +1870,15 @@ void maybe_marker(ID3D12GraphicsCommandList* self) {
     // maybe_marker_in tests the same flag first; asking here spares every draw the call.
     if (g_wrapper_vtable || !CyberpunkVR_CaptureMarkers) return;
     maybe_marker_in(self, t_mark_real);
+}
+
+// The L/R pair probe (Stereo/StereoPairProbe.hpp): a native draw with its node and pipeline.
+static void pair_draw(ID3D12GraphicsCommandList* self,uint32_t kind,uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t f) {
+    if(!cvr::stereo::pair_probe::Tracking() || cvr::stereo::probe::internalCommands)return;
+    const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
+    const auto node=base && t_current_node_work>base?uint32_t(t_current_node_work-base):0;
+    const uint32_t args[5]{a,b,c,d,f};
+    cvr::stereo::pair_probe::Draw(self,node,t_current_pso,kind,args);
 }
 
 // ---- THE SAME MARKERS, ON THE OBJECT THE GAME ACTUALLY RECORDS INTO ------------------------------
@@ -1972,7 +1991,18 @@ extern "C" void RegisterGameFacingListVtable(ID3D12Device* device) {
 // writes the control; every native draw otherwise pays one relaxed load.
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_GeometryCostProbe{0},CyberpunkVR_GeometryCostNode{0};
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GeometryCostHits{0};
+// Optional: only draws with this pipeline (0 = any).
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_GeometryCostPso{0};
 thread_local cvr::stereo::geometry_cost::ScissorState t_geometry_cost_scissor;
+// The recording thread's last viewport, for the eye bits (engine stereo: both eyes' halves in one target).
+thread_local const void* t_geometry_cost_viewport_list{};
+thread_local uint32_t t_geometry_cost_viewport_x{},t_geometry_cost_viewport_w{};
+extern "C" void CyberpunkVR_GeometryCostTrackViewport(ID3D12GraphicsCommandList* list,UINT count,const D3D12_VIEWPORT* viewports) {
+    if(!CyberpunkVR_GeometryCostProbe.load(std::memory_order_relaxed))return;
+    if(!count || !viewports){t_geometry_cost_viewport_list=nullptr;return;}
+    t_geometry_cost_viewport_list=list;
+    t_geometry_cost_viewport_x=uint32_t(viewports[0].TopLeftX+.5f);t_geometry_cost_viewport_w=uint32_t(viewports[0].Width+.5f);
+}
 extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList* list,UINT count,const D3D12_RECT* rects) {
     if(!CyberpunkVR_GeometryCostProbe.load(std::memory_order_relaxed))return;
     static_assert(sizeof(D3D12_RECT)==sizeof(int32_t[4]));
@@ -1980,12 +2010,18 @@ extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList* 
     else t_geometry_cost_scissor.Forget(list);
 }
 namespace {
-cvr::stereo::geometry_cost::Action geometry_cost_action() {
+cvr::stereo::geometry_cost::Action geometry_cost_action(ID3D12GraphicsCommandList* self) {
     const auto control=CyberpunkVR_GeometryCostProbe.load(std::memory_order_relaxed);
     if(!control)return cvr::stereo::geometry_cost::Action::Forward;
     const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
     const auto node=base && t_current_node_work>base?uint32_t(t_current_node_work-base):0;
-    const auto action=cvr::stereo::geometry_cost::Decide(control,CyberpunkVR_GeometryCostNode.load(std::memory_order_relaxed),node,t_view_side);
+    auto action=cvr::stereo::geometry_cost::Decide(control,CyberpunkVR_GeometryCostNode.load(std::memory_order_relaxed),node,t_view_side);
+    if(action!=cvr::stereo::geometry_cost::Action::Forward) {
+        const auto pso=CyberpunkVR_GeometryCostPso.load(std::memory_order_relaxed);
+        if((pso && pso!=reinterpret_cast<uint64_t>(t_current_pso)) ||
+           !cvr::stereo::geometry_cost::EyeAllows(control,t_geometry_cost_viewport_list==self,t_geometry_cost_viewport_x,t_geometry_cost_viewport_w))
+            action=cvr::stereo::geometry_cost::Action::Forward;
+    }
     if(action!=cvr::stereo::geometry_cost::Action::Forward)CyberpunkVR_GeometryCostHits.fetch_add(1,std::memory_order_relaxed);
     return action;
 }
@@ -2040,17 +2076,29 @@ void STDMETHODCALLTYPE hk_ClearDepthStencilView(ID3D12GraphicsCommandList* self,
         const auto node=base && t_current_node_work>base?uint32_t(t_current_node_work-base):0;
         cvr::stereo::families::ObserveDraw(self,node,t_view_side);
     }
-    maybe_marker(self);
+    pair_draw(self,1,vtx,inst,sv,si,0);
+    {
+        const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
+        const uint32_t pairArgs[5]{vtx,inst,sv,si,0};
+        si=cvr::stereo::pair_probe::BeforeDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,
+                                               t_current_pso,1,pairArgs,si);
+    }
+    maybe_marker(self,true);
     if(!cvr::stereo::probe::internalCommands)shader_census(cvr::hidden_area::shaders::Kind::Draw,vtx,inst,0);
     cascade_draw_seen();
     {
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
         cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,t_view_side,e->shading_rate_original,e->shading_image_original);
         cvr::stereo::target_handoff::Draw(self);cvr::stereo::target_access::Shader(self,true);
-        const auto costAction=geometry_cost_action();
-        if(costAction!=cvr::stereo::geometry_cost::Action::Skip){GeometryCostScissor cost(self,e,costAction);e->draw_original(self, vtx, inst, sv, si);}
+        const auto costAction=geometry_cost_action(self);
+        const uint32_t singleArgs[5]{vtx,inst,sv,si,0};
+        if(costAction!=cvr::stereo::geometry_cost::Action::Skip &&
+           !cvr::single_pass::Draw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,1,singleArgs)){
+            GeometryCostScissor cost(self,e,costAction);
+            cvr::gpu::scene_profile::DrawBegin(self);e->draw_original(self, vtx, inst, sv, si);cvr::gpu::scene_profile::DrawEnd(self);}
         cvr::stereo::preparation::DrawRecorded(self);
     }
+    cvr::stereo::pair_probe::AfterDraw(self);
     cvr::framegen::CaptureNativeInputs(self);
     if (CyberpunkVR_DrawCensus) draw_census_note(t_vrcam_node_active);
 }
@@ -2062,7 +2110,7 @@ void STDMETHODCALLTYPE hk_ClearDepthStencilView(ID3D12GraphicsCommandList* self,
 // RENDER_TARGET and back. The engine's targets and pipeline are restored.
 static void lens_velocity(ID3D12GraphicsCommandList* self,const CommandListVtableHook* e,
         UINT idx,UINT inst,UINT si,INT bv,UINT sinst) {
-    if(!t_current_pso || !e->barrier_call || !e->setpso_original)return;
+    if(!t_current_pso || !e->barrier_call || !e->setpso_original || !cvr::optics::GlassPipeline(t_current_pso))return;
     cvr::optics::LensVelocityPass pass;
     if(!cvr::optics::PrepareLensVelocity(self,t_current_pso,pass))return;
     const auto om=command_list_original_om(self);
@@ -2133,7 +2181,14 @@ static void lens_mask(ID3D12GraphicsCommandList* self,const CommandListVtableHoo
             cvr::stereo::families::NativeGeometryStatus(reinterpret_cast<ID3D12PipelineState*>(current.pipeline))!=1)
             cvr::stereo::copy_windows::UnknownDraw(self);
     }
-    maybe_marker(self);
+    pair_draw(self,2,idx,inst,si,uint32_t(bv),sinst);
+    {
+        const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
+        const uint32_t pairArgs[5]{idx,inst,si,uint32_t(bv),sinst};
+        sinst=cvr::stereo::pair_probe::BeforeDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,
+                                                  t_current_pso,2,pairArgs,sinst);
+    }
+    maybe_marker(self,true);
     shader_census(cvr::hidden_area::shaders::Kind::DrawIndexed,idx,inst,0);
     cascade_draw_seen();
     // The sight's exact draw shape, from the capture: 6 indices, one instance, no index or vertex
@@ -2168,15 +2223,19 @@ static void lens_mask(ID3D12GraphicsCommandList* self,const CommandListVtableHoo
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
         cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,t_view_side,e->shading_rate_original,e->shading_image_original);
         cvr::stereo::target_handoff::Draw(self);cvr::stereo::target_access::Shader(self,true);
-        const auto costAction=geometry_cost_action();
+        const auto costAction=geometry_cost_action(self);
         cvr::optics::FullRateDraw fullRate(self,t_current_pso,e->shading_rate_original);
-        if(costAction!=cvr::stereo::geometry_cost::Action::Skip){
-            {GeometryCostScissor cost(self,e,costAction);e->drawidx_original(self, idx, inst, si, bv, sinst);}
+        const uint32_t singleArgs[5]{idx,inst,si,uint32_t(bv),sinst};
+        if(costAction!=cvr::stereo::geometry_cost::Action::Skip &&
+           !cvr::single_pass::Draw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,2,singleArgs)){
+            {GeometryCostScissor cost(self,e,costAction);cvr::gpu::scene_profile::DrawBegin(self);
+             e->drawidx_original(self, idx, inst, si, bv, sinst);cvr::gpu::scene_profile::DrawEnd(self);}
             lens_velocity(self,e,idx,inst,si,bv,sinst);
             lens_mask(self,e,idx,inst,si,bv,sinst);
         }
         cvr::stereo::preparation::DrawRecorded(self);
     }
+    cvr::stereo::pair_probe::AfterDraw(self);
     cvr::framegen::CaptureNativeInputs(self);
     if (CyberpunkVR_DrawCensus) draw_census_note(t_vrcam_node_active);
     // The shadow cascade, counted per view. One compare on every other draw in the frame.
@@ -2260,7 +2319,10 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEiNullArgs = 0;
             cvr::stereo::scene_access_trace::Operand(self,args,false,9,UINT32_MAX,argOff,stride?uint64_t(stride)*maxCount:UINT64_MAX);
             if(cnt)cvr::stereo::scene_access_trace::Operand(self,cnt,false,9,UINT32_MAX,cntOff,4);
             if(!stride)shader_census(cvr::hidden_area::shaders::Kind::ExecuteIndirect,maxCount,0,0);   // indirect dispatches
-            const auto costAction=stride?geometry_cost_action():cvr::stereo::geometry_cost::Action::Forward;
+            // Its GPU time is its own node's (it used to run on in the range of the command before it).
+            pair_draw(self,3,maxCount,stride,uint32_t(argOff),0,0);
+            maybe_marker(self,stride!=0);
+            const auto costAction=stride?geometry_cost_action(self):cvr::stereo::geometry_cost::Action::Forward;
             if(costAction!=cvr::stereo::geometry_cost::Action::Skip){GeometryCostScissor cost(self,e,costAction);e->indirect_original(self, sig, maxCount, args, argOff, cnt, cntOff);}
             cvr::stereo::preparation::DrawRecorded(self);
         }

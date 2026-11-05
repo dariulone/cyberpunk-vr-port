@@ -50,6 +50,7 @@ extern "C" {
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereo = 0;
 __declspec(dllexport) int32_t CyberpunkVR_MonoMode = 0;
 __declspec(dllexport) int32_t CyberpunkVR_MonoView = 0;
+__declspec(dllexport) int32_t CyberpunkVR_Afw = 0;
 __declspec(dllexport) int32_t CyberpunkVR_EngineStereoEyeWindows = 1;
 // 1 = the eye cameras turn the TAA jitter into NDC with their own width (half the view's): each eye's samples
 // cover a whole pixel, as the engine's pixel jitter means. 0 = the view's width, as the engine hands it (an eye
@@ -115,7 +116,7 @@ bool g_monoLaunch = false;
 bool ReadSwitch() {
     InitRuntimePaths();
     // On unless the ini says 0: a fresh install's ini has no such key, and a 2.5 install belongs in engine stereo.
-    int value = 1, mono = 0;
+    int value = 1, mono = 0, afw = 0, osr = 0;
     if (FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO)) {
         char line[256];
         while (fgets(line, sizeof(line), file)) {
@@ -124,15 +125,31 @@ bool ReadSwitch() {
                 value = v != 0 ? 1 : 0;
             if (sscanf_s(line, "xr_mono_mode=%d", &v) == 1 || sscanf_s(line, "xr_mono_mode = %d", &v) == 1)
                 mono = v != 0 ? 1 : 0;
+            if (sscanf_s(line, "xr_afw=%d", &v) == 1 || sscanf_s(line, "xr_afw = %d", &v) == 1)
+                afw = v != 0 ? 1 : 0;
+            if (sscanf_s(line, "xr_osr=%d", &v) == 1 || sscanf_s(line, "xr_osr = %d", &v) == 1)
+                osr = v != 0 ? 1 : 0;
         }
         fclose(file);
     }
     g_requested = value != 0;
-    g_monoLaunch = mono != 0;
+    // AFW and OSR (Render/Afw.hpp) are launches of the mono mode's kind -- no engine stereo, no second view, MAIN
+    // through the union of the lens windows -- with MAIN at one eye per frame instead of the head centre.
+    const int turns = cvr::afw::ModeOf(afw != 0, osr != 0);
+    cvr::afw::SetLaunch(turns != 0);
+    cvr::afw::SetMode(turns);
+    CyberpunkVR_Afw = turns;
+    g_monoLaunch = mono != 0 || turns != 0;
     CyberpunkVR_MonoMode = mono;
-    CyberpunkVR_MonoView = mono;
+    CyberpunkVR_MonoView = g_monoLaunch ? 1 : 0;
+    if (turns && value) {
+        value = 0;
+        Log("[engine-stereo] OFF for this launch: %s (the eyes take turns, %s makes the other)\n",
+            turns == cvr::afw::kModeOsr ? "xr_osr=1" : "xr_afw=1",
+            turns == cvr::afw::kModeOsr ? "the port's OSR" : "PureDark's frame warp");
+    }
     // THE MONO MODE STARTS WITHOUT ENGINE STEREO: one picture for both eyes, the window one eye wide.
-    if (mono && value) {
+    if (mono && value && !turns) {
         value = 0;
         Log("[engine-stereo] OFF for this launch: xr_mono_mode=1 (one picture for both eyes)\n");
     }
@@ -585,10 +602,12 @@ void ApplyMonoMode(bool mono) {
     // MAIN at the head centre (the one picture is drawn from between the eyes), and the second view off. Written on
     // the first apply as well: the VRCAM request outlives a launch in the CET bridge, and a launch in stereo after
     // one in mono must not inherit "off".
-    CyberpunkVR_IpdInWorldPos = view ? 0 : 1;
+    // Under AFW MAIN is an eye: Hooks/PatchCamera.cpp puts it at the frame's eye.
+    CyberpunkVR_IpdInWorldPos = (view && !cvr::afw::Launch()) ? 0 : 1;
     CyberpunkVR_SetVrcamEnabled(view ? 0u : 1u);
-    Log("[mono] %s\n", view ? "ON: one picture from the head centre for both eyes, VRCAM off"
-                            : "OFF: MAIN is one eye, VRCAM the other");
+    Log("[mono] %s\n", cvr::afw::Launch() ? "AFW/OSR: MAIN draws the eyes in turn, VRCAM off"
+                        : view ? "ON: one picture from the head centre for both eyes, VRCAM off"
+                               : "OFF: MAIN is one eye, VRCAM the other");
 }
 
 bool Rendering() {

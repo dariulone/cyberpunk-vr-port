@@ -53,6 +53,9 @@ struct OpenXRHeadPose {
     cvr::body::BendSample bodyBend{};
     float crouchDepth{};
     bool physicalCrouch{};
+    // AFW (Render/Afw.hpp): the eye MAIN was placed at for the frame this pose was written into, 0 or 1; -1 when
+    // MAIN was not placed for AFW. Travels with the picture in its pose label.
+    int8_t afwEye = -1;
 };
 
 // Aggregated VR-controller snapshot, queried each frame from the XInput hook
@@ -744,6 +747,9 @@ public:
     // Published to shared[23], read by the CET Holster mod via GetVRSharedSlot(23).
     void SetImmersiveHolsters(int v) { m_immersiveHolsters.store(v, std::memory_order_relaxed); }
     int GetImmersiveHolsters() const { return m_immersiveHolsters.load(std::memory_order_relaxed); }
+    // Hands only: 1 = the player's body drawn as its hands alone. Published to shared[173] (vrshared::kBodyHandsOnly).
+    void SetBodyHandsOnly(int v) { m_bodyHandsOnly.store(v, std::memory_order_relaxed); }
+    int GetBodyHandsOnly() const { return m_bodyHandsOnly.load(std::memory_order_relaxed); }
     // Read a shared-mem slot (plugin publishes the muzzle world forward to [24..26], valid [27]).
     // BOUND = 256: the mapping is 1024 bytes = 256 floats. The old `< 128` bound silently
     // no-opped BOTH sides of the weapon flag when it moved from [126] to [144] (the barrel
@@ -861,6 +867,9 @@ public:
     // Per-frame snapshot of all controller buttons/axes (OpenXR action state).
     // Filled by the frame thread under m_inputMutex; copied out by readers.
     bool GetControllerState(VRControllerState* out) const;
+    // The snapshot before the native overlay's capture clears it. The VR menu reads its trigger here, so a lingering
+    // capture cannot leave the menu without input.
+    bool GetRawControllerState(VRControllerState* out) const;
 
     float GetRuntimeHorizontalFovDeg() const { return m_runtimeHorizontalFovDeg.load(std::memory_order_relaxed); }
     const char* GetSystemName() const { return m_systemName; }
@@ -974,6 +983,7 @@ private:
     // Latest controller snapshot, owned by the frame thread.
     mutable std::mutex m_inputMutex;
     VRControllerState m_controllerState{};
+    VRControllerState m_rawControllerState{};
     // Yaws (radians, recenter-base relative) for hand-oriented locomotion.
     std::atomic<float> m_handYawRelToBody[2]{ {0.0f}, {0.0f} };
     std::atomic<bool>  m_handYawValid[2]{ {false}, {false} };
@@ -1024,6 +1034,7 @@ private:
     std::atomic<int> m_vrHandTrackingMode{4};
     std::atomic<int> m_weaponAimEnable{1};
     std::atomic<int> m_immersiveHolsters{1};   // 1 = visual-holster equip (default), 0 = simple slot mapping
+    std::atomic<int> m_bodyHandsOnly{0};       // 1 = only the hands of the player's body are drawn
     float* m_sharedHandsPtr = nullptr;   // cached shared-mem view (set in OnPresent) for GetSharedSlot
 
     // VR hand IK calibration, pushed from the overlay into shared-mem slots [33..47] each
@@ -1085,6 +1096,45 @@ private:
     ID3D12Fence* m_fence = nullptr;
     HANDLE m_fenceEvent = nullptr;
     UINT64 m_fenceValue = 0;
+    // The fence value of the last submission recorded from each allocator: it may be reset once m_fence passes it.
+    UINT64 m_cmdAllocatorFence[3] = {};
+    // THE LAST FRAME THE RUNTIME ACCEPTED, sent again when a display cycle has nothing new to submit (the
+    // allocator still busy, no snapshot, a failed acquire). An end with no layer is not "hold the last
+    // frame": the OpenXR simulator wipes its view to black on one, and a headset runtime shows nothing.
+    // The layers name swapchains whose last RELEASED image is still that frame's, so they are valid as
+    // they stand; the HUD quads are pointers to their own layer structs, unchanged while no Prepare
+    // runs, which is why the record is dropped the moment one does (OpenXRFrameLoop.cpp).
+    struct LastSubmission {
+        bool valid = false;
+        bool menuQuad = false;
+        uint32_t viewCount = 0;
+        XrTime submittedAt = 0;
+        XrSpace localSpace = XR_NULL_HANDLE;
+        XrSwapchain color[2] = {};
+        XrSwapchain depth[2] = {};
+        XrCompositionLayerProjectionView views[2] = {};
+        XrCompositionLayerDepthInfoKHR depthInfo[2] = {};
+        XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        static constexpr uint32_t kMaxExtra = 32;
+        const XrCompositionLayerBaseHeader* extra[kMaxExtra] = {};
+        uint32_t extraCount = 0;
+    } m_lastSubmission;
+    bool ResubmitLastFrame(XrTime displayTime);
+    // THE CAPTURED FRAME ALREADY IN THE EYE SWAPCHAINS. When the game runs slower than the display, every display
+    // cycle used to acquire new swapchain images and copy the SAME captured frame into them again (colour and depth,
+    // ~0.25 ms of GPU a cycle at 2648x2864 on an RTX 3060). A cycle whose frame is the one copied last skips the
+    // acquire, the copies and the release: its layers name the same swapchains, and xrEndFrame composites each
+    // swapchain's most recently released image (OpenXR 1.0/1.1, xrReleaseSwapchainImage / xrEndFrame), which holds
+    // this frame already. Everything else of the cycle (poses, HUD quads, menus) runs as before.
+    // CyberpunkVR_XrReuseImages 0 copies every cycle (A/B).
+    struct LastCopy {
+        bool valid = false;
+        uint64_t serial = 0;
+        ID3D12Resource* source[2] = {};
+        XrSwapchain color[2] = {};
+        bool depthUsed = false;
+        XrCompositionLayerDepthInfoKHR depthInfo[2] = {};
+    } m_lastCopy;
     std::mutex m_captureMutex;
     ID3D12CommandAllocator* m_captureCmdAllocators[3] = {};
     uint32_t m_captureAllocatorIndex = 0;
@@ -1092,6 +1142,7 @@ private:
     ID3D12Fence* m_captureFence = nullptr;
     HANDLE m_captureFenceEvent = nullptr;
     UINT64 m_captureFenceValue = 0;
+    UINT64 m_captureAllocatorFence[3] = {};   // as m_cmdAllocatorFence, on m_captureFence
     HANDLE m_monoPresentEvent = nullptr;
     HANDLE m_frameSyncEvent = nullptr;
     ID3D12DescriptorHeap* m_rtvHeap = nullptr;
@@ -1142,6 +1193,9 @@ private:
         // The dark with the boot's notice, nothing else (Render/LoadingScreen.hpp, at the intro's heading): one picture
         // drawn for the main eye, submitted to both eyes with the turn it was drawn for.
         bool oneTurn = false;
+        // The eye this picture is: CyberpunkVR_MainIsRightEye as it stood for the frame -- under AFW it turns over
+        // every frame (Render/Afw.hpp), and the submit routes the frame it carries, not the switch's state now.
+        int8_t mainEye = 1;
     };
     std::vector<EyeSwapchain> m_eyeSwapchains;
     CapturedMonoFrame m_monoCapturedFrame;

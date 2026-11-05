@@ -122,7 +122,7 @@ function B.drop(v,quantity)
   if quantity==1 then ItemActionsHelper.DropItem(player(),v.id)
   else
     local params=ItemModParams.new();params.itemID=v.id;params.quantity=quantity
-    RPGManager.DropManyItems(player():GetGame(),player(),{params})
+    RPGManager.DropManyItems(player(),{params})
   end
   return true
 end
@@ -131,6 +131,31 @@ function B.disassemble(v,quantity)
   quantity=math.max(1,math.min(a.max,math.floor(quantity or 1)))
   ItemActionsHelper.DisassembleItem(player(),v.id,quantity)
   return true
+end
+-- A batch picked in the backpack's selection mode, whole stacks. Each item is read again as B.actions does for one;
+-- what it does not allow is left where it is and counted. Iconic weapons stay out of a batch disassembly (one at a
+-- time they ask first). Drops go in one DropManyItems call, as the game drops a stack.
+function B.dropMany(list)
+  local params,items,skipped={},0,0
+  for _,v in ipairs(list or {}) do
+    local a=B.actions(v)
+    if a.drop then
+      local p=ItemModParams.new();p.itemID=v.id;p.quantity=a.max;params[#params+1]=p;items=items+a.max
+    else skipped=skipped+1 end
+  end
+  -- (CET fills the GameInstance parameter itself)
+  if #params>0 then RPGManager.DropManyItems(player(),params) end
+  return items,skipped
+end
+function B.disassembleMany(list)
+  local items,skipped=0,0
+  for _,v in ipairs(list or {}) do
+    local a=B.actions(v)
+    if a.disassemble and not a.iconic then
+      ItemActionsHelper.DisassembleItem(player(),v.id,a.max);items=items+a.max
+    else skipped=skipped+1 end
+  end
+  return items,skipped
 end
 -- Every junk item, whole stacks (backpack_main.swift OnDisassembleJunkPopupClosed).
 function B.disassembleJunk(snapshot)

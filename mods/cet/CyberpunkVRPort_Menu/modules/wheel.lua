@@ -18,7 +18,7 @@
 --
 -- THE CELLS are the game's (radialWheel.swift) in the shape of its own wheel: the three weapon slots as large
 -- wedges across the top, each on its quality's colour with the ammo under the weapon; arm cyberware as a
--- smaller wedge on the right and the holster (all weapons put away, the game's crossed-out pistol) as a
+-- smaller wedge on the right (the bare fists when there is none, or while it is in hand) and the holster (all weapons put away, the game's crossed-out pistol) as a
 -- smaller one still on the left; the grenades (the RB hotkey) and the consumables (D-pad up) as round cells
 -- below with their count. An empty slot shows the inventory's empty-slot silhouette. Point at a hotkey's cell
 -- and its choices come out on an arc outside the rim; let go over one and it is assigned. Applied with the
@@ -63,6 +63,7 @@ local R_CELLS, R_CELL = 335, A.disc
 local R_ARC, R_CHOICE, ARC_STEP, MAX_CHOICES = 625, 64, 17, 9
 local ARC_KEEP = 0.35                      -- seconds on another cell before the arc folds
 local SMOKE_WAIT = 3.0                     -- seconds the cigarette waits for the weapons to be put away
+local CONSUME_WAIT = 1.0                   -- seconds a chosen consumable waits for its hotkey assignment
 -- the cigarette has no icon of its own (its UIIcon is the placeholder): the pack's
 local CIGARETTE = "UIIcon.base_junk_item_cigarette_pack_a"
 local GLASS_BACK = 0.006
@@ -161,10 +162,78 @@ local function psm(pl)
   return bb
 end
 
+-- Y is also the interactions' second choice: inputUserMappings.xml maps Choice2 to IK_Pad_Y_TRIANGLE as well
+-- as WeaponWheel_Button. While the interaction on screen offers a choice on it -- picking up a body, a
+-- device's second action -- the InteractionActions context takes the button with its prioritised actions
+-- (inputContexts.xml), the game's WeaponWheel action never sees the hold, and its wheel does not open. The
+-- same here: Y stays the game's, and a hold picks the body up.
+-- The choices on screen live on three blackboard entries: the single InteractionChoiceHub, the list hubs,
+-- DialogChoiceHubs (choiceHubs[].choices[].inputActionName), which the game's own left-hand and consumable
+-- transitions test before they take a button (DefaultTransition.AreChoiceHubsActive), and a body's loot window,
+-- LootData. All three are read.
+local Y_CHOICES = { Choice2 = true, Choice2_Hold = true, Choice2_Release = true, PickUpBody = true }
+local uiDefs = nil
+local function choiceOnY()
+  local yes = false
+  pcall(function()
+    uiDefs = uiDefs or Game.GetAllBlackboardDefs().UIInteractions
+    local bb = Game.GetBlackboardSystem():Get(uiDefs)
+    local hub = FromVariant(bb:GetVariant(uiDefs.InteractionChoiceHub))
+    if hub ~= nil and hub.active then
+      for _, c in ipairs(hub.choices or {}) do
+        if Y_CHOICES[NameToString(c.inputAction)] then
+          yes = true
+          return
+        end
+      end
+    end
+    local lists = FromVariant(bb:GetVariant(uiDefs.DialogChoiceHubs))
+    for _, h in ipairs(lists and lists.choiceHubs or {}) do
+      for _, c in ipairs(h.choices or {}) do
+        if Y_CHOICES[NameToString(c.inputActionName)] then
+          yes = true
+          return
+        end
+      end
+    end
+    -- A BODY'S PROMPTS ARE THE LOOT WINDOW'S, on neither entry above: UIInteractions.LootData (looting.swift,
+    -- LootingGameController) carries the corpse's choices -- "Pick up body" is Choice2_Hold there -- and shows them
+    -- while `isActive`. The choices stay in the entry after the look leaves the body; `isActive` does not.
+    -- Measured live on an NCPD corpse 2026-11-03: both hubs empty, the prompt on screen, LootData active.
+    local loot = FromVariant(bb:GetVariant(uiDefs.LootData))
+    if loot ~= nil and loot.isActive then
+      for _, c in ipairs(loot.choices or {}) do
+        if Y_CHOICES[NameToString(c.inputAction)] then
+          yes = true
+          return
+        end
+      end
+    end
+  end)
+  return yes
+end
+
+-- QuickSlotsDecisions.IsplayerInStateAllowedToSelectWeapons: not on a ladder (swimming is checked apart).
+local ladderStates = nil
+local function onLadder(bb)
+  local yes = false
+  pcall(function()
+    if ladderStates == nil then
+      ladderStates = {}
+      for _, n in ipairs({ "Ladder", "LadderSprint", "LadderSlide", "LadderJump" }) do
+        pcall(function() ladderStates[EnumInt(gamePSMDetailedLocomotionStates[n])] = true end)
+      end
+    end
+    yes = ladderStates[bb:GetInt(psmDefs.LocomotionDetailed)] == true
+  end)
+  return yes
+end
+
 -- WeaponWheelDecisions.EnterCondition, as far as script outside the state machine can read it, and the
 -- port's own: no scene, no pause, the VR menu closed.
 local function allowedNow(pl, menuOpen)
   if menuOpen then return false end
+  if choiceOnY() then return false end
   local paused = false
   pcall(function() paused = Game.GetSystemRequestsHandler():IsGamePaused() or Game.GetSystemRequestsHandler():IsPreGame() end)
   if paused then return false end
@@ -179,6 +248,7 @@ local function allowedNow(pl, menuOpen)
   local ok, verdict = pcall(function()
     if bb:GetInt(psmDefs.SceneTier) >= 3 then return false end
     if bb:GetInt(psmDefs.Swimming) > 0 then return false end
+    if onLadder(bb) then return false end
     if bb:GetInt(psmDefs.CombatGadget) > 0 then return false end
     local vehicle = bb:GetInt(psmDefs.Vehicle)
     if vehicle == 4 then return false end                                   -- entering, switching seats
@@ -253,6 +323,21 @@ local function smokeChoice(pl)
     name = has and L.tr("Убрать сигарету", "Put the cigarette away") or L.tr("Сигарета", "Cigarette") }
 end
 
+-- radialWheel.swift GetBaseFists: the fists are the equipment system's item of the BaseFists area, which the
+-- inventory's equipped-in-area query does not list (it answers empty); its item data comes from the transaction
+-- system, as a radial quick slot.
+local function baseFists(ctx, pl)
+  local data = nil
+  pcall(function()
+    local ids = EquipmentSystem.GetItemsInArea(pl, gamedataEquipmentArea.BaseFists)
+    if ids == nil or ids[1] == nil then return end
+    local itemData = Game.GetTransactionSystem():GetItemData(pl, ids[1])
+    if itemData == nil then return end
+    data = ctx.manager:GetInventoryItemData(pl, itemData, false, true)
+  end)
+  return data ~= nil and I.item(ctx, data) or nil
+end
+
 -- The cells' contents, read when the wheel opens (radialWheel.swift: RefreshWeapons, RefreshCyberware,
 -- RefreshHotkeys).
 local function gather(pl)
@@ -268,11 +353,20 @@ local function gather(pl)
         e.item = I.item(ctx, ctx.manager:GetItemDataEquippedInArea(gamedataEquipmentArea.Weapon, s.slot))
         e.blocked = blocked
       elseif s.kind == "cyberware" then
-        local item = I.item(ctx, ctx.manager:GetItemDataEquippedInArea(gamedataEquipmentArea.ArmsCW, 0))
-        if item ~= nil and item.type ~= gamedataItemType.Cyb_Launcher then
+        -- radialWheel.swift RefreshCyberware: the bare fists (BaseFists, Items.w_melee_004__fists_a) when
+        -- no combat arm cyberware is installed, and while the arm cyberware is the thing in hand; Gorilla
+        -- Arms are the fists themselves, so they always show.
+        local cw = I.item(ctx, ctx.manager:GetItemDataEquippedInArea(gamedataEquipmentArea.ArmsCW, 0))
+        if cw ~= nil and cw.type == gamedataItemType.Cyb_Launcher then cw = nil end
+        local strongArms = cw ~= nil and cw.type == gamedataItemType.Cyb_StrongArms
+        local item = cw
+        if cw == nil or (not strongArms and held[cw.key]) then
+          item = baseFists(ctx, pl) or cw
+        end
+        if item ~= nil then
           e.item = item
-          local strongArms = item.type == gamedataItemType.Cyb_StrongArms
-          e.blocked = blocked or (tagged(pl, "NoArmsCW") and not strongArms)
+          e.fists = item ~= cw
+          e.blocked = blocked or (not e.fists and tagged(pl, "NoArmsCW") and not strongArms)
         end
       elseif s.kind == "holster" then
         e.blocked = tagged(pl, "FirearmsNoUnequip")
@@ -316,6 +410,30 @@ local function smoke(pl)
   return true
 end
 
+-- A consumable chosen is USED, as a tap of its hotkey would (upperBodyTransitions.swift: UseConsumable released ->
+-- DPADActionPerformed to the UI, RequestConsumable to the equipment system). The game's own wheel only assigns it to
+-- D-pad up (radialWheel.swift ApplySlot -> BindItem Assign) and leaves the use to that tap -- which in VR is the left
+-- stick click held with the right stick up, a chord no one finds (2026-11-04: "the game does something with
+-- consumables in the wheel, ours nothing"). So the wheel assigns it as the game does and then takes it.
+local function consume(pl)
+  -- (CET fills the GameInstance parameter itself: the call takes the hotkey only)
+  if PlayerGameplayRestrictions.IsHotkeyRestricted(EHotkey.DPAD_UP) then
+    local n = UIInGameNotificationEvent.new()
+    n.m_notificationType = UIInGameNotificationType.ActionRestriction
+    Game.GetUISystem():QueueEvent(n)
+    return
+  end
+  local ev = DPADActionPerformed.new()
+  ev.action = EHotkey.DPAD_UP
+  ev.successful = true
+  Game.GetUISystem():QueueEvent(ev)
+  local r = NewObject("EquipmentSystemWeaponManipulationRequest")
+  r.owner = pl
+  r.requestType = EquipmentManipulationAction.RequestConsumable
+  r.equipAnimType = gameEquipAnimationType.Default
+  equipment():QueueRequest(r)
+end
+
 local function apply(hover)
   local pl = Game.GetPlayer()
   if pl == nil or hover == nil then return false end
@@ -326,10 +444,17 @@ local function apply(hover)
     if s.kind == "misc" then
       local c = hover.choice and e.choices[hover.choice]
       if c ~= nil and c.smoke then return smoke(pl) end
-      if c == nil or (e.item ~= nil and c.key == e.item.key) then return false end
-      local r = HotkeyAssignmentRequest.Construct(c.id, e.hotkey, pl, EHotkeyRequestType.Assign)
-      if not r:IsValid() then return false end
-      equipment():QueueRequest(r)
+      if c == nil then return false end
+      local consumable = s.hotkey == "DPAD_UP"
+      if e.item == nil or c.key ~= e.item.key then
+        local r = HotkeyAssignmentRequest.Construct(c.id, e.hotkey, pl, EHotkeyRequestType.Assign)
+        if not r:IsValid() then return false end
+        equipment():QueueRequest(r)
+      elseif not consumable then
+        return false
+      end
+      -- used once the hotkey holds it (tick): the assignment is a queued request too
+      if consumable then S.consumeAt, S.consumeKey = S.time, I.key(c.id) end
       return true
     end
     if e.blocked then return false end
@@ -938,6 +1063,17 @@ local function tick(dt, menuOpen)
     local ok, v = pcall(VRWeaponWheel, allowed or S.open)
     hold = ok and v or 0
   end
+  -- a consumable chosen, waiting for D-pad up to hold it (consume)
+  if S.consumeAt ~= nil then
+    local ok, onKey = pcall(function() return I.key(equipment():GetItemIDFromHotkey(pl, EHotkey.DPAD_UP)) == S.consumeKey end)
+    if ok and onKey then
+      S.consumeAt = nil
+      local used, err = pcall(consume, pl)
+      if not used then print("[VRWheel] consumable not used: " .. tostring(err)) end
+    elseif S.time - S.consumeAt > CONSUME_WAIT then
+      S.consumeAt = nil
+    end
+  end
   -- a cigarette waiting for the weapons to be put away (smoke)
   if S.smokeAt ~= nil then
     if next(inHand(pl)) == nil then
@@ -1056,9 +1192,9 @@ function Wheel.state()
   for i, e in ipairs(S.slots) do
     slots[i] = { kind = e.sector.kind, angle = e.sector.angle, item = e.item and e.item.name, active = e.active,
       blocked = e.blocked, quality = e.item and e.item.quality, ammo = e.item and e.item.ammo,
-      quantity = e.item and e.item.quantity, choices = e.choices and #e.choices or nil }
+      quantity = e.item and e.item.quantity, choices = e.choices and #e.choices or nil, fists = e.fists }
   end
-  return { open = S.open, allowed = S.allowedValue, hover = S.hover, arc = S.arc, slots = slots,
+  return { open = S.open, allowed = S.allowedValue, choiceOnY = choiceOnY(), hover = S.hover, arc = S.arc, slots = slots,
     screen = S.screen ~= nil and S.screen.id ~= nil, gpu = S.screen and S.screen.gpu, stats = S.stats,
     lastError = S.lastError, anchor = S.anchor }
 end

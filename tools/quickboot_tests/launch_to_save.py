@@ -129,6 +129,10 @@ def find_codex_window(preferred):
     for row in candidates:
         if row["hwnd"] == preferred:
             return preferred
+    # No Codex desktop at all (a launch from a terminal agent, e.g. tools/vr_bench): focus goes back to the window
+    # that had it when the launch began.
+    if not candidates and preferred and user32.IsWindow(preferred) and user32.IsWindowVisible(preferred):
+        return preferred
     if len(candidates) != 1:
         raise RuntimeError(f"Expected one Codex desktop window, found {len(candidates)}")
     return candidates[0]["hwnd"]
@@ -592,6 +596,7 @@ def main():
     parser.add_argument("--family-manifest", type=Path, help="Test process only: create linked stereo families without routing draws")
     parser.add_argument('--reflection-dxc',type=Path,help='Test process only: exact dxcompiler.dll used to inspect unconverted depth shaders')
     parser.add_argument('--source-selector-manifest',type=Path,help='Test process only: track producer intent from startup for an audited selector catalog')
+    parser.add_argument('--game-arg',action='append',default=[],help='Extra game command-line switch (repeatable), e.g. -forceAftermathDebug')
     args = parser.parse_args()
     if args.no_focus and (not args.simulator or not args.simulator.is_file()):
         parser.error('--no-focus requires the exact --simulator DLL')
@@ -650,7 +655,8 @@ def main():
         environment['CVR_STEREO_SOURCE_SELECTORS']=str(args.source_selector_manifest.resolve())
     else:
         environment.pop('CVR_STEREO_SOURCE_SELECTORS',None)
-    process = subprocess.Popen([str(executable)] + ([] if args.start_screen else ["-skipStartScreen"]), cwd=executable.parent, env=environment)
+    process = subprocess.Popen([str(executable)] + ([] if args.start_screen else ["-skipStartScreen"]) + list(args.game_arg),
+                               cwd=executable.parent, env=environment)
     print(f"Launched PID {process.pid}", flush=True)
     deadline = time.monotonic() + args.timeout
     launcher_seen = None

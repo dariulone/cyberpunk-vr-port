@@ -9,6 +9,41 @@ local Wd=require("modules/wardrobe_data")
 local Jobs=require("modules/jobs")
 local Tooltip=require("modules/item_tooltip")
 local B=require("modules/backpack_data")
+local HI=require("modules/holster_icons")
+-- THE HOLSTERS (CyberpunkVRPort_Holster, immersive holsters): each weapon slot's tile carries a badge -- the figure and
+-- its weapon where it hangs -- that opens a row of the places its kind can take (auto, each place, not carried), and
+-- the page has a switch that hides every holstered weapon (players, 2026-11-05). The icons are one atlas
+-- (tools/vr_lobby_assets/make_holster_icons.py); the names are the player's own side (left-handed: turned over).
+local PLACE_NAMES={auto={"АВТО","AUTO"},none={"НЕ\nНОСИТЬ","NOT\nCARRIED"},
+  hip_r={"ПРАВОЕ\nБЕДРО","RIGHT\nHIP"},hip_l={"ЛЕВОЕ\nБЕДРО","LEFT\nHIP"},
+  thigh_r={"ПРАВАЯ\nНОГА","RIGHT\nTHIGH"},thigh_l={"ЛЕВАЯ\nНОГА","LEFT\nTHIGH"},
+  underarm_l={"ПОД ЛЕВОЙ\nРУКОЙ","UNDER\nLEFT ARM"},underarm_r={"ПОД ПРАВОЙ\nРУКОЙ","UNDER\nRIGHT ARM"},
+  chest_l={"ГРУДЬ\nСЛЕВА","LEFT\nCHEST"},chest_r={"ГРУДЬ\nСПРАВА","RIGHT\nCHEST"},
+  shoulder_r={"ЗА ПРАВЫМ\nПЛЕЧОМ","RIGHT\nSHOULDER"},shoulder_l={"ЗА ЛЕВЫМ\nПЛЕЧОМ","LEFT\nSHOULDER"},
+  lower_back={"ПОЯСНИЦА","LOWER\nBACK"}}
+-- The holster mod's menu side, while the holsters are the immersive ones (shared [23] is 1 for the simple ones).
+local function holsterMod()
+  if type(GetVRSharedSlot)=="function" and (GetVRSharedSlot(23) or 0)>0.5 then return nil end
+  local ok,m=pcall(GetMod,"CyberpunkVRPort_Holster")
+  if ok and type(m)=="table" and type(m.slotInfo)=="function" then return m end
+  return nil
+end
+-- "_w" when the player's body is the woman's: her figure (body_w), and a weapon on the back cut by her outline.
+local function figureSuffix()
+  local ok,female=pcall(function() return NameToString(Game.GetPlayer():GetResolvedGenderName())=="Female" end)
+  return (ok and female) and "_w" or ""
+end
+-- The figure, then over it the weapon where it hangs; "none" crosses it out, nil (no place free) leaves it alone.
+local function placeIcon(p,x,y,size,place,family,col,op)
+  local w=figureSuffix()
+  K.image(p,x,y,size,size,HI.ATLAS,HI.parts["body"..w] and "body"..w or "body",K.CYAN,op*.6)
+  if place=="none" then K.image(p,x,y,size,size,HI.ATLAS,"none",K.RED,op)
+  elseif place~=nil then
+    local part=place.."_"..family
+    if HI.parts[part..w] then part=part..w end
+    if HI.parts[part] then K.image(p,x,y,size,size,HI.ATLAS,part,col,op) end
+  end
+end
 return function(C,U)
 local V={}
 local Wardrobe
@@ -95,8 +130,63 @@ Wardrobe=require("modules/wardrobe_view")(C,U,tile)
 local Backpack=require("modules/backpack_view")(C,U)
 -- the game's own word for it where it has one
 local function loc(key,ru,en) local t=I.loc(key);if t~="" and t~=key then return t end;return L.tr(ru,en) end
+-- A weapon slot's holster badge, (x, y) its top-left: where the weapon hangs, a tap opens the places it can take.
+local function holsterBadge(kit,p,origin,x,y,slot,H)
+  local ok,info=pcall(H.slotInfo,slot)
+  if not ok or info==nil then return end
+  local s=inv(kit)
+  local place=info.choice=="none" and "none" or info.place
+  local bg=K.roundFill(p,x,y,84,84,K.BLACK,.62,6)
+  local edge=K.cutFrame(p,x,y,84,84,K.CYAN,.4,7,1)
+  -- the dual wielding pair hangs on both hips over any choice: both guns shown, nothing to pick
+  if info.pair then
+    placeIcon(p,x+4,y+4,76,info.place,info.family,K.YELLOW,1)
+    local other=(info.place=="hip_r" and "hip_l" or "hip_r").."_"..info.family
+    if HI.parts[other..figureSuffix()] then other=other..figureSuffix() end
+    if HI.parts[other] then K.image(p,x+4,y+4,76,76,HI.ATLAS,other,K.YELLOW,1) end
+    K.text(p,x+4,y+60,74,22,"x2",18,K.CYAN,"right")
+  else
+    placeIcon(p,x+4,y+4,76,place,info.family,K.YELLOW,1)
+    if info.choice=="auto" then K.text(p,x+4,y+60,74,22,"A",18,K.CYAN,"right") end
+  end
+  local b=kit.button("p1",origin,x,y,84,84,function()
+    if info.pair then kit.toast(tr(kit,"Две пушки висят на бёдрах","Dual wielding: both guns hang on the hips"));return end
+    s.holsterPick=slot;C.redraw(kit)
+  end,function(h)
+    K.tint(edge,h and K.YELLOW or K.CYAN,h and 1 or .4);bg:SetOpacity(h and .8 or .62)
+  end)
+  b.key="holsterSlot"..slot
+end
+-- The row of places for weapon slot `slot`, over its tile: auto, each place its kind can take, not carried.
+local function holsterPicker(kit,p,origin,x,y,w,h,slot,H)
+  local s=inv(kit)
+  local ok,info=pcall(H.slotInfo,slot)
+  if not ok or info==nil then s.holsterPick=nil;return end
+  local opts={{name="auto",shown=info.choice=="auto" and info.place or info.auto,label="auto"}}
+  for _,c in ipairs(info.choices) do opts[#opts+1]={name=c.name,shown=c.shown,label=c.shown} end
+  opts[#opts+1]={name="none",shown="none",label="none"}
+  K.roundFill(p,x,y,w,h,K.BLACK,.94,6);K.cutFrame(p,x,y,w,h,K.YELLOW,.85,10,1.5)
+  -- a tap beside the places closes the row
+  kit.button("p1",origin,x,y,w,h,function() s.holsterPick=nil;C.redraw(kit) end,nil).key="holsterPickClose"
+  local cw=math.floor((w-16)/#opts);local size=math.min(88,cw-14)
+  for i,o in ipairs(opts) do
+    local cx=x+8+(i-1)*cw;local selected=info.choice==o.name
+    -- the one chosen framed, not filled: its icon stays readable
+    local cell=K.roundFill(p,cx+2,y+10,cw-4,h-20,K.CYAN,.05,4)
+    if selected then K.cutFrame(p,cx+2,y+10,cw-4,h-20,K.YELLOW,.95,8,2) end
+    placeIcon(p,cx+math.floor((cw-size)/2),y+16,size,o.shown,info.family,selected and K.YELLOW or K.CYAN,1)
+    local nm=PLACE_NAMES[o.label] or {o.label,o.label}
+    K.text(p,cx+2,y+20+size,cw-4,h-30-size,L.tr(nm[1],nm[2]),18,selected and K.YELLOW or K.TEXT,"center")
+    kit.button("p1",origin,cx+2,y+10,cw-4,h-20,function()
+      if H.setPlace(slot,o.name) then s.holsterPick=nil;C.redraw(kit)
+      else kit.toast(tr(kit,"Не удалось сохранить настройку","Unable to save preference")) end
+    end,function(hv)
+      cell:SetTintColor(K.color(hv and K.YELLOW or K.CYAN));cell:SetOpacity(hv and .16 or .05)
+    end).key="holsterPick:"..o.name
+  end
+end
 local function choose(kit,area,slot)
-  local s=inv(kit);s.area=area;s.slot=slot or 0;s.part=nil;s.selection=nil;s.filter="all";s.confirm=nil
+  local s=inv(kit);s.area=area;s.slot=slot or 0;s.part=nil;s.selection=nil;s.filter="all";s.confirm=nil;s.holsterPick=nil
   if area=="Weapon" then s.weaponSlot=slot end
   redraw(kit)
 end
@@ -126,10 +216,19 @@ function V.draw(kit,p,p2)
     return
   end
   U.title(p,tr(kit,"СНАРЯЖЕНИЕ","INVENTORY"),W)
-  action(kit,p,kit.P1X,24,1210,404,Pref.characterModel and "МОДЕЛЬ: ВКЛ" or "МОДЕЛЬ: ВЫКЛ",Pref.characterModel and "MODEL: ON" or "MODEL: OFF",function()
+  local Hol=not s.area and holsterMod() or nil
+  action(kit,p,kit.P1X,24,1210,Hol and 300 or 404,Pref.characterModel and "МОДЕЛЬ: ВКЛ" or "МОДЕЛЬ: ВЫКЛ",Pref.characterModel and "MODEL: ON" or "MODEL: OFF",function()
     if Pref.setCharacterModel(not Pref.characterModel) then Preview.release(kit);C.redraw(kit)
     else kit.toast(tr(kit,"Не удалось сохранить настройку","Unable to save preference")) end
   end,true,"inventoryModelToggle")
+  if Hol then
+    -- every holstered weapon unseen on the body (still there to draw), or seen again
+    local hidden=Hol.hidden()==true
+    U.action(kit,p,kit.P1X,334,1210,300,tr(kit,hidden and "ХОЛСТЕРЫ: СКРЫТЫ" or "ХОЛСТЕРЫ: ВИДНЫ",hidden and "HOLSTERS: HIDDEN" or "HOLSTERS: SHOWN"),function()
+      if Hol.setHidden(not hidden) then C.redraw(kit)
+      else kit.toast(tr(kit,"Не удалось сохранить настройку","Unable to save preference")) end
+    end,true,68,26).key="inventoryHolsterToggle"
+  end
   state.inventoryComparison=nil
   local origin=kit.at(kit.P1X,kit.P1Y)
   if not s.area then
@@ -150,6 +249,14 @@ function V.draw(kit,p,p2)
       end
     end
     Preview.show(kit,p,486,100,760,1080)
+    -- the holster badges just right of the slots, over the preview's empty edge (drawn after it, on top), and the row
+    -- of places, wider than a slot so every name fits (players, 2026-11-05: "a little to the right of the slot")
+    if Hol then
+      for slot=0,2 do
+        if I.equipped(ctx,"Weapon",slot) then holsterBadge(kit,p,origin,488,163+slot*222+60,slot,Hol) end
+      end
+      if s.holsterPick~=nil then holsterPicker(kit,p,origin,24,163+s.holsterPick*222,760,205,s.holsterPick,Hol) end
+    end
     for i,area in ipairs(I.clothes) do
       local x,y=1260+((i-1)%2)*250,155+math.floor((i-1)/2)*258
       K.text(p,x,y-47,234,43,label(kit,area),25,K.WHITE)
@@ -352,7 +459,7 @@ end
 function V.leave(kit)
   local s=C.state(kit);Preview.release(kit)
   I.close(s.inventoryContext);s.inventoryContext=nil;s.inventoryRefreshAt=nil;s.inventoryPoll=nil;s.inventorySeq=nil
-  if s.inventory then s.inventory.wardrobe=nil;s.inventory.wardrobeDelete=nil;Backpack.leave(s.inventory) end
+  if s.inventory then s.inventory.wardrobe=nil;s.inventory.wardrobeDelete=nil;s.inventory.holsterPick=nil;Backpack.leave(s.inventory) end
 end
 return V
 end

@@ -115,6 +115,8 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         // zero-initialized shared block defaults to the immersive (current) behaviour before the first
         // publish. The CET Holster mod reads this via GetVRSharedSlot(23).
         s_pSharedHands[23] = (m_immersiveHolsters.load(std::memory_order_relaxed) != 0) ? 0.0f : 1.0f;
+        // shared[173]: 1 = hands only (the CET HandsOnly mod hides the rest of the body, NeckCap keeps the cap off).
+        s_pSharedHands[vrshared::kBodyHandsOnly] = m_bodyHandsOnly.load(std::memory_order_relaxed) != 0 ? 1.0f : 0.0f;
         s_pSharedHands[59] = 5.0f;  // mode 5 = game muzzle xform (the working solution)
         // [70..75]: anatomical HMD/body->shoulder offsets (auto-calibration result).
         // Right (rx,ry,rz), then left (lx,ly,lz). [76] = valid flag. Kept outside

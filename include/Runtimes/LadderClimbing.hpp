@@ -47,6 +47,7 @@ struct Geometry {
     struct Segment { Vec a,b; };
     Vec position{},normal{},up{},right{};
     float height{},topStep{},halfWidth=.30f,rungStep=.40f,firstRung=.40f;
+    float measuredTop{};   // the top of the ladder's highest module, measured from its meshes (0 = not known)
     Segment topRails[10]{};
     int topRailCount{};
     uint64_t identity{};
@@ -59,8 +60,17 @@ struct Geometry {
         valid=halfWidth>.1f && halfWidth<1 && rungStep>.1f && rungStep<1 && std::isfinite(firstRung) &&
             std::isfinite(topStep) && std::abs(topStep)<=1 && identity!=0;return valid;
     }
-    // The state-machine exit plane is one step below the physical top.
-    float PhysicalTop() const { return height-std::min(topStep,0.0f); }
+    // The state-machine exit plane is one step below the physical top -- on the ladders it was measured on. The
+    // description does not always say where the ladder ends: a 10 m ladder of two 4 m modules and a 2 m one under a
+    // finisher rail says 9.1 and -0.3, and its two last rungs (9.6, 10.0) and the rail could not be gripped (players,
+    // 2026-11-05: "on a long ladder, at the end, it does not take the last rung"). Its modules say it: their rungs stand
+    // every 0.4 m from the foot up to each module's top (generic_ladder_a/b/c, every height), so the top of the highest
+    // module (SetMeasuredTop) is the last rung's height when it is known.
+    float PhysicalTop() const { return measuredTop>0 ? measuredTop:height-std::min(topStep,0.0f); }
+    bool SetMeasuredTop(float top) {
+        if(!valid || !std::isfinite(top) || top<height-1 || top>height+3 || top>100)return false;
+        measuredTop=top;return true;
+    }
     bool SetTopRails(Vec origin,Vec x,Vec y,Vec z) {
         if(!valid || !Finite(origin) || !Normalize(x) || !Normalize(y) || !Normalize(z) ||
             Dot(z,up)<.98f || std::abs(Dot(x,right))<.98f || std::abs(Dot(y,normal))<.98f)return false;
@@ -178,7 +188,12 @@ public:
         const float signedPull=movingHands ? pull/float(movingHands):0;
         const float remaining=g.height-f.height;
         const float finishDistance=std::clamp(f.finishDistance,.2f,1.2f);
-        if(!f.autoFinish || remaining>finishDistance || remaining<-.35f ||
+        // THE FLOOR AT THE TOP CAN LIE ABOVE THE EXIT PLANE: by -topStep (0.4 m on the
+        // generic ladders with a finisher). The climb used to stop 0.35 m past the plane,
+        // short of that floor, and V dropped back down the ladder on exactly those ladders
+        // (players, 2026-11-04: "on some ladders the character falls at the end").
+        const float floorAbove=std::max(0.0f,-std::min(g.topStep,0.0f));
+        if(!f.autoFinish || remaining>finishDistance || remaining<-(floorAbove+.35f) ||
             (!f.handValid[0] && !f.handValid[1]) || signedPull<-.008f) {
             m_finishing=false;m_upIntent=0;
         } else if(!m_finishing) {
@@ -189,7 +204,9 @@ public:
         }
         if(m_finishing) {
             if(f.height>m_bestHeight+.01f) { m_bestHeight=f.height;m_progressStamp=now; }
-            if(now-m_finishStart>4000000 || now-m_progressStamp>700000) {
+            // Over the top the native exit carries V forward before it lifts it again, so a
+            // pause in height is no stall until it has lasted a while.
+            if(now-m_finishStart>4000000 || now-m_progressStamp>1200000) {
                 m_finishing=false;m_upIntent=0;
             }
         }

@@ -349,6 +349,74 @@ local function handGrip(g, hand, across)
     return m
 end
 
+-- THE HANDLE ON ONE SIDE (`slide.handleSide`). The mirror above moves the grip to the gun's other side: right for a
+-- pistol's slide, a top handle or a lever with a knob on each side, but a handle that sticks out of one side only
+-- (the Saratoga's and the Kolac's on the left, the SOR-22's on the right; measured off the meshes, the slide bone's
+-- vertices) is not there, and the right hand closed on air. Such a grip stays on its side. Any reflection through a
+-- plane holding the handle's own axis (across the gun, through the slot -- the bone sits at the knob's height to
+-- within a centimetre) turns the recorded left hand into a right hand on the same knob, and the knob is round about
+-- that axis, so the set of right-hand grips on it is the reflection through the horizontal plane (`up`) turned by
+-- any angle about the axis: over the top, from behind, from below. SIDE_STEPS of them are offered and the one
+-- nearest to where the hand really is, at the orientation it really has, wins (the detection loop). 'both' (a knob
+-- on each side) offers the mirrored grip on the near side as well.
+local SIDE_STEPS = 12
+local sideGrips = {}
+local function reflectGrip(g, up, across, phi)
+    local p, q = across % 3 + 1, (across + 1) % 3 + 1          -- the plane turned about `across`, right-handed
+    local c, s = math.cos(phi), math.sin(phi)
+    local function move(v)
+        if v == nil then return nil end
+        local o = { v[1], v[2], v[3] }
+        o[up] = -o[up]
+        local a, b = o[p], o[q]
+        o[p], o[q] = c * a - s * b, s * a + c * b
+        return o
+    end
+    local m = {}
+    for k, v in pairs(g) do m[k] = v end
+    m.off, m.previewOff = move(g.off), move(g.previewOff)
+    if g.rot then
+        local h = { 0.0, 0.0, 0.0 }
+        h[up] = 1.0
+        local r1, r2, r3, r4 = qmul(h[1], h[2], h[3], 0.0, g.rot[1], g.rot[2], g.rot[3], g.rot[4])
+        local t = { 0.0, 0.0, 0.0 }
+        t[across] = math.sin(phi * 0.5)
+        m.rot = { qmul(t[1], t[2], t[3], math.cos(phi * 0.5), r1, r2, r3, r4) }
+    end
+    return m
+end
+
+-- The grips the working hand is offered for a recorded one: the recorded grip for the left hand, and for the right
+-- the mirrored one, the same-side ones, or both (handleSide nil, 'left' / 'right', 'both'). Cached per grip: the
+-- detection loop runs every frame a gun is held and must not make tables.
+local NO_GRIPS = {}
+local function handGrips(g, hand, weaponBasis, side)
+    if g == nil then return NO_GRIPS end
+    if hand ~= 1 then side = 'recorded'
+    elseif side ~= 'left' and side ~= 'right' and side ~= 'both' then side = 'mirror' end
+    local byGrip = sideGrips[g]
+    if byGrip == nil then byGrip = {}; sideGrips[g] = byGrip end
+    local bySide = byGrip[side]
+    if bySide == nil then bySide = {}; byGrip[side] = bySide end
+    local b = weaponBasis and 1 or 2
+    local list = bySide[b]
+    if list then return list end
+    local across, up = weaponBasis and 1 or 3, weaponBasis and 3 or 2
+    if side == 'recorded' then
+        list = { g }
+    elseif side == 'mirror' then
+        list = { handGrip(g, hand, across) }
+    else
+        list = {}
+        if side == 'both' then list[1] = handGrip(g, hand, across) end
+        for k = 0, SIDE_STEPS - 1 do
+            list[#list + 1] = reflectGrip(g, up, across, k * 2.0 * math.pi / SIDE_STEPS)
+        end
+    end
+    bySide[b] = list
+    return list
+end
+
 -- THE MAGAZINE IN THE OTHER HAND. Every magazine hold -- `holdOffset` / `holdRotBasis` and the pose stages -- was
 -- measured in the LEFT hand's WeaponLeft slot. The right hand's WeaponRight is that slot mirrored through the body
 -- with its own X turned over: live (2026-11-01) the right wrist -> slot relation, bones 24 -> 28, reads the left's
@@ -2595,34 +2663,45 @@ function M.frame(weapon, slotComp, holder, dt)
                     end
                 end
                 for styleName, recorded in pairs(sc.grips) do
-                    local g = handGrip(recorded, free, gWeapon and 1 or 3)  -- the right hand's: mirrored
-                    local tx, ty, tz = gripTarget(g, true)      -- detection only; the hold stays where it was
-                    local ri, rj, rk, rw
-                    if g.rot then ri, rj, rk, rw = qmul(b1, b2, b3, b4, g.rot[1], g.rot[2], g.rot[3], g.rot[4]) end
-                    -- no tables here: this runs every frame a gun is held, and per-frame Lua garbage is what the
-                    -- GC hitches were made of
-                    for vi = 1, cqi and 2 or 1 do
-                        local vx, vy, vz, vqi, vqj, vqk, vqr = tx, ty, tz, ri, rj, rk, rw
-                        if vi == 2 then
-                            local ox, oy, oz = qrot(cqi, cqj, cqk, cqr, tx - spx, ty - spy, tz - spz)
-                            vx, vy, vz = spx + ox, spy + oy, spz + oz
-                            if ri then vqi, vqj, vqk, vqr = qmul(cqi, cqj, cqk, cqr, ri, rj, rk, rw) end
-                        end
-                        local d = len3(hx - vx, hy - vy, hz - vz)
-                        dbgPer = (dbgPer or '') .. string.format(' %s%s:d=%.3f', styleName, vi == 2 and '~' or '', d)
-                        if dbgRaw == nil or d < dbgRaw then dbgRaw = d end
-                        if d < bestD then
-                            local angOk = true
-                            if hq and vqi then
-                                local dq = math.abs(hq.i * vqi + hq.j * vqj + hq.k * vqk + hq.r * vqr)
-                                if dq > 1.0 then dq = 1.0 end
-                                local a = 2.0 * math.deg(math.acos(dq))
-                                dbgPer = dbgPer .. string.format('/a=%.0f', a)
-                                if dbgAng == nil or a < dbgAng then dbgAng = a end
-                                angOk = a <= (sc.styleAngleMax or 60.0)
+                    -- the right hand's: mirrored, or kept on the handle's side (handGrips)
+                    local list = handGrips(recorded, free, gWeapon, sc.handleSide)
+                    -- one debug entry per recorded grip: its nearest candidate (a one-sided handle offers twelve)
+                    local gd, ga, gTilt = nil, nil, false
+                    for li = 1, #list do
+                        local g = list[li]
+                        local tx, ty, tz = gripTarget(g, true)      -- detection only; the hold stays where it was
+                        local ri, rj, rk, rw
+                        if g.rot then ri, rj, rk, rw = qmul(b1, b2, b3, b4, g.rot[1], g.rot[2], g.rot[3], g.rot[4]) end
+                        -- no tables here: this runs every frame a gun is held, and per-frame Lua garbage is what the
+                        -- GC hitches were made of
+                        for vi = 1, cqi and 2 or 1 do
+                            local vx, vy, vz, vqi, vqj, vqk, vqr = tx, ty, tz, ri, rj, rk, rw
+                            if vi == 2 then
+                                local ox, oy, oz = qrot(cqi, cqj, cqk, cqr, tx - spx, ty - spy, tz - spz)
+                                vx, vy, vz = spx + ox, spy + oy, spz + oz
+                                if ri then vqi, vqj, vqk, vqr = qmul(cqi, cqj, cqk, cqr, ri, rj, rk, rw) end
                             end
-                            if angOk then best, bestStyle, bestD = g, styleName, d end
+                            local d = len3(hx - vx, hy - vy, hz - vz)
+                            local a = nil
+                            if dbgRaw == nil or d < dbgRaw then dbgRaw = d end
+                            if gd == nil or d < gd then gd, gTilt = d, vi == 2 end
+                            if d < bestD then
+                                local angOk = true
+                                if hq and vqi then
+                                    local dq = math.abs(hq.i * vqi + hq.j * vqj + hq.k * vqk + hq.r * vqr)
+                                    if dq > 1.0 then dq = 1.0 end
+                                    a = 2.0 * math.deg(math.acos(dq))
+                                    if dbgAng == nil or a < dbgAng then dbgAng = a end
+                                    if ga == nil or a < ga then ga = a end
+                                    angOk = a <= (sc.styleAngleMax or 60.0)
+                                end
+                                if angOk then best, bestStyle, bestD = g, styleName, d end
+                            end
                         end
+                    end
+                    if gd ~= nil then
+                        dbgPer = (dbgPer or '') .. string.format(' %s%s:d=%.3f', styleName, gTilt and '~' or '', gd)
+                        if ga ~= nil then dbgPer = dbgPer .. string.format('/a=%.0f', ga) end
                     end
                 end
             end

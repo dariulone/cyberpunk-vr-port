@@ -100,6 +100,28 @@ void VRIK_ComputeFK(uint8_t* boneBuf, int count);
 // Runtime name/parent tables, never hardcoded indices. Reference transforms use
 // the engine's48-byte local QsTransform layout.
 void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* reference,int referenceCount,bool female=false);
+// V's reference pose for full-body tracking calibration (Fbt/Game/Calibration.cpp), model space (game axes: x right,
+// y forward, z up, metres): the eye midpoint (V's view point), the eye midpoint in the Head bone's frame, and the
+// bones the trackers drive. Taken from the loaded rig's reference pose, without the port's neutral spine flex.
+struct VrikFbtReference {
+    bool valid{},female{};
+    float eye[3]{},eyeInHead[3]{};
+    float hipsPos[3]{},hipsRot[4]{0,0,0,1},headPos[3]{},headRot[4]{0,0,0,1};
+    float footPos[2][3]{},footRot[2][4]{{0,0,0,1},{0,0,0,1}};   // [0] left, [1] right
+    float upperArmPos[2][3]{},foreArmPos[2][3]{};               // the arms' reference direction (T or A pose)
+    float handPos[2][3]{};                                       // the wrists (the hand bones)
+};
+bool VRIK_ReadFbtReference(VrikFbtReference* out);
+// The rig file last written for offline IK tools (fbt_rig_<male|female>_<bones>.txt next to the game) for that body:
+// the shared full-body IK (src/Fbt) loads V's skeleton from it. False until such a rig has loaded.
+bool VRIK_FbtRigPath(bool female,char* out,size_t size);
+// Full-body tracking (Fbt/Game/Body.cpp) wrote this leg bone in this body solve: the model cache replays it, as it
+// does the crouch bend's legs.
+void VRIK_MarkLegOwned(int bone);
+// While full-body tracking calibrates: V's body (Hips and everything under it) in the rig's reference pose (T-pose),
+// written over whatever the animation and the solve left. The fppCamera bones keep their model pose, so the view does
+// not move. Called at the end of every player pose pass.
+void VRIK_HoldReferencePose(uint8_t* boneBuf);
 extern bool g_VRUpperOwned[VRIK_MAX_BONES];
 extern int g_VRShadowSource[VRIK_MAX_BONES];
 extern bool g_VRHeadReferenceValid;

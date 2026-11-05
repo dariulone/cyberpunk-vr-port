@@ -6,11 +6,11 @@
 #
 # Usage:
 #   pwsh scripts\build_dist.ps1
-#   pwsh scripts\build_dist.ps1 -Version 0.2.1 -Zip
+#   pwsh scripts\build_dist.ps1 -Version 0.2.2 -Zip
 
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$')]
-    [string]$Version = "0.2.1",
+    [string]$Version = "0.2.2",
     # The game 2.5 build tree (RED4ext.SDK game-2.5); build\ is the old 2.31 tree and its DLL is stale.
     [string]$BuildDir = "build\patchday\sdk25-build",
     [switch]$Zip,
@@ -118,7 +118,7 @@ foreach ($hash in @('3bec9b299e5c0610', '601954c7c7c00b49', 'b098a198a7565e1d', 
 # The screen-space and planar reflection twins, same reason: without them reflections are traced from the
 # wrong points. One per SSR quality's trace (tools/asym_tests/asym_ssr_shaders.py); the traces and the clear of
 # the tiles without coarse hits (c36da...) also merge the two eyes' reflections (Render/SsrWideMerge.cpp).
-foreach ($hash in @('842ab722bfe403cd', 'b86f8871454997e6', 'c827b32cf54f25fb', '8661cc86756e2ecc', 'acaedc11005a92d0', '5e01aaacc7c617d2', 'e5741046a837b9cc')) {
+foreach ($hash in @('842ab722bfe403cd', 'b86f8871454997e6', 'c827b32cf54f25fb', '8661cc86756e2ecc', '07c867b70fba5da4', 'acaedc11005a92d0', '5e01aaacc7c617d2', 'e5741046a837b9cc')) {
     Add-File (Need (Join-Path $RepoRoot "src\Shaders\asym_ssr\$hash.dxil") "SSR shift twin $hash") "red4ext\plugins\cyberpunkvrport\shaders\asym_ssr\$hash.dxil"
 }
 # The shadow-mask twin: merges the two eyes' sun contact shadows as one wide display (Render/SsrWideMerge.cpp).
@@ -147,11 +147,33 @@ foreach ($name in @("1a6a7c32da1959d6.dxil", "d1b593e255bfcb11.dxil")) {
 # The screen-effect twin (tools/asym_tests/screen_fx_shaders.py): the Sandevistan's look without its radial smear
 # and block tearing around each eye's screen middle.
 Add-File (Need (Join-Path $RepoRoot "src\Shaders\screen_fx\6924aa01ad878186.dxil") "Sandevistan screen-effect twin") "red4ext\plugins\cyberpunkvrport\shaders\screen_fx\6924aa01ad878186.dxil"
+# The merged tiled-light twins (tools/asym_tests/stereo_light_merge_shaders.py): both eyes' tiles lit in the left
+# eye's dispatch (CyberpunkVR_StereoLightMergePatch).
+Get-ChildItem -LiteralPath (Need (Join-Path $RepoRoot "src\Shaders\stereo_light_merge") "merged tiled-light twins") -Filter *.dxil |
+    ForEach-Object { Add-File $_.FullName "red4ext\plugins\cyberpunkvrport\shaders\stereo_light_merge\$($_.Name)" }
+# Single-pass stereo rewrites the engine's shaders in process with the DirectX shader compiler
+# (src/Render/ViewTwinCompiler.cpp): dxcompiler.dll and dxil.dll beside the plugin (dxc\), from the Windows SDK.
+$DxcDir = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64"
+foreach ($n in @("dxcompiler.dll", "dxil.dll")) {
+    Add-File (Need (Join-Path $DxcDir $n) "DirectX shader compiler $n") "red4ext\plugins\cyberpunkvrport\dxc\$n"
+}
 # The engine-stereo merge twins (tools/asym_tests/stereo_ssr_merge_shaders.py): under 2.5 engine stereo the ambient
-# pass (all its permutations) takes the reflections an eye lost at its inner edge from the other eye's half of the frame.
-foreach ($hash in @('19fe7d5422b1206e', '056eafbcc8ee2a87', '2188c71b84b45ded', '68de2bc2f8971207', '6a766457f5744bdd',
-                    '710492da1c504db5', 'b39515454d8975e2', 'e3e6c1d2d6391955')) {
-    Add-File (Need (Join-Path $RepoRoot "src\Shaders\stereo_merge\$hash.dxil") "engine-stereo SSR merge twin $hash") "red4ext\plugins\cyberpunkvrport\shaders\stereo_merge\$hash.dxil"
+# pass (all its permutations) takes the reflections an eye lost at its inner edge from the other eye's half of the frame,
+# and the ambient pass, the tiled lights and the forward-lit materials (glass, clear coat) take the view direction from
+# each eye instead of the stereo centre (docs/engine-stereo-reflections-20261102.md). Too many to list; the count is
+# checked instead (98 from staticshader_final.cache, 234 from shader_final.cache with --forward).
+$mergeTwins = @(Get-ChildItem -LiteralPath (Need (Join-Path $RepoRoot "src\Shaders\stereo_merge") "engine-stereo merge twins") -Filter *.dxil)
+if ($mergeTwins.Count -lt 332) { throw "engine-stereo merge twins: $($mergeTwins.Count) of 332 in src\Shaders\stereo_merge" }
+foreach ($twin in $mergeTwins) {
+    Add-File $twin.FullName "red4ext\plugins\cyberpunkvrport\shaders\stereo_merge\$($twin.Name)"
+}
+# The ray-traced reflection twins (tools/asym_tests/stereo_rt_shaders.py): the reflection and path-tracing raygens
+# (DXIL libraries) take the view direction from each eye, swapped when the state object is created
+# (Stereo/DeviceHooks.cpp CreateStateObject). 16a3f056d8ec9845 is the transparent raygen as ReFRACT 1.5.1 rewrites it.
+$rtTwins = @(Get-ChildItem -LiteralPath (Need (Join-Path $RepoRoot "src\Shaders\stereo_rt") "ray-traced reflection twins") -Filter *.dxil)
+if ($rtTwins.Count -lt 38) { throw "ray-traced reflection twins: $($rtTwins.Count) of 38 in src\Shaders\stereo_rt" }
+foreach ($twin in $rtTwins) {
+    Add-File $twin.FullName "red4ext\plugins\cyberpunkvrport\shaders\stereo_rt\$($twin.Name)"
 }
 # The engine-stereo eye twins (tools/asym_tests/stereo_eye_shaders.py): the volumetric clouds (both qualities of the
 # march) look up the fog in front of a cloud in the pixel's own eye, not the dispatch camera's.
@@ -234,7 +256,9 @@ Add-File $manifests[0].FullName "red4ext\plugins\cyberpunkvrport\config\archive.
 # to Input Loader when another mod installed it.
 $inputDir = Join-Path $RepoRoot "mods\config\input"
 if (Test-Path $inputDir) {
-    Add-File (Need (Join-Path $inputDir "CyberpunkVRPort_ScannerHud.xml") "CyberpunkVRPort_ScannerHud.xml") "red4ext\plugins\cyberpunkvrport\config\input\CyberpunkVRPort_ScannerHud.xml"
+    foreach ($binding in @("CyberpunkVRPort_ScannerHud.xml", "CyberpunkVRPort_PhotoMode.xml")) {
+        Add-File (Need (Join-Path $inputDir $binding) $binding) "red4ext\plugins\cyberpunkvrport\config\input\$binding"
+    }
 }
 
 # ---- the OpenXR probe is NOT packaged ---------------------------------------------------------
@@ -438,6 +462,7 @@ $looseLines
     bin\x64\vrport-launcher.ini            the launcher's headset, resolution and DEBUG choice
     red4ext\plugins\cyberpunkvrport\log\cyberpunkvrport.log   the plugin's log
     r6\input\CyberpunkVRPort_ScannerHud.xml   the port's bindings, handed to Input Loader when it is installed
+    r6\input\CyberpunkVRPort_PhotoMode.xml    (the same)
 
 4. RESTORE YOUR GAME SETTINGS IF NEEDED
 
@@ -531,6 +556,7 @@ call :killfile "bin\x64\vrport-launcher.ini"
 call :killfile "bin\x64\cyberpunkvrport.log"
 rem Written by the plugin for Input Loader (Core/InputConfig.cpp), when that mod is installed.
 call :killfile "r6\input\CyberpunkVRPort_ScannerHud.xml"
+call :killfile "r6\input\CyberpunkVRPort_PhotoMode.xml"
 
 echo.
 echo   Removed !GONE!, already gone !ABSENT!, could not remove !STUCK!.

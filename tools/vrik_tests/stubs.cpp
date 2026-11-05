@@ -44,6 +44,7 @@ bool VRIK_ReadNativeTransformSnapshot(VrikTransformSnapshot* out) { if(!testNati
 OpenXRManager& OpenXRManager::Get() { std::abort(); }
 namespace cvr::swimming { bool Active() { return false; } }
 namespace cvr::ladder { bool Active() { return false; } }
+namespace cvr::anim { bool IsHeadAimWeaponActive() { return false; } }
 bool OpenXRManager::GetHeadPose(OpenXRHeadPose*) const { std::abort(); }
 bool OpenXRManager::GetNativeFrameHead(OpenXRHeadPose*,uint64_t*,uint64_t*,XrTime*,cvr::roomscale::Vec2*) const { std::abort(); }
 bool OpenXRManager::LocateHeadPoseAt(XrTime,OpenXRHeadPose*) { std::abort(); }
@@ -85,3 +86,20 @@ int CyberpunkVR_VrikTransformsFromPlugin=1,CyberpunkVR_VrikNativeFramePair=1,Cyb
 uint64_t CyberpunkVR_DebugVrikNativePairUsed=0,CyberpunkVR_DebugVrikLuaPairFallback=0;
 int CyberpunkVR_VrikElbowPolicy=0;
 }
+// Left-handed mode (src/Anim/LeftHanded.cpp) and the locomotion state (src/Natives/NativeState.cpp): the bench runs
+// right-handed, the locomotion state unknown.
+namespace cvr::anim {
+bool WeaponInLeftHand() { return false; }
+void LeftHandedArmRig(const char* const*, int) {}
+}
+volatile int g_VRLocomotionState = -1;
+volatile int g_VRLocomotionDetailed = -1;
+// Two-hand grip and dual wield (Anim/TwoHandGrip.cpp, Natives): off. Files the solver could log or read resolve to
+// nothing on the bench.
+extern "C" {
+int CyberpunkVR_TwoHandActive = 0;
+volatile uint64_t CyberpunkVR_DualWieldUntil = 0;
+}
+#include <string>
+namespace cvr::paths { enum class Folder; std::wstring File(Folder, const wchar_t*) { return {}; } }
+std::string VRGripPath(const char*) { return {}; }

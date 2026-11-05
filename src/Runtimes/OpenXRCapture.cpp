@@ -17,6 +17,7 @@ extern "C" int CyberpunkVR_BindPoseToImage;
 #include "Utils/TestMarker.hpp"
 #include "Runtimes/RuntimeFovCorrection.hpp"
 #include "Stereo/EngineStereo.hpp"
+#include "Render/Afw.hpp"
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -886,7 +887,23 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     m_loadingScreenIsNotice = notice.shown;
     D3D12_RESOURCE_DESC eyeDesc = sourceDesc;
     if (engineStereo) eyeDesc.Width = sourceDesc.Width / 2;
-    const uint32_t mainEyeIndex = CyberpunkVR_MainIsRightEye ? 1u : 0u;
+    // AFW (Render/Afw.hpp): MAIN drew the eye its picture's label says (OpenXRHeadPose::afwEye). The switch itself may
+    // have turned over already -- the game thread places the camera for the next frame while this one is captured.
+    // The label is read again at the submission below; a frame whose label changed in between is not paired.
+    int afwEye = -1;
+    uint64_t afwPoseId = 0;
+    cvr::camera::ImagePoseIdentity afwImage{};
+    if (cvr::afw::Active() && !engineStereo) {
+        std::lock_guard submissionLock(cvr::camera::ImageSubmissionMutex());
+        afwImage = cvr::camera::ReadImagePose(backBuffer);
+        if (afwImage && afwImage.pose && afwImage.pose.view == 1u && afwImage.pose.head.afwEye >= 0 &&
+            afwImage.pose.head.afwEye <= 1 && afwImage.queue == reinterpret_cast<uintptr_t>(m_d3dQueue) &&
+            afwImage.pose.head.originSerial == GetTrackingOriginSerial()) {
+            afwEye = afwImage.pose.head.afwEye;
+            afwPoseId = afwImage.pose.poseId;
+        }
+    }
+    const uint32_t mainEyeIndex = afwEye >= 0 ? static_cast<uint32_t>(afwEye) : (CyberpunkVR_MainIsRightEye ? 1u : 0u);
     // The x where an eye's half starts in the backbuffer.
     const auto halfX = [&](uint32_t eye) {
         return eye == 0 ? 0u : static_cast<uint32_t>(sourceDesc.Width - eyeDesc.Width);
@@ -943,20 +960,38 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         return false;
     }
 
-    m_captureAllocatorIndex = (m_captureAllocatorIndex + 1) % 3;
-    ID3D12CommandAllocator* currentAllocator = m_captureCmdAllocators[m_captureAllocatorIndex];
-    
-    if (m_captureFenceValue >= 3 && m_captureFence->GetCompletedValue() < m_captureFenceValue - 2) {
-        m_captureFence->SetEventOnCompletion(m_captureFenceValue - 2, m_captureFenceEvent);
+    // THE NEXT ALLOCATOR, ONCE THE GPU IS DONE WITH IT. Each allocator keeps the fence value of the last submission
+    // recorded from it, and the ring only moves on to one that is free. It used to move first and then wait for
+    // "the submission two before the last": every capture that stopped between the two (the wait below timing
+    // out, a missing eye texture) shifted the ring against the submissions, after which that bound guarded the
+    // wrong allocator and Reset handed the GPU's command memory to the next recording while it was still being
+    // executed -- the device then faulted at random addresses on the next frames (DRED 2026-11-03: removed inside
+    // OpenXR_capture_command_list under path tracing at load). An allocator Reset does not fail on memory the GPU
+    // is still reading; nothing but this bound keeps it safe.
+    const uint32_t nextAllocator = (m_captureAllocatorIndex + 1) % 3;
+    const UINT64 allocatorBusy = m_captureAllocatorFence[nextAllocator];
+    if (allocatorBusy && m_captureFence->GetCompletedValue() < allocatorBusy) {
         // BOUNDED. This runs on the game's Present thread, so an INFINITE wait turns any
         // GPU hiccup into a hung game. Skipping one capture costs nothing now: the submit
         // side re-sends the frame it already holds, with the pose that belongs to it.
         // TIMED, not just counted. This blocks the game's Present thread, so the duration IS the
         // cost -- and a wait that succeeds after 30 ms does more damage than one that times out,
         // because it delays the publish without being recorded as a skip.
+        //
+        // A DEADLINE ON THE FENCE VALUE, never the wait's own result: a registration left by an earlier
+        // timed-out wait fires later and leaves the auto-reset event signalled, so one wait can return
+        // WAIT_OBJECT_0 for the OLD value while this allocator is still executing -- and a Reset then is
+        // exactly the fault the per-allocator values exist to prevent.
         const bool diagnostics=cvr::RuntimeDiagnosticsEnabled();
         const double fenceEnterMs = diagnostics ? XrDiagNowMs() : 0;
-        const DWORD fenceRes = WaitForSingleObject(m_captureFenceEvent, 100);
+        const double fenceDeadline = XrDiagNowMs() + 100.0;
+        for (;;) {
+            const double left = fenceDeadline - XrDiagNowMs();
+            if (left <= 0.0) break;
+            m_captureFence->SetEventOnCompletion(allocatorBusy, m_captureFenceEvent);
+            WaitForSingleObject(m_captureFenceEvent, static_cast<DWORD>(left) + 1);
+            if (m_captureFence->GetCompletedValue() >= allocatorBusy) break;
+        }
         if(diagnostics) {
         const double fenceMs = XrDiagNowMs() - fenceEnterMs;
         CVR_DIAGNOSTIC(CyberpunkVR_DebugCapFenceWaits.fetch_add(1, std::memory_order_relaxed));
@@ -969,12 +1004,14 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                    prevMax, fenceUs, std::memory_order_relaxed)) {
         }
         }
-        if (fenceRes != WAIT_OBJECT_0) {
+        if (m_captureFence->GetCompletedValue() < allocatorBusy) {
             CVR_DIAGNOSTIC(CyberpunkVR_DebugCapSkipFence.fetch_add(1, std::memory_order_relaxed));
             snapshot->Release();
-            return false;
+            return false;                                   // the ring stays where it is
         }
     }
+    m_captureAllocatorIndex = nextAllocator;
+    ID3D12CommandAllocator* currentAllocator = m_captureCmdAllocators[m_captureAllocatorIndex];
 
     ID3D12GraphicsCommandList* m_captureCmdList = m_captureCmdLists[m_captureAllocatorIndex];
 
@@ -1158,6 +1195,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // Deriving these from the XR image instead is what killed the GPU twice: that resource is
     // typeless, and a typeless RTV is invalid.
     bool vrcamEyeCaptured = false;
+    bool afwWarped = false;   // the second eye's slot holds AFW's made eye
     ID3D12Resource* vrcamCaptureSource=nullptr;
     const uint32_t eyeW = static_cast<uint32_t>(eyeDesc.Width);
     const uint32_t eyeH = sourceDesc.Height;
@@ -1261,6 +1299,40 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             m_captureCmdList->ResourceBarrier(2, b);
             vrcamEyeCaptured = true;
         }
+    } else if (afwEye >= 0 && !menuOpen && CyberpunkVR_StereoSubmit && eyeW && eyeH) {
+        // AFW (Render/Afw.hpp): MAIN drew one eye; PureDark's frame warp makes the other one, for the same moment, out
+        // of this picture, its depth and motion and the other eye's previous one. It goes into the second eye's slot
+        // and is labelled and paired as the second view's picture is. Nothing is composited on it: the HUD and the
+        // rest drawn into the backbuffer are in the drawn eye and come across with the warp.
+        // A plain copy into the plugin's R8G8B8A8_UNORM buffers needs the backbuffer in that family.
+        const bool rgba8 = CopyFamily(sourceDesc.Format) == 1;
+        std::shared_ptr<const cvr::framegen::Inputs> inputs;
+        if (afwImage.pose.hasRenderFrameId && cvr::framegen::CaptureInputsEnabled())
+            inputs = cvr::framegen::AcquireInputs(1u, afwImage.pose.renderFrameId, afwImage.pose.poseId,
+                                                  afwImage.pose.head.originSerial, m_d3dQueue);
+        if (rgba8 && inputs && EnsureVrcamEyeTexture(eyeW, eyeH, DXGI_FORMAT_R8G8B8A8_TYPELESS)) {
+            ID3D12Resource* const eyeSlotTex = takeEyeSlot();
+            if (!eyeSlotTex) { m_captureCmdList->Close();snapshot->Release();return false; }
+            cvr::gpu::profile::Scope gpuScope(gpuProfile, cvr::gpu::profile::Stage::CaptureSecond);
+            cvr::afw::WarpRequest request{};
+            request.device = m_d3dDevice;
+            request.queue = m_d3dQueue;
+            request.list = m_captureCmdList;
+            request.drawn = backBuffer;
+            request.inputs = inputs.get();
+            request.eye = mainEyeIndex;
+            request.fov[0] = fovs[0];
+            request.fov[1] = fovs[1];
+            // MAIN was put half the separation off the head centre (Hooks/PatchCamera.cpp): the other eye is the
+            // whole separation further along the camera's right.
+            request.ipd = 2.0f * GetDesiredHalfIpd();
+            request.out = eyeSlotTex;
+            vrcamEyeCaptured = cvr::afw::Warp(request);
+        } else {
+            cvr::afw::Fallback(!rgba8 ? "backbuffer not R8G8B8A8" : !inputs ? "no depth and motion for the frame"
+                                                                           : "no second-eye slot");
+        }
+        afwWarped = vrcamEyeCaptured;
     } else if (!engineStereo && CyberpunkVR_StereoSubmit && eyeW && eyeH && !(menuOpen && CyberpunkVR_MonoMenu)) {
         ID3D12Resource* vrcamSrc = CyberpunkVR_GetVrcamEyeTextureFresh();
         vrcamCaptureSource=vrcamSrc;
@@ -1625,10 +1697,16 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         std::lock_guard submissionLock(cvr::camera::ImageSubmissionMutex());
         const auto mainImage=cvr::camera::ReadImagePose(backBuffer);
         const auto vrcamImage=cvr::camera::ReadImagePose(vrcamCaptureSource);
-        const uint32_t vrcamEye=CyberpunkVR_MainIsRightEye ? 0u : 1u;
+        const uint32_t vrcamEye=mainEyeIndex^1u;
+        // AFW's made eye is the drawn eye's moment seen from the other eye: MAIN's label, that eye's pose. A frame whose
+        // label is no longer the one it was warped with is not paired.
+        if(afwWarped && !(mainImage && mainImage.pose.poseId==afwPoseId)) {
+            afwWarped=vrcamEyeCaptured=false;
+            cvr::afw::Fallback("the frame's label changed before its submission");
+        }
         for(uint32_t eye=0;eye<2;++eye) {
             // Under engine stereo both eyes are halves of MAIN's own image and carry its label.
-            const bool separate=vrcamEyeCaptured && eye==vrcamEye && !split;
+            const bool separate=vrcamEyeCaptured && eye==vrcamEye && !split && !afwWarped;
             const auto& source=separate ? vrcamImage : mainImage;
             const uint32_t view=separate ? 2u : 1u;
             // Framegen's inputs for this eye: under engine stereo its half's (eye e shows half e; Framegen/Inputs.cpp
@@ -1654,6 +1732,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         }
         m_d3dQueue->ExecuteCommandLists(1,cmdLists);
         ++m_captureFenceValue;
+        m_captureAllocatorFence[m_captureAllocatorIndex] = m_captureFenceValue;
         if (SUCCEEDED(m_d3dQueue->Signal(m_captureFence,m_captureFenceValue)))
             cvr::gpu::profile::Submitted(gpuProfile, m_d3dQueue, m_captureFence, m_captureFenceValue);
     }
@@ -1671,6 +1750,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             m_monoCapturedFrame.dark = loadingDark && !loadingWindow;
             // The boot's notice in the dark: both eyes are submitted with the turn it was drawn for.
             m_monoCapturedFrame.oneTurn = loadingWindow && notice.shown;
+            m_monoCapturedFrame.mainEye = static_cast<int8_t>(mainEyeIndex);
             CVR_DIAGNOSTIC(CyberpunkVR_DebugCapOk.fetch_add(1, std::memory_order_relaxed));
             for (int eye = 0; eye < 2; ++eye) {
                 m_monoCapturedFrame.poses[eye] = capturedPoses[eye];
@@ -1693,7 +1773,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             m_vrcamEyeSerial = vrcamEyeCaptured ? serial : 0;
             if (vrcamEyeCaptured) {
                 m_vrcamEyePoolSerial[m_vrcamEyeSlot] = serial;
-                const auto eye=CyberpunkVR_MainIsRightEye ? 0u : 1u;
+                const auto eye=mainEyeIndex^1u;
                 m_vrcamEyeLabels[m_vrcamEyeSlot]={capturedPoses[eye],fovs[eye],capturedPoseIds[eye],capturedImageGenerations[eye],true};
             }
         }
@@ -1780,6 +1860,18 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
         return true;
     }
 
+    // Everything below is destroyed: the swapchain images our last copies wrote, the allocators that
+    // recorded them. Let the GPU finish those first (bounded: a resize, not a frame, pays for it).
+    if (m_fence && m_fenceEvent && m_fenceValue) {
+        const double deadline = XrDiagNowMs() + 1000.0;
+        while (m_fence->GetCompletedValue() < m_fenceValue) {
+            const double left = deadline - XrDiagNowMs();
+            if (left <= 0.0) break;
+            m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
+            WaitForSingleObject(m_fenceEvent, static_cast<DWORD>(left) + 1);
+        }
+    }
+
     for (auto& eye : m_eyeSwapchains) {
         if (eye.handle != XR_NULL_HANDLE) {
             xrDestroySwapchain(eye.handle);
@@ -1797,6 +1889,10 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
     // format, which would mismatch CopyResource. They re-create lazily next frame.
     m_lastGoodValid = false;
     for (int e = 0; e < 2; ++e) { m_lastGoodEye[e].Reset(); m_lastGoodEyeInited[e] = false; }
+    // The last accepted frame named the swapchains just destroyed; a runtime may hand the same handle
+    // values to the new ones, which have no released image yet.
+    m_lastSubmission.valid = false;
+    for (auto& fence : m_cmdAllocatorFence) fence = 0;
 
     if (m_fenceEvent) {
         CloseHandle(m_fenceEvent);

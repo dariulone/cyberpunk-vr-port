@@ -238,9 +238,9 @@ void RTTIMapper::RegisterSpecialAccessors(sol::state& aLuaState, sol::table& aLu
 template <class T> void RTTIMapper::ExtendUsertype(const std::string acTypeName, sol::state& aLuaState, sol::table& aLuaGlobal) const
 {
     auto& classStatic = aLuaGlobal.get<ClassStatic>(acTypeName);
-    auto classIndexer = [&classStatic](const sol::object&, const std::string& acName, sol::this_environment aEnv)
+    auto classIndexer = [&classStatic](const sol::object&, const std::string& acName)
     {
-        return classStatic.Index(acName, aEnv);
+        return classStatic.Index(acName);
     };
 
     auto usertype = aLuaState.get<sol::usertype<T>>(acTypeName);

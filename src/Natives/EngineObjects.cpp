@@ -84,6 +84,21 @@ void VREntityComponents(RED4ext::IScriptable*, RED4ext::CStackFrame* frame,
         for (const auto& component : entity->components) out->PushBack(component);
 }
 
+// An entity's components of one class (or derived from it): the list a script would otherwise walk with an IsA call
+// on every component, every frame (world touch: ~20 components a device, one of them a screen).
+void VREntityComponentsOf(RED4ext::IScriptable*, RED4ext::CStackFrame* frame,
+                          RED4ext::DynArray<Handle<RED4ext::ent::IComponent>>* out, int64_t) {
+    auto entity = Param<Handle<RED4ext::ent::Entity>>(frame);
+    const auto kind = Param<CName>(frame);
+    frame->code++;
+    if (!out || !entity) return;
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* cls = rtti ? rtti->GetClass(kind) : nullptr;
+    if (!cls) return;
+    for (const auto& component : entity->components)
+        if (component && component->GetType()->IsA(cls)) out->PushBack(component);
+}
+
 // An entity's skinned meshes (the three classes the lobby's construct handles, modules/construct.lua): the lobby looks
 // through them every frame while an engram's look goes on, and the puppet gathers hundreds of components. Whether
 // each is on is left to the script's IsEnabled: filtered here on the component's own flag, a mesh the system had just
@@ -210,6 +225,50 @@ void VRComponentChangeAppearance(RED4ext::IScriptable*, RED4ext::CStackFrame* fr
         done = Reload(component, wait);
     }
     if (out) *out = done;
+}
+
+// A VISUAL COMPONENT DISSOLVED OUT OR IN: the engine's dithered fade (Rendering/DissolveTime, 0.5 s), the one an
+// entity streaming in or an appearance change shows. IVisualComponent keeps a byte of dissolve reasons (+300): drawn
+// while none is set, each change between none and some fades the render proxy (2.5: 0x1403D1CD8, the handler of
+// enteventsSetDissolveVisibility calls it with the event's reason and mode). The port sets its own reason bit, so
+// the game's own dissolves (scanner, streaming) are left as they are. `mode` is the engine's last argument (0..2, as
+// its callers pass it); measured 2026-11-05 on the player's body: 0 fades out and in over ~0.45 s, 1 and 2 fade out
+// the same but 2 comes back in at once. On a component that is switched off only the bit changes, and the proxy it
+// gets when it is switched on again keeps it (dissolved out before Toggle(true): no frame of it is seen).
+constexpr uint32_t kVisualDissolveHash = 3960219843;
+constexpr uint8_t kPortDissolveReason = 6;
+
+void VRComponentDissolve(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
+    auto component = Param<Handle<RED4ext::ent::IComponent>>(frame);
+    auto hidden = Param<bool>(frame);
+    auto mode = Param<int32_t>(frame);
+    frame->code++;
+    using DissolveFn = char (*)(RED4ext::ent::IComponent*, bool, uint8_t, uint8_t);
+    static const auto dissolve = reinterpret_cast<DissolveFn>(RED4ext::UniversalRelocBase::Resolve(kVisualDissolveHash));
+    const bool done = dissolve && component && component->owner && IsA(component.instance, "entIVisualComponent") &&
+                      mode >= 0 && mode <= 2;
+    if (done) dissolve(component.instance, hidden, kPortDissolveReason, static_cast<uint8_t>(mode));
+    if (out) *out = done;
+}
+
+// Whether the port's reason holds the component dissolved out (the byte the call above writes).
+void VRComponentDissolved(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
+    auto component = Param<Handle<RED4ext::ent::IComponent>>(frame);
+    frame->code++;
+    const bool visual = component && IsA(component.instance, "entIVisualComponent");
+    if (out)
+        *out = visual && (reinterpret_cast<const uint8_t*>(component.instance)[300] & (1u << kPortDissolveReason)) != 0;
+}
+
+// Whether a dissolve reaches the component's render proxy now: the engine passes it on only while the component is
+// attached (+136 bit 1, the same test 0x1403D1CD8 makes). A component just switched on needs a few frames for that; a
+// fade asked before then only clears the bit, and the proxy then comes in at once (measured 2026-11-05: on, then
+// dissolved in 0.6 s later, it faded; the order matters).
+void VRComponentDissolveReady(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
+    auto component = Param<Handle<RED4ext::ent::IComponent>>(frame);
+    frame->code++;
+    const bool visual = component && component->owner && IsA(component.instance, "entIVisualComponent");
+    if (out) *out = visual && (reinterpret_cast<const uint8_t*>(component.instance)[136] & 2) != 0;
 }
 
 void VRComponentRefreshAppearance(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {

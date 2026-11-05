@@ -1,0 +1,734 @@
+{
+ "Header": {
+  "WolvenKitVersion": "8.19.0",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-11-05T15:11:28.6740443Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "C:\\Users\\dariulone\\Desktop\\CyberpunkVRPort\\build\\holster-icons\\template\\base\\gameplay\\gui\\fullscreen\\main_menu\\menu_background.inkatlas"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "inkTextureAtlas",
+   "activeTexture": "StaticTexture",
+   "cookingPlatform": "PLATFORM_PC",
+   "dynamicTexture": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "dynamicTextureSlot": {
+    "$type": "inkDynamicTextureSlot",
+    "parts": [],
+    "texture": {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "Flags": "Soft"
+    }
+   },
+   "isSingleTextureMode": 1,
+   "parts": [],
+   "slices": [],
+   "slots": {
+    "Elements": [
+     {
+      "$type": "inkTextureSlot",
+      "parts": [
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.126953125,
+         "Left": 0.001953125,
+         "Right": 0.126953125,
+         "Top": 0.001953125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "body"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.126953125,
+         "Left": 0.12890625,
+         "Right": 0.25390625,
+         "Top": 0.001953125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "body_w"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.126953125,
+         "Left": 0.255859375,
+         "Right": 0.380859375,
+         "Top": 0.001953125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "none"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.126953125,
+         "Left": 0.3828125,
+         "Right": 0.5078125,
+         "Top": 0.001953125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "hip_r_gun"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.126953125,
+         "Left": 0.509765625,
+         "Right": 0.634765625,
+         "Top": 0.001953125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "hip_l_gun"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.126953125,
+         "Left": 0.63671875,
+         "Right": 0.76171875,
+         "Top": 0.001953125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "thigh_r_gun"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.126953125,
+         "Left": 0.763671875,
+         "Right": 0.888671875,
+         "Top": 0.001953125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "thigh_l_gun"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.25390625,
+         "Left": 0.001953125,
+         "Right": 0.126953125,
+         "Top": 0.12890625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "underarm_l_gun"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.25390625,
+         "Left": 0.12890625,
+         "Right": 0.25390625,
+         "Top": 0.12890625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "underarm_r_gun"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.25390625,
+         "Left": 0.255859375,
+         "Right": 0.380859375,
+         "Top": 0.12890625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "hip_l_blade"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.25390625,
+         "Left": 0.3828125,
+         "Right": 0.5078125,
+         "Top": 0.12890625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "hip_r_blade"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.25390625,
+         "Left": 0.509765625,
+         "Right": 0.634765625,
+         "Top": 0.12890625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_r_blade"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.25390625,
+         "Left": 0.63671875,
+         "Right": 0.76171875,
+         "Top": 0.12890625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_l_blade"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.25390625,
+         "Left": 0.763671875,
+         "Right": 0.888671875,
+         "Top": 0.12890625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lower_back_blade"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.380859375,
+         "Left": 0.001953125,
+         "Right": 0.126953125,
+         "Top": 0.255859375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_r_long"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.380859375,
+         "Left": 0.12890625,
+         "Right": 0.25390625,
+         "Top": 0.255859375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_l_long"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.380859375,
+         "Left": 0.255859375,
+         "Right": 0.380859375,
+         "Top": 0.255859375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lower_back_long"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.380859375,
+         "Left": 0.3828125,
+         "Right": 0.5078125,
+         "Top": 0.255859375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "chest_l_knife"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.380859375,
+         "Left": 0.509765625,
+         "Right": 0.634765625,
+         "Top": 0.255859375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "chest_r_knife"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.380859375,
+         "Left": 0.63671875,
+         "Right": 0.76171875,
+         "Top": 0.255859375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "thigh_r_knife"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.380859375,
+         "Left": 0.763671875,
+         "Right": 0.888671875,
+         "Top": 0.255859375
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "thigh_l_knife"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5078125,
+         "Left": 0.001953125,
+         "Right": 0.126953125,
+         "Top": 0.3828125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lower_back_knife"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5078125,
+         "Left": 0.12890625,
+         "Right": 0.25390625,
+         "Top": 0.3828125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_r_blade_w"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5078125,
+         "Left": 0.255859375,
+         "Right": 0.380859375,
+         "Top": 0.3828125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_l_blade_w"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5078125,
+         "Left": 0.3828125,
+         "Right": 0.5078125,
+         "Top": 0.3828125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lower_back_blade_w"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5078125,
+         "Left": 0.509765625,
+         "Right": 0.634765625,
+         "Top": 0.3828125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_r_long_w"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5078125,
+         "Left": 0.63671875,
+         "Right": 0.76171875,
+         "Top": 0.3828125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "shoulder_l_long_w"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5078125,
+         "Left": 0.763671875,
+         "Right": 0.888671875,
+         "Top": 0.3828125
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lower_back_long_w"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.634765625,
+         "Left": 0.001953125,
+         "Right": 0.126953125,
+         "Top": 0.509765625
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lower_back_knife_w"
+        }
+       }
+      ],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "string",
+        "$value": "vrport\\ui\\vr_holster_icons.xbm"
+       },
+       "Flags": "Soft"
+      }
+     },
+     {
+      "$type": "inkTextureSlot",
+      "parts": [],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "Flags": "Soft"
+      }
+     },
+     {
+      "$type": "inkTextureSlot",
+      "parts": [],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "Flags": "Soft"
+      }
+     }
+    ]
+   },
+   "texture": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "textureResolution": "UltraHD_3840_2160"
+  },
+  "EmbeddedFiles": []
+ }
+}

@@ -1,4 +1,5 @@
 #include "Render/ViewInstancedPipeline.hpp"
+#include <cstdio>
 #include <cstring>
 #include <bitset>
 #include <utility>
@@ -113,6 +114,51 @@ bool ReadPipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC& source,PipelineS
     });
     if(!valid || result.targets.NumRenderTargets>8)return false;output=result;return true;
 }
+bool EditPipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC& source,std::vector<uint8_t>& output,
+                        const std::function<void(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE,uint8_t*)>& edit) {
+    std::vector<uint8_t> copy(static_cast<const uint8_t*>(source.pPipelineStateSubobjectStream),
+                              static_cast<const uint8_t*>(source.pPipelineStateSubobjectStream)+source.SizeInBytes);
+    const bool ok=Walk(source,[&](auto type,size_t offset,const uint8_t*){edit(type,copy.data()+offset);return true;});
+    if(ok)output=std::move(copy);
+    return ok;
+}
+std::string DescribePipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC& source) {
+    std::string out;char b[320];
+    Walk(source,[&](auto type,size_t,const uint8_t* value){
+        switch(type) {
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER:{D3D12_RASTERIZER_DESC r{};std::memcpy(&r,value,sizeof(r));
+            sprintf_s(b," raster(fill %d cull %d ccw %d bias %d clip %d msaa %d aa %d forced %u conservative %d)",int(r.FillMode),int(r.CullMode),
+                      r.FrontCounterClockwise,r.DepthBias,r.DepthClipEnable,r.MultisampleEnable,r.AntialiasedLineEnable,r.ForcedSampleCount,
+                      int(r.ConservativeRaster));out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND:{D3D12_BLEND_DESC d{};std::memcpy(&d,value,sizeof(d));
+            sprintf_s(b," blend(a2c %d independent %d rt0 %d logic %d)",d.AlphaToCoverageEnable,d.IndependentBlendEnable,d.RenderTarget[0].BlendEnable,
+                      d.RenderTarget[0].LogicOpEnable);out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL:{D3D12_DEPTH_STENCIL_DESC d{};std::memcpy(&d,value,sizeof(d));
+            sprintf_s(b," depth(%d write %d func %d stencil %d)",d.DepthEnable,int(d.DepthWriteMask),int(d.DepthFunc),d.StencilEnable);out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1:{D3D12_DEPTH_STENCIL_DESC1 d{};std::memcpy(&d,value,sizeof(d));
+            sprintf_s(b," depth1(%d write %d func %d stencil %d bounds %d)",d.DepthEnable,int(d.DepthWriteMask),int(d.DepthFunc),d.StencilEnable,
+                      d.DepthBoundsTestEnable);out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS:{D3D12_RT_FORMAT_ARRAY a{};std::memcpy(&a,value,sizeof(a));
+            out+=" rt(";for(UINT i=0;i<a.NumRenderTargets && i<8;++i){sprintf_s(b,"%s%d",i?",":"",int(a.RTFormats[i]));out+=b;}out+=")";break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT:{DXGI_FORMAT f{};std::memcpy(&f,value,sizeof(f));sprintf_s(b," dsv %d",int(f));out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC:{DXGI_SAMPLE_DESC s{};std::memcpy(&s,value,sizeof(s));sprintf_s(b," samples %u/%u",s.Count,s.Quality);out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK:{UINT m{};std::memcpy(&m,value,sizeof(m));sprintf_s(b," mask %08X",m);out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT:{D3D12_INPUT_LAYOUT_DESC d{};std::memcpy(&d,value,sizeof(d));
+            sprintf_s(b," inputs %u",d.NumElements);out+=b;
+            for(UINT i=0;i<d.NumElements && i<16 && d.pInputElementDescs;++i){const auto& e=d.pInputElementDescs[i];
+                sprintf_s(b," [%s%u f%d s%u o%u c%d r%u]",e.SemanticName?e.SemanticName:"?",e.SemanticIndex,int(e.Format),e.InputSlot,
+                          e.AlignedByteOffset,int(e.InputSlotClass),e.InstanceDataStepRate);out+=b;}
+            break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY:{D3D12_PRIMITIVE_TOPOLOGY_TYPE t{};std::memcpy(&t,value,sizeof(t));sprintf_s(b," topology %d",int(t));out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE:{D3D12_INDEX_BUFFER_STRIP_CUT_VALUE v{};std::memcpy(&v,value,sizeof(v));sprintf_s(b," cut %d",int(v));out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS:{D3D12_PIPELINE_STATE_FLAGS f{};std::memcpy(&f,value,sizeof(f));sprintf_s(b," flags %X",unsigned(f));out+=b;break;}
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_NODE_MASK:{UINT m{};std::memcpy(&m,value,sizeof(m));sprintf_s(b," node %u",m);out+=b;break;}
+        default:sprintf_s(b," #%d",int(type));out+=b;break;
+        }
+        return true;
+    });
+    return out;
+}
 bool FindPipelineStreamOffsets(const D3D12_PIPELINE_STATE_STREAM_DESC& source,PipelineStreamOffsets& output) {
     PipelineStreamOffsets result;
     const bool valid=Walk(source,[&](auto type,size_t offset,const uint8_t*) {
@@ -121,6 +167,8 @@ bool FindPipelineStreamOffsets(const D3D12_PIPELINE_STATE_STREAM_DESC& source,Pi
         case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS:result.ps=offset;break;
         case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CS:result.cs=offset;break;
         case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_CACHED_PSO:result.cached=offset;break;
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS:result.ms=offset;break;
+        case D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_AS:result.as=offset;break;
         default:break;
         }return true;
     });
@@ -164,6 +212,23 @@ HRESULT CreateViewInstancedPipelineStream(ID3D12Device2* device,const D3D12_PIPE
     D3D12_PIPELINE_STATE_STREAM_DESC stream{copy.size(),copy.data()};return device->CreatePipelineState(&stream,IID_PPV_ARGS(result));
 }
 
+bool GraphicsDescStream(const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source,std::vector<uint8_t>& output) {
+    if(!source.VS.pShaderBytecode || !source.VS.BytecodeLength || source.NumRenderTargets>D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT)
+        return false;
+    Stream s;
+    s.root.value=source.pRootSignature;s.vs.value=source.VS;s.ps.value=source.PS;
+    s.ds.value=source.DS;s.hs.value=source.HS;s.gs.value=source.GS;s.streamOutput.value=source.StreamOutput;
+    s.blend.value=source.BlendState;s.sampleMask.value=source.SampleMask;
+    s.raster.value=source.RasterizerState;s.depth.value=source.DepthStencilState;
+    s.input.value=source.InputLayout;s.stripCut.value=source.IBStripCutValue;s.topology.value=source.PrimitiveTopologyType;
+    s.targets.value.NumRenderTargets=source.NumRenderTargets;
+    for(UINT i=0;i<source.NumRenderTargets;++i)s.targets.value.RTFormats[i]=source.RTVFormats[i];
+    s.depthFormat.value=source.DSVFormat;s.samples.value=source.SampleDesc;
+    s.nodeMask.value=source.NodeMask;s.flags.value=source.Flags;
+    const auto* bytes=reinterpret_cast<const uint8_t*>(&s);
+    output.assign(bytes,bytes+offsetof(Stream,views));   // no view instancing part: the builder adds its own
+    return true;
+}
 HRESULT CreateViewInstancedPipeline(ID3D12Device2* device,
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC& source,const ViewInstancedLayout& layout,
     ID3D12PipelineState** result) {

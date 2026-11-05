@@ -284,10 +284,12 @@ void WheelUpdate(float dtSec) {
 
 // Animation decides proximity/ownership. Its moving model-space targets must
 // never become steering measurements: a native wheel turn moves that frame.
+// A NEW GRAB is a grip closing on the wheel with neither hand on it: the steering starts again from where the hands
+// are. A solve that missed a hand's target (a hitch, a frame whose arm blocks did not run) is not a new grab -- counted
+// as one it re-centred the wheel under hands still turned. Ownership is the grip, and the hand being tracked.
 void WheelPublishGrab() {
     uint8_t held=0;
-    for(int h=0;h<2;++h)if(g_wheel[h].engaged && g_wheel[h].targetValid &&
-                           g_wheel[h].targetFrame==g_wheelFrame)held|=uint8_t(1u<<h);
+    for(int h=0;h<2;++h)if(g_wheel[h].engaged && g_wheel[h].targetValid)held|=uint8_t(1u<<h);
     const auto previous=g_grabState.load(std::memory_order_relaxed);
     const auto epoch=(previous>>2)+((previous&3)==0 && held ? 1:0);
     if(g_wheelSpan>.15f)g_physicalRadius.store(g_wheelSpan*.5f,std::memory_order_relaxed);
@@ -325,6 +327,17 @@ int WheelControlState() {
 float WheelSteerInput() {
     const int state=WheelControlState();
     const auto grab=g_grabState.load(std::memory_order_acquire);
+    // Held, but the animation has not published for a while (the game froze, a load hitch): the grab is not over, only
+    // paused -- keep the turn, hold the last input (TrackedWheelSteering::Suspend).
+    if((state&4) && !(state&3) && (grab&3)) {
+        std::lock_guard lock(g_steerMutex);
+        if(g_sampledGrabEpoch==(grab>>2)) {
+            float out=g_steering.Suspend(XrDiagNowUs());
+            if(g_wheelMountedCar.load(std::memory_order_relaxed))out=CarInputForCabinAngle(out*CarCabinWheelLockDeg);
+            g_wheelSteer.store(out,std::memory_order_relaxed);
+            return out;
+        }
+    }
     OpenXRHeadPose head{},hands[2]{};uint64_t sequence{},stamp{};
     WheelTrackingFrame frame{};
     if((state&3) && OpenXRManager::Get().GetGestureHandFrame(&head,hands,&sequence,&stamp)) {
@@ -338,10 +351,14 @@ float WheelSteerInput() {
     }
     std::lock_guard lock(g_steerMutex);
     if(g_sampledGrabEpoch!=(grab>>2)){g_steering.Reset();g_sampledGrabEpoch=grab>>2;}
-    const float out=g_steering.Update(uint8_t(state&grab&3),frame,XrDiagNowUs(),
+    const bool car=g_wheelMountedCar.load(std::memory_order_relaxed);
+    float out=g_steering.Update(uint8_t(state&grab&3),frame,XrDiagNowUs(),
         g_physicalRadius.load(std::memory_order_relaxed),
-        WheelFullLockForVehicle(g_liveControls.xrWheelSteerMaxDeg,g_wheelMountedCar.load(std::memory_order_relaxed)),g_liveControls.xrWheelSteerDeadDeg,
+        WheelFullLockForVehicle(g_liveControls.xrWheelSteerMaxDeg,car),g_liveControls.xrWheelSteerDeadDeg,
         g_liveControls.xrWheelPrediction ? g_liveControls.xrWheelPredictionMs:0.f);
+    // A car's output is the share of its cabin wheel's full lock the hands have turned; the input that puts the
+    // cabin wheel there is read off its curve, so the wheel the hands hold turns with them one to one.
+    if(car)out=CarInputForCabinAngle(out*CarCabinWheelLockDeg);
     g_wheelSteer.store(out,std::memory_order_relaxed);
     g_wheelSteerDeg.store(g_steering.Angle(),std::memory_order_relaxed);
     return out;

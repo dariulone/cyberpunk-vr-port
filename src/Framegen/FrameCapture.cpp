@@ -25,6 +25,10 @@ struct Frame {
     CameraData camera[2]{};
     EyeCamera eye[2]{};
     uint32_t frameId{};
+    // The head-pose sample each eye was drawn from (Inputs::poseId), and when the frame was captured (QPC): two frames
+    // with one pose sample are the port reusing a pose; two samples with one orientation are the runtime's.
+    uint64_t poseId[2]{};
+    int64_t capturedQpc{};
 };
 struct State {
     std::mutex mutex;
@@ -81,7 +85,7 @@ void WriteAll(std::vector<Frame> frames,ComPtr<ID3D12Fence> fence,uint64_t value
             char name[64];
             std::snprintf(name,sizeof(name),"f%zu_e%u_color.raw",k,e);ok=Write(frame.color[e],directory/name);
             std::snprintf(name,sizeof(name),"f%zu_e%u_depth.raw",k,e);ok=ok && Write(frame.depth[e],directory/name);
-            std::snprintf(name,sizeof(name),"f%zu_e%u_motion.raw",k,e);ok=ok && Write(frame.motion[e],directory/name);
+            std::snprintf(name,sizeof(name),"f%zu_e%u_motion.raw",k,e);ok=ok && (!frame.motion[e].readback || Write(frame.motion[e],directory/name));
             const auto& c=frame.camera[e];const auto& v=frame.eye[e];
             std::fprintf(json,"%s{\"color\":[%u,%u,%d],\"depth\":[%u,%u,%d],\"motion\":[%u,%u,%d],",e?",":"",
                 frame.color[e].width,frame.color[e].height,int(frame.color[e].format),frame.depth[e].width,frame.depth[e].height,int(frame.depth[e].format),
@@ -89,7 +93,8 @@ void WriteAll(std::vector<Frame> frames,ComPtr<ID3D12Fence> fence,uint64_t value
             Floats(json,"jitter",c.jitter,2);Floats(json,"motionScale",c.motionScale,2);Floats(json,"position",c.position,3);
             Floats(json,"up",c.up,3);Floats(json,"right",c.right,3);Floats(json,"forward",c.forward,3);
             const float planes[4]={c.nearPlane,c.farPlane,c.verticalFov,c.aspect};Floats(json,"planes",planes,4);
-            std::fprintf(json,"\"inverted\":%d,\"infinite\":%d,\"jittered\":%d,",c.inverted,c.infinite,c.jittered);
+            std::fprintf(json,"\"inverted\":%d,\"infinite\":%d,\"jittered\":%d,\"pose\":%llu,\"qpc\":%lld,",c.inverted,c.infinite,c.jittered,
+                static_cast<unsigned long long>(frame.poseId[e]),static_cast<long long>(frame.capturedQpc));
             Floats(json,"orientation",v.orientation,4);Floats(json,"fov",v.fov,4,false);std::fprintf(json,"}");
         }
         std::fprintf(json,"]}");
@@ -125,11 +130,15 @@ void CaptureFrame(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Resource*
     constexpr auto read=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;constexpr auto copy=D3D12_RESOURCE_STATE_COPY_SOURCE;
     for(unsigned e=0;e<2 && ok;++e) {
         const auto& in=*inputs[e];
-        frame.camera[e]=in.camera;frame.eye[e]=cameras[e].current;
+        frame.camera[e]=in.camera;frame.eye[e]=cameras[e].current;frame.poseId[e]=in.poseId;
+        if(e==0) {LARGE_INTEGER now{};QueryPerformanceCounter(&now);frame.capturedQpc=now.QuadPart;}
         ok=Copy(device,state.list.Get(),colors[e],frame.color[e]);   // the captures rest in COPY_SOURCE
-        Barrier(state.list.Get(),in.depth.Get(),read,copy);Barrier(state.list.Get(),in.motion.Get(),read,copy);
-        ok=ok && Copy(device,state.list.Get(),in.depth.Get(),frame.depth[e]) && Copy(device,state.list.Get(),in.motion.Get(),frame.motion[e]);
-        Barrier(state.list.Get(),in.depth.Get(),copy,read);Barrier(state.list.Get(),in.motion.Get(),copy,read);
+        // Motion is optional: without frame generation it is not captured (the stereo check needs depth only).
+        const bool motion=in.hasMotion && in.motion;
+        if(!in.depth){ok=false;break;}
+        Barrier(state.list.Get(),in.depth.Get(),read,copy);if(motion)Barrier(state.list.Get(),in.motion.Get(),read,copy);
+        ok=ok && Copy(device,state.list.Get(),in.depth.Get(),frame.depth[e]) && (!motion || Copy(device,state.list.Get(),in.motion.Get(),frame.motion[e]));
+        Barrier(state.list.Get(),in.depth.Get(),copy,read);if(motion)Barrier(state.list.Get(),in.motion.Get(),copy,read);
     }
     if(FAILED(state.list->Close()) || !ok) {CyberpunkVR_FramegenCapture.store(-1);state.frames.clear();return;}
     ID3D12CommandList* lists[]={state.list.Get()};queue->ExecuteCommandLists(1,lists);queue->Signal(state.fence.Get(),++state.value);

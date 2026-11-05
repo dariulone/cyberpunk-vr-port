@@ -131,7 +131,7 @@ sl::Result Evaluate(sl::Feature feature,const sl::FrameToken& frame,const sl::Ba
         for(unsigned side=first;side<=last;++side)
         for(auto& item:pools[side])if(item && !item->invalid && item->data.frameId==pose.renderFrameId &&
             item->data.poseId==pose.poseId && item->data.origin==pose.head.originSerial &&
-            item->data.hasDepth && (!Enabled() || item->data.hasMotion) && !item->data.submitted && !item->data.evaluated) {
+            item->data.hasDepth && (!MotionWanted() || item->data.hasMotion) && !item->data.submitted && !item->data.evaluated) {
             item->data.evaluated=true;item->expected|=4;
             CVR_DIAGNOSTIC(CyberpunkVR_FramegenInputStages[7].fetch_add(1,std::memory_order_relaxed));
             pending[static_cast<ID3D12CommandList*>(list)].push_back({item,item->generation,4});
@@ -295,7 +295,7 @@ bool RecordSide(unsigned side,const cvr::camera::PoseIdentity& pose,const Camera
     uint8_t copied=0;
     for(uint32_t i=0;i<count;++i) {
         const InputTag& tag=tags[i];if(!tag.resource)continue;
-        if(tag.type==1 && !Enabled())continue;
+        if(tag.type==1 && !MotionWanted())continue;
         CVR_DIAGNOSTIC(CyberpunkVR_FramegenInputStages[5].fetch_add(1,std::memory_order_relaxed));
         if((tag.type==0 && copy.hasDepth) || (tag.type==1 && copy.hasMotion))continue;
         if(CopyInput(list,tag,copy)) {
@@ -312,13 +312,13 @@ bool RecordSide(unsigned side,const cvr::camera::PoseIdentity& pose,const Camera
         if(!data.readyFence)data.readyFence=std::move(copy.readyFence);
         record->expected|=copied;
         pending[list].push_back({record,record->generation,copied});
-        if(native && data.hasDepth && (!Enabled() || data.hasMotion) && !data.evaluated) {
+        if(native && data.hasDepth && (!MotionWanted() || data.hasMotion) && !data.evaluated) {
             data.evaluated=true;record->expected|=4;
             pending[list].push_back({record,record->generation,4});
         }
         havePending.store(true,std::memory_order_release);
     }
-    return record->data.hasDepth && (!Enabled() || record->data.hasMotion);
+    return record->data.hasDepth && (!MotionWanted() || record->data.hasMotion);
 }
 }
 static bool RecordInputs(const InputTag* tags,uint32_t count,void* commandList,bool native) {

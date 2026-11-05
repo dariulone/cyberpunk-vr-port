@@ -48,6 +48,8 @@ LUA_SKIP = ('db.sqlite3', '.log', '.bak', '.orig', '.rar', '.zip', '.md')
 # The plugin's one folder (include/Core/Paths.hpp) and the folder an earlier release used.
 PLUGIN = 'red4ext/plugins/cyberpunkvrport'
 LEGACY_PLUGIN = 'red4ext/plugins/CyberpunkVR_Stereo'
+# The DirectX shader compiler single-pass stereo loads beside the plugin (dxc\), as tools/vr_bench deploys it.
+DXC_SOURCE = r'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64'
 # The port's own shaders (src/Shaders) under the names the plugin loads them by, in its shaders folder.
 OWN_SHADERS = {
     'CyberpunkVR_SightPs.dxil': 'sight_reflex_ps.dxil',
@@ -117,6 +119,12 @@ def port_files(a):
         files[PLUGIN + '/shaders/' + name] = 'src/Shaders/' + src
     for variant in ('649567EB5A039A01', '372EEC30C414B67A'):
         files[PLUGIN + '/shaders/CyberpunkVR_ScopeGlass_%s.dxil' % variant] = 'src/Shaders/scope_glass_%s.dxil' % variant
+    # single-pass stereo rewrites the engine's shaders in process with the DirectX shader compiler
+    # (src/Render/ViewTwinCompiler.cpp): dxcompiler.dll + dxil.dll in the plugin's dxc folder, from the Windows SDK;
+    # without them single pass stays off
+    for n in ('dxcompiler.dll', 'dxil.dll'):
+        if os.path.isfile(os.path.join(DXC_SOURCE, n)):
+            files[PLUGIN + '/dxc/' + n] = os.path.relpath(os.path.join(DXC_SOURCE, n), REPO)
     # the shipped settings template (copied over the game's own on the first launch) and the recorded poses
     files[PLUGIN + '/config/UserSettings.json'] = 'mods/config/UserSettings.json'
     for n in sorted(os.listdir(os.path.join(REPO, 'mods', 'config'))):

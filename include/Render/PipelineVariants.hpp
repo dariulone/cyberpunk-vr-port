@@ -60,6 +60,9 @@ public:
         return nullptr;
     }
     uint32_t Live() const {return live_.load(std::memory_order_relaxed);}
+    // Bumped by every Store and Remove: an answer Find gave for an address holds while it is unchanged (a per-thread
+    // cache of the last pipeline asked about, for the draw hooks that ask on every draw).
+    uint64_t Generation() const {return generation_.load(std::memory_order_acquire);}
 
     // Consumes every supplied creation reference, including on failure or duplicate registration.
     // S_FALSE: the original already has variants (a driver may hand back an existing immutable PSO);
@@ -86,6 +89,7 @@ public:
         slots_[slot].entry.store(entry.Get(),std::memory_order_release);
         slots_[slot].pso.store(address,std::memory_order_release);
         live_.fetch_add(1,std::memory_order_release);
+        generation_.fetch_add(1,std::memory_order_acq_rel);
         return S_OK;
     }
 
@@ -104,6 +108,7 @@ private:
             slots_[i].entry.store(nullptr,std::memory_order_release);
             slots_[i].pso.store(Tombstone,std::memory_order_release);
             live_.fetch_sub(1,std::memory_order_release);
+            generation_.fetch_add(1,std::memory_order_acq_rel);
             return;
         }
     }
@@ -111,6 +116,7 @@ private:
     GUID key_;
     std::array<Slot,Slots> slots_{};
     std::atomic<uint32_t> live_{0};
+    std::atomic<uint64_t> generation_{0};
     size_t used_=0;   // slots ever taken (live or tombstone), under mutex_
     // Recursive: SetPrivateDataInterface under the lock may release an entry, whose destructor removes it.
     std::recursive_mutex mutex_;

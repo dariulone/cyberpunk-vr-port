@@ -688,6 +688,15 @@ std::filesystem::path LuaSandbox::GetLuaPath(std::filesystem::path aFilePath, co
     if (aFilePath.native().starts_with(L"..\\"))
         return {};
 
+    std::wstring key;
+    if (acAllowNonExisting)
+    {
+        key = acRootPath.native() + L'\t' + std::filesystem::current_path().native() + L'\t' + aFilePath.native();
+        std::lock_guard guard(m_pathLock);
+        if (const auto it = m_pathCache.find(key); it != m_pathCache.end())
+            return it->second;
+    }
+
     aFilePath = GetAbsolutePath(aFilePath, acRootPath, acAllowNonExisting, false);
     if (aFilePath.empty())
         return {};
@@ -698,5 +707,14 @@ std::filesystem::path LuaSandbox::GetLuaPath(std::filesystem::path aFilePath, co
         return {};
     }
 
-    return Relative(aFilePath, std::filesystem::current_path());
+    auto result = Relative(aFilePath, std::filesystem::current_path());
+    if (acAllowNonExisting && !result.empty())
+    {
+        std::lock_guard guard(m_pathLock);
+        // A mod naming a new file every time (timestamped logs) would grow it without end.
+        if (m_pathCache.size() >= 4096)
+            m_pathCache.clear();
+        m_pathCache.emplace(std::move(key), result);
+    }
+    return result;
 }

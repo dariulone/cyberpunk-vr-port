@@ -53,7 +53,13 @@ namespace {
 const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
 constexpr uintptr_t kAttachRva = 0x44764C;
 constexpr uintptr_t kDetachRva = 0x4476A8;
-// IPlacedComponent: incoming attachments are kept first in the attachment list (+0x70), their number at +0x80.
+// IPlacedComponent: the attachment list (+0x70, handles of entIAttachment, its size at +0x7C) keeps the incoming
+// ones first, their number at +0x80. Not every incoming attachment carries the transform: an animated component is
+// also the destination of its animation controller's entAnimationControlAttachment. A weapon appearance with a single
+// parentless placed component (Carnage: its Receiver) has that animated component for its entity's root
+// (sub_14071C57C makes a placeholder root only for several), and the root then has one incoming attachment that is
+// not a parent -- verified live 2026-11-03.
+constexpr size_t kAttachments = 0x70;
 constexpr size_t kIncomingCount = 0x80;
 
 // What sub_1404478D8 reads: the slot's name, and a flag it copies into the attachment (bit 3 of +0x50, which an
@@ -84,13 +90,26 @@ bool IsA(RED4ext::IScriptable* object, const char* className) {
     return object && cls && object->GetType()->IsA(cls);
 }
 
-// The number of attachments the component is the child of; -1 when it cannot be read.
-int Incoming(void* component) {
+// The number of transform attachments (parents) the component is the child of; -1 when it cannot be read.
+int IncomingTransforms(void* component, RED4ext::CClass* transformType) {
     __try {
-        return *reinterpret_cast<uint16_t*>(static_cast<uint8_t*>(component) + kIncomingCount);
+        auto* c = static_cast<uint8_t*>(component);
+        const int count = *reinterpret_cast<uint16_t*>(c + kIncomingCount);
+        auto* list = *reinterpret_cast<RED4ext::ISerializable***>(c + kAttachments);   // { instance, refCount }
+        int parents = 0;
+        for (int i = 0; i < count; ++i) {
+            auto* attachment = list[2 * i];
+            if (attachment && attachment->GetType()->IsA(transformType)) ++parents;
+        }
+        return parents;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return -1;
     }
+}
+
+int Incoming(void* component) {
+    static auto* const transformType = RED4ext::CRTTISystem::Get()->GetClass("entITransformAttachment");
+    return transformType ? IncomingTransforms(component, transformType) : -1;
 }
 
 // No C++ objects in these two: SEH and unwinding do not mix.

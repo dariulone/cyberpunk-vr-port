@@ -7,3 +7,6 @@
 [submodule "externals/minhook"]
 	path = externals/minhook
 	url = https://github.com/TsudaKageyu/minhook.git
+[submodule "externals/wrpuppets-fbt-ik"]
+	path = externals/wrpuppets-fbt-ik
+	url = https://github.com/Syncher-source/wrpuppets-fbt-ik.git

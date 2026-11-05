@@ -5,7 +5,9 @@
 // eyes, a filter that reaches across the seam in the middle and motion that can carry one eye's pixels into the
 // other's. Here that evaluate becomes two, one per eye, each on its own Streamline viewport (its own DLSS feature
 // and history), its inputs and output the eye's half of the engine's tagged resources, its options the engine's
-// with half the output width, its constants the engine's with the motion scale of a half-width input.
+// with half the output width, its constants the engine's with the motion scale of a half-width input. Ray
+// Reconstruction (DLSS-D, which replaces DLSS when it is on) is split the same way, its options the engine's from
+// slDLSSDSetOptions with half the output width and, as its constants, each eye's camera position.
 //
 // The Streamline hooks feed it: slSetTag (Hooks/Ngx.cpp), slSetConstants and slEvaluateFeature
 // (Framegen/Inputs.cpp), slDLSSSetOptions (hooked here through slGetFeatureFunction).

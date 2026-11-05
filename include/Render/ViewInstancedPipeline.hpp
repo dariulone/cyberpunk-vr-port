@@ -1,6 +1,8 @@
 #pragma once
 #include <d3d12.h>
 #include <array>
+#include <functional>
+#include <string>
 #include <vector>
 #include <cstdint>
 
@@ -32,8 +34,15 @@ struct PipelineStreamInfo {
 // Pointers remain borrowed from the caller during these synchronous operations.
 // Scalar payloads start at +4, pointer-aligned payloads at +8 on x64.
 bool ReadPipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC&,PipelineStreamInfo&);
-struct PipelineStreamOffsets {size_t vs=SIZE_MAX,ps=SIZE_MAX,cs=SIZE_MAX,cached=SIZE_MAX;};
+struct PipelineStreamOffsets {size_t vs=SIZE_MAX,ps=SIZE_MAX,cs=SIZE_MAX,cached=SIZE_MAX,ms=SIZE_MAX,as=SIZE_MAX;};
 bool FindPipelineStreamOffsets(const D3D12_PIPELINE_STATE_STREAM_DESC&,PipelineStreamOffsets&);
+// One line of the subobjects and their main fields (diagnostics).
+std::string DescribePipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC&);
+// A copy of the stream with each subobject's payload handed to `edit` (diagnostics: one change at a time).
+bool EditPipelineStream(const D3D12_PIPELINE_STATE_STREAM_DESC&,std::vector<uint8_t>&,
+                        const std::function<void(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE,uint8_t*)>&);
+// A classic description as a subobject stream (no view instancing part); pointers stay the description's.
+bool GraphicsDescStream(const D3D12_GRAPHICS_PIPELINE_STATE_DESC&,std::vector<uint8_t>&);
 bool BuildViewInstancedStream(const D3D12_PIPELINE_STATE_STREAM_DESC&,const D3D12_SHADER_BYTECODE& replacementVs,
     const ViewInstancedLayout&,std::vector<uint8_t>&,const D3D12_SHADER_BYTECODE& replacementPs={},ID3D12RootSignature* replacementRoot=nullptr);
 HRESULT CreateViewInstancedPipelineStream(ID3D12Device2*,const D3D12_PIPELINE_STATE_STREAM_DESC&,

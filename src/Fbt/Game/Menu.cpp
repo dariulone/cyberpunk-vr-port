@@ -1,0 +1,47 @@
+#include "Fbt/Game/Menu.hpp"
+#include "Fbt/Game/Body.hpp"
+#include "Fbt/Game/Calibration.hpp"
+#include "Overlay/UiRec.hpp"
+
+using namespace wrpuppets::fbt;   // the IK library (externals/wrpuppets-fbt-ik)
+
+namespace cvr::fbt::game {
+
+void DrawSettingsSection() {
+    if (UI::CollapsingHeader("FULL-BODY TRACKING", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const int step = CalibrationStep();
+        if (step == 0) {
+            const bool available = CalibrationAvailable();
+            UI::BeginDisabled(!available);
+            if (UI::Button("Calibrate full-body tracking")) StartCalibration();
+            if (UI::IsItemHovered()) UI::SetTooltip("Three steps: look ahead at the horizon line, press both triggers;\nstand straight, arms along the body, look down, press both triggers;\nthen the T-pose on the cross until the countdown ends.\nNeeds the Vive Trackers on the waist and both feet.");
+            UI::EndDisabled();
+            if (!available)
+                UI::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "Full-body calibration works in game only: load a save first.");
+        } else if (step == 1) {
+            if (UI::Button("Step 1: look ahead at the horizon line, then press both triggers (press to cancel)")) CancelCalibration();
+            if (UI::IsItemHovered()) UI::SetTooltip("Release both triggers, take the pose, then pull both together.");
+        } else if (step == 2) {
+            if (UI::Button("Step 2: arms down, look down, then press both triggers (press to cancel)")) CancelCalibration();
+            if (UI::IsItemHovered()) UI::SetTooltip("Release both triggers, take the pose, then pull both together.");
+        } else {
+            if (UI::Button("Step 3: face the cross: head on its top, arms straight out along its arms, until the countdown ends (press to keep V's arms)")) CancelCalibration();
+            if (UI::IsItemHovered()) UI::SetTooltip("Stand facing the cross; the dots turn green on their marks, then the countdown runs.");
+        }
+        bool legs = LegsEnabled();
+        if (UI::Checkbox("V's legs follow the trackers", &legs)) SetLegsEnabled(legs);
+        if (UI::IsItemHovered()) UI::SetTooltip("V's hips and legs follow your waist and foot trackers (needs a calibration).\nThe spine, head and arms stay as before.");
+        UI::BeginDisabled(!legs);
+        bool spine = SpineEnabled();
+        if (UI::Checkbox("V's spine and head follow the headset", &spine)) SetSpineEnabled(spine);
+        if (UI::IsItemHovered()) UI::SetTooltip("V's spine bends from your hips to your headset, V's eyes on your view (with the legs on).\nThe arms stay as before.");
+        UI::BeginDisabled(!spine);
+        bool arms = ArmsEnabled();
+        if (UI::Checkbox("V's arms follow the controllers", &arms)) SetArmsEnabled(arms);
+        if (UI::IsItemHovered()) UI::SetTooltip("V's arms reach your controllers with V's arm length set by the calibration (with the spine on).\nOff: the arms as before.");
+        UI::EndDisabled();
+        UI::EndDisabled();
+    }
+}
+
+}  // namespace cvr::fbt::game

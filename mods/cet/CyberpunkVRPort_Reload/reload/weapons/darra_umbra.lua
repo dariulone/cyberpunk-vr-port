@@ -27,6 +27,7 @@ return {
 
     slide = {
         slot       = 'vrp_reload_lever',
+        handleSide = 'both',  -- the handle sticks out on both sides (the slide bone's vertices, x -0.041..+0.041 m): reload.lua handGrips
         which      = 1, bone = 2,
         travel     = 0.0938,
         restLocal  = { 0.00000, 0.04780, 0.34070 },

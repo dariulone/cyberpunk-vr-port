@@ -82,7 +82,7 @@ void InitRuntimePaths() {
     g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDefault;
     // 1.5 deg of deadzone: enough to swallow tremor, small enough that the wheel does not feel dead
     // off centre. Every degree here is a degree the car ignores.
-    g_liveControls.xrWheelSteerDeadDeg = 1.5f;
+    g_liveControls.xrWheelSteerDeadDeg = 0.0f;
     g_liveControls.xrWheelPrediction = 0;
     g_liveControls.xrWheelPredictionMs = 8.0f;
     // Horn ON: a hand on the middle of the wheel honks, as it would in a real car. 12 cm is the hub
@@ -97,9 +97,10 @@ void InitRuntimePaths() {
     g_liveControls.xrVehicleGunTrigger = 1;
     g_liveControls.xrVehicleThrottleTrim = 0.5f;
 
-    // Default: suspend VRIK during true cinematics (Tier4_FPPCinematic and up). The avatar is
-    // driven by the engine authored scene animation there, and VRIK fighting it looks wrong.
-    g_liveControls.xrCutsceneSuspendTier = 3;
+    // Default on foot: suspend VRIK from Tier 3 scenes up (asked 2026-11-05, the setting players keep), in a vehicle
+    // during true cinematics (Tier4_FPPCinematic and up). The avatar is driven by the engine authored scene animation
+    // there, and VRIK fighting it looks wrong.
+    g_liveControls.xrCutsceneSuspendTier = 2;
     g_liveControls.xrVehicleCutsceneSuspendTier = 3;
 
     // Default ON: VR controller -> XInput gamepad pipeline. Both the entry-point
@@ -111,6 +112,7 @@ void InitRuntimePaths() {
     g_liveControls.xrXInputInstall = 1;
     g_liveControls.xrInputActions = 1;
     g_liveControls.xrMovementSpeedMode=0;
+    g_liveControls.xrSprintMode=0;
     g_liveControls.xrLeftStickDeadzone=.15f;
     g_liveControls.xrRightStickDeadzone=.15f;
     g_liveControls.xrMaxInputThreshold=.90f;
@@ -167,6 +169,7 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_breaststroke_swim=1\n");
     fprintf(file, "xr_ladder_grip_climb=1\n");
     fprintf(file, "xr_left_handed=0\n");
+    fprintf(file, "xr_left_handed_bindings=2\n");
     fprintf(file, "xr_ladder_auto_finish=1\nxr_ladder_finish_distance=1.0\n");
     fprintf(file, "xr_body_free_look_swim_deg=5\n");
     fprintf(file, "first_launch=1\n");
@@ -207,6 +210,7 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_snap_turn=0\n");
     fprintf(file, "xr_snap_turn_angle_deg=30\n");
     fprintf(file, "xr_movement_source=0\n");
+    fprintf(file,"xr_sprint_mode=0\n");
     fprintf(file,"xr_movement_speed_mode=0\nxr_left_stick_deadzone=0.15\nxr_right_stick_deadzone=0.15\nxr_max_input_threshold=0.90\n");
     // Default ON for the gameplay-input pipeline: both flags are required for the
     // VR controller to reach CP2077 as an XInput pad (otherwise the game detects no

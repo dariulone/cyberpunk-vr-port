@@ -66,6 +66,18 @@ GlassIndex glassPipelines{GUID{0x445b6076,0x2f13,0x40e5,{0xa7,0x3b,0x11,0xd6,0x8
 std::atomic<uint64_t> glassTick{};
 std::atomic<unsigned> glassCount{};
 const GlassEntry* FindGlass(ID3D12PipelineState* pso) {return glassPipelines.Find(pso);}
+// Whether the pipeline a thread has bound is a glass: the draw hook asks three times on every draw (full-rate shading,
+// lens velocity, the lens mask) and the answer only changes with the pipeline or the registry. The registry's probe
+// is a hash into a 64 KB table, a cache miss on most draws; this is a compare.
+bool IsGlass(ID3D12PipelineState* pso) {
+    struct Last {ID3D12PipelineState* pso=nullptr;uint64_t generation=~0ull;bool glass=false;};
+    thread_local Last last;
+    const uint64_t generation=glassPipelines.Generation();
+    if(last.pso!=pso || last.generation!=generation) {
+        last.pso=pso;last.generation=generation;last.glass=pso && glassPipelines.Find(pso);
+    }
+    return last.glass;
+}
 struct Rate {
     D3D12_SHADING_RATE value=D3D12_SHADING_RATE_1X1;
     std::array<D3D12_SHADING_RATE_COMBINER,2> combiners{D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
@@ -94,6 +106,7 @@ struct Bound {
 thread_local std::array<Bound,4> bound{};
 thread_local unsigned boundNext{};
 }
+bool GlassPipeline(ID3D12PipelineState* pso) {return IsGlass(pso);}
 void GlassPipelineCreated(ID3D12PipelineState* pso,ID3D12PipelineState* velocityPipeline,ID3D12PipelineState* maskPipeline) {
     ID3D12PipelineState* variants[]{velocityPipeline};
     const HRESULT hr=glassPipelines.Store(pso,variants,maskPipeline);
@@ -131,6 +144,7 @@ bool SightMaskShader(D3D12_SHADER_BYTECODE& shader) {
     shader={sightMaskShader.bytes.data(),sightMaskShader.bytes.size()};return true;
 }
 ID3D12PipelineState* GlassMaskPipeline(ID3D12PipelineState* pso) {
+    if(!IsGlass(pso))return nullptr;
     const auto glass=FindGlass(pso);
     return glass ? glass->mask.Get() : nullptr;
 }
@@ -180,6 +194,7 @@ void Targets(ID3D12GraphicsCommandList* list,UINT count,const D3D12_CPU_DESCRIPT
 }
 bool PrepareLensVelocity(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso,LensVelocityPass& pass) {
     pass={};
+    if(!IsGlass(pso))return false;
     const auto glass=FindGlass(pso);
     if(glass)glassTick.store(GetTickCount64(),std::memory_order_relaxed);
     if(!glass || !(pass.pipeline=glass->variants[0].Get()))return false;
@@ -200,7 +215,7 @@ void ShadingRateSet(ID3D12GraphicsCommandList* list,D3D12_SHADING_RATE value,con
     std::lock_guard lock(rateMutex);if(rates.size()<4096 || rates.contains(list))rates[list]=rate;
 }
 FullRateDraw::FullRateDraw(ID3D12GraphicsCommandList* base,ID3D12PipelineState* pso,RateFn setRate) {
-    if(!base || !pso || !setRate || !FindGlass(pso))return;
+    if(!base || !pso || !setRate || !IsGlass(pso))return;
     Rate engine;{std::lock_guard lock(rateMutex);if(const auto it=rates.find(base);it!=rates.end())engine=it->second;}
     // Base 1x1 with both combiners passthrough ignores per-primitive rates and the rate image.
     static constexpr D3D12_SHADING_RATE_COMBINER passthrough[]{D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};

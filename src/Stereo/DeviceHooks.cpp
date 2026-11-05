@@ -6,6 +6,7 @@
 #include "Render/PipelineVariants.hpp"
 #include "Render/SceneGpuProfile.hpp"
 #include "Hooks/AftermathDiagnostics.hpp"
+#include "Hooks/ListAudit.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/FoveatedDlss.hpp"
 #include "Render/FixedVrs.hpp"
@@ -37,6 +38,7 @@
 #include "Render/StereoSceneState.hpp"
 #include <wrl/client.h>
 #include <memory>
+#include <algorithm>
 // DeviceHooks -- how everything else in this module gets to run at all.
 //
 // The engine creates a D3D12 device, a queue, command lists and pipeline states. This file hooks the
@@ -99,6 +101,9 @@
 #include "Stereo/DetourRegistry.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
+#include "Stereo/StereoPairProbe.hpp"
+#include "Stereo/SinglePass.hpp"
+#include "Render/SinglePassPipelines.hpp"
 
 namespace cvr {
 namespace detail {
@@ -131,9 +136,168 @@ void patch_descriptor_heap_size() {
     }
 }
 
+// STREAMED RESOURCES INTO THE ALLOCATOR'S HEAPS. The engine allocates through D3D12MA and asks for a dedicated
+// (committed) resource for every texture over 256 x 256 texels (sub_140347F74: w*h*d <= 0x10000) and every buffer
+// over 256 KB (sub_1403445AC: size-1 <= 0x3FFFF). Streaming creates them as the head turns: ~7 a frame in fast yaw,
+// ~3 ms of runtime/driver time EACH (CyberpunkVR_CreationCounts[12]), against ~0.13 ms for a placed one.
+// CyberpunkVR_StreamingPlaced=1 (default; 0 restores the engine's limits) raises both limits (16 M texels, 32 MB) so
+// they are placed into D3D12MA's blocks. Measured (docs/vr-render-optimization-20261104.md, "Resource creation"):
+// committed creations a 6 s fast-yaw window 1,970-3,270 -> 36-45, process CPU -4.6 ms a frame (ETW), video memory
+// ~0.15 GB lower, the GPU and the stereo pictures unchanged;
+// the allocator still makes anything over half a block committed itself, and render-target / depth / UAV
+// textures stay committed (their own flag test, untouched). Only the compare's immediate changes -- a stale or
+// half-written value is still a valid threshold -- and the original bytes are checked first.
+extern "C" __declspec(dllexport) volatile int CyberpunkVR_StreamingPlaced=1;   // on by default (measured, above)
+extern "C" __declspec(dllexport) volatile uint32_t CyberpunkVR_StreamingPlacedState=0;   // 1 applied, 2 restored, 0xFFFFFFFF bytes differ
+static void ApplyStreamingPlaced(bool on){
+    struct Site{uint32_t rva;uint8_t opcode[2];size_t opcodeBytes;uint32_t original,raised;};
+    static const Site sites[]{{0x3480EC,{0x81,0xF9},2,0x00010000u,0x01000000u},{0x3448E3,{0x3D,0},1,0x0003FFFFu,0x01FFFFFFu}};
+    if(!g_exe_base)sync_stereo_init();
+    for(const auto& site:sites){
+        uint8_t* code=g_exe_base+site.rva;
+        uint8_t* immediate=code+site.opcodeBytes;
+        uint32_t current{};memcpy(&current,immediate,4);
+        if(memcmp(code,site.opcode,site.opcodeBytes) || (current!=site.original && current!=site.raised)){
+            CyberpunkVR_StreamingPlacedState=0xFFFFFFFFu;
+            log("[creation] streaming-placed: bytes at exe+%X differ (imm 0x%X), not patched",site.rva,current);
+            return;
+        }
+    }
+    for(const auto& site:sites){
+        uint8_t* immediate=g_exe_base+site.rva+site.opcodeBytes;
+        const uint32_t value=on?site.raised:site.original;
+        DWORD old{};
+        if(!VirtualProtect(immediate,4,PAGE_EXECUTE_READWRITE,&old))continue;
+        memcpy(immediate,&value,4);
+        DWORD junk{};VirtualProtect(immediate,4,old,&junk);
+        FlushInstructionCache(GetCurrentProcess(),immediate,4);
+    }
+    CyberpunkVR_StreamingPlacedState=on?1u:2u;
+    log("[creation] streaming-placed %s: texture limit 0x%X texels, buffer limit 0x%X bytes",on?"on":"off",
+        on?sites[0].raised:sites[0].original,(on?sites[1].raised:sites[1].original)+1);
+}
+static void PollStreamingPlaced(){
+    static std::atomic<int> applied{0};
+    const int wanted=CyberpunkVR_StreamingPlaced?1:0;
+    int seen=applied.load(std::memory_order_relaxed);
+    if(seen!=wanted && applied.compare_exchange_strong(seen,wanted))ApplyStreamingPlaced(wanted!=0);
+}
+
+// Creation counts since launch (vr_bench ab --counters, per window): [0] committed resources, [1] their bytes,
+// [2] placed resources, [3] their allocation bytes, [4] descriptor heaps, [5] graphics/stream pipelines,
+// [6] compute pipelines, [7] root signatures; who asked: [8] committed by the port, [9] committed by the game's exe,
+// [10] placed by the port, [11] placed by the exe (others: drivers, Streamline, DLSS); time inside the runtime and
+// driver: [12] committed, [13] placed (100 ns units); [14] mesh-shader pipelines (an MS subobject). No heaps or root signatures are created in play; resources are,
+// by the engine's streaming as the head turns (the port creates none) -- see CyberpunkVR_StreamingPlaced above.
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_CreationCounts[15]{};
+static uint64_t CreationClock(){LARGE_INTEGER t;QueryPerformanceCounter(&t);return static_cast<uint64_t>(t.QuadPart);}
+static void CountCreationTime(size_t i,uint64_t start){
+    static const uint64_t frequency=[]{LARGE_INTEGER f;QueryPerformanceFrequency(&f);return static_cast<uint64_t>(f.QuadPart);}();
+    CyberpunkVR_CreationCounts[i].fetch_add((CreationClock()-start)*10000000ull/frequency,std::memory_order_relaxed);
+}
+// CyberpunkVR_CreationStacks=1: every committed / placed creation is keyed by the first exe frames of its call
+// stack (RVAs) plus the resource's dimension, heap type and size class; the 16 busiest keys go to the log every
+// 4096 creations. Off by default: a stack walk per creation is not free.
+extern "C" __declspec(dllexport) volatile int CyberpunkVR_CreationStacks=0;
+namespace {
+struct CreationKey{uint32_t rva[4]{};uint32_t kind{};
+    bool operator==(const CreationKey& o)const{return memcmp(this,&o,sizeof(*this))==0;}};
+struct CreationKeyHash{size_t operator()(const CreationKey& k)const{
+    uint64_t h=1469598103934665603ull;auto b=reinterpret_cast<const unsigned char*>(&k);
+    for(size_t i=0;i<sizeof(k);++i){h^=b[i];h*=1099511628211ull;}return static_cast<size_t>(h);}};
+struct CreationStat{uint64_t count{},bytes{};};
+std::mutex g_creation_mutex;
+std::unordered_map<CreationKey,CreationStat,CreationKeyHash> g_creation_stacks;
+uint64_t g_creation_logged{};
+}
+static void NoteCreationStack(bool placed,const D3D12_RESOURCE_DESC* d,const D3D12_HEAP_PROPERTIES* hp,uint64_t bytes){
+    static const auto exe=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    static const auto exeSize=[]{auto dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
+        return static_cast<uintptr_t>(reinterpret_cast<const IMAGE_NT_HEADERS*>(exe+dos->e_lfanew)->OptionalHeader.SizeOfImage);}();
+    void* frames[24]{};
+    const auto n=RtlCaptureStackBackTrace(2,24,frames,nullptr);
+    CreationKey key{};
+    for(USHORT f=0,k=0;f<n && k<4;++f){
+        const auto a=reinterpret_cast<uintptr_t>(frames[f]);
+        if(a>=exe && a<exe+exeSize)key.rva[k++]=static_cast<uint32_t>(a-exe);
+    }
+    const uint32_t dim=d?static_cast<uint32_t>(d->Dimension):0;
+    const uint32_t heapType=hp?static_cast<uint32_t>(hp->Type):0;
+    uint32_t sizeClass=0;for(uint64_t b=bytes;b>65536 && sizeClass<15;b>>=2)++sizeClass;   // 64K,256K,1M,4M,...
+    key.kind=(placed?1u:0u)|dim<<1|heapType<<4|sizeClass<<8|(d?static_cast<uint32_t>(d->Flags&0xFF):0u)<<16;
+    std::vector<std::pair<CreationKey,CreationStat>> top;
+    {
+        std::lock_guard lock(g_creation_mutex);
+        if(g_creation_stacks.size()<4096 || g_creation_stacks.count(key)){
+            auto& stat=g_creation_stacks[key];++stat.count;stat.bytes+=bytes;
+        }
+        if(++g_creation_logged%4096)return;
+        top.assign(g_creation_stacks.begin(),g_creation_stacks.end());
+    }
+    std::sort(top.begin(),top.end(),[](const auto& a,const auto& b){return a.second.count>b.second.count;});
+    log("[creation] %llu committed/placed creations, %zu distinct stacks; busiest:",
+        static_cast<unsigned long long>(g_creation_logged),top.size());
+    for(size_t i=0;i<top.size() && i<16;++i){
+        const auto& [k,v]=top[i];
+        log("[creation]  %7llu x %s dim=%u heap=%u size<=%lluK flags=0x%02X avg=%lluK exe+%X <- %X <- %X <- %X",
+            static_cast<unsigned long long>(v.count),k.kind&1?"placed":"committed",k.kind>>1&7,k.kind>>4&15,
+            64ull<<(2*(k.kind>>8&15)),k.kind>>16&0xFF,static_cast<unsigned long long>(v.bytes/v.count/1024),
+            k.rva[0],k.rva[1],k.rva[2],k.rva[3]);
+    }
+}
+// The process's video memory use against its budget (DXGI), local and non-local, to the log: every 256th
+// committed creation and every 16384th submission (~17 s) -- memory pressure, and whether placing streamed
+// resources into the allocator's blocks (below) makes the process hold more.
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_VideoMemoryMB[2]{};   // last local usage, peak
+static void LogVideoMemory(ID3D12Device* device,const char* when,uint64_t count){
+    static Microsoft::WRL::ComPtr<IDXGIAdapter3> adapter=[&]{
+        Microsoft::WRL::ComPtr<IDXGIFactory4> factory;Microsoft::WRL::ComPtr<IDXGIAdapter3> a;
+        if(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))factory->EnumAdapterByLuid(device->GetAdapterLuid(),IID_PPV_ARGS(&a));
+        return a;}();
+    if(!adapter)return;
+    DXGI_QUERY_VIDEO_MEMORY_INFO local{},shared{};
+    adapter->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_LOCAL,&local);
+    adapter->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL,&shared);
+    CyberpunkVR_VideoMemoryMB[0]=local.CurrentUsage>>20;
+    for(auto peak=CyberpunkVR_VideoMemoryMB[1].load();(local.CurrentUsage>>20)>peak &&
+        !CyberpunkVR_VideoMemoryMB[1].compare_exchange_weak(peak,local.CurrentUsage>>20);){}
+    log("[creation] video memory after %llu %s: local %llu / %llu MB budget, non-local %llu / %llu MB; "
+        "since launch %llu graphics pipelines, %llu with a mesh shader",
+        static_cast<unsigned long long>(count),when,static_cast<unsigned long long>(local.CurrentUsage>>20),
+        static_cast<unsigned long long>(local.Budget>>20),static_cast<unsigned long long>(shared.CurrentUsage>>20),
+        static_cast<unsigned long long>(shared.Budget>>20),
+        static_cast<unsigned long long>(CyberpunkVR_CreationCounts[5].load()),
+        static_cast<unsigned long long>(CyberpunkVR_CreationCounts[14].load()));
+}
+static void NoteVideoMemory(ID3D12Device* device){
+    static std::atomic<uint64_t> calls{};
+    const auto n=calls.fetch_add(1,std::memory_order_relaxed)+1;
+    if(n%256==1)LogVideoMemory(device,"committed",n);
+}
+static void NoteSubmitVideoMemory(ID3D12CommandQueue* queue){
+    static std::atomic<uint64_t> calls{};
+    const auto n=calls.fetch_add(1,std::memory_order_relaxed)+1;
+    if(n%16384)return;
+    Microsoft::WRL::ComPtr<ID3D12Device> device;
+    if(SUCCEEDED(queue->GetDevice(IID_PPV_ARGS(&device))))LogVideoMemory(device.Get(),"submissions",n);
+}
+static void CountCreation(size_t i,uint64_t bytes=0,const void* caller=nullptr){
+    CyberpunkVR_CreationCounts[i].fetch_add(1,std::memory_order_relaxed);
+    if(bytes && i+1<8)CyberpunkVR_CreationCounts[i+1].fetch_add(bytes,std::memory_order_relaxed);
+    if(caller && (i==0 || i==2)) {
+        static HMODULE port=[]{HMODULE m{};GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&CyberpunkVR_CreationCounts),&m);return m;}();
+        static HMODULE exe=GetModuleHandleW(nullptr);
+        HMODULE m{};
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,static_cast<LPCWSTR>(caller),&m);
+        if(m==port)CyberpunkVR_CreationCounts[i==0?8:10].fetch_add(1,std::memory_order_relaxed);
+        else if(m==exe)CyberpunkVR_CreationCounts[i==0?9:11].fetch_add(1,std::memory_order_relaxed);
+    }
+}
 static HRESULT STDMETHODCALLTYPE Hook_CreateDescriptorHeap(
         ID3D12Device* self, const D3D12_DESCRIPTOR_HEAP_DESC* desc,
         REFIID riid, void** out) {
+    CountCreation(4);
     cvr::stereo::descriptors::MutationScope mutation;
     const uintptr_t ret_abs = reinterpret_cast<uintptr_t>(_ReturnAddress());
     CVR_DIAGNOSTIC(CyberpunkVR_DebugDescHeapCreates++);
@@ -387,6 +551,9 @@ static void STDMETHODCALLTYPE Hook_ExecuteCommandLists(
     CyberpunkVR_EclTiming[1].fetch_add(n,std::memory_order_relaxed);
     const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
     const auto original=command_queue_original_execute(self);if(!original)return;
+    PollStreamingPlaced();
+    NoteSubmitVideoMemory(self);
+    cvr::list_audit::Execute(self,n,lists);
     cvr::stereo::constants::ObserveQueueApi(self);
     CVR_DIAGNOSTIC(CyberpunkVR_DebugExecTotal = g_exec_total.fetch_add(n, std::memory_order_relaxed) + n);
     // Do the single 11on12 copy+present only once the game actually SUBMITS the
@@ -658,12 +825,14 @@ static HRESULT STDMETHODCALLTYPE ProfileClose(ID3D12GraphicsCommandList* list) {
     if(!entry || !entry->close_original)return E_FAIL;
     if(!cvr::stereo::probe::internalCommands && cvr::stereo::retained_geometry::Active())cvr::stereo::retained_geometry::BeforeClose(list);
     if(list->GetType()==D3D12_COMMAND_LIST_TYPE_COPY){const auto result=entry->close_original(list);
+        if(SUCCEEDED(result))cvr::list_audit::ListClose(list);
         cvr::stereo::target_handoff::Close(list,result);cvr::stereo::target_access::Close(list,result);return result;}
     cvr::stereo::early_depth::Closing(list);
     cvr::vrs::Restore(list);
     cvr::cascades::Close(list);
     cvr::gpu::scene_profile::Close(list);
     const auto result=entry->close_original(list);
+    if(SUCCEEDED(result))cvr::list_audit::ListClose(list);
     cvr::stereo::target_handoff::Close(list,result);
     cvr::stereo::target_access::Close(list,result);
     if(SUCCEEDED(result))cvr::stereo::material_binding::Reset(list);
@@ -983,6 +1152,8 @@ static void patch_command_list_vtable(void* command_list) {
     // The lens source resolve needs CopyTextureRegion either way; the probe detour calls it too.
     if(!probeEnabled)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+16),reinterpret_cast<void*>(&hk_CopyTextureRegion));
     if(probeEnabled)CyberpunkVR_NativeStereoBindingHooks.fetch_add(1,std::memory_order_release);
+    // The L/R pair probe (diagnostic, marker file at startup): its own root-parameter detours (Stereo/StereoPairProbe).
+    if(!probeEnabled && cvr::stereo::pair_probe::Wanted())cvr::stereo::pair_probe::Install(vtable);
     if(same1)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+64),reinterpret_cast<void*>(&RetainedResolveRegion));
     if(same4)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+68),reinterpret_cast<void*>(&RetainedBeginRenderPass));
     if(same4)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+69),reinterpret_cast<void*>(&RetainedEndRenderPass));
@@ -1010,6 +1181,8 @@ static void patch_command_list_vtable(void* command_list) {
         InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+77),reinterpret_cast<void*>(&ProbeShadingRate));
         InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+78),reinterpret_cast<void*>(&ProbeShadingImage));
     }
+    // Single-pass stereo chains its state and flush detours over everything above (Stereo/SinglePass.hpp).
+    cvr::single_pass::Install(vtable,lastSlot);
     DWORD ignored{};
     VirtualProtect(vtable+firstSlot,bytes,oldProtection,&ignored);
     log("[mirror] command-list hooked list=%p vt=%p om=%p rb=%p cr=%p",
@@ -1055,25 +1228,45 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommittedResource(
         ID3D12Device* self, const D3D12_HEAP_PROPERTIES* hp, D3D12_HEAP_FLAGS hf,
         const D3D12_RESOURCE_DESC* d, D3D12_RESOURCE_STATES st,
         const D3D12_CLEAR_VALUE* cv, REFIID riid, void** out) {
+    const auto start=CreationClock();
     HRESULT hr = g_orig_CreateCommitted(self, hp, hf, d, st, cv, riid, out);
+    CountCreationTime(12,start);
     if (SUCCEEDED(hr) && out && *out) {
+        const auto allocationBytes=d?self->GetResourceAllocationInfo(0,1,d).SizeInBytes:0;
+        CountCreation(0,allocationBytes,_ReturnAddress());
+        NoteVideoMemory(self);
+        if(CyberpunkVR_CreationStacks)NoteCreationStack(false,d,hp,allocationBytes);
         NoteCommittedResource(static_cast<ID3D12Resource*>(*out),d,st);
     }
     return hr;
 }
 static HRESULT STDMETHODCALLTYPE Hook_CreateCommittedResource1(ID3D12Device4* self,const D3D12_HEAP_PROPERTIES* heap,D3D12_HEAP_FLAGS flags,
     const D3D12_RESOURCE_DESC* desc,D3D12_RESOURCE_STATES state,const D3D12_CLEAR_VALUE* clear,ID3D12ProtectedResourceSession* session,REFIID iid,void** out){
+    const auto start=CreationClock();
     const auto result=g_orig_CreateCommitted1(self,heap,flags,desc,state,clear,session,iid,out);
-    if(SUCCEEDED(result) && out && *out)NoteCommittedResource(static_cast<ID3D12Resource*>(*out),desc,state);
+    CountCreationTime(12,start);
+    if(SUCCEEDED(result) && out && *out){const auto allocationBytes=desc?self->GetResourceAllocationInfo(0,1,desc).SizeInBytes:0;
+        CountCreation(0,allocationBytes,_ReturnAddress());
+        NoteVideoMemory(self);
+        if(CyberpunkVR_CreationStacks)NoteCreationStack(false,desc,heap,allocationBytes);
+        NoteCommittedResource(static_cast<ID3D12Resource*>(*out),desc,state);}
     return result;
 }
 
 static HRESULT STDMETHODCALLTYPE Hook_CreatePlacedResource(
         ID3D12Device* self, ID3D12Heap* heap, UINT64 off, const D3D12_RESOURCE_DESC* d,
         D3D12_RESOURCE_STATES st, const D3D12_CLEAR_VALUE* cv, REFIID riid, void** out) {
+    const auto start=CreationClock();
     HRESULT hr = g_orig_CreatePlaced(self, heap, off, d, st, cv, riid, out);
+    CountCreationTime(13,start);
     if (SUCCEEDED(hr) && out && *out) {
         const auto allocationBytes=d?self->GetResourceAllocationInfo(0,1,d).SizeInBytes:0;
+        CountCreation(2,allocationBytes,_ReturnAddress());
+        if(CyberpunkVR_CreationStacks){
+            D3D12_HEAP_PROPERTIES props{};
+            if(heap){const auto hd=heap->GetDesc();props=hd.Properties;}
+            NoteCreationStack(true,d,&props,allocationBytes);
+        }
         if(d)cvr::cascades::ResourceCreated(static_cast<ID3D12Resource*>(*out),heap,off,allocationBytes);
         cvr::stereo::constants::ObserveResourceApi(static_cast<ID3D12Resource*>(*out));
         cvr::stereo::constants::RegisteredResourceCreated(static_cast<ID3D12Resource*>(*out),true,heap,off,allocationBytes,st);
@@ -1105,12 +1298,23 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateRootSignature(
     if (SUCCEEDED(hr) && out && *out && blob && len && len < (1u << 20)) {
         cvr::stereo::families::RootCreated(static_cast<ID3D12RootSignature*>(*out),nodeMask,blob,len);
         cvr::stereo::native_probe::RootCreated(static_cast<ID3D12RootSignature*>(*out),blob,len);
+        cvr::single_pass::RootCreated(self,static_cast<ID3D12RootSignature*>(*out),blob,len);
+        CountCreation(7);
         std::lock_guard<std::mutex> lk(g_rootsig_mtx);
         if (g_rootsig_blobs.size() < 4096)
             g_rootsig_blobs[*out].assign(static_cast<const uint8_t*>(blob),
                                          static_cast<const uint8_t*>(blob) + len);
     }
     return hr;
+}
+
+// The serialized description a root signature was created from (false when it predates the hook).
+bool RootSignatureBlob(ID3D12RootSignature* rs,std::vector<uint8_t>& out) {
+    std::lock_guard<std::mutex> lk(g_rootsig_mtx);
+    const auto it=g_rootsig_blobs.find(rs);
+    if(it==g_rootsig_blobs.end())return false;
+    out=it->second;
+    return true;
 }
 
 // Print the layout once, for the signature the sight's pipeline uses.
@@ -1474,6 +1678,7 @@ ID3D12PipelineState* vision_cs_pso_get(ID3D12GraphicsCommandList* list) {
 static HRESULT STDMETHODCALLTYPE Hook_CreateComputePipelineState(
         ID3D12Device* self, const D3D12_COMPUTE_PIPELINE_STATE_DESC* desc,
         REFIID riid, void** out) {
+    CountCreation(6);
     if (desc && vision_cs_is_target(desc->CS)) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC d = *desc;
         d.CS.pShaderBytecode = g_vision_cs_blob.data();
@@ -1501,6 +1706,50 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateComputePipelineState(
             });
     }
     return hr;
+}
+
+// ID3D12Device5::CreateStateObject (slot 62): the ray-traced reflections' DXIL libraries get their stereo_rt\ twin
+// (HiddenAreaShaders group 15). Export names are unchanged, so shader identifiers and tables resolve as before.
+// A rejected twin falls back to the engine's own libraries; losing the state object would lose RT entirely.
+using PFN_CreateStateObject = HRESULT (STDMETHODCALLTYPE*)(ID3D12Device5*, const D3D12_STATE_OBJECT_DESC*, REFIID, void**);
+static PFN_CreateStateObject g_orig_CreateStateObject = nullptr;
+static HRESULT STDMETHODCALLTYPE Hook_CreateStateObject(ID3D12Device5* self, const D3D12_STATE_OBJECT_DESC* desc,
+                                                        REFIID riid, void** out) {
+    if (desc && desc->pSubobjects) {
+        std::vector<D3D12_STATE_SUBOBJECT> subobjects(desc->pSubobjects, desc->pSubobjects + desc->NumSubobjects);
+        std::vector<D3D12_DXIL_LIBRARY_DESC> libraries(desc->NumSubobjects);
+        uint32_t twinned = 0;
+        for (UINT i = 0; i < desc->NumSubobjects; ++i) {
+            if (subobjects[i].Type != D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY || !subobjects[i].pDesc) continue;
+            const auto& library = *static_cast<const D3D12_DXIL_LIBRARY_DESC*>(subobjects[i].pDesc);
+            const auto twin = cvr::hidden_area::shaders::LibraryTwin(library.DXILLibrary);
+            if (!twin.pShaderBytecode) continue;
+            libraries[i] = library;
+            libraries[i].DXILLibrary = twin;
+            subobjects[i].pDesc = &libraries[i];
+            ++twinned;
+            log("[pso] stereo_rt twin for a %zu-byte library with %u export(s), first %ls", library.DXILLibrary.BytecodeLength,
+                library.NumExports, library.NumExports && library.pExports ? library.pExports[0].Name : L"(all)");
+        }
+        if (twinned) {
+            // Associations point at subobjects by address; repoint the ones that named a replaced library.
+            std::vector<D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION> associations(desc->NumSubobjects);
+            for (UINT i = 0; i < desc->NumSubobjects; ++i) {
+                if (subobjects[i].Type != D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION || !subobjects[i].pDesc) continue;
+                associations[i] = *static_cast<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION*>(subobjects[i].pDesc);
+                const auto* target = associations[i].pSubobjectToAssociate;
+                if (target >= desc->pSubobjects && target < desc->pSubobjects + desc->NumSubobjects)
+                    associations[i].pSubobjectToAssociate = subobjects.data() + (target - desc->pSubobjects);
+                subobjects[i].pDesc = &associations[i];
+            }
+            D3D12_STATE_OBJECT_DESC twin{desc->Type, desc->NumSubobjects, subobjects.data()};
+            const HRESULT hr = g_orig_CreateStateObject(self, &twin, riid, out);
+            cvr::hidden_area::shaders::LibraryTwinCreated(SUCCEEDED(hr), twinned);
+            log("[pso] state object with %u stereo_rt library twin(s): hr=0x%08X", twinned, static_cast<unsigned>(hr));
+            if (SUCCEEDED(hr)) return hr;
+        }
+    }
+    return g_orig_CreateStateObject(self, desc, riid, out);
 }
 
 // The upscaler history-mask twin of a pipeline (lens_mask_ps / sight_mask_ps): same VS,
@@ -1631,6 +1880,8 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateGraphicsPipelineState(
                     });
         }
         cvr::vrs::GraphicsCreated(static_cast<ID3D12PipelineState*>(*out),*desc);
+        cvr::single_pass::GraphicsCreated(self,*desc,static_cast<ID3D12PipelineState*>(*out),g_orig_CreatePso);
+        CountCreation(5);
         cvr::stereo::native_probe::GraphicsCreated(self,*desc,static_cast<ID3D12PipelineState*>(*out));
         cvr::stereo::families::GraphicsCreated(self,*desc,static_cast<ID3D12PipelineState*>(*out));
         CVR_DIAGNOSTIC(++CyberpunkVR_DebugPsoGfx);
@@ -1654,6 +1905,15 @@ static void pso_stream_find(const uint8_t* p, size_t len, size_t* psoff, size_t*
     } __except (EXCEPTION_EXECUTE_HANDLER) { *psoff=SIZE_MAX;*vsoff=SIZE_MAX;if(cacheoff)*cacheoff=SIZE_MAX; }
 }
 
+
+// Whether a stream carries a mesh shader: the engine's mesh-shader path, if it has one, can only come this way.
+static bool pso_stream_has_mesh(const uint8_t* p, size_t len) {
+    __try {
+        cvr::stereo::PipelineStreamOffsets offsets;
+        if(cvr::stereo::FindPipelineStreamOffsets({len,const_cast<uint8_t*>(p)},offsets))return offsets.ms!=SIZE_MAX;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return false;
+}
 
 static size_t pso_stream_find_cs(const uint8_t* p, size_t len) {
     __try {
@@ -1819,6 +2079,12 @@ static HRESULT STDMETHODCALLTYPE Hook_CreatePipelineState(
         cvr::stereo::native_probe::StreamCreated(self,*desc,static_cast<ID3D12PipelineState*>(*out));
         cvr::stereo::families::StreamCreated(self,*desc,static_cast<ID3D12PipelineState*>(*out));
         cvr::vrs::StreamCreated(static_cast<ID3D12PipelineState*>(*out),*desc);
+        cvr::single_pass::StreamCreated(self,*desc,static_cast<ID3D12PipelineState*>(*out),g_orig_CreatePso);
+        CountCreation(5);
+        if(desc->pPipelineStateSubobjectStream && pso_stream_has_mesh(static_cast<const uint8_t*>(desc->pPipelineStateSubobjectStream),desc->SizeInBytes)) {
+            const auto mesh=CyberpunkVR_CreationCounts[14].fetch_add(1,std::memory_order_relaxed)+1;
+            if(mesh<=5)log("[creation] mesh-shader pipeline #%llu created: %p",static_cast<unsigned long long>(mesh),*out);
+        }
         CVR_DIAGNOSTIC(++CyberpunkVR_DebugPsoStream);
     }
     return hr;
@@ -1971,6 +2237,21 @@ void patch_device_descriptor_slot(void* device) {
             dev2->Release();
         }
     }
+    {
+        Microsoft::WRL::ComPtr<ID3D12Device5> device5;
+        if (SUCCEEDED(static_cast<ID3D12Device*>(device)->QueryInterface(IID_PPV_ARGS(&device5)))) {
+            auto** table = *reinterpret_cast<void***>(device5.Get());
+            DWORD o62 = 0;
+            if (table[62] != reinterpret_cast<void*>(&Hook_CreateStateObject) &&
+                VirtualProtect(&table[62], sizeof(void*), PAGE_READWRITE, &o62)) {
+                g_orig_CreateStateObject = reinterpret_cast<PFN_CreateStateObject>(table[62]);
+                table[62] = reinterpret_cast<void*>(&Hook_CreateStateObject);
+                DWORD junk = 0;
+                VirtualProtect(&table[62], sizeof(void*), o62, &junk);
+                log("[pso] ID3D12Device5::CreateStateObject hooked dev=%p", device);
+            }
+        }
+    }
     DWORD o17 = 0;
     if (VirtualProtect(&vt[17], sizeof(void*), PAGE_READWRITE, &o17)) {
         g_orig_CreateCBV = reinterpret_cast<CreateCBVFn>(vt[17]);
@@ -1998,3 +2279,7 @@ void patch_device_descriptor_slot(void* device) {
 
 }  // namespace detail
 }  // namespace cvr
+
+namespace cvr::rootsig {
+bool Blob(ID3D12RootSignature* rs,std::vector<uint8_t>& out) {return cvr::detail::RootSignatureBlob(rs,out);}
+}

@@ -33,6 +33,7 @@ return {
     slide = {
         -- the rear T (was the Ajax's front handle: vrp_reload_front, bone 8, 85 mm from { 0, 0.0354, 0.1904 })
         slot       = 'vrp_reload_mechanism',
+        handleSide = 'left',  -- the handle sticks out on the left only (the slide bone's vertices, x -0.043..+0.028 m): reload.lua handGrips
         which      = 1, bone = 9,
         travel     = 0.0480,
         restLocal  = { 0.00000, 0.03620, 0.04710 },

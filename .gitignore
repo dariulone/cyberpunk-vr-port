@@ -228,3 +228,10 @@ tools/body_stand_in/*
 !tools/lua_host_tests/
 tools/lua_host_tests/__pycache__/
 !tools/lua_host_tests/*.py
+# VR rendering benchmark harness (docs/vr-render-optimization-20261104.md): sources only.
+!tools/vr_bench/
+!tools/vr_bench/*.py
+!tools/vr_bench/simulator/
+tools/vr_bench/__pycache__/
+tools/vr_bench/*.exe
+tools/vr_bench/*.obj

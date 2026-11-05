@@ -2200,6 +2200,8 @@ local function weaponClasses(id, mk)
     return cls
 end
 
+-- The grenade tag, made once (the state refresh asks four times a second).
+local GRENADE_TAG = nil
 local function readState()
     local st = { grenade = false, weapon = false, inhand = false, tier = 0, gtype = nil,
                  wclass = {}, wmag = nil, gcount = nil }
@@ -2240,8 +2242,9 @@ local function readState()
         if not st.grenade then
             local ts2 = transactions()
             if ts2 ~= nil then
+                GRENADE_TAG = GRENADE_TAG or CName.new("Grenade")
                 pcall(function()
-                    st.grenade = ts2:GetItemQuantityByTag(pl, CName.new("Grenade")) > 0
+                    st.grenade = ts2:GetItemQuantityByTag(pl, GRENADE_TAG) > 0
                 end)
             end
         end
@@ -2526,7 +2529,10 @@ local function hipsSlotWorld(sc)
     return v.x, v.y, v.z, o.i, o.j, o.k, o.r
 end
 
-local function hipsModelFrame()
+-- ONCE A FRAME: the hips frame is asked for by the magazine reach, the reach mark, the highlight and the props, four
+-- game calls each time; within one onUpdate it cannot change, so the first answer is kept for the frame (S.frame).
+local hipsCache = { frame = -1 }
+local function hipsModelFrameNow()
     local pl = Game.GetPlayer()
     local sc = slotsComponent()
     if pl == nil or sc == nil then return nil end
@@ -2540,6 +2546,15 @@ local function hipsModelFrame()
     px, py, pz = qrot(ci, cj, ck, cr, px, py, pz)                 -- hips position, model space
     qi, qj, qk, qr = qmul(ci, cj, ck, cr, qi, qj, qk, qr)          -- hips rotation, model space
     return px, py, pz, qi, qj, qk, qr
+end
+local function hipsModelFrame()
+    local c = hipsCache
+    if S.frame == nil then return hipsModelFrameNow() end
+    if c.frame ~= S.frame then
+        c.frame = S.frame
+        c[1], c[2], c[3], c[4], c[5], c[6], c[7] = hipsModelFrameNow()
+    end
+    return c[1], c[2], c[3], c[4], c[5], c[6], c[7]
 end
 
 local function elementCentre(host)
@@ -3609,7 +3624,7 @@ end)()
 -- THE POINT ON THE HAND, in model space, with the panel's offset applied in the palm's own frame.
 -- One function because two things ask it now -- the element highlight and the magazine reach -- and a
 -- reach that disagreed with the mark it lights would be unexplainable from inside the headset.
-local function palmPoint(side)
+local function palmPointNow(side)
     local okP, p = pcall(VRPalmModelPos, side)
     if not okP then p = nil end
     if p == nil or p.w == 0.0 then return nil end
@@ -3624,6 +3639,14 @@ local function palmPoint(side)
         if not ok then return p end
     end
     return p
+end
+-- The same once-a-frame rule for the palms: five callers a frame ask, the hand cannot move within one onUpdate.
+local palmCache = { [0] = { frame = -1 }, [1] = { frame = -1 } }
+local function palmPoint(side)
+    local c = palmCache[side]
+    if c == nil or S.frame == nil then return palmPointNow(side) end
+    if c.frame ~= S.frame then c.frame = S.frame; c.p = palmPointNow(side) end
+    return c.p
 end
 
 -- HOW FAR EACH HAND IS FROM THE MAGAZINE POUCH, every tick, and deliberately NOT part of the
@@ -3814,6 +3837,22 @@ local function updateHighlight(dt)
             if noGrenades and held ~= nil and string.find(held, "ucbeltgrenade", 1, true) == 1 then
                 S.litHand[side], held = nil, nil
             end
+            -- A HOLSTERED WEAPON NEARER THAN THE GRENADE IS WHAT THE HAND REACHES FOR. The grenades ride the front
+            -- of the belt on the drawing side, a hand-span from the pistol at the hip; a lit holder takes the grip
+            -- (and the holster stands down for it), so a grenade that lit on the way to the pistol's grip took
+            -- the hand that was drawing. Nearer to the palm, the holster's weapon wins and no grenade lights for
+            -- that hand (the holster's H.near: within its reach, nil when none).
+            if best ~= nil and string.find(best, "ucbeltgrenade", 1, true) == 1 then
+                local okNear, holD = pcall(function()
+                    local hol = GetMod("CyberpunkVRPort_Holster")
+                    local mod = hol and hol.holsters and hol.holsters()
+                    return mod and mod.near and mod.near(p.x, p.y, p.z, side)
+                end)
+                if okNear and holD ~= nil and holD <= bestD then
+                    best, bestD = nil, nil
+                    S.litHand[side], held = nil, nil
+                end
+            end
             if best == nil or bestD == nil then
                 S.litHand[side] = nil
             elseif held == best then
@@ -3974,6 +4013,8 @@ local function dropIfPlayerChanged(pl, who)
 end
 
 registerForEvent("onUpdate", function(dt)
+    -- First, before any return: the once-a-frame caches (hipsModelFrame, palmPoint) hold for one tick at most.
+    S.frame = (S.frame or 0) + 1
     if not S.ready or not CFG.enabled then return end
     -- The main menu and character creation have a player of their own, the menu world's puppet, and the
     -- belt is not worn there. Attaching to it crashed: a request superseded there had the item factory free the

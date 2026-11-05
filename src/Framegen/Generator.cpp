@@ -380,8 +380,8 @@ struct Generator::Impl {
     bool TimingReady() {
         if(!MetricsEnabled()) {RetireTiming();return false;}
         if(queries)return true;if(timingUnavailable)return false;
-        D3D12_QUERY_HEAP_DESC query{};query.Type=D3D12_QUERY_HEAP_TYPE_TIMESTAMP;query.Count=6;
-        D3D12_RESOURCE_DESC read{};read.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;read.Width=48;read.Height=1;read.DepthOrArraySize=1;
+        D3D12_QUERY_HEAP_DESC query{};query.Type=D3D12_QUERY_HEAP_TYPE_TIMESTAMP;query.Count=12;
+        D3D12_RESOURCE_DESC read{};read.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;read.Width=96;read.Height=1;read.DepthOrArraySize=1;
         read.MipLevels=1;read.SampleDesc.Count=1;read.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_READBACK;
         ComPtr<ID3D12QueryHeap> createdQueries;ComPtr<ID3D12Resource> createdReadback;
@@ -468,10 +468,16 @@ struct Generator::Impl {
         auto& w=work[cursor];if(w.fence && fence->GetCompletedValue()<w.fence) {OnSkip();return false;}
         const bool timed=TimingReady();
         if(timed && w.timing) {
-            void* pointer=nullptr;D3D12_RANGE range{cursor*16,cursor*16+16};
+            // FOUR STAMPS A PAIR: the first list (colour packing, optical flow inputs) begins and ends, the finishing
+            // list (flow resolve, interpolation) begins and ends. Between the two the queue waits on NVIDIA's optical
+            // flow engine and runs whatever else was submitted meanwhile, so the first stamp to the last is the
+            // generation's latency, not its cost: the cost is the two lists' own spans.
+            void* pointer=nullptr;D3D12_RANGE range{cursor*32,cursor*32+32};
             if(SUCCEEDED(readback->Map(0,&range,&pointer))) {
-                const auto* times=reinterpret_cast<const uint64_t*>(static_cast<const uint8_t*>(pointer)+cursor*16);
-                if(times[1]>=times[0])OnGeneration(double(times[1]-times[0])*1000.0/double(frequency));
+                const auto* times=reinterpret_cast<const uint64_t*>(static_cast<const uint8_t*>(pointer)+cursor*32);
+                if(times[1]>=times[0] && times[3]>=times[2] && times[2]>=times[1])
+                    OnGeneration(double((times[1]-times[0])+(times[3]-times[2]))*1000.0/double(frequency),
+                                 double(times[3]-times[0])*1000.0/double(frequency));
                 D3D12_RANGE none{};readback->Unmap(0,&none);
             }
         }
@@ -479,7 +485,7 @@ struct Generator::Impl {
         if(FAILED(w.allocator->Reset()) || FAILED(w.list->Reset(w.allocator.Get(),nullptr)) ||
            FAILED(w.finishAllocator->Reset()) || FAILED(w.finish->Reset(w.finishAllocator.Get(),nullptr)))return false;
         w.descriptors=0;w.inputs[0]=inputs[0];w.inputs[1]=inputs[1];
-        auto* list=w.list.Get();if(timed)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*2);
+        auto* list=w.list.Get();if(timed)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4);
         if(mode==Backend::DlssG) {
             w.finish->Close();
             for(unsigned i=0;i<2;++i) {
@@ -488,8 +494,8 @@ struct Generator::Impl {
                 }
             }
             if(timed) {
-                list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*2+1);
-                list->ResolveQueryData(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*2,2,readback.Get(),cursor*16);
+                for(unsigned q=1;q<4;++q)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4+q);
+                list->ResolveQueryData(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4,4,readback.Get(),cursor*32);
             }
             const bool submitted=Submit(list,w);
             if(timed)lastTimingFence=value;
@@ -513,6 +519,7 @@ struct Generator::Impl {
         }
         if(eyes[0]->opticalFlow) {
             // The optical flow's inputs are submitted on their own: NVIDIA's OFA runs between the two lists.
+            if(timed)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4+1);
             const bool packedSubmitted=Submit(list,w);
             if(timed)lastTimingFence=value;
             if(!packedSubmitted) {failed=true;w.finish->Close();return false;}
@@ -523,7 +530,11 @@ struct Generator::Impl {
                 }
             }
             list=w.finish.Get();
-        } else w.finish->Close();   // no optical flow: one list for the whole pair
+            if(timed)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4+2);
+        } else {
+            w.finish->Close();   // no optical flow: one list for the whole pair
+            if(timed)for(unsigned q=1;q<3;++q)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4+q);
+        }
         for(unsigned i=0;i<2;++i) {
             auto& eye=*eyes[i];
             if(eye.opticalFlow) {
@@ -545,8 +556,8 @@ struct Generator::Impl {
             if(nvidia && eye.opticalFlow)eye.current^=1;
         }
         if(timed) {
-            list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*2+1);
-            list->ResolveQueryData(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*2,2,readback.Get(),cursor*16);
+            list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4+3);
+            list->ResolveQueryData(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4,4,readback.Get(),cursor*32);
         }
         const bool finishedSubmitted=Submit(list,w);
         if(timed)lastTimingFence=value;

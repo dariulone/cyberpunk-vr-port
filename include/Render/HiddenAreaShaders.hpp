@@ -29,6 +29,13 @@ bool HasPatch(const D3D12_SHADER_BYTECODE&);
 // The fixed twin of a vertex shader whose group is on, or empty: a pipeline twinned for its pixel shader keeps
 // its vertex twin (particle facing) through this.
 D3D12_SHADER_BYTECODE FixedVertexTwin(const D3D12_SHADER_BYTECODE&);
+// Under engine stereo: the bytecode Bind() puts in place of `code` while the twins' groups stay as they are now
+// (its alternate, fixed twin or fallback), or `code` itself. Single-pass twins are built from it.
+D3D12_SHADER_BYTECODE BoundCode(const D3D12_SHADER_BYTECODE& code);
+// The stereo_rt\ twin of a state object's DXIL library while that group is on, or empty; and the outcome of
+// creating a state object with `libraries` of them.
+D3D12_SHADER_BYTECODE LibraryTwin(const D3D12_SHADER_BYTECODE&);
+void LibraryTwinCreated(bool ok,uint32_t libraries);
 void Register(ID3D12PipelineState* original,const D3D12_SHADER_BYTECODE&,Creator);
 // The visible ellipse of view `side` as a*x*x + b*y*y <= 1 in NDC (y down): x<0, x>=0, y<0, y>=0.
 void Publish(int side,const float scales[4]);

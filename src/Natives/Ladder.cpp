@@ -33,6 +33,13 @@ void SetVRLadderTopRails(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32
         {normal.X,normal.Y,normal.Z},{up.X,up.Y,up.Z});
     if(out)*out=ok ? 1:0;
 }
+// SetVRLadderMeasuredTop(player, ladderPosition, top): where the ladder's highest module ends above its foot.
+void SetVRLadderMeasuredTop(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_t* out,int64_t) {
+    RED4ext::Handle<RED4ext::IScriptable> player;RED4ext::Vector4 ladder;float top{};
+    RED4ext::GetParameter(frame,&player);RED4ext::GetParameter(frame,&ladder);RED4ext::GetParameter(frame,&top);frame->code++;
+    const bool ok=cvr::ladder::PublishMeasuredTop(reinterpret_cast<uintptr_t>(player.instance),{ladder.X,ladder.Y,ladder.Z},top);
+    if(out)*out=ok ? 1:0;
+}
 void GetVRLadderDebug(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,float* out,int64_t) {
     int32_t index{};RED4ext::GetParameter(frame,&index);frame->code++;
     if(out)*out=cvr::ladder::DebugValue(index);

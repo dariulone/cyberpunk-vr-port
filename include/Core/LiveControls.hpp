@@ -62,6 +62,9 @@ struct LiveControls {
     volatile float xrSnapTurnAngleDeg; // degrees per snap pulse
     volatile int xrMovementSource;  // 0 = Game, 1 = HMD, 2 = LeftHand, 3 = RightHand
     volatile int xrMovementSpeedMode = 0; // 0=current fixed speed, 1=analog on foot
+    // xr_sprint_mode: 0 (default) the left stick held at the stop sprints, 1 a click of the left stick sprints until
+    // the stick is let go (Hooks/XInput.cpp, the sprint gesture)
+    volatile int xrSprintMode = 0;
     volatile float xrLeftStickDeadzone = .15f;
     volatile float xrRightStickDeadzone = .15f;
     volatile float xrMaxInputThreshold = .90f;
@@ -72,6 +75,7 @@ struct LiveControls {
     volatile int xrMonoDepthCapture; // 1 (default) = mono scene-depth for XR_KHR_composition_layer_depth. The resolve reads the game depth as an SRV WITHOUT transitioning it (D3D12 state is global -> barriering the game's resource device-removes CP2077), on our own capture queue (FIFO before the submit's depth copy, no cross-queue Wait), and only once the scene depth has been a stable shader-readable resource with menus closed for a warmup window (skips the intro/menu-load transient). 0 = no depth in mono.
     volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
     volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
+    volatile int xrBodyHandsOnly;     // 1 = draw only the hands of the player's body (the rest of the body and every garment hidden, the belt and the holsters kept). Published to shared[173] for the CET HandsOnly mod; the neck cap stays off.
     // Cutscene VRIK suspend (PR #40): minimum GameplayTier at which the pose-apply hook fully
     // suspends the body+arm solve. Stored UI index: -1/0 = never, 1..4 = Tier2..Tier5.
     // Default 3 selects engine Tier4 (enum value 4). Read directly by AnimPose.
@@ -89,8 +93,8 @@ struct LiveControls {
     // XInput merge) are in this DLL and read them straight from here.
     volatile int xrWheelGrab;        // 1 (default) = while DRIVING, a grip squeezed with the hand on the animated wheel pose hands that arm back to the driving animation. Per hand.
     volatile float xrWheelRadius;    // how near the animated hand the controller must be for the grip to mean "grab", metres. Default 0.28.
-    volatile float xrWheelSteerMaxDeg;  // car hand travel to full lock per side; default 180 degrees. Road-wheel lock remains native.
-    volatile float xrWheelSteerDeadDeg; // steering deadzone around centre, degrees. 1.5 (default) swallows tremor only; every degree here is a degree of dead wheel.
+    volatile float xrWheelSteerMaxDeg;  // bike/other mount hand travel to full lock per side (30..120, else 90); a car's is its cabin wheel's (WheelRange.hpp, 1:1)
+    volatile float xrWheelSteerDeadDeg; // steering deadzone around centre, degrees. 0 (default): a real wheel has none; every degree here is a degree of dead wheel.
     volatile int xrWheelPrediction = 0; // optional conservative history-based steering lead
     volatile float xrWheelPredictionMs = 8.0f; // 0..8 ms, additionally limited to half a degree
     volatile int xrWheelHorn;        // 1 (default) = a hand laid on the wheel HUB holds the horn (pad X = Vehicle_Horn) for as long as it stays there.
@@ -113,6 +117,9 @@ struct LiveControls {
     volatile int xrBreaststrokeSwim = 1;
     volatile int xrLadderGripClimb = 1;
     volatile int xrLeftHanded = 0;     // xr_left_handed: the controllers' roles traded (Hooks/Handedness.hpp)
+    // xr_left_handed_bindings, left-handed: 0 the right-handed buttons and sticks (only the triggers and grips go with
+    // the weapon hand), 1 the left stick walks with the buttons mirrored, 2 everything mirrored, the left stick turns
+    volatile int xrLeftHandedBindings = 2;
     volatile int xrLadderAutoFinish = 1;
     volatile float xrLadderFinishDistance = 1.0f;
     // 1 (default) = the right grip held and swept straight down opens or closes the VR menu (never while that

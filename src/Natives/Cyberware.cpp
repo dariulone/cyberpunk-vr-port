@@ -9,6 +9,8 @@
 #include "Anim/LeftHanded.hpp"
 #include "Core/LiveControls.hpp"
 #include "Hooks/CyberwareChord.hpp"
+#include "Anim/ScenePolicy.hpp"
+#include "Camera/CameraState.hpp"
 #include <RED4ext/Scripting/Utils.hpp>
 
 extern "C" int CyberpunkVR_TwoHandActive;
@@ -58,6 +60,14 @@ void VRWeaponInLeftHand(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* 
 // The left-handed controls are on (xr_left_handed): the hand that draws and holsters is the left one, weapon or not.
 void VRLeftHanded(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
     stack->code++;if(out)*out=g_liveControls.xrLeftHanded!=0;
+}
+// A SCENE PLAYS THE BODY: the scene tier reaches the threshold that suspends VRIK (on foot or mounted, as the pose
+// hook decides it, Hooks/AnimPose.cpp). CyberpunkVRPort_HandsOnly gives the body back for it: the scene's authored
+// body is what the player is meant to see, not two hands floating where its arms are.
+void VRSceneOwnsBody(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,bool* out,int64_t) {
+    stack->code++;
+    if(out)*out=cvr::anim::ShouldSuspendVrik(g_sceneTier.load(std::memory_order_relaxed),SharedPose(31)>.5f,
+        g_liveControls.xrCutsceneSuspendTier,g_liveControls.xrVehicleCutsceneSuspendTier);
 }
 void VRMeleeThrowFrame(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext::DynArray<RED4ext::Vector4>* out,int64_t) {
     stack->code++;if(!out)return;out->Clear();

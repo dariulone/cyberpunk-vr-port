@@ -1187,6 +1187,24 @@ void VRWorldMarkerAnchor(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,void*
     cvr::markers::RegisterWidget(widget,world);
 }
 
+// A world point on the UI's screen as the UI's own update places things: the camera a layer tick hands its
+// controllers (under the engine's stereo the one-eye view, NDC across narrowed to the layer), x and y in -1..1 of
+// the canvas with y down, z the depth, w 1. w 0 when there is no fresh UI camera (menus) or the point is behind it.
+// For indicators whose controller is handed a screen point the game computed with the plain camera system
+// (CameraSystem.ProjectPoint, never narrowed): the breach diamond sat at half its angle from the centre and, lifted
+// about the point the UI camera puts its target on, slid with every head turn.
+void VRWorldMarkerScreenPoint(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,RED4ext::Vector4* out,int64_t) {
+    RED4ext::Vector4 world{};
+    RED4ext::GetParameter(stack,&world);stack->code++;
+    if(!out)return;
+    *out={};
+    const auto source=cvr::markers::CurrentUiSource();
+    const float point[3]={world.X,world.Y,world.Z};
+    cvr::markers::MarkerAnchor anchor{};
+    if(!source.Valid() || !cvr::markers::AnchorOf(source,point,anchor))return;
+    *out={2*anchor.canvas[0]/source.width-1,2*anchor.canvas[1]/source.height-1,cvr::markers::SourceDepth(source,point),1};
+}
+
 void VRWorldMarkerProjection(RED4ext::IScriptable*,RED4ext::CStackFrame* stack,void*,int64_t) {
     RED4ext::Handle<RED4ext::ink::Widget> widget;RED4ext::Handle<RED4ext::IScriptable> projection;
     RED4ext::GetParameter(stack,&widget);RED4ext::GetParameter(stack,&projection);stack->code++;

@@ -17,6 +17,7 @@
 #include "Camera/CameraState.hpp"
 #include "Runtimes/LookDownCone.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
+#include "Fbt/Game/Calibration.hpp"
 #include <mutex>
 
 #include <windows.h>
@@ -223,7 +224,8 @@ extern "C" float BodyYawFollowStep(float observedOffset) {
     std::lock_guard lock(s_yawFollowerMutex);
     CVR_DIAGNOSTIC(++CyberpunkVR_DebugBodyFollowCalls);
     RefreshFollowerState(observedOffset);
-    if(!s_yawFollower.Enabled() || !cvr::roomscale::PhysicalBodyAllowed() || !haveHead){
+    // Held while calibrating full-body tracking: the player turns the head to look at V beside them.
+    if(!s_yawFollower.Enabled() || !cvr::roomscale::PhysicalBodyAllowed() || !haveHead || cvr::fbt::game::Calibrating()){
         s_trackedBody.Suspend();s_hybridBody.Suspend();return 0;
     }
     s_yawFollower.Observe(observedOffset,origin);

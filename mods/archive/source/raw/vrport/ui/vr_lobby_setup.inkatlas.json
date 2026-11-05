@@ -3,7 +3,7 @@
   "WolvenKitVersion": "8.19.0",
   "WKitJsonVersion": "0.0.9",
   "GameVersion": 2310,
-  "ExportedDateTime": "2026-10-30T16:07:44.7435506Z",
+  "ExportedDateTime": "2026-11-05T16:06:24.4255524Z",
   "DataType": "CR2W",
   "ArchiveFileName": "C:\\Users\\dariulone\\Desktop\\CyberpunkVRPort\\build\\lobby-setup-art\\template\\base\\gameplay\\gui\\fullscreen\\main_menu\\menu_background.inkatlas"
  },
@@ -55,7 +55,7 @@
          "$type": "RectF",
          "Bottom": 0.5,
          "Left": 0.0,
-         "Right": 0.5,
+         "Right": 0.25,
          "Top": 0.0
         },
         "partName": {
@@ -76,8 +76,8 @@
         "clippingRectInUVCoords": {
          "$type": "RectF",
          "Bottom": 0.5,
-         "Left": 0.5,
-         "Right": 1.0,
+         "Left": 0.25,
+         "Right": 0.5,
          "Top": 0.0
         },
         "partName": {
@@ -99,13 +99,123 @@
          "$type": "RectF",
          "Bottom": 1.0,
          "Left": 0.0,
-         "Right": 0.5,
+         "Right": 0.25,
          "Top": 0.5
         },
         "partName": {
          "$type": "CName",
          "$storage": "string",
          "$value": "tpose"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5,
+         "Left": 0.5,
+         "Right": 0.75,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "body_full"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.5,
+         "Left": 0.75,
+         "Right": 1.0,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "body_hands"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.25,
+         "Right": 0.5,
+         "Top": 0.5
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "bind_same"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.5,
+         "Right": 0.75,
+         "Top": 0.5
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "bind_walk"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.75,
+         "Right": 1.0,
+         "Top": 0.5
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "bind_turn"
         }
        }
       ],

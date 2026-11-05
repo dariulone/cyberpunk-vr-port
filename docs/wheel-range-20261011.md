@@ -64,3 +64,29 @@ flat ground around (-726.28656, 845.5736, 32.512), with 1.7 cm height variation;
 the car settled before the player was mounted. The player was returned to the
 original safe roof position, the temporary car was deleted, simulator poses
 and settings were restored, and the game was closed after verification.
+
+## 2026-11-05: one to one, no play
+
+Players felt a large play after the doubled cabin animation. Three things made it, all measured live (Porsche 911 and
+Thorton Mackinaw, OpenXR simulator, the cabin wheel read off the car's `steering_wheel` slot in the car's frame):
+
+1. **Range.** The hands reached full lock after 180 degrees while the cabin wheel turns 130 (65 native x 2).
+2. **Curve.** The common graph turns the cabin wheel by a curve of the turn input, not in proportion: at the game's
+   post-deadzone input n it stands at **89.9 n + 40.1 n^3 degrees** (both cars, within 0.2 degrees at every tenth;
+   0.5 -> 50, 1.0 -> 130). With the 180-degree range a 90-degree turn of the hands put the wheel at 50.
+3. **Lag.** The chain feeding `steer_turn_rate` is DampFloat (300 units/s) then CriticalSpringDamp (smoothTime 0.1 s).
+   The hands on the wheel are handed to that animation, so they trailed the controllers by ~0.1 s -- about 30 degrees
+   at a brisk 300 deg/s turn. Step to full input: 40 degrees after 0.11 s, 95 after 0.22 s, full after ~0.4 s.
+
+Fixes. A car's full lock is the cabin wheel's own (`CarCabinWheelLockDeg` 130, whatever `xr_wheel_steer_max_deg` says:
+that setting is the bikes' now, 30..120, else 90); the hands' share of it is turned into the input that stands the
+cabin wheel at the hands' angle (`CarInputForCabinAngle`, the inverse of the curve, WheelRange.hpp); the deadzone
+defaults to 0 (a saved 1.5, the old default, reads as 0). In `default_car_anim_graph.animgraph` both `steer_turn_rate`
+chains get smoothTime 0.01 and DampFloat 3000 (`tools/driving_tests/wheel_feel_graph.py`; the rebuilt resource differs
+from the shipped one in exactly those six fields, and the repacked archive holds the same 1724 files with only that one
+changed). The car-specific graphs' chains do not drive the cabin wheel (both cars follow the common curve) and stay.
+
+Verified 2026-11-05 with both hands gripping through the simulator: hands 5/10/20/30/45/65/90/110/130/-30/-90 degrees ->
+cabin wheel 5.0/10.0/20.0/30.0/45.0/65.0/90.0/110.0/130.0/-30.0/-90.0. The stick step now reads the final angle at the
+first sample (it read 2.6 degrees there before), steady with no oscillation. Road-wheel lock and the drive model are
+unchanged (hands 90 -> road wheels 30.8 degrees, full lock 50 on the Porsche).

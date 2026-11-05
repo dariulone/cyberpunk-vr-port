@@ -1,3 +1,4 @@
+#include "Core/Paths.hpp"
 #include "Hooks/BodyHeading.hpp"
 #include "Utils/DebugGate.hpp"
 // CharacterRig -- the solve for the PLAYER'S OWN bones.
@@ -29,6 +30,8 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include <algorithm>
 #include <chrono>
+#include "Fbt/Game/Body.hpp"
+#include <vector>
 #include <cstring>
 #include <mutex>
 
@@ -71,6 +74,11 @@ cvr::camera::AnchorVector s_neckMount{};
 cvr::camera::AnchorVector s_neckCameraEyeOffset{};
 bool s_neckMountValid{};
 float s_neutralEyeModel[3]{},s_eyeInHead[3]{};
+VrikFbtReference s_fbtReference{};
+// VRIK_HoldReferencePose: the bones it writes (Hips and below, without the fppCamera chain), and the fppCamera chain's
+// top bones, whose model pose it keeps. Built by VRIK_ConfigureRigPolicy, used under the player pose lock.
+bool s_holdBone[VRIK_MAX_BONES]{},s_holdKeepModel[VRIK_MAX_BONES]{};
+int s_holdCount{};
 bool s_eyeReferenceValid{};
 int s_ladderFingers[2][19]{};
 int s_scapula[2][4]{},s_scapulaCount[2]{},s_upperSkin[2][2]{{-1,-1},{-1,-1}};
@@ -175,6 +183,48 @@ bool cvr::camera::ReadNeckCameraMount(AnchorVector* offset) {
     std::lock_guard lock(s_neckMountMutex);
     if(!offset || !s_neckMountValid)return false;
     *offset=s_neckMount;return true;
+}
+void VRIK_HoldReferencePose(uint8_t* boneBuf) {
+    if(!boneBuf || s_holdCount<=0)return;
+    const int n=std::min(s_holdCount,static_cast<int>(g_VRBoneCount));
+    static float s_keepPos[VRIK_MAX_BONES][3],s_keepRot[VRIK_MAX_BONES][4];
+    bool keep=false;
+    for(int i=0;i<n;++i)keep|=s_holdKeepModel[i];
+    if(keep) {
+        VRIK_ComputeFK(boneBuf,n);
+        for(int i=0;i<n;++i)if(s_holdKeepModel[i]) {
+            std::copy_n(g_fkPos[i],3,s_keepPos[i]);std::copy_n(g_fkRot[i],4,s_keepRot[i]);
+        }
+    }
+    for(int i=0;i<n;++i)if(s_holdBone[i]) {
+        float* t=reinterpret_cast<float*>(boneBuf+i*48+VRIK_TRANS_OFF);
+        float* r=reinterpret_cast<float*>(boneBuf+i*48+VRIK_ROT_OFF);
+        std::copy_n(s_referenceLocalPos[i],3,t);std::copy_n(s_referenceLocalRot[i],4,r);
+    }
+    if(keep) {
+        VRIK_ComputeFK(boneBuf,n);
+        for(int i=0;i<n;++i)if(s_holdKeepModel[i]) {
+            const int parent=g_VRBoneParent[i];
+            VRIK_WriteLocalRot(boneBuf,i,g_fkRot[parent],s_keepRot[i]);
+            VRIK_WriteLocalPos(boneBuf,i,g_fkPos[parent],g_fkRot[parent],s_keepPos[i]);
+        }
+    }
+}
+
+void VRIK_MarkLegOwned(int bone) {
+    if(bone>=0 && bone<VRIK_MAX_BONES)s_bendLegOwned[bone]=true;
+}
+static char s_fbtRigPath[2][MAX_PATH]{};   // [0] male, [1] female
+bool VRIK_FbtRigPath(bool female,char* out,size_t size) {
+    std::lock_guard lock(s_neckMountMutex);
+    const char* p=s_fbtRigPath[female ? 1:0];
+    if(!out || !size || !p[0])return false;
+    strcpy_s(out,size,p);return true;
+}
+bool VRIK_ReadFbtReference(VrikFbtReference* out) {
+    std::lock_guard lock(s_neckMountMutex);
+    if(!out || !s_fbtReference.valid)return false;
+    *out=s_fbtReference;return true;
 }
 bool cvr::camera::ReadNeckCameraEyeOffset(AnchorVector* offset) {
     std::lock_guard lock(s_neckMountMutex);
@@ -348,6 +398,96 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
         s_neckCameraEyeOffset=cvr::camera::NeckCameraEyeOffset(
             {neutralPos[neck][0],neutralPos[neck][1],neutralPos[neck][2]},
             {s_neutralEyeModel[0],s_neutralEyeModel[1],s_neutralEyeModel[2]},female);
+    }
+    {
+        // Full-body tracking calibration reads the plain reference pose, not the neutral posture above.
+        VrikFbtReference fbt{};fbt.female=female;
+        const int hips=g_VRHipsIdx,feet[2]={g_VRLeftFootIdx,g_VRRightFootIdx};
+        const int uppers[2]={g_VRLeftUpperArmIdx,g_VRRightUpperArmIdx},fores[2]={g_VRLeftForeArmIdx,g_VRRightForeArmIdx};
+        auto ok=[&](int i){return i>=0 && i<referenceCount && s_referenceValid[i];};
+        fbt.valid=ok(hips) && ok(head) && ok(leftEye) && ok(rightEye) && ok(feet[0]) && ok(feet[1]) &&
+            ok(uppers[0]) && ok(uppers[1]) && ok(fores[0]) && ok(fores[1]);
+        if(fbt.valid) {
+            float delta[3],inverse[4];VRIK_QuatConj(s_referenceModelRot[head],inverse);
+            for(int k=0;k<3;++k) {
+                fbt.eye[k]=.5f*(s_referenceModelPos[leftEye][k]+s_referenceModelPos[rightEye][k]);
+                delta[k]=fbt.eye[k]-s_referenceModelPos[head][k];
+            }
+            VRIK_QuatRotateVec(inverse,delta,fbt.eyeInHead);
+            std::copy_n(s_referenceModelPos[hips],3,fbt.hipsPos);std::copy_n(s_referenceModelRot[hips],4,fbt.hipsRot);
+            std::copy_n(s_referenceModelPos[head],3,fbt.headPos);std::copy_n(s_referenceModelRot[head],4,fbt.headRot);
+            for(int side=0;side<2;++side) {
+                std::copy_n(s_referenceModelPos[feet[side]],3,fbt.footPos[side]);
+                std::copy_n(s_referenceModelRot[feet[side]],4,fbt.footRot[side]);
+                std::copy_n(s_referenceModelPos[uppers[side]],3,fbt.upperArmPos[side]);
+                std::copy_n(s_referenceModelPos[fores[side]],3,fbt.foreArmPos[side]);
+                const int handBone=side==0 ? g_VRLeftBoneIdx:g_VRRightBoneIdx;
+                if(ok(handBone))std::copy_n(s_referenceModelPos[handBone],3,fbt.handPos[side]);
+            }
+        }
+        s_fbtReference=fbt;
+        // The calibration hold: Hips and below, minus the fppCamera chain (the view hangs off it).
+        const int n=std::min(referenceCount,VRIK_MAX_BONES);
+        int held=0,kept=0;
+        for(int i=0;i<n;++i) {
+            const int parent=g_VRBoneParent[i];
+            const bool cameraBone=names[i] && StartsBoneName(names[i],"Torso_fppCamera");
+            s_holdBone[i]=s_referenceValid[i] && !cameraBone && (i==hips || (parent>=0 && s_holdBone[parent]));
+            s_holdKeepModel[i]=cameraBone && parent>=0 && s_holdBone[parent];
+            held+=s_holdBone[i];kept+=s_holdKeepModel[i];
+        }
+        s_holdCount=hips>=0 ? n:0;
+        int chain=camera;
+        char ancestors[256]{};
+        while(chain>=0 && std::strlen(ancestors)<200) {
+            if(names[chain]) { strcat_s(ancestors,names[chain]);strcat_s(ancestors," < "); }
+            chain=g_VRBoneParent[chain];
+        }
+        Log("[fbt-calib] reference hold: %d bones under Hips, %d fppCamera bones kept in place; camera chain: %s\n",
+            held,kept,ancestors);
+        // V's skeleton for offline IK tools: roles, then every bone's reference pose. Once per rig
+        // and size per session: the game binds V's first-person body (~295 bones) and the full rig with the face (~620)
+        // in turn, so each gets its own file, fbt_rig_<male|female>_<bones>.txt.
+        static std::vector<int> s_dumped;
+        const int dumpKey=n*2+(female ? 1:0);
+        char path[MAX_PATH]{};
+        if(std::find(s_dumped.begin(),s_dumped.end(),dumpKey)==s_dumped.end()) {
+            s_dumped.push_back(dumpKey);
+            char file[64];
+            sprintf_s(file,"fbt_rig_%s_%d.txt",female ? "female":"male",n);
+            strcpy_s(path,cvr::paths::FileA(cvr::paths::Folder::Config,file).c_str());   // the plugin's config folder
+            FILE* f=nullptr;
+            if(fopen_s(&f,path,"w")==0 && f) {
+                fprintf(f,"# V's skeleton, reference pose (Anim/CharacterRig.cpp). Model space: x right, y forward, z up, metres.\n");
+                fprintf(f,"# roles: name index\n");
+                const struct { const char* name; int index; } roles[]={
+                    {"hips",hips},{"neck",g_VRNeckIdx},{"neck1",g_VRNeck1Idx},{"head",head},{"left_eye",leftEye},
+                    {"right_eye",rightEye},{"camera",camera},{"left_upperarm",g_VRLeftUpperArmIdx},
+                    {"left_forearm",g_VRLeftForeArmIdx},{"left_hand",g_VRLeftBoneIdx},{"right_upperarm",g_VRRightUpperArmIdx},
+                    {"right_forearm",g_VRRightForeArmIdx},{"right_hand",g_VRRightBoneIdx},{"left_upleg",g_VRLeftUpLegIdx},
+                    {"left_leg",g_VRLeftLegIdx},{"left_foot",g_VRLeftFootIdx},{"right_upleg",g_VRRightUpLegIdx},
+                    {"right_leg",g_VRRightLegIdx},{"right_foot",g_VRRightFootIdx}};
+                for(const auto& r:roles)fprintf(f,"role %s %d\n",r.name,r.index);
+                for(int c=0;c<g_VRSpineCount && c<8;++c)fprintf(f,"role spine%d %d\n",c,g_VRSpineIdx[c]);
+                // The hands' thumb joint and end, which the shared IK takes the hand's axes from (Fbt/FbtIk.cpp).
+                const struct { const char* role; const char* bone; } handRoles[]={{"left_thumb1","LeftHandThumb1"},
+                    {"left_hand_end","LeftHandEnd"},{"right_thumb1","RightHandThumb1"},{"right_hand_end","RightHandEnd"}};
+                for(const auto& r:handRoles)for(int i=0;i<n;++i)if(names[i] && std::strcmp(names[i],r.bone)==0) {
+                    fprintf(f,"role %s %d\n",r.role,i);break;
+                }
+                fprintf(f,"# bone: index parent name  local pos xyz  local rot xyzw  model pos xyz  model rot xyzw\n");
+                for(int i=0;i<n;++i)if(s_referenceValid[i]) {
+                    const float* lp=s_referenceLocalPos[i];const float* lr=s_referenceLocalRot[i];
+                    const float* mp=s_referenceModelPos[i];const float* mr=s_referenceModelRot[i];
+                    fprintf(f,"bone %d %d %s  %.6f %.6f %.6f  %.7f %.7f %.7f %.7f  %.6f %.6f %.6f  %.7f %.7f %.7f %.7f\n",i,
+                        g_VRBoneParent[i],names[i] ? names[i]:"?",lp[0],lp[1],lp[2],lr[0],lr[1],lr[2],lr[3],mp[0],mp[1],mp[2],
+                        mr[0],mr[1],mr[2],mr[3]);
+                }
+                fclose(f);
+                Log("[fbt-calib] skeleton written to %s (%d bones)\n",path,n);
+                strcpy_s(s_fbtRigPath[female ? 1:0],path);   // s_neckMountMutex is held (taken above, for the whole reference update)
+            }
+        }
     }
     const int chest=g_VRSpineCount>0 ? g_VRSpineIdx[g_VRSpineCount-1]:-1;
     for(int i=0;i<count;++i)if(names[i] && s_referenceValid[i])for(int side=0;side<2;++side) {
@@ -574,28 +714,74 @@ bool cvr::gestures::ThumbReference(int side,float* rotation) {
     return true;
 }
 
+bool cvr::gestures::SpreadAxis(int side,int digit,int* bone,float axis[3]) {
+    if(side<0 || side>1 || !bone || !axis || digit<0 || digit>4 || digit==2)return false;
+    const int* slot=s_ladderFingers[side];
+    // Slots: 0-4 InHand*, 5-9 Hand*1 (knuckles), 10-14 Hand*2, 15-18 Hand*3 (no thumb 3).
+    const int root=digit==0 ? slot[0] : slot[5+digit], next=digit==0 ? slot[10] : slot[10+digit];
+    const int refFrom=digit==0 ? slot[1] : slot[7], refTo=digit==0 ? slot[15] : slot[12];
+    const int indexKnuckle=slot[6],littleKnuckle=slot[9],palm=slot[2];
+    for(int b:{root,next,refFrom,refTo,indexKnuckle,littleKnuckle,palm})if(b<0 || b>=g_VRBoneCount || !s_referenceValid[b])return false;
+    const int parent=g_VRBoneParent[root];if(parent<0 || !s_referenceValid[parent])return false;
+    const auto* p=s_referenceModelPos;
+    float dir[3],ref[3],across[3],toPalm[3],normal[3],turn[3];
+    for(int k=0;k<3;++k){dir[k]=p[next][k]-p[root][k];ref[k]=p[refTo][k]-p[refFrom][k];
+        across[k]=p[littleKnuckle][k]-p[indexKnuckle][k];toPalm[k]=p[palm][k]-p[indexKnuckle][k];}
+    normal[0]=across[1]*toPalm[2]-across[2]*toPalm[1];normal[1]=across[2]*toPalm[0]-across[0]*toPalm[2];normal[2]=across[0]*toPalm[1]-across[1]*toPalm[0];
+    turn[0]=ref[1]*dir[2]-ref[2]*dir[1];turn[1]=ref[2]*dir[0]-ref[0]*dir[2];turn[2]=ref[0]*dir[1]-ref[1]*dir[0];
+    if(VRIK_Dot3(normal,normal)<1e-12f)return false;
+    VRIK_Norm3(normal);
+    // Turning dir further around +normal increases its angle from ref when ref x dir points along +normal.
+    if(VRIK_Dot3(turn,normal)<0)for(float& v:normal)v=-v;
+    float inverse[4];VRIK_QuatConj(s_referenceModelRot[parent],inverse);VRIK_QuatRotateVec(inverse,normal,axis);
+    if(VRIK_Dot3(axis,axis)<1e-12f)return false;
+    VRIK_Norm3(axis);*bone=root;return true;
+}
+
 // Forward kinematics: accumulate parent-local transforms into model space.
 // Requires parent index < child index (true for these rigs / topological order).
+namespace {
+// The FK pass's own normalisation: a product of unit quaternions is unit to float precision, so the square root and
+// the division (most of a bone's cost, on every bone of every pass, ~30 passes a frame) are only paid when the
+// squared norm is off by more than 2e-6 -- a rotation error far below anything drawn. Anything else is normalised
+// exactly as VRIK_QuatNorm does, a degenerate one becomes the identity.
+inline void NormaliseIfNeeded(float* q) {
+    const float n2 = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
+    if (n2 > 1.0f - 2e-6f && n2 < 1.0f + 2e-6f) return;
+    if (n2 > 1e-16f) { const float inv = 1.0f / std::sqrt(n2); q[0]*=inv; q[1]*=inv; q[2]*=inv; q[3]*=inv; }
+    else { q[0]=0.0f; q[1]=0.0f; q[2]=0.0f; q[3]=1.0f; }
+}
+}
+
 void VRIK_ComputeFK(uint8_t* boneBuf, int count) {
     if (count > VRIK_MAX_BONES) count = VRIK_MAX_BONES;
     for (int i = 0; i < count; ++i) {
         const float* lt = reinterpret_cast<float*>(boneBuf + i * 48 + VRIK_TRANS_OFF);
         const float* lr = reinterpret_cast<float*>(boneBuf + i * 48 + VRIK_ROT_OFF);
-        float lpos[3] = { lt[0], lt[1], lt[2] };
-        float lrot[4] = { lr[0], lr[1], lr[2], lr[3] };
-        int p = g_VRBoneParent[i];
+        const float lx = lt[0], ly = lt[1], lz = lt[2];
+        const float bx = lr[0], by = lr[1], bz = lr[2], bw = lr[3];
+        float* r = g_fkRot[i];
+        float* t = g_fkPos[i];
+        const int p = g_VRBoneParent[i];
         if (p >= 0 && p < i) {
-            VRIK_QuatMul(g_fkRot[p], lrot, g_fkRot[i]);
-            VRIK_QuatNorm(g_fkRot[i]);
-            float rp[3];
-            VRIK_QuatRotateVec(g_fkRot[p], lpos, rp);
-            g_fkPos[i][0] = g_fkPos[p][0] + rp[0];
-            g_fkPos[i][1] = g_fkPos[p][1] + rp[1];
-            g_fkPos[i][2] = g_fkPos[p][2] + rp[2];
+            const float ax = g_fkRot[p][0], ay = g_fkRot[p][1], az = g_fkRot[p][2], aw = g_fkRot[p][3];
+            // r = parent * local (Hamilton, as VRIK_QuatMul)
+            r[0] = aw * bx + ax * bw + ay * bz - az * by;
+            r[1] = aw * by - ax * bz + ay * bw + az * bx;
+            r[2] = aw * bz + ax * by - ay * bx + az * bw;
+            r[3] = aw * bw - ax * bx - ay * by - az * bz;
+            NormaliseIfNeeded(r);
+            // t = parent position + parent rotation applied to the local position (as VRIK_QuatRotateVec)
+            const float tx = 2.0f * (ay * lz - az * ly);
+            const float ty = 2.0f * (az * lx - ax * lz);
+            const float tz = 2.0f * (ax * ly - ay * lx);
+            t[0] = g_fkPos[p][0] + lx + aw * tx + (ay * tz - az * ty);
+            t[1] = g_fkPos[p][1] + ly + aw * ty + (az * tx - ax * tz);
+            t[2] = g_fkPos[p][2] + lz + aw * tz + (ax * ty - ay * tx);
         } else {
-            g_fkRot[i][0]=lrot[0]; g_fkRot[i][1]=lrot[1]; g_fkRot[i][2]=lrot[2]; g_fkRot[i][3]=lrot[3];
-            VRIK_QuatNorm(g_fkRot[i]);
-            g_fkPos[i][0]=lpos[0]; g_fkPos[i][1]=lpos[1]; g_fkPos[i][2]=lpos[2];
+            r[0] = bx; r[1] = by; r[2] = bz; r[3] = bw;
+            NormaliseIfNeeded(r);
+            t[0] = lx; t[1] = ly; t[2] = lz;
         }
     }
 }
@@ -1247,6 +1433,21 @@ static void VRIK_UpdateUpperArmDeformation(uint8_t* buffer,int fore,bool left) {
     }
 }
 
+// How far a hand is held by what it holds (a wrist lock: a holstered gun's grip, a magazine, a pin), eased so the elbow
+// swings over instead of jumping when the grip closes or lets go.
+static float WristHeldEase(int side) {
+    static float s_ease[2]{};
+    static long long s_at[2]{};
+    LARGE_INTEGER now,freq;
+    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
+    const float dt=s_at[side] ? static_cast<float>(static_cast<double>(now.QuadPart-s_at[side])/static_cast<double>(freq.QuadPart)) : 0.f;
+    s_at[side]=now.QuadPart;
+    const float want=g_VRHandRotLockOn[side] ? 1.f : 0.f;
+    const float step=std::clamp(dt,0.f,.05f)/.15f;
+    s_ease[side]+=std::clamp(want-s_ease[side],-step,step);
+    return s_ease[side];
+}
+
 void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
                                  const float* targetModel, const float* handModelRot,
                                  const float* bodyRight, const float* bodyUp, const float* bodyFwd,
@@ -1261,9 +1462,12 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
     const float* wr = g_fkPos[handIdx];
     // Mix the free combat swivel with the existing relaxed elbow policy.
     // Only the swivel changes: the wrist target and both segment lengths stay fixed.
-    const float combatBlend=g_VRBind!=4 || ladderReach || !s_referenceValid[foreIdx] || !s_referenceValid[handIdx] ? 0.f :
+    // The swivel reads the wrist as a fist's aim and puts the elbow behind it. A wrist locked to a thing is turned by that
+    // thing, not by the arm: on a holstered gun's grip (muzzle down, the grip standing back) it put the elbow 27 cm in front
+    // of the hand (players, 2026-11-05: "the elbow bends forward taking the pistol at the right hip").
+    const float combatBlend=(g_VRBind!=4 || ladderReach || !s_referenceValid[foreIdx] || !s_referenceValid[handIdx] ? 0.f :
         VRIK_UsesNativeCyberware() && (g_VRCyberwareFamily==1 || g_VRCyberwareFamily==2) ? 1.f :
-        VRIK_UsesNativeCyberware() && g_VRCyberwareFamily==3 ? .5f : .25f;
+        VRIK_UsesNativeCyberware() && g_VRCyberwareFamily==3 ? .5f : .25f)*(1.f-WristHeldEase(isLeft ? 0 : 1));
     const bool combatElbow=combatBlend>0.f;
 
     float curUp[3]   = { el[0]-sh[0], el[1]-sh[1], el[2]-sh[2] };
@@ -1717,18 +1921,27 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
             if (r > 1e-3f) {
                 const float baseUp = handUp + xDist * VRIK_Dot3(xDir, bodyUp);
                 float aMax = (capUp - baseUp) / (yDist * r);
-                if (aMax < -1.0f) aMax = -1.0f;
+                // A HANGING ARM: the whole circle the elbow can be on is above the hand, so no turn gets it down there and
+                // the cap only took it to the circle's lowest point, which is wherever the arm happens to lean. With the
+                // hand behind and outside the shoulder that is forward and into the belly, a few centimetres lower for an
+                // elbow no arm can make (players, 2026-11-05: "the elbow bends forward taking the pistol at the right hip").
+                // So the cap holds only as far as it can be met, gone by the point it cannot (a limit of 1 caps nothing),
+                // and it never turns an elbow forward.
+                const float canMeet = std::clamp((aMax + 1.0f) / 0.5f, 0.0f, 1.0f);
+                aMax = 1.0f + (aMax - 1.0f) * canMeet;
                 if (aMax <  1.0f) {                         // >= 1 cannot be violated
                     float v[3]; VRIK_Cross3(xDir, u, v); VRIK_Norm3(v);
                     const float a = VRIK_Dot3(bend, u);
                     if (a > aMax) {
+                        const float was[3] = { bend[0], bend[1], bend[2] };
                         const float b = VRIK_Dot3(bend, v);
                         float bNew = std::sqrt(std::fmax(0.0f, 1.0f - aMax * aMax));
                         if (b < 0.0f) bNew = -bNew;
                         bend[0] = u[0]*aMax + v[0]*bNew;
                         bend[1] = u[1]*aMax + v[1]*bNew;
                         bend[2] = u[2]*aMax + v[2]*bNew;
-                        VRIK_Norm3(bend);
+                        stripForwardBend(bend);
+                        if (VRIK_Norm3(bend) < 1e-3f) std::copy_n(was, 3, bend);
                     }
                 }
             }
@@ -3059,11 +3272,13 @@ float ClipBodyWeight(const NativeTorso* clip,bool* engaged) {
         std::chrono::steady_clock::now().time_since_epoch()).count();
     const float dt=s_clipBodyAtUs ? std::clamp(static_cast<float>(now-s_clipBodyAtUs)*1e-6f,0.0f,0.1f):0.0f;
     s_clipBodyAtUs=now;
-    const bool moving=CyberpunkVR_ClipBodyMoves!=0 && clip && ClipMove(g_VRLocomotionDetailed,g_VRLocomotionState);
+    // Never under full-body tracking: the trackers move the body through those moves as the player makes them.
+    const bool clipMoves=CyberpunkVR_ClipBodyMoves!=0 && !cvr::fbt::game::BodyActive();   // Fbt/Game/Body.hpp
+    const bool moving=clipMoves && clip && ClipMove(g_VRLocomotionDetailed,g_VRLocomotionState);
     *engaged=moving && !s_clipLatched && s_clipBodyWeight<=0;
     if(moving)s_clipLatched=true;
     float want=0;
-    if(s_clipLatched && clip && CyberpunkVR_ClipBodyMoves!=0) {
+    if(s_clipLatched && clip && clipMoves) {
         const float drop=s_referenceCameraHeight-clip->camera[2];
         want=moving ? 1.0f:std::clamp((drop-0.05f)/0.25f,0.0f,1.0f);
     }

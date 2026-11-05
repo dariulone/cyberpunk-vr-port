@@ -16,6 +16,7 @@
 #include "Core/VrCoreShared.hpp"
 #include "Anim/VrikState.hpp"
 #include "Anim/HeadAimWeapon.hpp"
+#include "Fbt/Game/Body.hpp"
 #include "Lobby/MenuLobby.hpp"
 #include "Core/TweakRecords.hpp"
 #include <MinHook.h>
@@ -27,6 +28,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <cstdio>
+#include "Fbt/Game/Calibration.hpp"
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -141,6 +143,12 @@ constexpr float kDefaultCapsuleRadius = 0.25f;
 // and a hand on an arm measured from those shoulders could not reach a button on that wall. 0.25 m brings the axis to
 // 0.32 m, where the arm reaches past the surface, and the view's lead over a blocked capsule (below) shrinks with it.
 // The states on foot only; swimming, grapples and takedowns, braindances and scene tiers keep the game's radius.
+//
+// NOT ON A LADDER. The ladder's exit over the top carries the capsule forward by what a 0.40 m one needs to stand on
+// the floor beyond; a 0.25 m capsule was left over the gap between the ladder and that floor and fell -- the whole
+// height of a long ladder (players, 2026-11-05, a 9.1 m ladder with exitStepTop -1: V reached the floor level, moved
+// 12 cm and dropped 9 m; with the ladder states at 0.40 it walked off onto the roof). Nothing on a ladder needs the
+// shoulders nearer a wall, so all five ladder states keep the game's radius.
 constexpr float kVrCapsuleRadius = 0.25f;
 struct StateGroup { const char* package; std::initializer_list<const char*> states; };
 const StateGroup kOnFootStates[] = {
@@ -151,7 +159,7 @@ const StateGroup kOnFootStates[] = {
      {"abstractStatusEffect", "aimWalk", "airHover", "airThrusters", "bodySlamJump", "chargeJump", "climb",
       "coolExitJump", "crouch", "crouchSprint", "deathLand", "dodge", "dodgeAir", "doubleJump", "failedLandingAbstract",
       "fall", "felled", "forceFreeze", "forceIdle", "forceWalk", "forcedKnockdown", "hardLand", "hoverJump", "jump",
-      "knockdown", "ladder", "ladderCrouch", "ladderJump", "ladderSlide", "ladderSprint", "landingAbstract",
+      "knockdown", "landingAbstract",
       "regularLand", "slide", "slideAfterFall", "slideFall", "sprint", "stand", "stunned", "superheroFall",
       "superheroLand", "superheroLandRecovery", "unsecureFootingFall", "vault", "vehicleKnockdown", "veryHardLand",
       "workspot"}},
@@ -256,7 +264,13 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
     CyberpunkVR_SwimmingRedirect[2]=redirected.z-original.z;
     }
     const uintptr_t result = s_move(backend, combined, dt);
-    const auto leadLimit = CyberpunkVR_HeadLeadsCapsule ? HeadLeadLimit() : Movement::LeadLimit{};
+    // Not under full-body tracking (Fbt/Game/Body.hpp): there the trackers place the body, and a lead estimated from the
+    // capsule's velocity kept growing on open floor too -- the body trailed the head and slid after it.
+    const bool headLeads = CyberpunkVR_HeadLeadsCapsule != 0 && !cvr::fbt::game::BodyActive();
+    auto leadLimit = headLeads ? HeadLeadLimit() : Movement::LeadLimit{};
+    // The ledger walks the neck (EyeFromNeck); the limit is the eye's, so the lever goes back on.
+    if (headLeads && Finite(sample.eyeFromNeck))
+        leadLimit.eyeBase = leadLimit.eyeBase + Rotate(sample.eyeFromNeck * GetWorldScale(), yaw);
     NativeState after{};
     const bool resultOk = nativeOk && ReadNative(backend, &after);
     Vec2 completedConsumed{};
@@ -265,7 +279,7 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
         if (s_player.load(std::memory_order_acquire) != player) return result;
         // What the controller did with the headset's part of the move; the stick's
         // and the swim redirect's share is the rest of the request.
-        const Vec2 accepted = resultOk && CyberpunkVR_HeadLeadsCapsule
+        const Vec2 accepted = resultOk && headLeads
             ? AcceptedDisplacement({redirected.x,redirected.y},step.world,
                                    {after.velocity[0]*dt,after.velocity[1]*dt})
             : step.world;
@@ -448,7 +462,8 @@ void ObserveMovement(void* state) {
 
 bool GameplayAllowed() {
     const int loco=g_VRLocomotionState;
-    return g_liveControls.xrRoomscaleMovement != 0 && PhysicalBodyAllowed() &&
+    // Not while full-body tracking calibrates: V stays where it stands and the player walks into it.
+    return g_liveControls.xrRoomscaleMovement != 0 && PhysicalBodyAllowed() && !cvr::fbt::game::Calibrating() &&
         loco!=6 && loco!=9 && loco!=10 && loco!=11;
 }
 

@@ -22,10 +22,12 @@ struct Type
     virtual RED4ext::rtti::IType* GetValueType() const { return m_pType; }
     virtual void* GetValuePtr() const { return nullptr; }
 
-    sol::object Index(const std::string& acName, sol::this_environment aThisEnv);
+    // No sol::this_environment here: as a parameter sol builds it on every field and method access (a walk up the
+    // Lua call stack, a registry reference made and freed), and no index path uses it.
+    sol::object Index(const std::string& acName);
     sol::object NewIndex(const std::string& acName, sol::optional<sol::object> aParam);
 
-    virtual sol::object Index_Impl(const std::string& acName, sol::this_environment aThisEnv);
+    virtual sol::object Index_Impl(const std::string& acName);
     virtual sol::object NewIndex_Impl(const std::string& acName, sol::object aParam);
 
     std::string GetName() const;
@@ -53,7 +55,7 @@ struct ClassType : Type
     ~ClassType() override = default;
 
     Descriptor Dump(bool aWithHashes) const override;
-    sol::object Index_Impl(const std::string& acName, sol::this_environment aThisEnv) override;
+    sol::object Index_Impl(const std::string& acName) override;
     sol::object NewIndex_Impl(const std::string& acName, sol::object aParam) override;
 
     RED4ext::CClass* GetClass() const { return reinterpret_cast<RED4ext::CClass*>(m_pType); }

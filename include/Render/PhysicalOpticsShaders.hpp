@@ -57,6 +57,10 @@ struct LensVelocityPass {
     BoundTargets targets;
 };
 bool PrepareLensVelocity(ID3D12GraphicsCommandList*,ID3D12PipelineState* glass,LensVelocityPass&);
+// Whether the pipeline is a registered glass (the bound one cached per thread): what PrepareLensVelocity and
+// GlassMaskPipeline test first, for a draw hook to ask before building a pass (ETW: ~0.25 ms of CPU a frame went
+// into building and clearing a LensVelocityPass for every draw).
+bool GlassPipeline(ID3D12PipelineState* pso);
 // The render targets the engine last bound on this list (this thread).
 bool BoundTargetsOf(ID3D12GraphicsCommandList*,BoundTargets&);
 

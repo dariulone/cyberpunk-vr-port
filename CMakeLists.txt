@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CyberpunkVRPort VERSION 0.2.1 LANGUAGES CXX C ASM_MASM)
+project(CyberpunkVRPort VERSION 0.2.2 LANGUAGES CXX C ASM_MASM)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -122,6 +122,10 @@ target_include_directories(imgui PUBLIC
 set(CVR_RED4EXT_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/externals/RED4ext.SDK" CACHE PATH "RED4ext.SDK source tree")
 add_subdirectory(${CVR_RED4EXT_SDK_DIR} ${CMAKE_BINARY_DIR}/externals/RED4ext.SDK)
 
+# The full-body IK: the wrpuppets-fbt-ik library (MIT), engine-independent; the game side is src/Fbt/Game.
+set(CVR_FBT_IK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/externals/wrpuppets-fbt-ik" CACHE PATH "wrpuppets-fbt-ik source tree")
+add_subdirectory(${CVR_FBT_IK_DIR} ${CMAKE_BINARY_DIR}/externals/wrpuppets-fbt-ik)
+
 # ============================================================================================
 # cyberpunkvrport.dll (target cyberpunkvrport_stereo; CyberpunkVR_Stereo.dll up to 0.1.9) -- the RED4ext
 # plugin. This is the whole mod.
@@ -202,6 +206,7 @@ target_compile_definitions(cyberpunkvrport_stereo PRIVATE
 # The notice's word in every language the game is translated into, as wide string literals.
 set_source_files_properties(src/Lobby/Notice.cpp PROPERTIES COMPILE_OPTIONS /utf-8)
 target_link_libraries(cyberpunkvrport_stereo PRIVATE
+    wrpuppets_fbt_ik
     openxr_loader
     imgui
     d3d12.lib

@@ -1,4 +1,5 @@
 #include "Framegen/Presenter.hpp"
+#include "Framegen/FrameCapture.hpp"
 #include "Utils/DebugGate.hpp"
 #include <algorithm>
 #include <cmath>
@@ -58,6 +59,16 @@ Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame
     if(!gameplay || (pending.identity.serial && pending.identity.origin!=current.identity.origin))Reset();
     if(cadence.Pending())return {pending,Cadence::Next::PendingReal,{},false};
     Selection result{current,cadence.Select(current.identity.serial,false,false),{},false};
+    // Stereo captures for the benchmark (FrameCapture.hpp, tools/vr_bench) with frame generation off too: the frame's
+    // colours and the depth inputs the depth layer uses are here either way. Costs a relaxed load while disarmed.
+    // Depth is enough here: without frame generation the motion vectors are not captured (FrameCapture skips them).
+    if(!settings.enabled && gameplay && current.identity.stereo && current.color[0] && current.color[1] &&
+       current.inputs[0] && current.inputs[1] && current.inputs[0]->hasDepth && current.inputs[1]->hasDepth &&
+       current.inputs[0]->frameId==current.inputs[1]->frameId) {
+        EyePair cameras[2];
+        for(unsigned eye=0;eye<2;++eye)cameras[eye]={Camera(current.pose[eye],current.fov[eye]),Camera(current.pose[eye],current.fov[eye])};
+        CaptureFrame(device,queue,current.color,current.inputs,cameras);
+    }
     if(!settings.enabled || !gameplay) {
         primed=false;previous={};generatedSerial=0;
         PacingReady(false);

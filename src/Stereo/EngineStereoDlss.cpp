@@ -25,6 +25,7 @@
 #include "Stereo/EngineStereoDlss.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/IdleDlssContext.hpp"
+#include "Render/SceneGpuProfile.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include <windows.h>
 #include <d3d12.h>
@@ -37,6 +38,35 @@
 #define SL_FEATURE_FUN_IMPORT_STATIC(feature, name) static PFun_##name* s_##name = nullptr   // sl.h's; helpers unused
 #endif
 #include <sl_dlss.h>
+
+// Ray Reconstruction's options (Streamline's sl_dlss_d.h, MIT; not in externals/streamline): what the split reads
+// and writes of them. The engine's copy keeps its own structVersion, so Streamline reads only what it declared.
+namespace sl {
+enum class DLSSDPreset : uint32_t { eDefault };
+enum class DLSSDNormalRoughnessMode : uint32_t { eUnpacked, ePacked };
+// {0AD87504-774E-4BF3-9633-A44D1F7F9CB8}
+SL_STRUCT_BEGIN(DLSSDOptions, StructType({ 0x0ad87504, 0x774e, 0x4bf3, { 0x96, 0x33, 0xa4, 0x4d, 0x1f, 0x7f, 0x9c, 0xb8 } }), kStructVersion3)
+    DLSSMode mode = DLSSMode::eOff;
+    uint32_t outputWidth = INVALID_UINT;
+    uint32_t outputHeight = INVALID_UINT;
+    float sharpness = 0.0f;
+    float preExposure = 1.0f;
+    float exposureScale = 1.0f;
+    Boolean colorBuffersHDR = Boolean::eTrue;
+    Boolean indicatorInvertAxisX = Boolean::eFalse;
+    Boolean indicatorInvertAxisY = Boolean::eFalse;
+    DLSSDNormalRoughnessMode normalRoughnessMode = DLSSDNormalRoughnessMode::eUnpacked;
+    float4x4 worldToCameraView;
+    float4x4 cameraViewToWorld;
+    Boolean alphaUpscalingEnabled = Boolean::eFalse;
+    DLSSDPreset dlaaPreset = DLSSDPreset::eDefault;
+    DLSSDPreset qualityPreset = DLSSDPreset::eDefault;
+    DLSSDPreset balancedPreset = DLSSDPreset::eDefault;
+    DLSSDPreset performancePreset = DLSSDPreset::eDefault;
+    DLSSDPreset ultraPerformancePreset = DLSSDPreset::eDefault;
+    DLSSDPreset ultraQualityPreset = DLSSDPreset::eDefault;
+SL_STRUCT_END()
+}  // namespace sl
 
 extern void Log(const char*,...);
 // 1 = DLSS per eye under engine stereo (default); 0 = the engine's one evaluate over both eyes. Live.
@@ -69,11 +99,31 @@ extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoD
 // Back to the engine's one evaluate: [0] frames without the right eye's output target, [1] 1 once the eyes'
 // evaluates failed for good this session.
 extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoDlssFallback[2] = {};
+// The same for the types 32-63 (bit N = type 32 + N: 39 ColorBeforeParticles, 42 SpecularHitDistance).
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoDlssDropTagsHigh{0};
+// 1 = Ray Reconstruction's left eye reads copies of its halves at (0, 0) as the right eye does (default); 0 = its
+// halves in the engine's resources at offset 0, as DLSS's left eye. Read in place, RR's left eye ghosted fog and fire
+// stuck on the screen (2026-11-02, gone with the copies and back without them). Live.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoRrCopyLeft{1};
+// 1 = Ray Reconstruction (DLSS-D) per eye as DLSS is (default); 0 = the engine's one RR evaluate over both eyes. Live.
+// One RR over the side-by-side frame reprojects each eye's specular history with one camera and one projection
+// spanning both halves: reflections stuck to the surface.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoRrPerEye{1};
+// 1 = each eye's RR gets its own camera position (centre -+ sep/2 along the camera's right) in its constants and
+// view matrices (default); 0 = the engine's centre for both. Live.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoRrEyeCamera{1};
+// [0] RR evaluates split per eye, [1] RR passed through (no recorded options / mode off), [2] eye options set,
+// [3] RR options calls seen, [4] eye view matrices moved, [5] view matrices left (layout not recognised).
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoRr[6] = {};
 
 namespace cvr::engine_stereo::dlss {
 namespace {
 constexpr uint32_t kEyeViewport[2]{0x43565201u, 0x43565202u};
-constexpr uint32_t kMaxTags = 24;
+// Ray Reconstruction's eyes have viewports of their own: the game switches between RR and DLSS when RT reflections
+// are turned on or off, and with both features on one viewport (RR never freed there) the GPU crashed in the
+// upscaler's command list on the switch (2026-11-02, device removed: access denied).
+constexpr uint32_t kRrEyeViewport[2]{0x43565203u, 0x43565204u};
+constexpr uint32_t kMaxTags = 40;   // RR's guides (albedo, normals, roughness, hit distances, ...) on top of DLSS's
 
 struct TagSet {
     sl::ResourceTag tag[kMaxTags];
@@ -83,6 +133,7 @@ struct TagSet {
 };
 struct ConstantSet { sl::Constants values; uint32_t frame = 0, viewport = 0; bool valid = false; };
 struct OptionSet { sl::DLSSOptions values; uint32_t viewport = 0; bool valid = false; };
+struct RrOptionSet { sl::DLSSDOptions values; uint32_t viewport = 0; bool valid = false; };
 
 std::recursive_mutex mutex;
 cvr::gpu::IdleDlssContext originalContext;
@@ -100,8 +151,15 @@ using SetOptionsFn = sl::Result (*)(const sl::ViewportHandle&, const sl::DLSSOpt
 using GetFeatureFunctionFn = sl::Result (*)(sl::Feature, const char*, void*&);
 SetOptionsFn setOptions = nullptr;        // unhooked slDLSSSetOptions (the trampoline once hooked)
 std::atomic<bool> optionsHooked{false};
+RrOptionSet engineRrOptions;
+RrOptionSet eyeRrOptions[2];
+using SetRrOptionsFn = sl::Result (*)(const sl::ViewportHandle&, const sl::DLSSDOptions&);
+SetRrOptionsFn setRrOptions = nullptr;    // the trampoline of slDLSSDSetOptions
+std::atomic<bool> rrOptionsHooked{false};
 
-bool OwnViewport(uint32_t v) { return v == kEyeViewport[0] || v == kEyeViewport[1]; }
+bool OwnViewport(uint32_t v) {
+    return v == kEyeViewport[0] || v == kEyeViewport[1] || v == kRrEyeViewport[0] || v == kRrEyeViewport[1];
+}
 bool FailTest(uint32_t bit) { return (CyberpunkVR_EngineStereoDlssFailTest.load(std::memory_order_relaxed) & bit) != 0; }
 uint64_t outputRetryAt = 0;          // no right-eye output target: the engine's evaluate until then
 bool outputMissingLogged = false;
@@ -128,7 +186,7 @@ struct EyeCopy {
     bool logged = false;
     ID3D12Resource* staging = nullptr;   // a depth-stencil source copied whole first (it cannot be copied in part)
 };
-EyeCopy copies[kMaxTags];
+EyeCopy copies[2][kMaxTags];   // per eye: the left eye's are RR's only (CyberpunkVR_EngineStereoRrCopyLeft)
 constexpr D3D12_RESOURCE_STATES kReadable = D3D12_RESOURCE_STATES(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
                                                                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
@@ -164,19 +222,20 @@ D3D12_RESOURCE_DESC DescOf(ID3D12Resource* r, bool* ok) {
     return d;
 }
 
-// The right eye's copy for a tag of this type: the source's format at the eye's size, made or remade as needed.
-EyeCopy* OwnCopy(sl::BufferType type, ID3D12Resource* source, uint64_t width, uint32_t height, bool output) {
+// The eye's copy for a tag of this type: the source's format at the eye's size, made or remade as needed.
+EyeCopy* OwnCopy(int eye, sl::BufferType type, ID3D12Resource* source, uint64_t width, uint32_t height, bool output) {
     bool ok = false;
     D3D12_RESOURCE_DESC d = DescOf(source, &ok);
     if (!ok) return nullptr;
+    const char* name = eye ? "right" : "left";
     EyeCopy* slot = nullptr;
-    for (auto& c : copies) if ((c.resource || c.logged) && c.type == type) { slot = &c; break; }
-    if (!slot) for (auto& c : copies) if (!c.resource && !c.logged) { slot = &c; break; }
+    for (auto& c : copies[eye]) if ((c.resource || c.logged) && c.type == type) { slot = &c; break; }
+    if (!slot) for (auto& c : copies[eye]) if (!c.resource && !c.logged) { slot = &c; break; }
     if (!slot) return nullptr;
     slot->type = type;
     const bool depth = (d.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0;
     if (d.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || (depth && (output || d.MipLevels != 1 || d.DepthOrArraySize != 1))) {
-        if (!slot->logged) Log("[engine-stereo-dlss] right eye tag %u: format %d flags 0x%X not copied; offset kept\n",
+        if (!slot->logged) Log("[engine-stereo-dlss] %s eye tag %u: format %d flags 0x%X not copied; offset kept\n", name,
                                uint32_t(type), int(d.Format), unsigned(d.Flags));
         slot->logged = true;
         return nullptr;
@@ -200,7 +259,7 @@ EyeCopy* OwnCopy(sl::BufferType type, ID3D12Resource* source, uint64_t width, ui
         whole.Alignment = 0;
         const HRESULT shr = device->CreateCommittedResource(&stagingHeap, D3D12_HEAP_FLAG_NONE, &whole, D3D12_RESOURCE_STATE_COPY_DEST,
                                                             nullptr, IID_PPV_ARGS(&staging));
-        Log("[engine-stereo-dlss] right eye tag %u: whole-depth staging %llux%u format %d: 0x%08X\n", uint32_t(type),
+        Log("[engine-stereo-dlss] %s eye tag %u: whole-depth staging %llux%u format %d: 0x%08X\n", name, uint32_t(type),
             (unsigned long long)whole.Width, whole.Height, int(whole.Format), unsigned(shr));
         if (FAILED(shr) || !staging) { device->Release(); return nullptr; }
         staging->SetName(L"CyberpunkVR right eye DLSS depth staging");
@@ -220,7 +279,7 @@ EyeCopy* OwnCopy(sl::BufferType type, ID3D12Resource* source, uint64_t width, ui
     ID3D12Resource* resource = nullptr;
     const HRESULT hr = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, state, nullptr, IID_PPV_ARGS(&resource));
     device->Release();
-    Log("[engine-stereo-dlss] right eye %s tag %u: %llux%u format %d (source format %d): 0x%08X\n", output ? "output" : "input",
+    Log("[engine-stereo-dlss] %s eye %s tag %u: %llux%u format %d (source format %d): 0x%08X\n", name, output ? "output" : "input",
         uint32_t(type), (unsigned long long)width, height, int(format), int(sourceFormat), unsigned(hr));
     if (FAILED(hr) || !resource) { if (staging) staging->Release(); return nullptr; }
     resource->SetName(output ? L"CyberpunkVR right eye DLSS output" : L"CyberpunkVR right eye DLSS input");
@@ -384,6 +443,89 @@ sl::Result HookedSetOptions(const sl::ViewportHandle& viewport, const sl::DLSSOp
     return setOptions(viewport, options);
 }
 
+// RR's options are only taken as the engine set them: the guides' layout (normal/roughness packing) and the view
+// matrices cannot be derived.
+void CopyRrOptions(const sl::DLSSDOptions& options, uint32_t v) {
+    __try {
+        if (options.structType != sl::DLSSDOptions::s_structType || options.structVersion < 1) { engineRrOptions.valid = false; return; }
+        engineRrOptions.values = options;
+        engineRrOptions.values.next = nullptr;
+        engineRrOptions.viewport = v;
+        engineRrOptions.valid = true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { engineRrOptions.valid = false; }
+}
+
+sl::Result HookedSetRrOptions(const sl::ViewportHandle& viewport, const sl::DLSSDOptions& options) {
+    std::lock_guard lock(mutex);
+    const uint32_t v = ViewportValue(&viewport);
+    if (!OwnViewport(v)) {
+        CopyRrOptions(options, v);
+        ++CyberpunkVR_DebugEngineStereoRr[3];
+    }
+    return setRrOptions(viewport, options);
+}
+
+// slDLSSDSetOptions is reachable once the RR plugin is loaded: tried at RR evaluates until it is hooked. Without the
+// hook the eyes have no options and RR passes through.
+void InstallRrOptionsHook() {
+    if (rrOptionsHooked.load(std::memory_order_acquire)) return;
+    static std::mutex installMutex;
+    std::lock_guard lock(installMutex);
+    if (rrOptionsHooked.load(std::memory_order_relaxed)) return;
+    const auto module = GetModuleHandleW(L"sl.interposer.dll");
+    auto get = module ? reinterpret_cast<GetFeatureFunctionFn>(GetProcAddress(module, "slGetFeatureFunction")) : nullptr;
+    void* target = nullptr;
+    if (!get || get(sl::kFeatureDLSS_RR, "slDLSSDSetOptions", target) != sl::Result::eOk || !target) return;
+    if (MH_CreateHook(target, reinterpret_cast<void*>(&HookedSetRrOptions), reinterpret_cast<void**>(&setRrOptions)) != MH_OK ||
+        MH_EnableHook(target) != MH_OK) {
+        MH_RemoveHook(target);
+        setRrOptions = nullptr;
+        Log("[engine-stereo-dlss] slDLSSDSetOptions could not be hooked; Ray Reconstruction stays over both eyes\n");
+    } else {
+        Log("[engine-stereo-dlss] slDLSSDSetOptions hooked\n");
+    }
+    rrOptionsHooked.store(true, std::memory_order_release);
+}
+
+// The eye's camera: `e` (world) from the centre. Moves cameraViewToWorld's origin by e and worldToCameraView's by
+// -e in view axes, whichever way round the engine wrote them (a row vector's translation in row 3, a column
+// vector's in column 3: the one whose view-to-world translation is the camera position). False when neither is.
+bool MoveViewMatrices(sl::DLSSDOptions& o, const sl::float3& position, const float e[3]) {
+    auto& w = o.worldToCameraView;
+    auto& v = o.cameraViewToWorld;
+    const float p[3]{position.x, position.y, position.z};
+    auto close = [&](float a, float b) { return std::fabs(a - b) < 0.01f + 1e-5f * std::fabs(b); };
+    if (close(v[3].x, p[0]) && close(v[3].y, p[1]) && close(v[3].z, p[2])) {
+        const float d[3]{e[0] * w[0].x + e[1] * w[1].x + e[2] * w[2].x, e[0] * w[0].y + e[1] * w[1].y + e[2] * w[2].y,
+                         e[0] * w[0].z + e[1] * w[1].z + e[2] * w[2].z};
+        v[3].x += e[0]; v[3].y += e[1]; v[3].z += e[2];
+        w[3].x -= d[0]; w[3].y -= d[1]; w[3].z -= d[2];
+        return true;
+    }
+    if (close(v[0].w, p[0]) && close(v[1].w, p[1]) && close(v[2].w, p[2])) {
+        for (int i = 0; i < 3; ++i) w[i].w -= w[i].x * e[0] + w[i].y * e[1] + w[i].z * e[2];
+        v[0].w += e[0]; v[1].w += e[1]; v[2].w += e[2];
+        return true;
+    }
+    return false;
+}
+
+void LogRrOnce(const sl::Constants& c, const sl::DLSSDOptions& o) {
+    static std::atomic<bool> logged{false};
+    if (logged.exchange(true)) return;
+    auto row = [](const char* name, const sl::float4x4& m) {
+        Log("[engine-stereo-dlss]   %s (%.4f %.4f %.4f %.4f) (%.4f %.4f %.4f %.4f) (%.4f %.4f %.4f %.4f) (%.4f %.4f %.4f %.4f)\n", name,
+            m[0].x, m[0].y, m[0].z, m[0].w, m[1].x, m[1].y, m[1].z, m[1].w, m[2].x, m[2].y, m[2].z, m[2].w, m[3].x, m[3].y, m[3].z, m[3].w);
+    };
+    Log("[engine-stereo-dlss] per-eye RR: options v%u mode %u output %ux%u normalRoughness %u; camera pos (%.3f %.3f %.3f) "
+        "right (%.3f %.3f %.3f) fov %.4f aspect %.4f; eye separation %.4f\n", uint32_t(o.structVersion), uint32_t(o.mode),
+        o.outputWidth, o.outputHeight, uint32_t(o.normalRoughnessMode), c.cameraPos.x, c.cameraPos.y, c.cameraPos.z,
+        c.cameraRight.x, c.cameraRight.y, c.cameraRight.z, c.cameraFOV, c.cameraAspectRatio, cvr::engine_stereo::EyeSeparation());
+    row("viewToClip", c.cameraViewToClip);
+    row("worldToView", o.worldToCameraView);
+    row("viewToWorld", o.cameraViewToWorld);
+}
+
 bool Same(const sl::DLSSOptions& a, const sl::DLSSOptions& b) {
     return a.mode == b.mode && a.outputWidth == b.outputWidth && a.outputHeight == b.outputHeight &&
            a.preExposure == b.preExposure && a.exposureScale == b.exposureScale && a.colorBuffersHDR == b.colorBuffersHDR &&
@@ -420,7 +562,7 @@ bool RightOutputReady(const sl::Extent& out, void* commandList) {
         for (uint32_t j = 0; j < tags.count; ++j)
             if (j != i && tags.tag[j].resource && tags.tag[j].resource->native == native) return false;
         const sl::Extent half = Half(a, 1);
-        EyeCopy* own = native && !FailTest(1) ? OwnCopy(tags.tag[i].type, native, half.width, half.height, true) : nullptr;
+        EyeCopy* own = native && !FailTest(1) ? OwnCopy(1, tags.tag[i].type, native, half.width, half.height, true) : nullptr;
         return own && KeepCopy(static_cast<ID3D12GraphicsCommandList*>(commandList), *own);
     }
     return false;
@@ -521,17 +663,25 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
               void* commandList, EvaluateFn evaluate, ConstantsFn setConstants, sl::Result* result) {
     auto* debug = CyberpunkVR_DebugEngineStereoDlss;
     // A frame the engine rendered mono (before the main menu) is one picture: one evaluate over it, as the engine's.
-    if (feature != sl::kFeatureDLSS || !Enabled() || !Rendering() ||
-        !CyberpunkVR_EngineStereoDlssPerEye.load(std::memory_order_relaxed) ||
+    // Ray Reconstruction (DLSS-D) replaces DLSS when it is on and goes through the same split, with its own options.
+    const bool rr = feature == sl::kFeatureDLSS_RR;
+    if ((feature != sl::kFeatureDLSS && !rr) || !Enabled() || !Rendering() ||
+        !(rr ? CyberpunkVR_EngineStereoRrPerEye : CyberpunkVR_EngineStereoDlssPerEye).load(std::memory_order_relaxed) ||
         !inputs || !count || count > 15 || !commandList || !evaluate || !setConstants || !result) {
-        ++debug[1];
+        ++(rr ? CyberpunkVR_DebugEngineStereoRr[1] : debug[1]);
         return false;
     }
     InstallOptionsHook();
+    if (rr) InstallRrOptionsHook();
     uint32_t viewport = 0;
     const int at = FindViewport(inputs, count, &viewport);
     std::lock_guard lock(mutex);
     if (at < 0 || OwnViewport(viewport) || !setTag || !setOptions) { ++debug[1]; return false; }
+    if (rr && (!setRrOptions || !engineRrOptions.valid || engineRrOptions.viewport != viewport ||
+               engineRrOptions.values.mode == sl::DLSSMode::eOff)) {
+        ++CyberpunkVR_DebugEngineStereoRr[1];
+        return false;
+    }
     if (!tags.valid || tags.viewport != viewport) { ++debug[2]; return false; }
     if (!constants.valid || constants.viewport != viewport || constants.frame != uint32_t(frame)) { ++debug[3]; return false; }
     sl::Extent in{}, out{};
@@ -561,11 +711,12 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
     }
     const bool recorded = engineOptions.valid && engineOptions.viewport == viewport;
     const sl::DLSSOptions base = recorded ? engineOptions.values : Derived(in, out, exposureTagged);
-    LogOnce(tags, constants, base, recorded, in, out);
+    if (rr) LogRrOnce(constants.values, engineRrOptions.values);
+    else LogOnce(tags, constants, base, recorded, in, out);
 
     // Only the observed engine viewport (0). A live recording or unfinished GPU
     // submission owns a marker, so elapsed frames alone can never allow release.
-    if(viewport==0 && recorded && optionsIntercepted.load(std::memory_order_acquire) &&
+    if(!rr && viewport==0 && recorded && optionsIntercepted.load(std::memory_order_acquire) &&
        lifecycleHooksReady.load(std::memory_order_acquire) && originalContext.Ready(GetTickCount64())) {
         const sl::ViewportHandle original(0);
         const auto released=freeResources(sl::kFeatureDLSS,original);
@@ -601,23 +752,47 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
     for (int step = 0; step < 2; ++step) {
         const int eye = (mode & 1) ? 1 - step : step;
         if (eye == 1 && (mode & 4)) continue;
-        const sl::ViewportHandle handle(kEyeViewport[eye]);
-        sl::DLSSOptions options = base;
-        options.outputWidth = out.width / 2;
-        options.outputHeight = out.height;
+        const sl::ViewportHandle handle(rr ? kRrEyeViewport[eye] : kEyeViewport[eye]);
         int32_t* res = CyberpunkVR_DebugEngineStereoDlssResults + eye * 4;
-        if (!eyeOptions[eye].valid || !Same(eyeOptions[eye].values, options)) {
-            const auto r = setOptions(handle, options);
-            eyeOptions[eye].values = options;
-            eyeOptions[eye].valid = r == sl::Result::eOk;
-            res[0] = int32_t(r);
-            ++debug[5];
-            if (r != sl::Result::eOk) Log("[engine-stereo-dlss] eye %d options refused (%d)\n", eye, int(r));
-        }
         sl::Constants values = constants.values;
         values.mvecScale.x *= motionX;
         values.jitterOffset.x *= jitterX;
         values.jitterOffset.y *= jitterY;
+        if (rr) {
+            // The eye's camera: the engine places the eyes -+sep/2 along the camera's right from the centre it reports.
+            sl::DLSSDOptions options = engineRrOptions.values;
+            options.outputWidth = out.width / 2;
+            options.outputHeight = out.height;
+            if (CyberpunkVR_EngineStereoRrEyeCamera.load(std::memory_order_relaxed)) {
+                const float s = (eye ? 0.5f : -0.5f) * cvr::engine_stereo::EyeSeparation();
+                const float e[3]{s * values.cameraRight.x, s * values.cameraRight.y, s * values.cameraRight.z};
+                if (MoveViewMatrices(options, values.cameraPos, e)) ++CyberpunkVR_DebugEngineStereoRr[4];
+                else ++CyberpunkVR_DebugEngineStereoRr[5];
+                values.cameraPos.x += e[0];
+                values.cameraPos.y += e[1];
+                values.cameraPos.z += e[2];
+            }
+            if (!eyeRrOptions[eye].valid || std::memcmp(&eyeRrOptions[eye].values, &options, sizeof(options)) != 0) {
+                const auto r = setRrOptions(handle, options);
+                eyeRrOptions[eye].values = options;
+                eyeRrOptions[eye].valid = r == sl::Result::eOk;
+                res[0] = int32_t(r);
+                ++CyberpunkVR_DebugEngineStereoRr[2];
+                if (r != sl::Result::eOk) Log("[engine-stereo-dlss] eye %d RR options refused (%d)\n", eye, int(r));
+            }
+        } else {
+            sl::DLSSOptions options = base;
+            options.outputWidth = out.width / 2;
+            options.outputHeight = out.height;
+            if (!eyeOptions[eye].valid || !Same(eyeOptions[eye].values, options)) {
+                const auto r = setOptions(handle, options);
+                eyeOptions[eye].values = options;
+                eyeOptions[eye].valid = r == sl::Result::eOk;
+                res[0] = int32_t(r);
+                ++debug[5];
+                if (r != sl::Result::eOk) Log("[engine-stereo-dlss] eye %d options refused (%d)\n", eye, int(r));
+            }
+        }
         res[2] = int32_t(setConstants(values, frame, handle));
         sl::ResourceTag eyeTags[kMaxTags];
         // Only the scaling output is the evaluate's to write. Native DLSS-G's HUD-less color (tag 2) is output-sized
@@ -637,14 +812,17 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
             const bool input = !isOutput && a.width == in.width && a.height == in.height;
             if (input) eyeTags[i].extent = Half(a, eye);
             else if (isOutput) eyeTags[i].extent = Half(a, (mode & 2) ? 0 : eye);
-            if (eye != 1 || (!input && !isOutput) || (isOutput && (mode & 18)) || (input && (mode & 32))) continue;
+            // The left eye reads in place (DLSS), or copies of its inputs (RR); its output is written in place.
+            const bool copyLeft = rr && CyberpunkVR_EngineStereoRrCopyLeft.load(std::memory_order_relaxed);
+            if ((eye != 1 && !(copyLeft && input)) || (!input && !isOutput) || (isOutput && (mode & 18)) || (input && (mode & 32)))
+                continue;
             auto* native = static_cast<ID3D12Resource*>(tags.tag[i].resource->native);
             const sl::Extent half = eyeTags[i].extent;
             bool shared = false;                           // one resource under two tags: copied once, offset kept
             for (uint32_t j = 0; j < tags.count; ++j)
                 if (j != i && tags.tag[j].resource && tags.tag[j].resource->native == native) shared = true;
             EyeCopy* own = native && !shared && !(isOutput && FailTest(1))
-                ? OwnCopy(tags.tag[i].type, native, half.width, half.height, isOutput) : nullptr;
+                ? OwnCopy(eye, tags.tag[i].type, native, half.width, half.height, isOutput) : nullptr;
             if (!own) continue;
             if (!KeepCopy(static_cast<ID3D12GraphicsCommandList*>(commandList), *own)) {
                 // Do not record references whose lifetime we cannot protect.
@@ -660,12 +838,19 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
             eyeTags[i].resource = &own->tag;
             eyeTags[i].extent = sl::Extent{0, 0, half.width, half.height};
         }
+        // The scene GPU profile (tools/vr_bench) sees the per-eye DLSS stages as pseudo-nodes 0xD15A00xx: 1x the eye's
+        // input copies, 2x its evaluate (Streamline's own commands are not marked: the range runs over them), 3x its
+        // output copy. Nothing happens while no profile is armed.
+        auto* profileList = static_cast<ID3D12GraphicsCommandList*>(commandList);
         if(nBefore) {
+            cvr::gpu::scene_profile::Mark(profileList, 0xD15A0010u + uint32_t(eye), 0, nullptr, 0);
             RunCopies(commandList, before, nBefore, false);
         }
-        const uint32_t drop = CyberpunkVR_EngineStereoDlssDropTags.load(std::memory_order_relaxed);
+        cvr::gpu::scene_profile::Mark(profileList, 0xD15A0020u + uint32_t(eye), 0, nullptr, 0);
+        const uint64_t drop = CyberpunkVR_EngineStereoDlssDropTags.load(std::memory_order_relaxed) |
+                              uint64_t(CyberpunkVR_EngineStereoDlssDropTagsHigh.load(std::memory_order_relaxed)) << 32;
         for (uint32_t i = 0; i < tags.count; ++i)
-            if (tags.tag[i].type < 32 && (drop >> tags.tag[i].type) & 1u) eyeTags[i].resource = nullptr;
+            if (tags.tag[i].type < 64 && (drop >> tags.tag[i].type) & 1u) eyeTags[i].resource = nullptr;
         res[1] = int32_t(setTag(&handle, eyeTags, tags.count, commandList));
         const sl::BaseStructure* eyeInputs[16 + kMaxTags]{};
         uint32_t n = 0;
@@ -678,8 +863,10 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         if (eye == 1 && FailTest(2)) r = sl::Result::eErrorInvalidParameter;
         res[3] = int32_t(r);
         if (r == sl::Result::eOk && nAfter) {
+            cvr::gpu::scene_profile::Mark(profileList, 0xD15A0030u + uint32_t(eye), 0, nullptr, 0);
             RunCopies(commandList, after, nAfter, true);
         }
+        cvr::gpu::scene_profile::EndRange(profileList);
         if (log)
             Log("[engine-stereo-dlss]   eye %d: tags %d constants %d evaluate %d; in (%u,%u %ux%u) out (%u,%u %ux%u)\n", eye,
                 res[1], res[2], res[3], Half(in, eye).left, Half(in, eye).top, Half(in, eye).width, Half(in, eye).height,
@@ -689,18 +876,19 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
             if (debug[6]++ < 4) Log("[engine-stereo-dlss] eye %d evaluate failed (%d)\n", eye, int(r));
         }
     }
-    ++debug[0];
+    ++(rr ? CyberpunkVR_DebugEngineStereoRr[0] : debug[0]);
     // AN EYE WHOSE EVALUATE FAILS IS AN EYE LEFT UNDRAWN (its feature could not be created: the GPU's memory again).
-    // Three frames in a row and DLSS goes back to the engine's one evaluate over both eyes for this session.
+    // Three frames in a row and DLSS (or Ray Reconstruction) goes back to the engine's one evaluate over both eyes for
+    // this session.
     if (worst != sl::Result::eOk) {
         if (++failedFrames >= 3) {
-            CyberpunkVR_EngineStereoDlssPerEye.store(0, std::memory_order_relaxed);
+            (rr ? CyberpunkVR_EngineStereoRrPerEye : CyberpunkVR_EngineStereoDlssPerEye).store(0, std::memory_order_relaxed);
             CyberpunkVR_DebugEngineStereoDlssFallback[1] = 1;
-            Log("[engine-stereo-dlss] the eyes' evaluates keep failing (%d): DLSS goes back to the engine's one "
-                "evaluate over both eyes for this session\n", int(worst));
+            Log("[engine-stereo-dlss] the eyes' evaluates keep failing (%d): %s goes back to the engine's one "
+                "evaluate over both eyes for this session\n", int(worst), rr ? "Ray Reconstruction" : "DLSS");
         }
     } else failedFrames = 0;
-    if(worst==sl::Result::eOk && viewport==0)originalContext.SplitSucceeded();
+    if(!rr && worst==sl::Result::eOk && viewport==0)originalContext.SplitSucceeded();
     *result = worst;
     return true;
 }

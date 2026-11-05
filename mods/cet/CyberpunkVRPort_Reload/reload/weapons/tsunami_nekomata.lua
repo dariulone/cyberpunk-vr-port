@@ -36,6 +36,7 @@ return {
 
     slide = {
         slot       = 'vrp_cocking_mechanism',
+        handleSide = 'both',  -- the handle sticks out on both sides (the slide bone's vertices, x -0.035..+0.035 m): reload.lua handGrips
         which      = 1, bone = 5,
         travel     = 0.0800,
         restLocal  = { 0.00000, 0.07360, 0.21840 },

@@ -833,9 +833,9 @@ void LauncherAxis() {
     auto find=[](const std::string& n){return int(std::find(names.begin(),names.end(),n)-names.begin());};
     float actual[3],expected[3],forearm[3];const float local[3]={0,0,1};
     const auto delta=frame.points[0][1]-frame.points[0][0];actual[0]=delta.x;actual[1]=delta.y;actual[2]=delta.z;VRIK_Norm3(actual);
-    VRIK_QuatRotateVec(g_fkRot[find("launcher_fragment_fire")],local,expected);
+    VRIK_QuatRotateVec(g_fkRot[find("launcher_base")],local,expected);
     for(int k=0;k<3;++k)forearm[k]=g_fkPos[find("LeftHand")][k]-g_fkPos[find("LeftForeArm")][k];VRIK_Norm3(forearm);
-    Near(VRIK_Dot3(actual,expected),1,1e-5f,"launcher aims across the barrel marker axis");
+    Near(VRIK_Dot3(actual,expected),1,1e-5f,"launcher aims across the housing axis");
     Check(VRIK_Dot3(actual,forearm)>.98f,"native deployed launcher points sideways");
     const auto before=delta;
     const int ammo=find("launcher_ammo_base");const float turn[4]={.70710678f,0,0,.70710678f};
@@ -843,6 +843,14 @@ void LauncherAxis() {
     testCyberwareWorldFrame=true;VRIK_ApplyCyberwarePose(reinterpret_cast<uint8_t*>(pose.data()));testCyberwareWorldFrame=false;
     Check(cvr::cyberware::ReadFrame(frame),"launcher frame missing after cartridge movement");
     Near(cvr::cyberware::Length((frame.points[0][1]-frame.points[0][0])-before),0,.00001f,"cartridge animation steers the shot");
+    // The idle animation sways the fire mechanism and its marker: neither may carry the shot's direction.
+    const float sway[4]={0,.08715574f,0,.9961947f};
+    for(const char* bone:{"fire_mechanism_b_part","launcher_fragment_fire"}) {
+        const int part=find(bone);VRIK_QuatMul(pose[part].q,sway,rotated);std::copy_n(rotated,4,pose[part].q);
+    }
+    testCyberwareWorldFrame=true;VRIK_ApplyCyberwarePose(reinterpret_cast<uint8_t*>(pose.data()));testCyberwareWorldFrame=false;
+    Check(cvr::cyberware::ReadFrame(frame),"launcher frame missing after mechanism sway");
+    Near(cvr::cyberware::Length((frame.points[0][1]-frame.points[0][0])-before),0,.00001f,"mechanism sway steers the shot");
     std::cout<<"launcher_barrel_axis_stable_during_cartridge_animation=true forward_dot="<<VRIK_Dot3(actual,forearm)<<"\n";
 }
 

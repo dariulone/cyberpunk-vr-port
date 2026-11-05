@@ -417,6 +417,7 @@ bool EnsureImGui(IDXGISwapChain* swapChain) {
         if(!io.Fonts->AddFontFromFileTTF(font.c_str(),28,nullptr,io.Fonts->GetGlyphRangesCyrillic())){
             ImFontConfig config;config.SizePixels=28;io.Fonts->AddFontDefault(&config);
         }
+        LoadCyberpunkFont(io);
         ApplyVrStyle();
 
         if (!ImGui_ImplWin32_Init(g_hwnd)) {
@@ -686,7 +687,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
 
     ImGui::NewFrame();
 
-    if(!g_menuVisible){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
+    if(!g_menuVisible){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
 
     const bool placementSave = cvr::vrui::ConsumePlacementSave();
     bool foveatedEditing=false;

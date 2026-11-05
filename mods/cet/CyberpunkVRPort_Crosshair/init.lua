@@ -1,7 +1,8 @@
 local container = nil
 
--- A smart sniper rifle (Ashura) aims through its smart HUD: keep the crosshair
--- (lock-on markers) visible for it while VR weapon aim hides every other one.
+-- Smart weapons aim through their smart HUD: keep the crosshair (lock-on markers)
+-- visible for them while VR weapon aim hides every other one. LOCAL: all smart
+-- weapons, not only the smart sniper rifle (Ashura).
 local smartKey, smartValue = nil, false
 local function smartSniperActive()
     local player = Game.GetPlayer()
@@ -12,10 +13,8 @@ local function smartSniperActive()
     smartKey, smartValue = key, false
     local record = weapon:GetWeaponRecord()
     local evolution = record and record:Evolution()
-    local itemType = record and record:ItemType()
-    if evolution and itemType then
+    if evolution then
         smartValue = EnumInt(evolution:Type()) == EnumInt(gamedataWeaponEvolution.Smart)
-            and EnumInt(itemType:Type()) == EnumInt(gamedataItemType.Wea_SniperRifle)
     end
     return smartValue
 end

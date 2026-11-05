@@ -33,9 +33,18 @@ struct LiveControlsUiState {
     float xrHudDistance = 1.5f;
     int xrHudFollowMode = 0;
     int xrHudStereoDepth = 1;
+    int xrHudClearance = 0;          // xr_hud_clearance: the HUD comes in front of nearer walls and people
+    float xrHudClearanceGrow = 0.5f; // xr_hud_clearance_grow: 0 = same size on screen, 1 = same size in the world
+    int xrHudClearanceHands = 0;     // xr_hud_clearance_hands: a tracked hand in front of the HUD pushes it out of view
+    float xrHudClearanceHandsScale = 2.0f; // xr_hud_clearance_hands_scale: how far (the HUD scale, 1..3)
+    int xrInteractionAnchor = 0;     // xr_interaction_anchor: the prompt at the depth of its object
     float xrHudBrightness = 1.0f;
     float xrHudShadow = 1.0f;
     float xrHudGlow = 1.0f;
+    int xrFingerBones = 0;           // xr_finger_bones: finger tracking, V's fingers follow the tracked ones (on: next start)
+    int xrGripFromFingers = 0;       // xr_grip_from_fingers: with it, the grip input from the fingers' position
+    int xrFingerSpreadOn = 1;        // xr_finger_spread_enabled: the fingers also spread sideways (off: they only bend)
+    float xrFingerSpread = 1.0f;     // xr_finger_spread: how far the fingers spread sideways, 0 = off
     cvr::hud::LayoutSettings hudElements{};
     cvr::framegen::Settings framegen{};
     cvr::foveated::Settings foveated{};
@@ -43,6 +52,8 @@ struct LiveControlsUiState {
     cvr::hidden_area::Settings hiddenArea{};
     int monoCascades=1;
     int monoMode=0;          // xr_mono_mode: one picture for both eyes (Stereo/EngineStereo.hpp)
+    int afw=0;               // xr_afw: the eyes in turn, PureDark's frame warp makes the other (Render/Afw.hpp)
+    int osr=0;               // xr_osr: the eyes in turn, the port's OSR makes the other (Render/Osr.hpp)
     int scopeStabilize=80;   // xr_scope_stabilize, percent history in a moving scope lens (0 = off)
     int nvidiaReflex = cvr::reflex::DefaultMode;
     int fpsCap=1;            // xr_fps_cap: the game held to the headset's refresh rate (Framegen/Framegen.hpp)
@@ -84,6 +95,7 @@ struct LiveControlsUiState {
     // latter and the proxy mirrors it back into the legacy field.
     int xrMovementSource;
     int xrMovementSpeedMode = 0;
+    int xrSprintMode = 0;
     float xrLeftStickDeadzone = .15f;
     float xrRightStickDeadzone = .15f;
     float xrMaxInputThreshold = .90f;
@@ -101,6 +113,9 @@ struct LiveControlsUiState {
     // ignoring visual holsters: over-shoulder = EquipmentSlot1, right hip = Slot2,
     // left hip = Slot3. Read by the CET Holster mod via GetVRSharedSlot(23).
     int xrImmersiveHolsters;
+    // 1 = only the hands of the player's body are drawn: the body and every garment hidden, the tactical belt and
+    // the holstered weapons kept. Read by the CET HandsOnly mod via GetVRSharedSlot(173).
+    int xrBodyHandsOnly;
     // Physical body rotation. 1 = the avatar body follows the HMD/aim heading
     // (continuous body-yaw tracking on foot; aiming / holding a weapon switches the
     // camera to full head-look + head-relative movement). 0 (default) = classic
@@ -160,6 +175,7 @@ struct LiveControlsUiState {
     int xrBreaststrokeSwim;
     int xrLadderGripClimb;
     int xrLeftHanded;
+    int xrLeftHandedBindings;
     int xrLadderAutoFinish;
     float xrLadderFinishDistance;
 };

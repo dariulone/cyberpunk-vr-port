@@ -1,0 +1,59 @@
+diff --git a/src/runtime.cpp b/src/runtime.cpp
+index 5be2c43..78e828e 100644
+--- a/src/runtime.cpp
++++ b/src/runtime.cpp
+@@ -24,6 +24,7 @@
+ #include <vulkan/vulkan.h>
+ 
+ #include "flicker_detector.h"
++#include "head_trajectory.h"
+ 
+ // OpenGL headers - minimal definitions for what we need
+ #include <GL/gl.h>
+@@ -4461,6 +4507,11 @@ static XrResult XRAPI_PTR xrWaitFrame_runtime(XrSession, const XrFrameWaitInfo*,
+             mcp::WriteCommandAck("pose_sweep", true);
+         }
+ 
++        // Recorded head trajectory (head_trajectory.h): evaluated per locate at the app's display time.
++        if (trajectory::CheckCommand(mcp::GetSimulatorDataPath())) {
++            mcp::WriteCommandAck("head_trajectory", true);
++        }
++
+         mcp::ControllerPoseCommand ctrlCmd = mcp::CheckControllerPoseCommand();
+         if (ctrlCmd.valid) {
+             rt::ControllerState& ctrl = (ctrlCmd.hand == 0) ? rt::g_leftController : rt::g_rightController;
+@@ -7504,6 +7555,14 @@ static XrResult XRAPI_PTR xrLocateViews_runtime(XrSession, const XrViewLocateInf
+     }
+     if (cap < 2 || !views) return XR_SUCCESS;
+ 
++    // A recorded trajectory owns the head while it runs: sampled at the time this frame will be shown, and
++    // stored as the head's state so composition and VIEW-space locates agree with what the app renders.
++    trajectory::Pose tp;
++    if (li && trajectory::Get().Evaluate(li->displayTime, tp)) {
++        rt::g_headPos = { tp.x, tp.y, tp.z };
++        rt::g_headYaw = tp.yaw; rt::g_headPitch = tp.pitch; rt::g_headRoll = tp.roll;
++    }
++
+     // Composition-layer placement reads these same two helpers, which is what keeps
+     // an overlay pinned to the geometry the app renders around it.
+     float effYaw, effPitch, effRoll;
+@@ -7594,8 +7653,17 @@ static XrResult XRAPI_PTR xrLocateSpace_runtime(XrSpace space, XrSpace baseSpace
+         if (spaceType == XR_REFERENCE_SPACE_TYPE_VIEW) {
+             // VIEW space located against LOCAL/STAGE == the current head pose, so
+             // HMD orientation/position actually track (yaw/pitch/roll from MCP).
+-            location->pose.orientation = rt::QuatFromYawPitchRoll(rt::g_headYaw, rt::g_headPitch, rt::g_headRoll);
+-            location->pose.position = rt::g_headPos;
++            trajectory::Pose tp;
++            if (trajectory::Get().Evaluate(time, tp)) {
++                location->pose.orientation = rt::QuatFromYawPitchRoll(tp.yaw, tp.pitch, tp.roll);
++                location->pose.position = { tp.x, tp.y, tp.z };
++                // Stored as in xrLocateViews: the locate that crosses the end leaves the head at the last key.
++                rt::g_headPos = location->pose.position;
++                rt::g_headYaw = tp.yaw; rt::g_headPitch = tp.pitch; rt::g_headRoll = tp.roll;
++            } else {
++                location->pose.orientation = rt::QuatFromYawPitchRoll(rt::g_headYaw, rt::g_headPitch, rt::g_headRoll);
++                location->pose.position = rt::g_headPos;
++            }
+         } else {
+             // LOCAL / STAGE are fixed reference frames -> identity.
+             location->pose.orientation = {0, 0, 0, 1};

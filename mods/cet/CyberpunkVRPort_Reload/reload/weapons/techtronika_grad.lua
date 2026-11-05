@@ -45,6 +45,7 @@ return {
 
     slide = {
         slot       = 'vrp_chamber_opener',
+        handleSide = 'left',  -- the handle sticks out on the left only (the slide bone's vertices, x -0.040..+0.026 m): reload.lua handGrips
         which      = 1, bone = 7,
         travel     = 0.1080,
         restLocal  = { 0.00000, 0.06390, -0.01260 },

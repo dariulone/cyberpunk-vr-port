@@ -12,10 +12,10 @@ EnumStatic::EnumStatic(const TiltedPhoques::Lockable<sol::state, std::recursive_
 
 EnumStatic::~EnumStatic() = default;
 
-sol::object EnumStatic::Index_Impl(const std::string& acName, sol::this_environment aThisEnv)
+sol::object EnumStatic::Index_Impl(const std::string& acName)
 {
     // TODO - this should not use Type:: probably but ClassType
-    auto result = Type::Index_Impl(acName, aThisEnv);
+    auto result = Type::Index_Impl(acName);
 
     if (result != sol::nil)
         return result;

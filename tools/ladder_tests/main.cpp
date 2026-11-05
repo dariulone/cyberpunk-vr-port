@@ -106,7 +106,20 @@ void AutoFinish() {
     Rig cancel;nearTop(cancel);pull(cancel);cancel.f.tracking[0].z+=.04f;
     Check(cancel.Tick()<0 && !cancel.climb.Finishing(),"upward hand push did not cancel finish into descent");
     Rig stall;nearTop(stall);pull(stall);stall.f.grip[0]=0;
-    for(int i=0;i<45;++i)stall.Tick();Check(stall.Tick()==0 && !stall.climb.Finishing(),"blocked native climb never timed out");
+    for(int i=0;i<70;++i)stall.Tick();Check(stall.Tick()==0 && !stall.climb.Finishing(),"blocked native climb never timed out");
+    // A ladder whose floor is 0.4 m above its exit plane (verticalStepTop -0.4, the generic finisher ladders): the
+    // last climb carries V all the way onto it, through a pause while the exit moves V forward.
+    Rig step;step.geometry.topStep=-.4f;step.geometry.Prepare();nearTop(step);pull(step);
+    Check(step.climb.Finishing(),"last upward pull did not arm finish on a stepped top");
+    step.f.grip[0]=0;
+    int paused=0;
+    for(int i=0;i<200 && step.f.height<step.geometry.height+.42f;++i) {
+        const float axis=step.Tick();Check(axis>0,"finish stopped short of a raised top floor");
+        if(step.f.height>step.geometry.height+.2f && paused<45) { ++paused;continue; }   // the exit moves V forward
+        step.f.height+=axis*1.5f*.02f;
+    }
+    Check(step.f.height>=step.geometry.height+.42f,"V never reached the raised top floor");
+    Check(step.Tick(false)==0 && !step.climb.Finishing(),"native exit retained automatic input on a stepped top");
     Rig lost;nearTop(lost);pull(lost);lost.f.handValid[0]=lost.f.handValid[1]=false;
     Check(lost.Tick()==0 && !lost.climb.Finishing(),"tracking loss kept automatic movement");
     Rig disabled;nearTop(disabled);disabled.f.autoFinish=false;pull(disabled);disabled.f.grip[0]=0;
@@ -175,9 +188,29 @@ void State() {
     for(int s:{0,8,9,13,14})Check(!OnLadder(s),"jump/vault/fall mistaken for attached ladder");
     Check(!Fresh(1,2,1000,1200,10)&&!Fresh(1,1,1000,251001,10),"stale/other player ladder state accepted");
 }
+// The 10 m ladder of 2026-11-05 (b_h400, b_h400, a_h200, a finisher rail at 10.0): its description says 9.1 / -0.3,
+// so the last rungs (9.6, 10.0) and the rail were out of reach until its modules gave the top.
+void MeasuredTop() {
+    Geometry g=GeometryAtOrigin();g.height=9.1f;g.topStep=-.3f;Check(g.Prepare(),"geometry rejected");
+    Check(std::abs(g.PhysicalTop()-9.4f)<.001f,"description top changed");
+    Check(Closest(g,{0,-.025f,10.0f}).distance>.11f && Closest(g,{0,-.025f,9.6f}).distance>.11f,
+        "test premise: the last rungs were already reachable");
+    const Vec rail{0,.112f,10.0f};
+    Check(!g.SetTopRails(rail,{1,0,0},{0,-1,0},{0,0,1}),"test premise: the rail was already accepted");
+    Check(!g.SetMeasuredTop(14.5f) && !g.SetMeasuredTop(-1) && !g.SetMeasuredTop(std::nanf("")),"implausible top accepted");
+    Check(g.SetMeasuredTop(10.0f) && std::abs(g.PhysicalTop()-10.0f)<.001f,"measured top refused");
+    for(float z:{9.6f,10.0f}) {
+        const auto rung=Closest(g,{0,-.03f,z});
+        Check(rung.kind==2 && rung.distance<.01f,"a last rung below the measured top cannot be gripped");
+    }
+    Check(Closest(g,{.3f,-.03f,9.9f}).kind==1 && Closest(g,{.3f,-.03f,9.9f}).distance<.01f,"rail top cut short");
+    Check(g.SetTopRails(rail,{1,0,0},{0,-1,0},{0,0,1}),"finisher at the measured top refused");
+    Check(Closest(g,{0,-.025f,10.4f}).distance>.11f,"a rung above the ladder's top accepted");
+}
 int main(int argc,char** argv) {
     const std::string test=argc>1?argv[1]:"";
     if(test=="geometry")GeometryTest();else if(test=="top_exit")TopExit();else if(test=="wrist_lock")WristLock();
+    else if(test=="measured_top")MeasuredTop();
     else if(test=="rung_wrist")RungWrist();
     else if(test=="auto_finish")AutoFinish();else if(test=="finger_settings")FingerSettings();
     else if(test=="directions")Directions();else if(test=="two_hands")TwoHands();

@@ -117,6 +117,29 @@ void ExtendedTravel() {
     Near(WheelFullLockDegrees(std::numeric_limits<float>::quiet_NaN()),180,"invalid limit not sanitized");
     Near(WheelFullLockForVehicle(180,false),90,"car range changed motorcycle input");
     Near(WheelFullLockForVehicle(120,false),120,"valid legacy bike setting changed");
+    // The cabin wheel's curve and its inverse: the input found for an angle stands the wheel at that angle.
+    Near(CarInputForCabinAngle(0),0,"no turn is not no input");
+    Near(CarInputForCabinAngle(CarCabinWheelLockDeg),1,"full lock is not full input");
+    Near(CarInputForCabinAngle(400),1,"overtravel exceeded full input");
+    Near(CarCabinAngleForInput(.5f),49.9625f*CarCabinGain/2,"cabin curve changed at half input");
+    {
+        float previous=-2;
+        for(int tenth=-1625;tenth<=1625;++tenth) {
+            const float degrees=tenth*.1f,n=CarInputForCabinAngle(degrees);
+            Check(std::abs(CarCabinAngleForInput(n)-degrees)<.001f,"input does not stand the cabin wheel at the angle");
+            Check(n>previous,"input for the cabin angle does not rise");previous=n;
+        }
+    }
+    // A car's wheel turns one to one with the cabin wheel, whatever the setting (2026-11-04).
+    for(float setting:{30.f,90.f,180.f})Near(WheelFullLockForVehicle(setting,true),CarCabinWheelLockDeg,
+        "car full lock is not the cabin wheel's");
+    {
+        WheelSteering wheel;Tick(wheel,3,Rim(0),Rim(0,-1),CarCabinWheelLockDeg,0);
+        for(int angle=1;angle<=130;++angle) {
+            const float out=Tick(wheel,3,Rim(float(angle)),Rim(float(angle),-1),CarCabinWheelLockDeg,0);
+            Near(out,float(angle)/CarCabinWheelLockDeg,"the cabin wheel does not follow the hands one to one");
+        }
+    }
     for(int mask:{1,2,3})for(int direction:{-1,1}) {
         WheelSteering wheel;
         Tick(wheel,mask,Rim(0),Rim(0,-1),180);
@@ -197,16 +220,43 @@ void TrackedRoundtrip() {
 void TrackedLifetime() {
     TrackedWheelSteering wheel;auto frame=Tracking(1,0,0);
     wheel.Update(1,frame,frame.stampUs,radius,90,1.5f);
-    frame=Tracking(2,.1f,30);wheel.Update(1,frame,frame.stampUs,radius,90,1.5f);
+    frame=Tracking(2,.1f,30);const float out=wheel.Update(1,frame,frame.stampUs,radius,90,1.5f);
     Near(wheel.Angle(),30,"tracking setup failed");
     wheel.Update(3,frame,frame.stampUs,radius,90,1.5f);
     Near(wheel.Angle(),30,"same-sequence grip handoff reset the turn");
-    Near(wheel.Update(3,frame,frame.stampUs+250001,radius,90,1.5f),0,"stale tracking retained steering");
+    // Stale tracking: the input is held a moment, then let go -- the turn itself is kept for when tracking is back.
+    Near(wheel.Update(3,frame,frame.stampUs+250001,radius,90,1.5f),out,"stale tracking dropped the input at once");
+    Near(wheel.Update(3,frame,frame.stampUs+TrackedWheelSteering::kHoldUs+1,radius,90,1.5f),0,"stale tracking held the input for good");
+    Near(wheel.Angle(),30,"stale tracking lost the turn");
     frame=Tracking(3,.2f,0);wheel.Update(1,frame,frame.stampUs,radius,90,1.5f);
     frame=Tracking(4,.2f,30);wheel.Update(1,frame,frame.stampUs,radius,90,1.5f);
     frame.origin=2;Near(wheel.Update(1,frame,frame.stampUs,radius,90,1.5f),0,"recenter retained old tracking-space pivot");
     frame=Tracking(5,.3f,0);frame.headValid=false;
     Near(wheel.Update(1,frame,frame.stampUs,radius,90,1.5f),0,"lost head tracking retained steering");
+}
+// The game freezes with the wheel turned: no fresh sample for 0.8 s while the hands turn on, then tracking is back.
+void TrackedFreeze() {
+    for(int mask:{1,2,3}) {
+        TrackedWheelSteering wheel;uint64_t sequence=0;
+        for(int a=0;a<=40;++a){const auto f=Tracking(++sequence,a*.01f,float(a));wheel.Update(uint8_t(mask),f,f.stampUs,radius,90,1.5f);}
+        Near(wheel.Angle(),40,"freeze setup failed");
+        const uint64_t frozen=1000000+sequence*11111;
+        Check(wheel.Suspend(frozen+800000)>0,"a freeze dropped the held input");
+        auto f=Tracking(++sequence,.5f,100);f.stampUs=frozen+800000;
+        wheel.Update(uint8_t(mask),f,f.stampUs,radius,90,1.5f);
+        Near(wheel.Angle(),100,"the turn the hands made during a freeze was lost");
+        wheel.Update(uint8_t(mask),f,f.stampUs+600000,radius,90,1.5f);
+        Near(wheel.Angle(),100,"a sample polled late reset the wheel");
+        for(int a=99;a>=0;--a) {
+            auto g=Tracking(++sequence,.6f+a*.001f,float(a));g.stampUs=f.stampUs+700000+uint64_t(100-a)*11111;
+            wheel.Update(uint8_t(mask),g,g.stampUs,radius,90,1.5f);
+        }
+        Near(wheel.Angle(),0,"after a freeze the wheel did not come back to neutral");
+        // a fast two-handed turn across the gap, past the old 0.5 m cap on the vector's change (82 degrees)
+        auto h=Tracking(++sequence,.7f,120);h.stampUs=f.stampUs+700000+200*11111;
+        wheel.Update(uint8_t(mask),h,h.stampUs,radius,180,1.5f);
+        Near(wheel.Angle(),120,"a 120-degree turn across a gap was dropped");
+    }
 }
 void PredictionConstant() {
     for(int hz:{30,45,90,120})for(float speed:{-180.f,-90.f,-45.f,-10.f,10.f,45.f,90.f,180.f}) {
@@ -330,6 +380,7 @@ int main(int argc,char** argv) {
     else if(name=="extended_travel")ExtendedTravel();
     else if(name=="gamepad_range")GamepadRange();else if(name=="tracked_head_motion")TrackedHeadMotion();
     else if(name=="tracked_roundtrip")TrackedRoundtrip();else if(name=="tracked_lifetime")TrackedLifetime();
+    else if(name=="tracked_freeze")TrackedFreeze();
     else if(name=="prediction_constant")PredictionConstant();else if(name=="prediction_stop_reverse")PredictionStopReverse();
     else if(name=="prediction_boundaries")PredictionBoundaries();else if(name=="prediction_freshness")PredictionFreshness();
     else if(name=="prediction_tracking")PredictionTracking();else if(name=="prediction_jitter")PredictionJitter();

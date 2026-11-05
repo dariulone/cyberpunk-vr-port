@@ -30,6 +30,7 @@ PromptLayout CurrentPromptLayout() {
     const auto seat = VehicleButtonPolicy(g_isInVehicle, g_vehicleState.load(std::memory_order_relaxed));
     layout.vehicle = seat.confirmOnA && seat.exitOnX && CyberpunkVR_VehicleDialogConfirmOnA != 0;
     layout.leftHanded = g_liveControls.xrLeftHanded != 0;
+    layout.bindings = g_liveControls.xrLeftHandedBindings;
     return layout;
 }
 
@@ -51,7 +52,7 @@ std::string PromptPart(std::string_view part, const PromptLayout& layout) {
     std::string out(physical);
     out += state;
     // The seat's mirrors are the merge's roles; left-handed, a role's button is the other hand's.
-    return layout.leftHanded ? MirroredPart(out) : out;
+    return layout.leftHanded ? MirroredPart(out, layout.bindings) : out;
 }
 
 namespace {
@@ -129,7 +130,8 @@ bool UpdatePromptIcons(RED4ext::CGameApplication*) {
     // The layout the icons on screen were looked up with; a widget made later looks its key up itself.
     static PromptLayout shown;
     const PromptLayout now = CurrentPromptLayout();
-    if (now.vehicle == shown.vehicle && now.leftHanded == shown.leftHanded) return false;
+    if (now.vehicle == shown.vehicle && now.leftHanded == shown.leftHanded && now.bindings == shown.bindings)
+        return false;
     if (RefreshPromptIcons()) {
         if (cvr::RuntimeDiagnosticsEnabled())
             Log("[prompt-icon] refreshed (vehicle=%d left-handed=%d)\n", now.vehicle, now.leftHanded);

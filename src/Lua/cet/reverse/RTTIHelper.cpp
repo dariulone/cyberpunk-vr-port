@@ -429,6 +429,18 @@ sol::function RTTIHelper::ResolveFunction(RED4ext::CClass* apClass, const std::s
     return invokable;
 }
 
+namespace
+{
+// The calling Lua function's environment (its mod's logger), looked up only on the error paths that use it. As a
+// parameter of the call lambdas below, sol built it for every game call from Lua: a walk up the call stack and a
+// registry reference made and freed.
+sol::environment CallerEnvironment(lua_State* apState)
+{
+    const sol::this_environment cEnv = sol::stack::get<sol::this_environment>(apState, 1);
+    return cEnv;
+}
+} // namespace
+
 sol::function RTTIHelper::MakeInvokableFunction(RED4ext::CBaseFunction* apFunc)
 {
     auto lockedState = m_lua.Lock();
@@ -438,7 +450,7 @@ sol::function RTTIHelper::MakeInvokableFunction(RED4ext::CBaseFunction* apFunc)
 
     return MakeSolFunction(
         luaState,
-        [this, apFunc, cAllowNull](sol::variadic_args aArgs, sol::this_state aState, sol::this_environment aEnv) -> sol::variadic_results
+        [this, apFunc, cAllowNull](sol::variadic_args aArgs, sol::this_state aState) -> sol::variadic_results
         {
             uint64_t argOffset = 0;
             const auto pHandle = ResolveHandle(apFunc, aArgs, argOffset);
@@ -454,7 +466,7 @@ sol::function RTTIHelper::MakeInvokableFunction(RED4ext::CBaseFunction* apFunc)
                 }
                 else
                 {
-                    const sol::environment cEnv = aEnv;
+                    const sol::environment cEnv = CallerEnvironment(aState);
                     auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
                     logger->error("Error: {}", errorMessage);
                 }
@@ -476,7 +488,7 @@ sol::function RTTIHelper::MakeInvokableOverload(std::map<uint64_t, RED4ext::CBas
 
     return MakeSolFunction(
         luaState,
-        [this, variants](sol::variadic_args aArgs, sol::this_state aState, sol::this_environment aEnv) mutable -> sol::variadic_results
+        [this, variants](sol::variadic_args aArgs, sol::this_state aState) mutable -> sol::variadic_results
         {
             for (auto variant = variants.begin(); variant != variants.end(); ++variant)
             {
@@ -508,7 +520,7 @@ sol::function RTTIHelper::MakeInvokableOverload(std::map<uint64_t, RED4ext::CBas
 
             if constexpr (s_cLogAllOverloadVariants)
             {
-                const sol::environment cEnv = aEnv;
+                const sol::environment cEnv = CallerEnvironment(aState);
                 const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
 
                 for (auto& variant : variants)
@@ -525,7 +537,7 @@ sol::function RTTIHelper::MakeInvokableOverload(std::map<uint64_t, RED4ext::CBas
             }
             else
             {
-                const sol::environment cEnv = aEnv;
+                const sol::environment cEnv = CallerEnvironment(aState);
                 auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
                 logger->error("Error: {}", errorMessage);
             }
@@ -567,21 +579,38 @@ RED4ext::IScriptable* RTTIHelper::ResolveHandle(RED4ext::CBaseFunction* apFunc, 
         {
             const auto& cArg = aArgs[aArgOffset];
 
-            if (cArg.is<Type>())
+            // The exact reference types first: obj:Member() on a StrongReference, the common call, is one metatable
+            // compare. Asked first, is<Type>() on a derived reference failed sol's four exact compares (a registry
+            // lookup by name each) and then ran its inheritance check, on every member call from Lua.
+            Type* pType = nullptr;
+            bool reference = false;
+            if (cArg.is<StrongReference>())
+            {
+                pType = cArg.as<StrongReference*>();
+                reference = true;
+            }
+            else if (cArg.is<WeakReference>())
+            {
+                pType = cArg.as<WeakReference*>();
+                reference = true;
+            }
+            else if (cArg.is<SingletonReference>())
+            {
+                pHandle = reinterpret_cast<RED4ext::IScriptable*>(static_cast<Type*>(cArg.as<SingletonReference*>())->GetHandle());
+                ++aArgOffset;
+            }
+            else if (cArg.is<Type>())
             {
                 pHandle = reinterpret_cast<RED4ext::IScriptable*>(cArg.as<Type*>()->GetHandle());
+            }
 
-                if (cArg.is<StrongReference>() || cArg.is<WeakReference>())
-                {
-                    ++aArgOffset;
+            if (reference)
+            {
+                pHandle = reinterpret_cast<RED4ext::IScriptable*>(pType->GetHandle());
+                ++aArgOffset;
 
-                    if (pHandle && !pHandle->GetType()->IsA(apFunc->GetParent()))
-                        pHandle = nullptr;
-                }
-                else if (cArg.is<SingletonReference>())
-                {
-                    ++aArgOffset;
-                }
+                if (pHandle && !pHandle->GetType()->IsA(apFunc->GetParent()))
+                    pHandle = nullptr;
             }
         }
     }
@@ -589,11 +618,37 @@ RED4ext::IScriptable* RTTIHelper::ResolveHandle(RED4ext::CBaseFunction* apFunc, 
     return pHandle;
 }
 
+extern "C" bool CvrProfileWanted();
+extern "C" void CvrProfileCall(RED4ext::CBaseFunction* apFunction, double aMs);
+
+namespace
+{
+// A game call's time for the host's profiler (src/Lua/Profiler.cpp), only under CVR_LUA_PROFILE; the outermost call
+// only, so a call made from inside another is not counted twice.
+struct GameCallTimer
+{
+    GameCallTimer(RED4ext::CBaseFunction* apFunction, uint32_t aDepth)
+        : Function(aDepth == 0 && CvrProfileWanted() ? apFunction : nullptr)
+    {
+        if (Function)
+            Start = std::chrono::steady_clock::now();
+    }
+    ~GameCallTimer()
+    {
+        if (Function)
+            CvrProfileCall(Function, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count());
+    }
+    RED4ext::CBaseFunction* Function;
+    std::chrono::steady_clock::time_point Start;
+};
+} // namespace
+
 sol::variadic_results RTTIHelper::ExecuteFunction(
     RED4ext::CBaseFunction* apFunc, RED4ext::IScriptable* apContext, sol::variadic_args aLuaArgs, uint64_t aLuaArgOffset, std::string& aErrorMessage, bool aAllowNull) const
 {
     static thread_local TiltedPhoques::ScratchAllocator s_scratchMemory(1 << 20);
     static thread_local uint32_t s_callDepth = 0u;
+    const GameCallTimer timer(apFunc, s_callDepth);
 
     if (!m_pRtti)
         return {};

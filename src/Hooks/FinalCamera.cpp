@@ -17,6 +17,7 @@
 // FindPattern calls inside one function -- microseconds. An unobservable change is not a safe
 // change; it is an unfalsifiable one, so the order is preserved.
 
+#include "Anim/Cyberware.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Camera/PoseIdentity.hpp"
 #include "Camera/CameraState.hpp"
@@ -111,15 +112,19 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
                         s_muzzleFwd[0] = x; s_muzzleFwd[1] = y; s_muzzleFwd[2] = z;
                     }
                 }
-                if (s_muzzleFwd[0] * s_muzzleFwd[0] +
-                    s_muzzleFwd[1] * s_muzzleFwd[1] +
-                    s_muzzleFwd[2] * s_muzzleFwd[2] > 0.25f) {
+                // The selected arm launcher aims the mark, with no gun ever drawn to latch a direction from.
+                float launcherOrigin[3], launcherFwd[3];
+                const float* const muzzleFwd =
+                    cvr::cyberware::LauncherLine(launcherOrigin, launcherFwd) ? launcherFwd : s_muzzleFwd;
+                if (muzzleFwd[0] * muzzleFwd[0] +
+                    muzzleFwd[1] * muzzleFwd[1] +
+                    muzzleFwd[2] * muzzleFwd[2] > 0.25f) {
                     cvr::camera::BarrelFrame bf{};
                     bf.camQuat[0] = camq[0]; bf.camQuat[1] = camq[1];
                     bf.camQuat[2] = camq[2]; bf.camQuat[3] = camq[3];
-                    bf.muzzleFwd[0] = s_muzzleFwd[0];
-                    bf.muzzleFwd[1] = s_muzzleFwd[1];
-                    bf.muzzleFwd[2] = s_muzzleFwd[2];
+                    bf.muzzleFwd[0] = muzzleFwd[0];
+                    bf.muzzleFwd[1] = muzzleFwd[1];
+                    bf.muzzleFwd[2] = muzzleFwd[2];
                     cvr::camera::BarrelFramePublish(bf);
                 }
 

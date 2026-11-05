@@ -1,3 +1,5 @@
+#include "Fbt/Game/Calibration.hpp"
+#include "Runtimes/FingerGrip.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/Psvr2HapticChannel.hpp"
@@ -99,6 +101,10 @@ extern "C" __declspec(dllexport) float CyberpunkVR_VrikBatchGapMs = 3.0f;
 // shipped 33 ms constant, and only while the head turns.
 extern "C" __declspec(dllexport) int CyberpunkVR_HandFilterInWorld = 1;
 extern "C" __declspec(dllexport) int CyberpunkVR_HandRelToFilteredHead = 1;
+// THE LEFT STICK'S CLICKS, counted: one for each press-and-release that reached the game as L3 (the deferred press
+// below). The press itself is one frame of this loop, which an input poll running slower than it can miss; the
+// sprint-on-click mode (xr_sprint_mode=1, Hooks/XInput.cpp) reads the count instead.
+extern "C" __declspec(dllexport) volatile long CyberpunkVR_LeftStickClicks = 0;
 
 // THE OPENXR SIMULATOR'S CONTROLLERS POINT; A REAL CONTROLLER'S GRIP DOES NOT. The simulator builds each
 // controller from a yaw and a pitch and reports that one orientation for grip AND aim, so its grip -Z runs
@@ -320,6 +326,19 @@ extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_Deb
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugXrEndsWithLayer  = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugXrEndsEmpty      = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugXrEndFailed      = 0;
+// Always counted (rare events, one relaxed add each): display cycles whose allocator was still busy,
+// cycles that sent the last frame again, and ends that went out with no layer at all.
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_XrAllocatorBusy      = 0;
+// Display cycles that resent the captured frame already in the eye swapchains instead of copying it again
+// (LastCopy, OpenXRManager.hpp); CyberpunkVR_XrReuseImages 0 turns that off (copy every cycle).
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_XrReusedCycles       = 0;
+extern "C" __declspec(dllexport) std::atomic<uint32_t>           CyberpunkVR_XrReuseImages        = 1;
+// Reprojection rate (tools/vr_bench): display cycles with a projection layer, and those of them that showed the game
+// frame the previous cycle already showed (the runtime reprojects it), whatever CyberpunkVR_XrReuseImages is.
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_XrProjectionCycles   = 0;
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_XrRepeatCycles       = 0;
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_XrResubmits          = 0;
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_XrEmptyEnds          = 0;
 // XR reports and deep timing are both controlled by the launcher DEBUG gate.
 // RuntimeDiagnostics gates the independent export-only counters and snapshots.
 extern "C" __declspec(dllexport) int CyberpunkVR_XrRateLog = 1;
@@ -885,6 +904,48 @@ void OpenXRManager::ReportXrFrameRates() {
     s_pLayer  = layer;  s_pEmpty = empty;  s_pSubmits = subs;  s_pPresents = presents;
 }
 
+// Sends the last frame the runtime accepted once more (see LastSubmission in OpenXRManager.hpp), for a
+// display cycle that has nothing new. False when there is none to send, or it no longer matches the
+// swapchains and space it named; the caller then ends the frame empty.
+bool OpenXRManager::ResubmitLastFrame(XrTime displayTime) {
+    auto& last = m_lastSubmission;
+    if (!last.valid || last.localSpace != m_localSpace || last.viewCount > m_eyeSwapchains.size()) return false;
+    // A second with no new frame is a stall, not a skipped cycle: held that long the picture would be
+    // a frozen world, so the empty end -- what the runtime shows for "nothing" -- comes back.
+    constexpr XrTime kMaxHoldNs = 1000000000;
+    if (displayTime - last.submittedAt > kMaxHoldNs) return false;
+    for (uint32_t eye = 0; eye < last.viewCount; ++eye) {
+        if (last.color[eye] != m_eyeSwapchains[eye].handle) return false;
+        // A depth swapchain recreated since is dropped from the layer, not the frame.
+        last.views[eye].next = last.depth[eye] && last.depth[eye] == m_eyeSwapchains[eye].depthHandle
+            ? &last.depthInfo[eye] : nullptr;
+    }
+    XrCompositionLayerProjection projection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    const XrCompositionLayerBaseHeader* layers[1 + LastSubmission::kMaxExtra] = {};
+    if (last.menuQuad) {
+        last.quad.space = m_localSpace;
+        layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&last.quad);
+    } else {
+        projection.space = m_localSpace;
+        projection.viewCount = last.viewCount;
+        projection.views = last.views;
+        layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection);
+    }
+    uint32_t count = 1;
+    for (uint32_t i = 0; i < last.extraCount; ++i) layers[count++] = last.extra[i];
+    XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
+    endInfo.displayTime = displayTime;
+    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    endInfo.layerCount = count;
+    endInfo.layers = layers;
+    const XrResult res = xrEndFrame(m_session, &endInfo);
+    if (XR_SUCCEEDED(res)) return true;
+    // Refused once, refused again: do not keep offering it.
+    last.valid = false;
+    Log("OpenXRManager: resubmitting the last frame failed (res=%d); ending this cycle empty\n", res);
+    return false;
+}
+
 DWORD OpenXRManager::FrameThreadMain() {
     uint64_t monoWaitLogCounter = 0;
     uint64_t steamVrStartupWaitLogCounter = 0;
@@ -1370,7 +1431,11 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // from the camera's latched frame pose in GetRoomscaleSample so
                 // raw physics and a filtered view cannot describe different heads.
                 std::lock_guard lock(m_roomscaleSampleMutex);
-                m_roomscaleSample.head = {relPos.x, -relPos.z};
+                // The neck, as GetRoomscaleSample's frame head is (Runtimes/RoomscaleMovement.hpp EyeFromNeck): the
+                // two are compared to tell a tracking jump from filtering.
+                const auto lever = Get3DofMovement() != 0 ? cvr::roomscale::Vec2{} :
+                    cvr::roomscale::EyeFromNeck(relOri.x, relOri.y, relOri.z, relOri.w);
+                m_roomscaleSample.head = cvr::roomscale::Vec2{relPos.x, -relPos.z} - lever;
                 ++m_roomscaleSample.sequence;
                 m_roomscaleSample.origin = m_trackingOriginSerial.load(std::memory_order_acquire);
                 m_roomscaleSample.stampUs = XrDiagNowUs();
@@ -1567,6 +1632,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     headForHands.orientation =
                         MultiplyQuat(basePose.orientation, filteredHeadPose.orientation);
                 }
+                // Body trackers (xr_vive_trackers): same space, instant and head as the hands.
+                cvr::trackers::Locate(m_localSpace, m_viewSpace, handLocateTime, headForHands);
 
                 for (int i = 0; i < 2; i++) {
                     XrActionStateGetInfo getInfo{XR_TYPE_ACTION_STATE_GET_INFO};
@@ -1771,7 +1838,14 @@ DWORD OpenXRManager::FrameThreadMain() {
                     };
 
                     const float trig = getFloat(m_triggerAction);
-                    const float grip = getFloat(m_gripAction);
+                    // Full-body tracking calibration: its steps are a pull of both triggers.
+                    cvr::fbt::game::NoteTrigger(i, trig);
+                    float grip = getFloat(m_gripAction);
+                    // Finger tracking measures the fingers every frame (V's fingers); with xr_grip_from_fingers the
+                    // grip is a fist or thumbs-up from them instead of the grip sensor (Runtimes/FingerGrip.hpp).
+                    if (const int fingers = cvr::fingergrip::Evaluate(i, m_localSpace, frameState.predictedDisplayTime);
+                        fingers >= 0 && cvr::fingergrip::GripFromFingers())
+                        grip = fingers ? 1.0f : 0.0f;
                     float sx = 0.0f, sy = 0.0f;
                     getVec2(m_thumbstickAction, sx, sy);
                     const bool sclick = getBool(m_thumbstickClickAction);
@@ -1884,8 +1958,10 @@ DWORD OpenXRManager::FrameThreadMain() {
                         if (dpadUsedThisFrame) s_l3UsedForDpad = true;
                         s_l3Held = true;
                     } else {
-                        if (s_l3Held && !s_l3UsedForDpad)
+                        if (s_l3Held && !s_l3UsedForDpad) {
                             ctrl.buttons |= 0x0040;   // XINPUT_GAMEPAD_LEFT_THUMB
+                            InterlockedIncrement(&CyberpunkVR_LeftStickClicks);
+                        }
                         s_l3Held = false;
                         s_l3UsedForDpad = false;
                     }
@@ -1901,6 +1977,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 if(gameplayInputActive)ctrl.buttons|=m_steamFrameActions.GlobalButtons(getGlobalBool);
                 // The extra physical Frame buttons obey the same overlay capture
                 // as Touch controls. Menu/Start retains the existing escape path.
+                {std::lock_guard<std::mutex> rawLock(m_inputMutex);m_rawControllerState=ctrl;}
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
                     const bool menuPressed = getGlobalBool(m_menuButtonAction);
@@ -1962,6 +2039,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                 bool monoHasView[2] = {};
                 cvr::framegen::Frame fgFrame;
                 cvr::framegen::Selection fgSelection;
+                // The eye MAIN's picture is in the frame carried below (CapturedMonoFrame::mainEye).
+                unsigned frameMainEye = CyberpunkVR_MainIsRightEye ? 1u : 0u;
                 m_stereoDepth.Poll();
                 bool fgSelected=false;
                 {
@@ -1976,6 +2055,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         presentSerial = m_monoCapturedFrame.serial;
                         monoCaptureMs = m_monoCapturedFrame.captureMs;
                         monoDark = m_monoCapturedFrame.dark;
+                        frameMainEye = m_monoCapturedFrame.mainEye ? 1u : 0u;
                         for (int eye = 0; eye < 2; ++eye) {
                             if(!cvr::framegen::CaptureInputsEnabled())m_monoCapturedFrame.framegenInputs[eye].reset();
                             monoPoses[eye] = m_monoCapturedFrame.poses[eye];
@@ -1985,7 +2065,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             fgFrame.inputs[eye]=m_monoCapturedFrame.framegenInputs[eye];
                         }
                         if(CyberpunkVR_StereoSubmit && viewCountOutput>=2) {
-                            const auto eye=CyberpunkVR_MainIsRightEye ? 0u : 1u;
+                            const auto eye=frameMainEye^1u;
                             bool reused=false;
                             vrcamEye=AcquireCapturedVrcamLocked(presentSerial,CyberpunkVR_VrcamEyeReuseMax,
                                 &monoPoses[eye],&monoFovs[eye],&monoPoseIds[eye],&reused);
@@ -1997,7 +2077,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // it hangs through every display frame the game gives no new one for -- most of them, while it
                         // boots. Each eye with its own turn would have it as far apart as a canted display's eyes look.
                         if (m_monoCapturedFrame.oneTurn) {
-                            const int main = CyberpunkVR_MainIsRightEye ? 1 : 0;
+                            const int main = static_cast<int>(frameMainEye);
                             for (int eye = 0; eye < 2; ++eye) monoPoses[eye].orientation = monoPoses[main].orientation;
                         }
 
@@ -2018,14 +2098,37 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // nothing now -- the previous frame is re-submitted with its own pose, which
                 // is exactly what the runtime wants anyway.
 
-                m_cmdAllocatorIndex = (m_cmdAllocatorIndex + 1) % 3;
-                ID3D12CommandAllocator* currentAllocator = m_cmdAllocators[m_cmdAllocatorIndex];
-                if (m_fenceValue >= 3 && m_fence->GetCompletedValue() < m_fenceValue - 2) {
-                    m_fence->SetEventOnCompletion(m_fenceValue - 2, m_fenceEvent);
-                    WaitForSingleObject(m_fenceEvent, 50);   // 50 ms, not 1000: a display frame is ~11 ms, so a
-                    // full second of waiting here IS the freeze it was meant to prevent. On
-                    // timeout Reset fails, this cycle skips, and the next one submits again.
+                // The next allocator, once the GPU is done with the last submission recorded from it (its fence
+                // value is kept per allocator, as on the capture side -- OpenXRCapture.cpp says why "the submission
+                // two before the last" is not that bound once a cycle rotates and submits nothing). The allocator
+                // is NOT reset while busy: Reset does not fail on memory the GPU is still executing, it recycles it.
+                //
+                // Busy is common, not a fault: these copies queue behind the game's own GPU work on its queue, and
+                // under path tracing a game frame outlasts three display cycles. So the wait is SHORT and the cycle
+                // then sends the last frame again (ResubmitLastFrame at the tail) -- a stall here would only move
+                // this cycle's xrEndFrame past its display time, and an end with no layer is a black frame.
+                //
+                // The wait is a deadline, not one WaitForSingleObject: a registration left over from an earlier
+                // timed-out wait fires later and leaves the auto-reset event signalled, and a single wait then
+                // returned at once -- the cause of skips in one display cycle of seven on the simulator.
+                const uint32_t nextAllocator = (m_cmdAllocatorIndex + 1) % 3;
+                const UINT64 allocatorBusy = m_cmdAllocatorFence[nextAllocator];
+                bool allocatorFree = !allocatorBusy || m_fence->GetCompletedValue() >= allocatorBusy;
+                if (!allocatorFree) {
+                    // QPC, not GetTickCount64: the tick clock moves in ~15.6 ms steps, five times this budget.
+                    constexpr double kAllocatorWaitMs = 3.0;
+                    const double deadline = XrDiagNowMs() + kAllocatorWaitMs;
+                    for (;;) {
+                        const double left = deadline - XrDiagNowMs();
+                        if (left <= 0.0) break;
+                        m_fence->SetEventOnCompletion(allocatorBusy, m_fenceEvent);
+                        WaitForSingleObject(m_fenceEvent, static_cast<DWORD>(left) + 1);
+                        if ((allocatorFree = m_fence->GetCompletedValue() >= allocatorBusy)) break;
+                    }
+                    if (!allocatorFree) CyberpunkVR_XrAllocatorBusy.fetch_add(1, std::memory_order_relaxed);
                 }
+                if (allocatorFree) m_cmdAllocatorIndex = nextAllocator;
+                ID3D12CommandAllocator* currentAllocator = allocatorFree ? m_cmdAllocators[m_cmdAllocatorIndex] : nullptr;
 
                 ID3D12GraphicsCommandList* m_cmdList = m_cmdLists[m_cmdAllocatorIndex];
 
@@ -2049,7 +2152,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // Keep the existing capture pins. Generation's pending real endpoint
                 // takes one additional lease; ordinary submission cleanup stays intact.
                 if(monoSource && vrcamEye && viewCountOutput==2) {
-                    const unsigned mainEye=CyberpunkVR_MainIsRightEye ? 1u : 0u;
+                    const unsigned mainEye=frameMainEye;
                     fgFrame.color[mainEye]=monoSource;fgFrame.color[mainEye^1]=vrcamEye;
                     fgFrame.identity.serial=presentSerial;fgFrame.identity.origin=GetTrackingOriginSerial();
                     fgFrame.identity.capturedMs=monoCaptureMs;fgFrame.identity.stereo=true;
@@ -2097,7 +2200,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     } else CVR_DIAGNOSTIC(CyberpunkVR_DebugVrcamEyeUnpaired.fetch_add(1,std::memory_order_relaxed));
                 }
 
-                if (monoSource && monoHasView[0] && monoHasView[1] &&
+                if (currentAllocator && monoSource && monoHasView[0] && monoHasView[1] &&
                     SUCCEEDED(currentAllocator->Reset()) && SUCCEEDED(m_cmdList->Reset(currentAllocator, nullptr))) {
                     auto gpuProfile = cvr::gpu::profile::Begin(m_cmdList);
                     bool copyReady = true;
@@ -2123,7 +2226,24 @@ DWORD OpenXRManager::FrameThreadMain() {
                         }
                     }
 
+                    // THE SAME CAPTURED FRAME AS LAST CYCLE: its pictures are the eye swapchains' last released
+                    // images already (LastCopy, OpenXRManager.hpp). Not with frame generation (its output
+                    // textures change content under one pointer) and not while the eyelids are drawn.
+                    ID3D12Resource* eyeSources[2] = {};
+                    for (uint32_t eye = 0; eye < 2; ++eye)
+                        eyeSources[eye] = fgSelected ? fgSelection.frame.color[eye] :
+                            ((eye == (frameMainEye ^ 1u) && vrcamEye) ? vrcamEye : monoSource);
+                    const bool reuseImages = CyberpunkVR_XrReuseImages.load(std::memory_order_relaxed) &&
+                        m_lastCopy.valid && presentSerial && m_lastCopy.serial == presentSerial &&
+                        viewCountOutput == 2 && !cvr::framegen::Enabled() && !(fgSelected && fgSelection.synthetic) &&
+                        menuBlink <= 0.0f && eyeSources[0] == m_lastCopy.source[0] && eyeSources[1] == m_lastCopy.source[1] &&
+                        m_lastCopy.color[0] == m_eyeSwapchains[0].handle && m_lastCopy.color[1] == m_eyeSwapchains[1].handle;
+                    if (reuseImages) CyberpunkVR_XrReusedCycles.fetch_add(1, std::memory_order_relaxed);
+                    CyberpunkVR_XrProjectionCycles.fetch_add(1, std::memory_order_relaxed);
+                    if (m_lastCopy.valid && presentSerial && m_lastCopy.serial == presentSerial)
+                        CyberpunkVR_XrRepeatCycles.fetch_add(1, std::memory_order_relaxed);
                     for (uint32_t eye = 0; eye < viewCountOutput; ++eye) {
+                        if (!reuseImages) {
                         uint32_t imageIndex = 0;
                         XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
                         const XrResult acquireRes = xrAcquireSwapchainImage(m_eyeSwapchains[eye].handle, &acquireInfo, &imageIndex);
@@ -2152,7 +2272,7 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                         {
                         cvr::gpu::profile::Scope colorScope(gpuProfile, cvr::gpu::profile::Stage::SubmitColor);
-                        const bool secondEye = eye == (CyberpunkVR_MainIsRightEye ? 0u : 1u) && vrcamEye;
+                        const bool secondEye = eye == (frameMainEye ^ 1u) && vrcamEye;
                         auto* eyeSource = fgSelected ? fgSelection.frame.color[eye] :
                             (secondEye ? vrcamEye : monoSource);
                         // CAS is already baked into real captures before frame generation.
@@ -2207,13 +2327,14 @@ DWORD OpenXRManager::FrameThreadMain() {
                         }
 
                         }
+                        }   // !reuseImages
                         projectionViews[eye].pose = monoPoses[eye];
                         projectionViews[eye].fov = monoFovs[eye];
                         // AN EYE SHOWN MAIN'S PICTURE TAKES MAIN'S WINDOW. With the asymmetric
                         // projection the two eyes' windows are mirror images; MAIN's image was drawn
                         // through MAIN's, so that is the frustum it has to be submitted with whichever
                         // eye it ends up in (menus, a second view with nothing to give).
-                        const uint32_t mainEye = CyberpunkVR_MainIsRightEye ? 1u : 0u;
+                        const uint32_t mainEye = frameMainEye;
                         if (cvr::projection::Active() && !fgSelected && !vrcamEye && eye != mainEye) {
                             if (mainEye < viewCountOutput)
                                 projectionViews[eye].fov = monoFovs[mainEye];
@@ -2370,7 +2491,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 const float half = 0.5f * (ipd / CyberpunkVR_FlatDistanceM);
                                 // The left eye sees a near object to the RIGHT of where an
                                 // infinitely distant one sits, so its frustum turns right.
-                                const bool isLeft = (eye == (CyberpunkVR_MainIsRightEye ? 1u : 0u));
+                                const bool isLeft = (eye == frameMainEye);
                                 const float d = isLeft ? half : -half;
                                 projectionViews[eye].fov.angleLeft  += d;
                                 projectionViews[eye].fov.angleRight += d;
@@ -2381,7 +2502,15 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                     cvr::depth::Plan depthPlan;
                     auto depthReason=cvr::depth::Reject::Missing;
-                    if(copyReady && !menuRectActive && fgSelected && GetDepthSubmit() && GetMonoDepthCapture() && m_depthLayerSupported) {
+                    if(reuseImages && copyReady && !menuRectActive && m_lastCopy.depthUsed && GetDepthSubmit() &&
+                       GetMonoDepthCapture() && m_depthLayerSupported &&
+                       m_lastCopy.depthInfo[0].subImage.swapchain==m_eyeSwapchains[0].depthHandle &&
+                       m_lastCopy.depthInfo[1].subImage.swapchain==m_eyeSwapchains[1].depthHandle) {
+                        // The depth of the same frame is the depth swapchains' last released image as well.
+                        depthInfos.assign(m_lastCopy.depthInfo,m_lastCopy.depthInfo+2);
+                        for(unsigned eye=0;eye<2;++eye){depthInfos[eye].next=nullptr;projectionViews[eye].next=&depthInfos[eye];}
+                        useDepthLayer=true;depthReason=cvr::depth::Reject::None;
+                    } else if(copyReady && !menuRectActive && fgSelected && GetDepthSubmit() && GetMonoDepthCapture() && m_depthLayerSupported) {
                         depthReason=cvr::depth::Describe(fgSelection,projectionViews.data(),viewCountOutput,GetWorldScale(),depthPlan);
                         if(depthReason==cvr::depth::Reject::None &&
                             (std::abs(g_liveControls.xrIpdScale-1.f)>1e-4f || std::abs(g_liveControls.xrStereoScale-1.f)>1e-4f))
@@ -2427,6 +2556,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
 
                     if (!copyReady) {
+                        // An image released here may hold nothing of this frame: never reuse what is in the swapchains.
+                        m_lastCopy.valid = false;
                         for (uint32_t eye = 0; eye < viewCountOutput; ++eye) {
                             if (!acquiredEyes[eye]) {
                                 continue;
@@ -2453,6 +2584,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         m_d3dQueue->ExecuteCommandLists(1, cmdLists);
                         
                         ++m_fenceValue;
+                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
                         if (SUCCEEDED(m_d3dQueue->Signal(m_fence, m_fenceValue)))
                             cvr::gpu::profile::Submitted(gpuProfile, m_d3dQueue, m_fence, m_fenceValue);
                         capturedReadFence=m_fenceValue;
@@ -2462,6 +2594,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         m_d3dQueue->ExecuteCommandLists(1, cmdLists);
                         
                         ++m_fenceValue;
+                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
                         if (SUCCEEDED(m_d3dQueue->Signal(m_fence, m_fenceValue)))
                             cvr::gpu::profile::Submitted(gpuProfile, m_d3dQueue, m_fence, m_fenceValue);
                         capturedReadFence=m_fenceValue;
@@ -2496,7 +2629,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                             }
                         }
 
+                        if (!releaseOk) m_lastCopy.valid = false;
                         if (releaseOk) {
+                            // The HUD quads' Prepare below may recreate their swapchains: from here on the
+                            // record of the last accepted frame may name a destroyed one, until this cycle's
+                            // own end succeeds and writes a new record.
+                            m_lastSubmission.valid = false;
                             XrCompositionLayerProjection layerProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
                             XrCompositionLayerQuad layerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
                             const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+3] = {};
@@ -2671,7 +2809,56 @@ DWORD OpenXRManager::FrameThreadMain() {
                             );
                             XrAccumulateCycle(waitEnterMs, waitMs,
                                               frameState.predictedDisplayPeriod);
+                            if (!XR_SUCCEEDED(endRes)) m_lastCopy.valid = false;
+                            else if (!reuseImages) {
+                                // The frame these eye swapchains now hold (LastCopy, OpenXRManager.hpp). Not while the
+                                // eyelids are drawn into the images, and only when both eyes were copied this cycle.
+                                auto& copy = m_lastCopy;
+                                copy.valid = viewCountOutput == 2 && acquiredEyes[0] && acquiredEyes[1] && menuBlink <= 0.0f;
+                                copy.serial = presentSerial;
+                                for (uint32_t eye = 0; eye < 2; ++eye) {
+                                    copy.source[eye] = eyeSources[eye];
+                                    copy.color[eye] = eye < viewCountOutput ? m_eyeSwapchains[eye].handle : XR_NULL_HANDLE;
+                                }
+                                const auto* d0 = static_cast<const XrCompositionLayerDepthInfoKHR*>(projectionViews[0].next);
+                                const auto* d1 = viewCountOutput > 1 ? static_cast<const XrCompositionLayerDepthInfoKHR*>(projectionViews[1].next) : nullptr;
+                                copy.depthUsed = useDepthLayer && d0 && d1 && d0->type == XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR &&
+                                                 d1->type == XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR;
+                                if (copy.depthUsed) {
+                                    copy.depthInfo[0] = *d0; copy.depthInfo[1] = *d1;
+                                    copy.depthInfo[0].next = copy.depthInfo[1].next = nullptr;
+                                }
+                            }
                             if (XR_SUCCEEDED(endRes)) {
+                                // Kept for a cycle that has nothing new (ResubmitLastFrame). Copies, because
+                                // the projection views, the depth infos and the menu quad live on this stack.
+                                {
+                                    auto& last = m_lastSubmission;
+                                    const uint32_t views = (std::min)(viewCountOutput, 2u);
+                                    last.viewCount = views;
+                                    last.menuQuad = menuRectActive;
+                                    last.localSpace = m_localSpace;
+                                    last.submittedAt = frameState.predictedDisplayTime;
+                                    for (uint32_t eye = 0; eye < views; ++eye) {
+                                        last.views[eye] = projectionViews[eye];
+                                        last.color[eye] = m_eyeSwapchains[eye].handle;
+                                        last.depth[eye] = XR_NULL_HANDLE;
+                                        last.views[eye].next = nullptr;
+                                        if (const auto* depth = static_cast<const XrCompositionLayerDepthInfoKHR*>(projectionViews[eye].next);
+                                            depth && depth->type == XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR) {
+                                            last.depthInfo[eye] = *depth;
+                                            last.depthInfo[eye].next = nullptr;
+                                            last.depth[eye] = depth->subImage.swapchain;
+                                        }
+                                    }
+                                    last.quad = layerQuad;
+                                    last.extraCount = 0;
+                                    for (uint32_t i = 1; i < endInfo.layerCount && last.extraCount < LastSubmission::kMaxExtra; ++i)
+                                        last.extra[last.extraCount++] = layers[i];
+                                    last.valid = views == viewCountOutput && views > 0;
+                                    static_assert(sizeof(layers) / sizeof(layers[0]) - 1 <= LastSubmission::kMaxExtra,
+                                                  "the record must hold every layer after the first");
+                                }
                                 if(hudLayer && !menuRectActive)
                                     CVR_DIAGNOSTIC(CyberpunkVR_HudSubmittedFrames.fetch_add(1,std::memory_order_relaxed));
                                 for(int eye=0;eye<2;++eye)
@@ -2818,19 +3005,28 @@ DWORD OpenXRManager::FrameThreadMain() {
                 frameState.shouldRender ? 1 : 0);
         }
 
-        XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
-        endInfo.displayTime = frameState.predictedDisplayTime;
-        endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-        endInfo.layerCount = 0;
-        endInfo.layers = nullptr;
-        // AN END WITH NO LAYER IS A DISPLAY FRAME WITH NOTHING IN IT. The runtime holds whatever
-        // it composed last, which is precisely what "the headset runs at half the rate" looks
-        // like from the inside. Counted apart from the real submit so the two never average
-        // together into a number that says nothing.
-        CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEnds.fetch_add(1, std::memory_order_relaxed));
-        CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEndsEmpty.fetch_add(1, std::memory_order_relaxed));
-        XrMark('e');
-        xrEndFrame(m_session, &endInfo);
+        // NOTHING NEW THIS CYCLE: send the last accepted frame again, with its own poses, so the runtime
+        // reprojects it to this display time. Only when that is impossible (no frame yet, swapchains
+        // recreated, the runtime not rendering, or a second without a new frame) does the end go out
+        // empty -- and an end with no layer is a display frame with NOTHING in it: the simulator wipes
+        // its view to black on one, which is the black flash a busy allocator used to cause. Counted
+        // apart from the real submit so the two never average together into a number that says nothing.
+        if (frameState.shouldRender && ResubmitLastFrame(frameState.predictedDisplayTime)) {
+            CyberpunkVR_XrResubmits.fetch_add(1, std::memory_order_relaxed);
+            CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEnds.fetch_add(1, std::memory_order_relaxed));
+            XrMark('E');
+        } else {
+            XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
+            endInfo.displayTime = frameState.predictedDisplayTime;
+            endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+            endInfo.layerCount = 0;
+            endInfo.layers = nullptr;
+            CyberpunkVR_XrEmptyEnds.fetch_add(1, std::memory_order_relaxed);
+            CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEnds.fetch_add(1, std::memory_order_relaxed));
+            CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEndsEmpty.fetch_add(1, std::memory_order_relaxed));
+            XrMark('e');
+            xrEndFrame(m_session, &endInfo);
+        }
         XrAccumulateCycle(waitEnterMs, waitMs, frameState.predictedDisplayPeriod);
 
         if (m_frameSyncEvent) {

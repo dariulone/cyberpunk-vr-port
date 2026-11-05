@@ -537,11 +537,21 @@ local function cycle(i, n, d) return (i - 1 + d) % n + 1 end
 local function busyRow(t) return { key = "busy", label = t.busy, detail = S.error, enabled = false } end
 
 -- Starts the game: what the game's summary screen does when it closes.
+-- THE FIGURE GOES BEFORE THE NEW GAME IS MADE: the system its own puppet again, the figure out of the main menu's
+-- world, and the Lua references to it let go while that world is still there. Made with the figure standing, the new
+-- game crashed 8 s after START in the new player's appearance build (EntityBuilder_LoadCustomAppearance, a handle to
+-- an appearance resource already freed); the game's own screens, with no figure, started it every time (reported by
+-- players, reproduced 2026-11-04).
 local function startGame()
   if S.job ~= nil then return end
   run({
+    { name = "figure out", act = function()
+        pcall(VRCreationTarget)
+        Figure.clear()
+        S.windowOpen, S.dressed = false, false
+        collectgarbage("collect")
+      end, min = 0.6 },
     { name = "finalize", act = function()
-        VRCreationTarget()
         system():FinalizeState()
         Game.GetSystemRequestsHandler():StartNewGame(state())
       end, min = 0.5 },

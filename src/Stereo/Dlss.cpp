@@ -1,3 +1,4 @@
+#include "Hooks/ListAudit.hpp"
 #include "Natives/MenuSurface.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Render/SceneGpuProfile.hpp"
@@ -19,6 +20,7 @@
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Render/MonoCascades.hpp"
 #include "Render/NativePreparation.hpp"
+#include "Stereo/SinglePass.hpp"
 // Dlss -- Streamline and DLSS, made to agree about two views.
 //
 // Five detours: the Streamline constant upload, the DLSS constants, the evaluate call, the apply, and
@@ -59,6 +61,7 @@
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/EngineRvas.hpp"
 #include "Stereo/DetourRegistry.hpp"
+#include "Stereo/StereoPairProbe.hpp"
 
 namespace cvr {
 namespace detail {
@@ -391,13 +394,17 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugP17D0After       = 0;
 // matched. This catches BOTH pre-DLSS vrcam scene passes AND the post-DLSS crop pass; we separate
 // them offline by intersecting the captured node RVAs with the readers of post-color 0x3D7E6258.
 // (removed: vrcam_render_res_viewport helper -- only used by the now-pass-through viewport/scissor hooks)
+extern "C" void CyberpunkVR_GeometryCostTrackViewport(ID3D12GraphicsCommandList*,UINT,const D3D12_VIEWPORT*);
 void STDMETHODCALLTYPE hk_RSSetViewports(
         ID3D12GraphicsCommandList* self, UINT count, const D3D12_VIEWPORT* vps) {
     // Pass-through. The post-DLSS crop is fixed natively in Detour_RenderRes (view+0x17D0 match-main);
     // the old render-res-viewport band-aid + per-frame stack-capture diagnostics were removed.
     const CommandListVtableHook* e = command_list_hook_entry(self);
     PFN_RSSetViewports orig = e ? e->viewports_original : nullptr;
-    if (orig) orig(self, count, vps);
+    if (orig && !cvr::single_pass::Viewports(self,count,vps)) orig(self, count, vps);
+    cvr::gpu::scene_profile::Viewport(self,count,vps);
+    CyberpunkVR_GeometryCostTrackViewport(self,count,vps);
+    cvr::stereo::pair_probe::Viewports(self,count,vps);
     cvr::vrs::Viewports(self,count,vps);
     if(CyberpunkVR_NativeStereoProbeState.load(std::memory_order_relaxed)==1)cvr::stereo::native_probe::Viewports(self,count,vps);
 }
@@ -407,7 +414,7 @@ extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList*,
     // Pass-through (see hk_RSSetViewports).
     const CommandListVtableHook* e = command_list_hook_entry(self);
     PFN_RSSetScissorRects orig = e ? e->scissor_original : nullptr;
-    if (orig) orig(self, count, rects);
+    if (orig && !cvr::single_pass::Scissors(self,count,rects)) orig(self, count, rects);
     CyberpunkVR_GeometryCostTrackScissor(self,count,rects);
     if(CyberpunkVR_NativeStereoProbeState.load(std::memory_order_relaxed)==1)cvr::stereo::native_probe::Scissors(self,count,rects);
 }
@@ -418,6 +425,7 @@ extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList*,
         const auto* entry=command_list_hook_entry(self);if(!entry || !entry->reset_original)return E_FAIL;
         const auto result=entry->reset_original(self,alloc,pso);
         if(SUCCEEDED(result)){
+            cvr::list_audit::ListReset(self,alloc);
             cvr::stereo::retained_geometry::Reset(self);
             cvr::stereo::target_access::Reset(self);
             cvr::stereo::texture_read::Reset(self);cvr::stereo::material_binding::Reset(self);
@@ -444,6 +452,7 @@ extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList*,
     PFN_GfxReset orig = e ? e->reset_original : nullptr;
     const HRESULT result=orig ? orig(self,alloc,pso) : S_OK;
     if(orig && SUCCEEDED(result)) {
+        cvr::list_audit::ListReset(self,alloc);
         census_pipeline_reset(pso);
         cvr::stereo::retained_geometry::Reset(self);
         cvr::stereo::native_recording::Reset(self,reinterpret_cast<uintptr_t>(_ReturnAddress()));
@@ -462,6 +471,8 @@ extern "C" void CyberpunkVR_GeometryCostTrackScissor(ID3D12GraphicsCommandList*,
         cvr::gpu::ResetCommandResources(self);
         cvr::cascades::Reset(self);
         cvr::gpu::scene_profile::Reset(self);
+        cvr::stereo::pair_probe::Reset(self);
+        cvr::single_pass::Reset(self);
         cvr::foveated::ResetList(self);
         cvr::vrs::Reset(self,e->shading_rate_original!=nullptr,pso);
         cvr::optics::ListReset(self);cvr::optics::source::ListReset(self);cvr::optics::camera::ListReset(self);

@@ -42,6 +42,9 @@ extern bool g_drawHandProxy3D;
 extern float g_aimRayLenM;
 extern float g_handLocatorScale;
 void DrawBarrelCrosshair();
+void DrawLeftBarrelDot();           // the left gun's dot, two guns in hand (green)
+void DrawFbtCalibrationHelpers();   // Fbt/Game/Helpers.cpp
+void LoadCyberpunkFont(ImGuiIO& io);   // Fbt/Game/Helpers.cpp: Rajdhani from the plugin's fonts folder, at overlay init
 void DrawCompactAdsCameraTelemetry();
 extern bool g_showCompactAdsTelemetry;
 extern float g_compactAdsTelemetryX;

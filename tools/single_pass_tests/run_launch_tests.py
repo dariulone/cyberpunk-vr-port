@@ -387,7 +387,10 @@ def close_game(pid, executable):
                 boot.user32.PostMessageW(row['hwnd'], 0x10, 0, 0)
         if k.WaitForSingleObject(handle, 5000) == 0:
             return 'closed'
-        if not k.TerminateProcess(handle, 0) or k.WaitForSingleObject(handle, 10000) != 0:
+        # A terminated game still tears down its GPU device; 10 s was seen to be too short (vr_bench 2026-11-04).
+        # TerminateProcess is refused for a process already on its way out (the WM_CLOSE above); wait either way.
+        k.TerminateProcess(handle, 0)
+        if k.WaitForSingleObject(handle, 30000) != 0:
             raise RuntimeError('Game did not exit after the tests')
         return 'terminated_after_close_timeout'
     finally:

@@ -18,6 +18,7 @@ int g_VRSmokeFingerIdx[32]{},g_VRSmokeFingerIdxL[32]{};
 OpenXRManager& OpenXRManager::Get(){std::abort();}
 bool OpenXRManager::GetGestureHandFrame(OpenXRHeadPose*,OpenXRHeadPose*,uint64_t*,uint64_t*,bool)const{std::abort();}
 void VRIK_QuatNorm(float*){std::abort();}
+namespace cvr::anim { bool WeaponInLeftHand(){return false;} }
 float SharedPose(int index) {return slots[index];}
 bool OverlayIsVisible(){return false;}
 void Check(bool value,const char* message){if(!value){std::cerr<<message<<'\n';std::exit(1);}}

@@ -1017,6 +1017,15 @@ registerForEvent("onUpdate", function(dt)
       local ok, err = pcall(build)
       if not ok then S.note = "build failed: " .. tostring(err) end
     end
+    -- HANDS ONLY (shared [173], CyberpunkVRPort_HandsOnly): the forearm the screen sits on is gone, and the
+    -- readout hung in the air below the hand. The mesh cannot go (see above: a toggle kills the target for
+    -- good), so the CONTENT goes -- a live target with nothing in it draws nothing, only a dead one is black.
+    -- Written every pass, because a rebuild (and a replaced widget instance) comes back at full opacity.
+    if S.built then
+      local blank = type(GetVRSharedSlot) == "function" and (GetVRSharedSlot(173) or 0) > 0.5
+      local root = surface()
+      if root ~= nil then pcall(function() root:SetOpacity(blank and 0.0 or 1.0) end) end
+    end
   end
 
   S.accCheck = S.accCheck + (dt or 0.016)

@@ -52,6 +52,10 @@ extern "C" unsigned long long CyberpunkVR_DebugBarrelDotDraws;
 #include "Lobby/MenuLobby.hpp"
 
 extern "C" float CyberpunkVR_HudEngineCurvature[2];   // Stereo/Hud.cpp
+// GPU diagnostics on request (CVR_GPU_DIAG, Hooks/Dred.cpp): DRED and the debug layer have to be on before the
+// device exists, and the removal watch needs the device -- both from Hook_D3D12CreateDevice.
+extern "C" void CyberpunkVRPort_GpuDiagBeforeDevice();
+extern "C" void CyberpunkVRPort_GpuDiagDevice(ID3D12Device* device);
 
 namespace cvr {
 
@@ -1048,8 +1052,10 @@ extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugDescHeapResized = 0;
 
 static HRESULT WINAPI Hook_D3D12CreateDevice(
         IUnknown* adapter, D3D_FEATURE_LEVEL fl, REFIID riid, void** out) {
+    if (out) CyberpunkVRPort_GpuDiagBeforeDevice();
     HRESULT hr = g_orig_D3D12CreateDevice(adapter, fl, riid, out);
     if (SUCCEEDED(hr) && out && *out) {
+        CyberpunkVRPort_GpuDiagDevice(reinterpret_cast<ID3D12Device*>(*out));
         {
             std::lock_guard<std::mutex> lock(g_game_object_mtx);
             if (!g_game_device) {

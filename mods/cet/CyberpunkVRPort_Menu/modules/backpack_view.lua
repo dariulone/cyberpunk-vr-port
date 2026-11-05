@@ -1,7 +1,9 @@
 -- The backpack page of the inventory (inventory_view draws it while s.backpack is set): the crafting components and
 -- "disassemble junk" on the left, the game's filters, sorting and every backpack item on the right, the game's own
 -- tooltip for the item pointed at, and the hold actions of the fullscreen backpack as buttons -- favourite, drop,
--- disassemble.
+-- disassemble. SELECTION mode (the button beside the sort order) marks any number of items and drops or disassembles
+-- them at once, whole stacks, each batch confirmed by a second press (2026-11-04: "select several items to
+-- disassemble or drop a batch at once").
 local K=require("modules/ink")
 local L=require("modules/locale")
 local B=require("modules/backpack_data")
@@ -20,7 +22,8 @@ local function tr(ru,en) return L.tr(ru,en) end
 -- the game's own word for it where it has one: it is in the game's language already
 local function loc(key,ru,en) local t=I.loc(key);if t~="" and t~=key then return t end;return tr(ru,en) end
 local function state(kit,s)
-  s.bp=s.bp or {filter="AllItems",sort="QualityAsc",quantity=1,tips={}}
+  s.bp=s.bp or {filter="AllItems",sort="QualityAsc",quantity=1,tips={},marked={}}
+  s.bp.marked=s.bp.marked or {}
   return s.bp
 end
 local function icon(p,x,y,w,h,id,col,opacity)
@@ -41,8 +44,14 @@ end
 local star=V.star
 local function card(kit,s,c,it,view,v,x)
   local col=colors[v.quality] or K.CYAN
-  local bg=K.roundFill(c,x,4,CARD_W,CARD_H,col,.045,4)
-  local edge=K.cutFrame(c,x,4,CARD_W,CARD_H,s.selected==v.key and K.YELLOW or K.CYAN,.35,10,1)
+  local marked=s.multi and s.marked[v.key]
+  local bg=K.roundFill(c,x,4,CARD_W,CARD_H,col,marked and .13 or .045,4)
+  local edge=K.cutFrame(c,x,4,CARD_W,CARD_H,(marked or s.selected==v.key) and K.YELLOW or K.CYAN,marked and 1 or .35,10,marked and 3 or 1)
+  if s.multi then
+    -- the selection box, ticked when marked
+    K.cutFrame(c,x+CARD_W-52,44,34,34,marked and K.YELLOW or K.CYAN,marked and 1 or .6,5,2)
+    if marked then U.line(c,x+CARD_W-45,61,x+CARD_W-38,69,K.YELLOW,1,4);U.line(c,x+CARD_W-38,69,x+CARD_W-25,51,K.YELLOW,1,4) end
+  end
   K.rect(c,x+2,8,5,CARD_H-8,col,1)
   U.picture(kit,c,x+14,27,CARD_W-28,92,v.image)
   K.text(c,x+12,119,CARD_W-24,28,K.clip(v.name,33),23,col)
@@ -67,11 +76,15 @@ local function card(kit,s,c,it,view,v,x)
     K.text(c,x+CARD_W-110,149,95,28,v.quantity>1 and ("x"..v.quantity) or "",22,K.CYAN,"right")
   end
   local b=kit.button("p1",kit.at(view.x,it.y,view),x,4,CARD_W,CARD_H,function()
+    if s.multi then
+      s.marked[v.key]=not s.marked[v.key] or nil;s.batchArmed=nil
+      C.redraw(kit);return
+    end
     s.selected=v.key;s.quantity=1;s.confirm=nil
     I.inspect({ui=Game.GetScriptableSystemsContainer():Get(CName.new("UIScriptableSystem"))},v);v.new=false
     C.redraw(kit)
   end,function(on)
-    bg:SetTintColor(K.color(on and K.YELLOW or col));bg:SetOpacity(on and .13 or .045);K.tint(edge,(on or s.selected==v.key) and K.YELLOW or K.CYAN,on and 1 or .35)
+    bg:SetTintColor(K.color(on and K.YELLOW or col));bg:SetOpacity((on or marked) and .13 or .045);K.tint(edge,(on or marked or s.selected==v.key) and K.YELLOW or K.CYAN,(on or marked) and 1 or .35)
     if on then s.hover=v.key;s.hoverAt=kit.S.time elseif s.hover==v.key then s.hover=nil;s.hoverAt=kit.S.time end
   end);b.key="backpackItem:"..v.key
 end
@@ -130,6 +143,10 @@ function V.draw(kit,p,s,back)
       fb.key="backpackFilter:"..name
     end
   end
+  -- selection mode on/off; off forgets the marks
+  b=U.action(kit,p,kit.P1X,GRID_X+GRID_W-300-12-200,105,200,bp.multi and tr("ГОТОВО","DONE") or tr("ВЫДЕЛЕНИЕ","SELECT"),function()
+    bp.multi=not bp.multi;bp.marked={};bp.batchArmed=nil;bp.selected=nil;bp.confirm=nil;C.redraw(kit)
+  end,true,56,24);b.key="backpackMulti"
   Sort.control(kit,p,bp,"backpackSort",GRID_X+GRID_W-300,112,300,bp.sort,function(value)
     bp.sort=value;bp.selected=nil;bp.confirm=nil;C.state(kit).resetList=true
   end,function() C.redraw(kit) end)
@@ -147,10 +164,38 @@ function V.draw(kit,p,s,back)
     local host=K.canvas(p,GRID_X,0,GRID_W,1200)
     C.list(kit,host,"p1","p1",kit.P1X+GRID_X,GRID_Y,GRID_W,rows,GRID_H,kit.S.keepScroll):enableMask()
   end
-  -- the selected item's actions
+  -- the marked items' actions (selection mode), or the selected item's
   local v=bp.selected and snap.byKey[bp.selected]
-  if not v then bp.selected=nil end
-  if v then
+  if not v or bp.multi then bp.selected=nil;v=nil end
+  if bp.multi then
+    local list,count={},0
+    for key in pairs(bp.marked) do
+      local m=snap.byKey[key]
+      if m then list[#list+1]=m;count=count+m.quantity else bp.marked[key]=nil end
+    end
+    local armedFor=bp.batchArmed and kit.S.time-bp.batchArmed.at<3 and bp.batchArmed.kind or nil
+    K.text(p,GRID_X,1052,GRID_W,46,#list>0 and (tr("Выбрано: ","Selected: ")..#list..(count>#list and ("  ("..tr("шт. ","pcs ")..count..")") or "")) or tr("Выберите предметы","Pick the items"),32,#list>0 and K.YELLOW or K.GREY)
+    b=U.action(kit,p,kit.P1X,GRID_X,1110,200,tr("ВСЁ","ALL"),function()
+      for _,m in ipairs(shown or {}) do bp.marked[m.key]=true end
+      bp.batchArmed=nil;C.redraw(kit)
+    end,shown~=nil and #shown>0,68,28);b.key="backpackMarkAll"
+    b=U.action(kit,p,kit.P1X,GRID_X+212,1110,200,tr("СНЯТЬ","NONE"),function()
+      bp.marked={};bp.batchArmed=nil;C.redraw(kit)
+    end,#list>0,68,28);b.key="backpackMarkNone"
+    local function batch(kind,fn,ru,en)
+      if armedFor~=kind then bp.batchArmed={kind=kind,at=kit.S.time};C.redraw(kit);return end
+      bp.batchArmed=nil
+      local items,skipped=fn(list)
+      kit.toast(tr(ru,en)..items..(skipped>0 and (tr(", пропущено: ",", skipped: ")..skipped) or ""))
+      bp.marked={};bp.refreshAt=kit.S.time+.3;C.redraw(kit)
+    end
+    b=U.action(kit,p,kit.P1X,GRID_X+GRID_W-604,1110,290,armedFor=="drop" and tr("ПОДТВЕРДИТЬ","CONFIRM") or K.upper(loc("UI-UserActions-Drop","Бросить","Drop")),function()
+      batch("drop",B.dropMany,"Выброшено: ","Dropped: ")
+    end,#list>0,68,28);b.key="backpackDropMarked"
+    b=U.action(kit,p,kit.P1X,GRID_X+GRID_W-302,1110,302,armedFor=="disassemble" and tr("ПОДТВЕРДИТЬ","CONFIRM") or K.upper(loc("UI-UserActions-Disassemble","Разобрать","Disassemble")),function()
+      batch("disassemble",B.disassembleMany,"Разобрано: ","Disassembled: ")
+    end,#list>0,68,28);b.key="backpackDisassembleMarked"
+  elseif v then
     local a=B.actions(v);bp.quantity=math.min(bp.quantity or 1,a.max)
     K.text(p,GRID_X,1052,GRID_W,46,K.clip(v.name,70),32,colors[v.quality] or K.CYAN)
     local x=GRID_X

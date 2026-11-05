@@ -21,11 +21,13 @@
 #include <RED4ext/Scripting/Natives/animAnimatedObject.hpp>
 #include <RED4ext/Scripting/Natives/Generated/world/AnimationSystem.hpp>
 #include "Natives/NativeHelpers.hpp"
+#include "Utils/SharedSlots.hpp"
 
 #include <cstring>
 #include <string>
 
 extern void Log(const char* fmt, ...);
+extern float* g_pSharedHands;
 
 namespace {
 constexpr const char* kCap = "vrp_neck_cap";
@@ -122,12 +124,15 @@ void VRNeckCapSync(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* 
         if (!CapAppearances(cap, &apps)) result = 3;
         else {
             const auto bodyTone = Appearance(body);
-            const auto tone = ToneFor(cap, bodyTone.ToString());
+            // Hands only (xr_body_hands_only, shared[173]): no body to close, the cap stays off with it.
+            const bool handsOnly = g_pSharedHands && g_pSharedHands[vrshared::kBodyHandsOnly] > 0.5f;
+            const auto tone = handsOnly ? RED4ext::CName{} : ToneFor(cap, bodyTone.ToString());
             if (tone.hash == 0) {
                 if (Enabled(cap)) {
                     bool off = false;
                     Call(cap, "Toggle", &off);
-                    Log("[neckcap] body appearance %s: no cap tone for it, cap off", bodyTone.ToString());
+                    Log("[neckcap] body appearance %s: %s, cap off", bodyTone.ToString(),
+                        handsOnly ? "hands only" : "no cap tone for it");
                     result = 2;
                 }
             } else {
