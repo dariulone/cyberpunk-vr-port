@@ -16,7 +16,8 @@ public:
     void Reset() { *this={}; }
     float Angle() const { return m_wheel.Angle(); }
     float Update(uint8_t held,const WheelTrackingFrame& frame,uint64_t now,
-                 float radius,float limit,float dead,float predictionMs=0) {
+                 float radius,float limit,float dead,float predictionMs=0,
+                 float rimRight=std::numeric_limits<float>::quiet_NaN(),float rimLeft=std::numeric_limits<float>::quiet_NaN()) {
         held&=frame.validHands;
         const auto& q=frame.head.orientation;
         const float norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
@@ -40,7 +41,7 @@ public:
             points[i]={frame.head.position.x+world.x,frame.head.position.y+world.y};
         }
         m_sequence=frame.sequence;m_stamp=frame.stampUs;m_held=held;
-        const float direct=m_wheel.Update(held,points[0],points[1],radius,limit,dead);
+        const float direct=m_wheel.Update(held,points[0],points[1],radius,limit,dead,rimRight,rimLeft);
         if(!m_horizon)return direct;
         m_prediction.Push(Angle(),frame.stampUs);
         return Output(now,limit,dead);

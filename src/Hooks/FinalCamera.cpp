@@ -111,9 +111,8 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
                         s_muzzleFwd[0] = x; s_muzzleFwd[1] = y; s_muzzleFwd[2] = z;
                     }
                 }
-                if (s_muzzleFwd[0] * s_muzzleFwd[0] +
-                    s_muzzleFwd[1] * s_muzzleFwd[1] +
-                    s_muzzleFwd[2] * s_muzzleFwd[2] > 0.25f) {
+                // Whether or not a barrel has been seen: the barrel dot checks its direction, and the collision view needs only the camera.
+                {
                     cvr::camera::BarrelFrame bf{};
                     bf.camQuat[0] = camq[0]; bf.camQuat[1] = camq[1];
                     bf.camQuat[2] = camq[2]; bf.camQuat[3] = camq[3];

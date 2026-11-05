@@ -686,7 +686,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
 
     ImGui::NewFrame();
 
-    if(!g_menuVisible){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
+    if(!g_menuVisible){DrawHandLocatorOverlay();DrawDebugView();DrawBarrelCrosshair();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
 
     const bool placementSave = cvr::vrui::ConsumePlacementSave();
     bool foveatedEditing=false;

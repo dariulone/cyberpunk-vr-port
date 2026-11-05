@@ -1,6 +1,7 @@
 // Verified against CP2077 SHA256 a7de82945c03e041... with IDA headless.
 // Only native separate-window slots are moved; direct/projected HUD widgets stay native.
 #include "Natives/NativeFunctions.hpp"
+#include "Natives/HeldPicture.hpp"
 #include "Camera/SurveillanceFollow.hpp"
 #include "Render/HudPanel.hpp"
 #include "Render/OpticsProbe.hpp"
@@ -163,7 +164,7 @@ bool InstallHudPanelHooks() {
     auto frameSubmit=reinterpret_cast<void*>(base+0x3d6d84);
     if (!memcmp(frameSubmit,submit,sizeof(submit)) &&
         MH_CreateHook(frameSubmit,reinterpret_cast<void*>(+[](void* scene,void* views,char flag){
-            FlushRepaintsAtSubmit();originalFrameSubmit(scene,views,flag);}),reinterpret_cast<void**>(&originalFrameSubmit))==MH_OK &&
+            FlushRepaintsAtSubmit();cvr::heldpicture::AtFrameSubmit();originalFrameSubmit(scene,views,flag);}),reinterpret_cast<void**>(&originalFrameSubmit))==MH_OK &&
         MH_EnableHook(frameSubmit)!=MH_OK) originalFrameSubmit=nullptr;
     hooksReady.store(true,std::memory_order_release);return true;
 }

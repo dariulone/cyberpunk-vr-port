@@ -34,6 +34,7 @@
 #include "Runtimes/OpenXRManager.hpp"
 
 #include "Anim/CharacterRig.hpp"
+#include "Anim/HandGestures.hpp"
 #include "Anim/LeftHanded.hpp"
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
@@ -43,9 +44,11 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Utils/SharedSlots.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <bit>
+#include <limits>
 #include <mutex>
 #include <windows.h>
 
@@ -75,6 +78,12 @@ struct WheelHand {
     float animRot[4]  = { 0.0f, 0.0f, 0.0f, 1.0f };
     bool  animValid   = false;
     uint64_t targetFrame = 0;
+    bool  refValid    = false;  // the animated hand with nothing held: how a hand lies on the rim
+    float refPos[3]   = {};
+    float refRot[4]   = { 0.0f, 0.0f, 0.0f, 1.0f };
+    bool  onRim       = false;  // this grab keeps to the rim where it took hold
+    float rimTurn     = 0.0f;   // radians round the wheel from refPos, when it took hold
+    float rimWheel    = 0.0f;   // how far the drawn wheel had turned then
 };
 WheelHand g_wheel[2];           // [0] = right, [1] = left
 
@@ -127,6 +136,85 @@ inline float WheelSlot(int i) {
     return (g_pSharedHands && i >= 0 && i < vrshared::kSlotCount) ? g_pSharedHands[i] : 0.0f;
 }
 
+// ANYWHERE ON THE RIM. The wheel is a circle: its centre and radius from the two animated hands, in a plane through the
+// line between them, leaning back from upright. Nothing in the animation says how far it leans, and a hand 15 degrees off
+// the true plane still looks held, so this is a fixed look at a car's wheel rather than a measurement. A hand holding it
+// is the animated hand turned round the hub: the same pose the animation gives at 3 o'clock, at any other hour, wrist,
+// wrap and all, which needs no offset between wrist and palm.
+constexpr float kWheelLean = 25.0f * 0.01745329252f;
+constexpr float kRimBand = 0.11f;        // m from the rim, in the wheel's plane
+constexpr float kRimDepth = 0.14f;       // m in front of or behind it
+constexpr float kRimCentre = 0.03f;      // m: a hand this near the hub has no direction round it
+
+struct WheelFrame { float across[3], up[3], normal[3]; };
+
+float Dot3(const float* a, const float* b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+
+bool WheelFrameNow(WheelFrame& out) {
+    if (!g_wheelCenterValid || !g_wheel[0].refValid || !g_wheel[1].refValid) return false;
+    float a[3] = { g_wheel[0].refPos[0] - g_wheel[1].refPos[0], g_wheel[0].refPos[1] - g_wheel[1].refPos[1],
+                   g_wheel[0].refPos[2] - g_wheel[1].refPos[2] };
+    // level: the animation's hands need not be, and model Z is the car's up
+    a[2] = 0.0f;
+    const float len = std::sqrt(a[0]*a[0] + a[1]*a[1]);
+    if (len < 0.1f) return false;
+    a[0] /= len; a[1] /= len;
+    // model space: X right, Y forward, Z up. The face of the wheel looks back at the driver and a little up.
+    const float forward[2] = { -a[1], a[0] };
+    const float c = std::cos(kWheelLean), s = std::sin(kWheelLean);
+    const float n[3] = { -forward[0] * c, -forward[1] * c, s };
+    std::copy_n(a, 3, out.across);
+    std::copy_n(n, 3, out.normal);
+    out.up[0] = n[1]*a[2] - n[2]*a[1];
+    out.up[1] = n[2]*a[0] - n[0]*a[2];
+    out.up[2] = n[0]*a[1] - n[1]*a[0];
+    return true;
+}
+
+// Where a point is on the wheel: radians from 3 o'clock anticlockwise, how far from the hub in its plane, how far off it.
+void WheelCoords(const WheelFrame& f, const float* p, float& angle, float& radial, float& depth) {
+    const float d[3] = { p[0] - g_wheelCenter[0], p[1] - g_wheelCenter[1], p[2] - g_wheelCenter[2] };
+    const float x = Dot3(d, f.across), y = Dot3(d, f.up);
+    depth = Dot3(d, f.normal);
+    radial = std::sqrt(x*x + y*y);
+    angle = std::atan2(y, x);
+}
+
+bool RimGrabMode() {
+    return g_liveControls.xrWheelAnywhere != 0 && g_wheelMountedCar.load(std::memory_order_relaxed);
+}
+
+std::atomic<float> g_rimAngle[2];
+
+// HOW FAR THE DRAWN WHEEL HAS TURNED, which is not how far the controller has. A hand follows this and not the controller:
+// steering goes through the game's rate limits and animation, so a hand following the controller slid about on a wheel going
+// its own pace, and swung past the hub to another place on the rim. Nothing tells script or plugin the wheel's angle, but the
+// animation holds it with both hands (WheelCaptureAnim sees that pose every solve, whoever owns the arm), so the turn of the
+// line between them is the turn of the wheel. Added up frame by frame, and a jump is the animation changing its grip.
+constexpr float kWheelJump = 0.35f;      // radians in a frame
+float g_wheelTurn = 0.0f, g_wheelLine = 0.0f;
+bool g_wheelLineValid = false;
+float g_turnSeen = 0.0f, g_steerSeen = 0.0f;
+bool g_anyHeld = false;
+
+void TrackDrawnWheel() {
+    WheelFrame frame{};
+    if (!g_wheel[0].animValid || !g_wheel[1].animValid || !WheelFrameNow(frame)) { g_wheelLineValid = false; return; }
+    const float d[3] = { g_wheel[0].animPos[0] - g_wheel[1].animPos[0], g_wheel[0].animPos[1] - g_wheel[1].animPos[1],
+                         g_wheel[0].animPos[2] - g_wheel[1].animPos[2] };
+    const float x = Dot3(d, frame.across), y = Dot3(d, frame.up);
+    // one hand off the wheel in this pose (a weapon drawn): the line says nothing, and the wheel is taken to be where it was
+    if (x*x + y*y < 0.15f * 0.15f) { g_wheelLineValid = false; return; }
+    const float line = std::atan2(y, x);
+    if (g_wheelLineValid) {
+        float step = line - g_wheelLine;
+        if (step > 3.14159265f) step -= 6.2831853f; else if (step < -3.14159265f) step += 6.2831853f;
+        if (std::fabs(step) < kWheelJump) g_wheelTurn += step;
+    }
+    g_wheelLine = line;
+    g_wheelLineValid = true;
+}
+
 float g_relaxFingerRot[2][32][4] = {};
 bool  g_relaxFingerHave[2] = { false, false };
 
@@ -167,6 +255,7 @@ void WheelUpdate(float dtSec) {
     // point of the mode. (Left-handed the gun hand is the left one and the right hand drives.)
     const bool weaponOut = g_hasWeaponEquipped;
     const int gunHand = cvr::anim::WeaponInLeftHand() ? 1 : 0;
+    TrackDrawnWheel();
 
     int armedMask = 0;
     for (int h = 0; h < 2; ++h) {
@@ -179,11 +268,20 @@ void WheelUpdate(float dtSec) {
         const bool grip = (h == 0) ? (WheelSlot(49) > 0.5f)
                                    : (WheelSlot(vrshared::kLeftGripPressed) > 0.5f);
         w.atWheel = false;
+        WheelFrame frame{};
+        const bool rim = RimGrabMode() && g_wheelSpan > 0.15f && WheelFrameNow(frame);
+        float rimAngle = 0.0f;
         if (enabled && driving && !handBlocked && w.animValid && w.targetValid) {
-            const float dx = w.target[0] - w.animPos[0];
-            const float dy = w.target[1] - w.animPos[1];
-            const float dz = w.target[2] - w.animPos[2];
-            w.atWheel = (dx*dx + dy*dy + dz*dz) <= (radius * radius);
+            if (rim) {
+                float radial = 0.0f, depth = 0.0f;
+                WheelCoords(frame, w.target, rimAngle, radial, depth);
+                w.atWheel = std::fabs(radial - g_wheelSpan * 0.5f) <= kRimBand && std::fabs(depth) <= kRimDepth;
+            } else {
+                const float dx = w.target[0] - w.animPos[0];
+                const float dy = w.target[1] - w.animPos[1];
+                const float dz = w.target[2] - w.animPos[2];
+                w.atWheel = (dx*dx + dy*dy + dz*dz) <= (radius * radius);
+            }
         }
 
         if (!enabled || !driving || handBlocked) {
@@ -197,6 +295,14 @@ void WheelUpdate(float dtSec) {
             w.engaged = grip;                       // the grip alone holds it; let go and it ends
         } else if (grip && !w.gripPrev && w.atWheel) {
             w.engaged = true;                       // fresh press AT the wheel, never a held grip
+            w.onRim = rim;
+            if (rim) {
+                g_rimAngle[h].store(rimAngle, std::memory_order_relaxed);
+                float refAngle = 0.0f, radial = 0.0f, depth = 0.0f;
+                WheelCoords(frame, w.refPos, refAngle, radial, depth);
+                w.rimTurn = rimAngle - refAngle;
+                w.rimWheel = g_wheelTurn;
+            }
         }
         // Kept up to date even while blocked: a grip still held when the weapon is holstered is not a
         // fresh press, so the wheel is not re-grabbed behind the player's back.
@@ -210,6 +316,17 @@ void WheelUpdate(float dtSec) {
         // press, so the CET side never leaks the first frame of the squeeze.
         if (w.atWheel || w.engaged)
             armedMask |= (h == 0) ? vrshared::kWheelArmedRightBit : vrshared::kWheelArmedLeftBit;
+    }
+
+    // What the setting "full lock" is worth against the drawn wheel, for whoever is matching the two.
+    if (g_wheel[0].engaged || g_wheel[1].engaged) {
+        if (!g_anyHeld) { g_anyHeld = true; g_turnSeen = 0.0f; g_steerSeen = 0.0f; g_wheelTurn = 0.0f; g_wheel[0].rimWheel = g_wheel[1].rimWheel = 0.0f; }
+        g_turnSeen = std::max(g_turnSeen, std::fabs(g_wheelTurn));
+        g_steerSeen = std::max(g_steerSeen, std::fabs(g_wheelSteerDeg.load(std::memory_order_relaxed)));
+    } else if (g_anyHeld) {
+        g_anyHeld = false;
+        if (g_steerSeen > 20.0f)
+            Log("[wheel] let go: the drawn wheel turned at most %.0f deg, the hands %.0f deg\n", g_turnSeen * 57.2957795f, g_steerSeen);
     }
 
     // WHEEL CENTRE. Track it while nothing is held; freeze it for the duration of a grab.
@@ -227,6 +344,11 @@ void WheelUpdate(float dtSec) {
                 g_wheelCenter[2] = (g_wheel[0].animPos[2] + g_wheel[1].animPos[2]) * 0.5f;
                 g_wheelSpan = span;
                 g_wheelCenterValid = true;
+                for (auto& hand : g_wheel) {
+                    std::copy_n(hand.animPos, 3, hand.refPos);
+                    std::copy_n(hand.animRot, 4, hand.refRot);
+                    hand.refValid = true;
+                }
             }
         }
         // Nothing held -> nothing to steer with. Cleared here rather than in the steering pass so it
@@ -338,10 +460,13 @@ float WheelSteerInput() {
     }
     std::lock_guard lock(g_steerMutex);
     if(g_sampledGrabEpoch!=(grab>>2)){g_steering.Reset();g_sampledGrabEpoch=grab>>2;}
+    const float none=std::numeric_limits<float>::quiet_NaN();
+    const bool rimGrab=RimGrabMode();
     const float out=g_steering.Update(uint8_t(state&grab&3),frame,XrDiagNowUs(),
         g_physicalRadius.load(std::memory_order_relaxed),
         WheelFullLockForVehicle(g_liveControls.xrWheelSteerMaxDeg,g_wheelMountedCar.load(std::memory_order_relaxed)),g_liveControls.xrWheelSteerDeadDeg,
-        g_liveControls.xrWheelPrediction ? g_liveControls.xrWheelPredictionMs:0.f);
+        g_liveControls.xrWheelPrediction ? g_liveControls.xrWheelPredictionMs:0.f,
+        rimGrab ? g_rimAngle[0].load(std::memory_order_relaxed):none,rimGrab ? g_rimAngle[1].load(std::memory_order_relaxed):none);
     g_wheelSteer.store(out,std::memory_order_relaxed);
     g_wheelSteerDeg.store(g_steering.Angle(),std::memory_order_relaxed);
     return out;
@@ -360,14 +485,38 @@ float WheelGamepadSteer(float normalized) {
 // solve entirely once the blend is full, so this only ever runs on the way in and out.
 void WheelBlendTarget(int hand, float* target, float* handRot) {
     if (hand < 0 || hand > 1 || !target || !handRot) return;
-    const WheelHand& w = g_wheel[hand];
+    WheelHand& w = g_wheel[hand];
     if (w.blend <= 0.0f || !w.animValid) return;
     const float b = w.blend;
-    target[0] += (w.animPos[0] - target[0]) * b;
-    target[1] += (w.animPos[1] - target[1]) * b;
-    target[2] += (w.animPos[2] - target[2]) * b;
+    float goalPos[3] = { w.animPos[0], w.animPos[1], w.animPos[2] };
+    float goalRot[4] = { w.animRot[0], w.animRot[1], w.animRot[2], w.animRot[3] };
+    WheelFrame frame{};
+    if (w.onRim && w.refValid && WheelFrameNow(frame)) {
+        // the hand, round the hub from where the animation has it to where it took hold, and on with the wheel since
+        float angle = 0.0f, radial = 0.0f, depth = 0.0f;
+        WheelCoords(frame, w.target, angle, radial, depth);
+        // where the controller really is, for the steering when the other hand lets go
+        if (radial > kRimCentre) g_rimAngle[hand].store(angle, std::memory_order_relaxed);
+        const float half = (w.rimTurn + g_wheelTurn - w.rimWheel) * 0.5f, sn = std::sin(half), cs = std::cos(half);
+        const float q[4] = { frame.normal[0] * sn, frame.normal[1] * sn, frame.normal[2] * sn, cs };
+        const float d[3] = { w.refPos[0] - g_wheelCenter[0], w.refPos[1] - g_wheelCenter[1], w.refPos[2] - g_wheelCenter[2] };
+        // v + 2w(q x v) + 2 q x (q x v)
+        const float t[3] = { 2.0f * (q[1]*d[2] - q[2]*d[1]), 2.0f * (q[2]*d[0] - q[0]*d[2]), 2.0f * (q[0]*d[1] - q[1]*d[0]) };
+        goalPos[0] = g_wheelCenter[0] + d[0] + cs*t[0] + q[1]*t[2] - q[2]*t[1];
+        goalPos[1] = g_wheelCenter[1] + d[1] + cs*t[1] + q[2]*t[0] - q[0]*t[2];
+        goalPos[2] = g_wheelCenter[2] + d[2] + cs*t[2] + q[0]*t[1] - q[1]*t[0];
+        // q * refRot
+        const float* r = w.refRot;
+        goalRot[0] = q[3]*r[0] + q[0]*r[3] + q[1]*r[2] - q[2]*r[1];
+        goalRot[1] = q[3]*r[1] - q[0]*r[2] + q[1]*r[3] + q[2]*r[0];
+        goalRot[2] = q[3]*r[2] + q[0]*r[1] - q[1]*r[0] + q[2]*r[3];
+        goalRot[3] = q[3]*r[3] - q[0]*r[0] - q[1]*r[1] - q[2]*r[2];
+    }
+    target[0] += (goalPos[0] - target[0]) * b;
+    target[1] += (goalPos[1] - target[1]) * b;
+    target[2] += (goalPos[2] - target[2]) * b;
     float from[4] = { handRot[0], handRot[1], handRot[2], handRot[3] };
-    float to[4]   = { w.animRot[0], w.animRot[1], w.animRot[2], w.animRot[3] };
+    float to[4]   = { goalRot[0], goalRot[1], goalRot[2], goalRot[3] };
     if (from[0]*to[0] + from[1]*to[1] + from[2]*to[2] + from[3]*to[3] < 0.0f) {
         to[0] = -to[0]; to[1] = -to[1]; to[2] = -to[2]; to[3] = -to[3];
     }
@@ -390,7 +539,8 @@ void WheelStoreTarget(int hand, const float* target) {
 
 // True once the arm is fully the animation's: no solve, no length scale, no cache entry.
 bool WheelHandsOff(int hand) {
-    return (hand >= 0 && hand <= 1) && g_wheel[hand].blend >= kFullBlend;
+    // A hand on the rim is solved to its place there, so the arm stays ours.
+    return (hand >= 0 && hand <= 1) && g_wheel[hand].blend >= kFullBlend && !g_wheel[hand].onRim;
 }
 
 // ================================================================================================
@@ -443,7 +593,8 @@ void WheelFingers(uint8_t* boneBuf) {
         // APPLY. Seated, this hand not (mostly) on the wheel, nothing else claiming the fingers. The
         // switch is at half the grab blend: past that the hand is close enough to the wheel that the
         // animation's grip is the pose you want to see closing around it.
-        if (!weapon && !smoking && g_relaxFingerHave[h] && g_wheel[h].blend < 0.5f) {
+        // Not a hand whose fingers are measured: those are already on it.
+        if (!weapon && !smoking && g_relaxFingerHave[h] && g_wheel[h].blend < 0.5f && !cvr::gestures::OwnsHand(1 - h)) {
             for (int k = 0; k < count && k < 32; ++k) {
                 const int bi = idx[k];
                 if (bi < 0 || bi >= VRIK_MAX_BONES) continue;
@@ -469,9 +620,14 @@ void WheelReset() {
         g_wheel[h].targetValid = false;
         g_wheel[h].animValid = false;
         g_wheel[h].targetFrame = 0;
+        g_wheel[h].refValid = false;
+        g_wheel[h].onRim = false;
     }
     g_wheelCenterValid = false;
     g_wheelSpan = 0.0f;
+    g_wheelLineValid = false;
+    g_wheelTurn = 0.0f;
+    g_anyHeld = false;
     g_wheelBlendRight.store(0.0f, std::memory_order_relaxed);
     g_wheelBlendLeft.store(0.0f, std::memory_order_relaxed);
     g_wheelSteer.store(0.0f, std::memory_order_relaxed);

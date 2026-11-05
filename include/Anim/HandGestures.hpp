@@ -63,6 +63,18 @@ inline float FollowFinger(float current,float wanted,float blend,int digit,float
 }
 // The corrections go by the same hand shapes: the three outer fingers stand for the grip, the index for the trigger,
 // and a thumb lifted off the controller is the thumbs-up.
+// Where a finger's limit goes from what the rays last said, which no longer depends on the finger. Down quickly but not in one
+// frame, up only once the surface has stayed gone for a moment, and not at all for a change too small to be anything but the ray.
+inline float StepFingerLimit(float limit,float wanted,float dt,float& waited) {
+    constexpr float dead=.02f,fall=15.f,rise=2.5f,wait=.12f;
+    if(wanted<limit-dead) {waited=0;return std::max(wanted,limit-fall*dt);}
+    if(wanted>limit+dead) {
+        waited+=dt;
+        return waited<wait ? limit:std::min(wanted,limit+rise*dt);
+    }
+    waited=0;
+    return limit;
+}
 inline CalibrationWeights FingerCalibration(const float* closed) {
     auto weights=CalibrationTargets((closed[2]+closed[3]+closed[4])/3,closed[1],false,false);
     weights[2]=1-closed[0];
@@ -74,6 +86,15 @@ void PublishEquipment(int occupiedMask);
 // Side 0 left, 1 right. Five values 0..1, thumb first, or null when that hand has no measurement. While fresh they
 // take over from grip and trigger on an empty hand.
 void PublishFingers(int side,const float* closed);
+// How far a finger may close, 0 open .. 1 fist, worked out from the hand alone. With `hold` it closes exactly that far: the
+// fingers around a thing in the hand. Side 0 left, 1 right; digit 0 thumb .. 4 little finger. A hand no report has come for
+// lately is free again.
+void FingerContact(int side,int digit,float limit,bool hold);
+// The finger as drawn, and as it would be with nothing in its way. They are what the script measures a finger's path by.
+// How far a finger is pressed back past straight, radians at its first joint, by a surface it runs into straight on.
+void FingerBend(int side,int digit,float angle);
+float FingerClosed(int side,int digit);
+float FingerWanted(int side,int digit);
 // A hand the port has put something in, beside the game's weapon slots: the gun carried in the left hand, a reload's
 // magazine, shell or grip, a cigarette. Side 0 left, 1 right (the controllers as they are).
 bool PortHolds(int side);
