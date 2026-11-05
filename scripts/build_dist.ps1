@@ -320,8 +320,13 @@ REQUIREMENTS
     mounts the port's archive, writes its TweakDB records, merges its input bindings, has its own
     natives for what the scripts used Codeware for, and carries redscript's script compiler (built
     from redscript's sources) for a game without redscript. Keep them if other mods of yours need
-    them (Equipment-EX and Nova Optics do, for themselves); with redscript installed, its compiler
-    compiles the port's scripts too. The port works with or without them.
+    them; with redscript installed, its compiler compiles the port's scripts too. The port works
+    with or without them.
+
+    Not needed any more, though earlier releases listed them: Visual Holsters (the port hangs the
+    weapons on the body itself), Equipment-EX, Nova Optics and More Occluders. More Occluders'
+    scripted v0.3 has been reported not to compile on 2.5, and one script that fails to compile
+    turns every redscript mod off, the port's too.
 
     Nothing else may proxy dxgi. If another VR mod installed bin\x64\dxgi.dll, move it
     out of the folder -- two VR paths in one process fight over the same engine hooks.
@@ -353,10 +358,6 @@ INSTALL
     bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_QuickBoot) to keep
     normal startup and save selection. Existing launcher preferences are preserved;
     show_launcher defaults to 1 only when no saved preference overrides it.
-
-    Install More Occluders (Scripted v0.3) separately from its author's page:
-    https://www.nexusmods.com/cyberpunk2077/mods/33136
-    It is not included in this archive.
 
     Then start your OpenXR runtime, then the game. A small launcher window appears first: pick
     your headset and per-eye render resolution there.
@@ -488,9 +489,8 @@ $looseLines
     save: no custom quest facts, no items that stop existing, no scripted entities parked in the
     world. A save made with the mod loads without it.
 
-    The other mods this one uses -- RED4ext,
-    Visual Holsters, Equipment-EX, Nova Optics.
-    Each has its own uninstall; the lists above remove only what carries the
+    The other mod this one uses -- RED4ext.
+    It has its own uninstall; the lists above remove only what carries the
     CyberpunkVRPort name.
 
 Generated from commit $(git -C $RepoRoot rev-parse --short HEAD 2>$null) on $(Get-Date -Format "yyyy-MM-dd").
@@ -682,7 +682,7 @@ if (Test-Path -LiteralPath (Join-Path $Out 'r6\scripts\cache')) {
     throw "Shared script cache must not be owned by the release package"
 }
 if (Test-Path -LiteralPath (Join-Path $Out 'r6\scripts\MoreOccluders.reds')) {
-    throw "More Occluders must be installed separately from its author's page"
+    throw "More Occluders is not part of the port and must not be packaged"
 }
 Write-Host ""
 Write-Host ("  {0} files, {1:N0} bytes total" -f $all.Count, ($all | Measure-Object Length -Sum).Sum)

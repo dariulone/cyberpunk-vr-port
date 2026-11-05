@@ -217,18 +217,19 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 
 - Cyberpunk 2077 (PC, **2.5**). The engine offsets are matched to 2.5; 2.31 does not work any more.
 - RED4ext (**1.31.0 or newer**)
-- Visual Holsters (Automatic Clothes Swap)
-- Equipment-EX
-- Nova Optics
-- [More Occluders (Scripted v0.3)](https://www.nexusmods.com/cyberpunk2077/mods/33136)
 
 Cyber Engine Tweaks, ArchiveXL, TweakXL, Input Loader, Codeware and redscript are not needed: the plugin runs the
 port's Lua mods itself (CET's scripting core, inside the plugin), mounts the port's archive and applies its
 manifest, writes its TweakDB records, merges its input bindings, has its own natives for what the scripts used
 Codeware for, and carries redscript's script compiler, built from redscript's sources, for a game without redscript
-(docs/native-frameworks-plan-20261030.md). Other mods may still need them -- Equipment-EX and Nova Optics do, for
-themselves; with CET installed it runs its own mods beside the plugin's, and with redscript installed its compiler
-compiles the port's scripts too. The port works with or without them.
+(docs/native-frameworks-plan-20261030.md). Other mods of yours may still need them; with CET installed it runs its
+own mods beside the plugin's, and with redscript installed its compiler compiles the port's scripts too. The port
+works with or without them.
+
+Not needed any more, though earlier releases listed them: Visual Holsters (the port hangs the weapons on the body
+itself), Equipment-EX (the tactical belt has its own slot), Nova Optics (the port has its own optics) and More
+Occluders. More Occluders' scripted v0.3 has been reported not to compile on 2.5, and one script that fails to
+compile turns every redscript mod off, the port's too.
 
 Optional: [Valentino Holsters](https://www.nexusmods.com/cyberpunk2077/mods/18100) (with its ArchiveXL and
 TweakXL) puts real holsters round the weapons the immersive holsters hang on the body -- its leg holster at the
