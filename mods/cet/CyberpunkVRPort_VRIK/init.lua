@@ -585,6 +585,175 @@ local function worldOrientation(player) return player:GetWorldOrientation() end
 local function worldYaw(player) return player:GetWorldYaw() end
 local function worldPosition(player) return player:GetWorldPosition() end
 
+-- THE MIRROR DOUBLE (src/Natives/VrikArming.cpp). Looking into a mirror is a scene that spawns an NPC copy of V at
+-- the mirror (Character.q110_tpp_male_v in V's bathroom); the reflection shows that copy, not the player. A puppet
+-- whose record is a TPP V of the player's gender, within MIRROR_FIND_M while the mirror's own hub (title "Mirror",
+-- with a leave choice) is up, is bound, and it takes the tracked pose -- arms, and the head the first-person body does
+-- not draw. It stays bound while it lives.
+-- ONLY A MIRROR THE PLAYER TURNS ON. A story scene that stands V at a mirror (the prologue starts: the nomad garage,
+-- the corpo restroom) spawns the same q110 double but shows no "Mirror" hub: nothing is bound there, VRIK stays
+-- suspended for the scene as configured, and the scene's own animations play. In the port's copies the
+-- double is not walked to the sink by the scene any more: it is where the scene spawned it, a few metres off, until
+-- the first teleport puts it on the player. Johnny in the mirror (fact johnny_mirror) is the game's and not bound.
+--
+-- WALKING WITH THE MIRROR ON. The port's copies of the interactive mirror scenes (every "Mirror" hub in the game:
+-- V's apartment and base\open_world\scenes\mirrors, tools/mirror/walkable_mirror.py) leave the
+-- player out of them: no slide to the sink, no lean, no workspot, no way back -- the player walks on and the mirror
+-- (its device, the mirrors area, the double, the hub: leave / hairdresser / facial) is the game's. A mirror scene the
+-- port has no copy of still puts the player in its workspot: once its hub is up the player is let out of it. The
+-- double goes where the player goes: an AI teleport command (the scene owns the double, a plain teleport does not
+-- move it), out of any workspot the scene puts it in. X on the same prompt turns it off again (the hub's highlight
+-- is put on its leave choice). Further than MIRROR_OFF_M from where the mirror started, the mirror turns
+-- itself off by its own "leave" choice (the hub's choice marked quest-important): the scene's leave branch is the
+-- only one that switches the reflection off (device ForceOFF, the mirrors area, the double despawned, the mirror
+-- prefab variant). VRInteractionAction (src/Natives/InteractionAction.cpp) hands the hub its scroll and apply
+-- actions directly, the way the game's own input does, and only while the mirror's hub is the active one.
+-- VRIKMirrorDoubleFlags (global, for the harness): bit 0 = identify its passes by buffer A as well.
+VRIKMirrorDoubleFlags = VRIKMirrorDoubleFlags or 0
+local MIRROR_HUB_TITLE = 'LocKey#46420'
+local MIRROR_FREE_AFTER = 0.2   -- seconds of the mirror's hub on screen before the player is let out (when the
+                                -- "look in the mirror" prompt was not seen being taken: then at once)
+local MIRROR_OFF_M = 4.0        -- metres from where the mirror started: it turns itself off
+local MIRROR_STEP = 0.3         -- seconds between the hub actions of a leave
+local MIRROR_FIND_M = 15.0      -- metres around the player the double is looked for once the mirror's hub is up
+local mirrorTimer, mirrorBound = 0.0, false
+local mirror = nil              -- { id, anchor, hubT, freed, stepT, yaw }
+local function findMirrorDouble(player, within)
+    local q = TargetSearchQuery.new()
+    q.maxDistance = within
+    q.testedSet = TargetingSet.Complete
+    q.searchFilter = TSF_All(TSFMV.Obj_Puppet)
+    local _, parts = Game.GetTargetingSystem():GetTargetParts(player, q)
+    local playerHash = player:GetEntityID().hash
+    local female = Game.NameToString(player:GetResolvedGenderName()) == 'Female'
+    for _, part in ipairs(parts or {}) do
+        local e = part:GetComponent():GetEntity()
+        if e and e:GetEntityID().hash ~= playerHash and e:IsA('NPCPuppet') then
+            local record = string.lower(TDBID.ToStringDEBUG(e:GetRecordID()) or '')
+            if string.find(record, 'tpp', 1, true) and string.find(record, '_v$') and
+               (string.find(record, 'female', 1, true) ~= nil) == female then
+                return e
+            end
+        end
+    end
+    return nil
+end
+-- The mirror's hub on screen: its id, the index of its leave choice (nil when it has none), the active hub's id and
+-- the highlighted index. nil when no mirror hub is up.
+local function mirrorHub()
+    local defs = GetAllBlackboardDefs().UIInteractions
+    local bb = Game.GetBlackboardSystem():Get(defs)
+    local hubs = FromVariant(bb:GetVariant(defs.DialogChoiceHubs))
+    for _, hub in ipairs((hubs and hubs.choiceHubs) or {}) do
+        if hub.title == MIRROR_HUB_TITLE then
+            local leave = nil
+            for i, c in ipairs(hub.choices or {}) do
+                if leave == nil and c.type and (c.type.properties % 2) == 1 then leave = i - 1 end
+            end
+            return hub.id, leave, bb:GetInt(defs.ActiveChoiceHubID), bb:GetInt(defs.SelectedIndex)
+        end
+    end
+    return nil
+end
+-- One step of leaving the mirror by its leave choice: the highlight moved onto it, then applied.
+local function stepLeave()
+    if type(VRInteractionAction) ~= 'function' then return end
+    local id, leave, active, selected = mirrorHub()
+    if id == nil or leave == nil or active ~= id then return end
+    local action = 'ChoiceApply'
+    if selected > leave then action = 'ChoiceScrollUp' elseif selected < leave then action = 'ChoiceScrollDown' end
+    VRInteractionAction(CName.new(action))
+end
+local mirrorSeenT = 99.0   -- seconds since a mirror hub (the "look in the mirror" prompt or the mirror's own) was up
+local function updateMirrorDouble(player, dt)
+    local ws = Game.GetWorkspotSystem()
+    if mirror == nil then
+        mirrorTimer = mirrorTimer + dt
+        mirrorSeenT = mirrorSeenT + dt
+        if mirrorTimer < 0.1 then return end
+        mirrorTimer = 0.0
+        local hubId, leave = mirrorHub()
+        if hubId ~= nil then mirrorSeenT = 0.0 end
+        local inWorkspot = ws:IsActorInWorkspot(player)
+        local double = nil
+        if leave ~= nil and Game.GetQuestsSystem():GetFactStr('johnny_mirror') <= 0 then
+            double = findMirrorDouble(player, MIRROR_FIND_M)
+        end
+        if double and VRMirrorDouble(double, VRIKMirrorDoubleFlags) == true then
+            mirrorBound = true
+            -- a mirror's scene (its prompt was just taken, or its hub is up): no workspot from the first frame
+            mirror = { id = double:GetEntityID(), anchor = player:GetWorldPosition(), stepT = 0.0, hubT = 0.0,
+                       freed = not inWorkspot, taken = mirrorSeenT < 3.0 }
+        end
+        return
+    end
+    local double = Game.FindEntityByID(mirror.id)
+    if double == nil then
+        VRMirrorDoubleClear()
+        mirrorBound, mirror = false, nil
+        return
+    end
+    mirrorTimer = mirrorTimer + dt
+    if mirrorTimer >= 0.25 then
+        mirrorTimer = 0.0
+        VRMirrorDouble(double, VRIKMirrorDoubleFlags)   -- cheap for the same entity; rebinds a rebuilt rig
+    end
+    -- in the scene's workspot (at the start, or put back by a hub branch): let out once the mirror's hub is up
+    if ws:IsActorInWorkspot(player) then
+        mirror.freed = false
+        if mirrorHub() ~= nil then mirror.hubT = mirror.hubT + dt else mirror.hubT = 0.0 end
+        if mirror.taken or mirror.hubT >= MIRROR_FREE_AFTER then
+            mirror.taken = false
+            ws:SendFastExitSignal(player, Vector3.new(0, 0, 0), false, false, true, false)
+            mirror.freed, mirror.hubT = true, 0.0
+        end
+        return
+    end
+    if not mirror.freed then return end
+    -- X ON THE SAME PROMPT TURNS IT OFF: the highlight starts on the leave choice (first in V's bathroom, not in
+    -- every mirror), so the confirm that turned the mirror on turns it off again. Once, for up to 3 s: a hub the
+    -- player scrolls afterwards is theirs.
+    if not mirror.homed then
+        mirror.homeT = (mirror.homeT or 0.0) + dt
+        mirror.stepT = mirror.stepT - dt
+        if mirror.homeT > 3.0 then
+            mirror.homed = true
+        elseif mirror.stepT <= 0.0 then
+            mirror.stepT = MIRROR_STEP
+            local id, leave, active, selected = mirrorHub()
+            if id ~= nil and leave ~= nil and active == id then
+                if selected == leave then
+                    mirror.homed = true
+                elseif type(VRInteractionAction) == 'function' then
+                    VRInteractionAction(CName.new(selected > leave and 'ChoiceScrollUp' or 'ChoiceScrollDown'))
+                end
+            end
+        end
+    end
+    -- the double where the player is
+    if ws:IsActorInWorkspot(double) then ws:SendFastExitSignal(double, Vector3.new(0, 0, 0), false, false, true, false) end
+    local p = player:GetWorldPosition()
+    local yaw = player:GetWorldYaw()
+    local dp = double:GetWorldPosition()
+    local dx, dy, dz = p.x - dp.x, p.y - dp.y, p.z - dp.z
+    if dx * dx + dy * dy + dz * dz > 1e-4 or mirror.yaw == nil or math.abs(yaw - mirror.yaw) > 0.5 then
+        local cmd = AITeleportCommand.new()
+        cmd.position = p
+        cmd.rotation = yaw
+        cmd.doNavTest = false
+        double:GetAIControllerComponent():SendCommand(cmd)
+        mirror.yaw = yaw
+    end
+    -- far from the mirror: its own leave choice
+    if Vector4.Distance(p, mirror.anchor) > MIRROR_OFF_M then
+        mirror.stepT = mirror.stepT - dt
+        if mirror.stepT <= 0.0 then
+            mirror.stepT = MIRROR_STEP
+            stepLeave()
+        end
+    end
+end
+
 registerForEvent('onUpdate', function(dt)
     local okCyberware, cyberwareError = pcall(updateCyberware, dt)
     if not okCyberware then
@@ -618,6 +787,11 @@ registerForEvent('onUpdate', function(dt)
 
     local player = Game.GetPlayer()
     if not player then return end
+
+    if type(VRMirrorDouble) == 'function' and not pcall(updateMirrorDouble, player, dt or 0.0) then
+        if mirrorBound then pcall(VRMirrorDoubleClear) end
+        mirrorBound, mirror = false, nil
+    end
 
     -- LOCOMOTION STATE -> the plugin, for one decision it cannot make on its own: the sprint detent
     -- (left stick to the stop) must not stand a CROUCHING player up. The plugin sees buttons and poses,

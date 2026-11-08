@@ -364,7 +364,7 @@ def cmd_entity():
             c['mesh']['DepotPath']['$value'] = ours(depot)
             c['meshAppearance']['$value'] = 'default'
             # with the game's arms: a weapon out, the arms and the weapon go to the weapon plane, and a hand left in
-            # the scene plane has the weapon drawn over it -- seen through the fingers (players, 2026-11-05)
+            # the scene plane has the weapon drawn over it -- seen through the fingers (2026-11-05)
             c['renderingPlaneAnimationParam']['$value'] = 'renderPlane'
             c['visibilityAnimationParam']['$value'] = 'None'
             c['castShadows'] = c['castLocalShadows'] = 'Never'

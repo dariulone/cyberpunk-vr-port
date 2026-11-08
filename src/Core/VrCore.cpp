@@ -17,6 +17,7 @@
 #include "Camera/CameraState.hpp"   // PatchFastPath, PatchFastDisarm
 #include "Overlay/LiveControlsUi.hpp"
 #include "Overlay/LauncherDialog.hpp"
+#include "Lobby/MenuLobby.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/RuntimeFovCorrection.hpp"
 #include <RED4ext/RED4ext.hpp>
@@ -79,6 +80,9 @@ int g_launcherDebug = 0;
 // Persisted startup switch. Automated runs use the saved selection when disabled.
 int g_launcherShow = 1;
 int g_launcherDelayMs = 1000;
+// 1: the saved width x height is the player's own (typed or slid in the launcher), not a ladder entry. Engine stereo
+// renders any size (no VRCAM asset per size), so it is kept; without engine stereo it still moves to the ladder.
+int g_launcherCustomRes = 0;
 
 // Moved to src/Core/LauncherConfig.cpp: paths and the launcher ini.
 
@@ -96,6 +100,8 @@ void WriteVrikSettingsFile() {
 
 // Moved to src/Core/LiveControls.cpp: polling the live-control file and the overlay UI state.
 
+extern "C" int GetLauncherEngineStereo();
+
 extern "C" void PrepareStartupLiveControls() {
     static bool g_dialogShown = false;
     EnsureLiveControlFileExists();
@@ -110,7 +116,8 @@ extern "C" void PrepareStartupLiveControls() {
             // exists, and an entry only engine stereo offers has none: no second eye. The dialog would move it;
             // without the dialog, move it here.
             const int savedWidth = g_launcherWidth, savedHeight = g_launcherHeight;
-            if (SnapLauncherResolution(g_launcherHmdType, &g_launcherWidth, &g_launcherHeight)) {
+            const bool keepCustom = g_launcherCustomRes && GetLauncherEngineStereo();
+            if (!keepCustom && SnapLauncherResolution(g_launcherHmdType, &g_launcherWidth, &g_launcherHeight)) {
                 Log("Launcher: %dx%d is not in HMD type %d's ladder -> %dx%d (nearest in cost)\n",
                     savedWidth, savedHeight, g_launcherHmdType, g_launcherWidth, g_launcherHeight);
                 SaveLauncherConfig(g_launcherWidth, g_launcherHeight);
@@ -135,8 +142,10 @@ static std::atomic<bool> g_launchEyeSizeDecided{false};
 extern "C" void FitLauncherResolutionToRuntime() {
     uint32_t maxWidth = 0, maxHeight = 0;
     const int width = g_launcherWidth, height = g_launcherHeight;
+    // a custom size is scaled into the limit at its own aspect (-1: no ladder to pick from)
+    const int ladder = g_launcherCustomRes ? -1 : g_launcherHmdType;
     if (OpenXRManager::Get().GetEyeImageLimit(&maxWidth, &maxHeight) &&
-        FitLauncherResolution(g_launcherHmdType, static_cast<int>(maxWidth), static_cast<int>(maxHeight),
+        FitLauncherResolution(ladder, static_cast<int>(maxWidth), static_cast<int>(maxHeight),
                               &g_launcherWidth, &g_launcherHeight))
         Log("Launcher: %dx%d is larger than the runtime takes for one eye (%ux%u) -> %dx%d for this launch\n",
             width, height, maxWidth, maxHeight, g_launcherWidth, g_launcherHeight);
@@ -186,6 +195,24 @@ extern "C" void SetLauncherDebugAndPersist(int on) {
 
 extern "C" int GetCurrentHmdType() {
     return g_launcherHmdType;
+}
+
+// The launcher's "custom size" flag (custom_res in vrport-launcher.ini), saved with the next SaveLauncherConfig.
+extern "C" int GetLauncherCustomResolution() {
+    return g_launcherCustomRes;
+}
+extern "C" void SetLauncherCustomResolution(int on) {
+    g_launcherCustomRes = on != 0 ? 1 : 0;
+}
+
+// The VR lobby (xr_lobby in vrport.ini): the main menu shown in its own world. The launcher closes before the main
+// menu opens, so a change takes effect in this launch.
+extern "C" int GetLauncherLobby() {
+    return cvr::lobby::Enabled() ? 1 : 0;
+}
+extern "C" void SetLauncherLobbyAndPersist(int on) {
+    cvr::lobby::SetEnabled(on != 0);
+    PersistLiveControlsUiState(MakeLiveControlsUiState());
 }
 
 // Persist the VR runtime choice (0 = OpenXR default runtime, 1 = SteamVR/OpenVR)

@@ -37,7 +37,7 @@ LIBRARIES = {
     0x577c76e2620a7045: ('rgs_reflection_opaque_main', True),
     0xd65732f151ce113a: ('rgs_reflection_opaque_main, permutation', True),
     0x7c98c9cdc64d7f2b: ('rgs_reflection_transparent_main', False),
-    # The same raygen as a mod in the user's load order rebuilt it (extra sun-shadow traces, values named rfSun*):
+    # The same raygen as a mod in a load order rebuilt it (extra sun-shadow traces, values named rfSun*):
     # the game creates this one instead of 7c98 (2026-11-03, CreateStateObject library census).
     0x16a3f056d8ec9845: ('rgs_reflection_transparent_main (modded, rfSun)', False),
     # Path tracing: the camera ray and its biased start are mirrored/scattered the same way (view_survey.py, 2026-11-02).

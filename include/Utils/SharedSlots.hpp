@@ -229,6 +229,10 @@ constexpr int kDualWieldYTap      = 57;
 // 1 = HANDS ONLY (xr_body_hands_only): the player's body is drawn as its hands alone. openxr -> the CET HandsOnly
 // mod (which hides the body, the garments and the arms above the wrists) and NeckCap (the neck cap stays off).
 constexpr int kBodyHandsOnly      = 173;
+// 1 = the physical reload's highlight is OFF (xr_reload_glow = 0): no pulsing magazine where it seats, no glowing
+// bolt or slide to rack. openxr -> the CET Reload mod (reload/glow.lua). Inverted so the zero-initialized block, or
+// a plugin that does not publish it, leaves the highlight on.
+constexpr int kReloadGlowOff      = 174;
 constexpr int kWheelArmedRightBit = 1;
 constexpr int kWheelArmedLeftBit  = 2;
 } // namespace vrshared

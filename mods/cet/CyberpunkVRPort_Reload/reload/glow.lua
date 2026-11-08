@@ -36,6 +36,15 @@ local S = { comp = {}, mesh = {}, look = {}, slots = nil, time = 0.0, missed = {
 -- only this often: looked for every frame, they were most of the reload's cost (2.7 ms a frame).
 local RETRY = 2.0
 
+-- THE SWITCH (Settings > Controls > Reload highlight, xr_reload_glow): the plugin publishes it inverted to shared slot
+-- [174], 1 = off, so an unset slot (a plugin that does not publish it) leaves the highlight on. Off draws nothing --
+-- no copy, no brackets -- and the reload itself is untouched.
+local GLOW_OFF_SLOT = 174
+local function switchedOff()
+    if type(GetVRSharedSlot) ~= 'function' then return false end
+    return GetVRSharedSlot(GLOW_OFF_SLOT) > 0.5
+end
+
 local function qconj(q) return -q.i, -q.j, -q.k, q.r end
 local function qmul(ai, aj, ak, ar, bi, bj, bk, br)
     return ar * bi + ai * br + aj * bk - ak * bj,
@@ -164,6 +173,7 @@ end
 function M.frame(reload, weapon, holder, weaponSlots, dt)
     S.time = S.time + (dt or 0.016)
     if not (reload and reload.wants and weapon and (holder == 0 or holder == 1)) then off(); return end
+    if switchedOff() and not (S.forced and S.time < S.forced.till) then off(); return end
     local okW, want, mesh, slideSlot = pcall(reload.wants, weapon)
     if not okW then off(); return end
     if S.forced and S.time < S.forced.till then want = S.forced.want end

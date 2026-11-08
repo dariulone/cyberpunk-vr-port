@@ -381,11 +381,15 @@ void Remember(const Handle<ink::Widget>& root,const float* world,bool valid=true
         // Under the engine's stereo the HUD's design scale is 1.92x the one-eye root's (HudDesignRatio).
         if(scaleMarker)resize=entry.scale.Target(root->renderTransform.scale.X,root->renderTransform.scale.Y,target.X,target.Y,
             .7f*cvr::engine_stereo::HudDesignRatio(CyberpunkVR_HudRootWidth,CyberpunkVR_HudRootHeight));
-        if(roots.size()>512) {
+        // Entries of destroyed roots go once a second, not only past 512: their addresses are handed to new
+        // widgets (Paint ignores an entry that is not its widget's, this keeps the map to the live markers).
+        static uint64_t nextPrune=0;
+        if(now>=nextPrune || roots.size()>512) {
+            nextPrune=now+1000;
             for(auto it=roots.begin();it!=roots.end();) {
                 // Retain scale ownership while a hidden marker is still alive;
                 // expiring it by time alone would shrink it again on reappearance.
-                if(now-it->second.stamp>2000 && !it->second.root.Lock())it=roots.erase(it);else ++it;
+                if(now-it->second.stamp>2000 && it->second.root.Lock().GetPtr()!=it->first)it=roots.erase(it);else ++it;
             }
         }
         CVR_DIAGNOSTIC(CyberpunkVR_WorldMarkerRoots.store(roots.size(),std::memory_order_relaxed));
@@ -617,13 +621,17 @@ void Paint(ink::Widget* widget,void* context) {
     bool hidden=false;
     if(Enabled()) {
         std::shared_lock lock(rootsMutex);
-        const auto it=roots.find(widget);
+        // AN ENTRY IS ONLY ITS OWN WIDGET'S. The map is keyed by address and a destroyed marker root's entry
+        // outlives it (Remember prunes it later); a new widget at that address -- a child of a newer marker -- is
+        // no root of ours. Taken for one, it reset the depth of its whole subtree to 0, which then drew flat with
+        // the engine's stereo term beside the lifted copy: the doubled quest marker of 2026-11-06 (two controllers
+        // of one mappin, the newer one's first child at a root address freed 17 minutes earlier).
+        auto it=roots.find(widget);
+        if(it!=roots.end() && it->second.root.Lock().GetPtr()!=widget)it=roots.end();
         if(it!=roots.end()) {
-            const auto live=it->second.root.Lock();
             // A marker whose point is behind the head (CollectMappin) stays as its update last left it.
-            hidden=live.GetPtr()==widget && it->second.hidden;
-            const float own=live.GetPtr()==widget && GetTickCount64()-it->second.stamp<1000
-                ? it->second.inverseDepth : 0;
+            hidden=it->second.hidden;
+            const float own=GetTickCount64()-it->second.stamp<1000 ? it->second.inverseDepth : 0;
             // An inheriting root keeps the depth of the projected root it is painted inside (a
             // nameplate); with none around it, it is painted at its own point instead of at infinity.
             if(!it->second.inheritDepth || paintDepth<=0) {
@@ -639,7 +647,7 @@ void Paint(ink::Widget* widget,void* context) {
             auto parent=widget->parentWidget.Lock();
             for(int i=0;parent && i<24;++i,parent=parent->parentWidget.Lock()) {
                 const auto found=roots.find(parent.GetPtr());
-                if(found==roots.end())continue;
+                if(found==roots.end() || found->second.root.Lock().GetPtr()!=parent.GetPtr())continue;
                 CyberpunkVR_WorldMarkerDetachedPaints.fetch_add(1,std::memory_order_relaxed);
                 CyberpunkVR_WorldMarkerDetachedPaint[0]=reinterpret_cast<uintptr_t>(parent.GetPtr());
                 CyberpunkVR_WorldMarkerDetachedPaint[1]=reinterpret_cast<uintptr_t>(widget);

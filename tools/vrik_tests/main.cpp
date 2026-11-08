@@ -18,6 +18,7 @@
 #include "Core/VrCoreShared.hpp"
 #include "Runtimes/RoomscaleMovement.hpp"
 #include <array>
+#include <limits>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -112,9 +113,41 @@ void BodyCentreOrbit() {
         const auto view=ComposeViewTranslation({},recipe,angle*.4f,angle);
         Near(view.x,mount.x,1e-6f,"body yaw moved optical centre X");
         Near(view.y,mount.y,1e-6f,"body yaw moved optical centre Y");
-        const auto world=RotateAnchorYaw({mount.x+offset.x,mount.y+offset.y,mount.z},angle);
-        Near(world.x,view.x,1e-6f,"body orbit lost calibrated head X");
-        Near(world.y,view.y,1e-6f,"body orbit lost calibrated head Y");
+        // A physical turn keeps the NECK in place, not the eye: the eye's travel round the neck is the tracked residual's.
+        const auto pivot=BodyOrbitPivot(recipe);
+        const auto world=RotateAnchorYaw({pivot.x+offset.x,pivot.y+offset.y,0},angle);
+        Near(world.x,pivot.x,1e-6f,"body orbit lost the calibrated neck X");
+        Near(world.y,pivot.y,1e-6f,"body orbit lost the calibrated neck Y");
+        // A stick turn (the view's yaw turning with the body) keeps the EYE in place: the world turns about the eyes.
+        const auto stick=BodyOrbitModel(recipe,angle,angle);
+        const auto eyeWorld=RotateAnchorYaw({mount.x+stick.x,mount.y+stick.y,0},angle);
+        Near(eyeWorld.x,mount.x,1e-6f,"a stick turn swung the body round the eyes X");
+        Near(eyeWorld.y,mount.y,1e-6f,"a stick turn swung the body round the eyes Y");
+        // Both at once: after a stick turn of .6 rad and a physical one of `angle`, the body's neck is the player's --
+        // the eye less the lever along the view's forward.
+        const auto both=BodyOrbitModel(recipe,.6f+angle,.6f);
+        const auto neckWorld=RotateAnchorYaw({pivot.x+both.x,pivot.y+both.y,0},.6f+angle);
+        const auto lever=RotateAnchorYaw(BodyOrbitLever(recipe),.6f);
+        Near(neckWorld.x,mount.x-lever.x,1e-6f,"stick and physical turns put the body's neck off the player's X");
+        Near(neckWorld.y,mount.y-lever.y,1e-6f,"stick and physical turns put the body's neck off the player's Y");
+        // The player's neck from the roomscale ledger: the body's neck goes there, a physical turn keeps it there, and the
+        // assumed neck given as the ledger's changes nothing.
+        for(const AnchorVector rest:{AnchorVector{.012f,-.081f,0},AnchorVector{-.009f,-.104f,0}}) {
+            const auto ledger=BodyOrbitModel(recipe,.6f+angle,.6f,&rest);
+            const auto ledgerNeck=RotateAnchorYaw({pivot.x+ledger.x,pivot.y+ledger.y,0},.6f+angle);
+            const auto restWorld=RotateAnchorYaw(rest,.6f);
+            Near(ledgerNeck.x,mount.x+restWorld.x,1e-6f,"the body's neck left the ledger's neck X");
+            Near(ledgerNeck.y,mount.y+restWorld.y,1e-6f,"the body's neck left the ledger's neck Y");
+        }
+        const AnchorVector assumed{0,-kOrbitEyeAheadOfNeck,0};
+        const auto same=BodyOrbitModel(recipe,.6f+angle,.6f,&assumed);
+        Near(same.x,both.x,1e-6f,"the assumed neck through the ledger moved the body X");
+        Near(same.y,both.y,1e-6f,"the assumed neck through the ledger moved the body Y");
+        // Far from the assumed neck is no neck: clamped to kOrbitRestNeckReach.
+        const AnchorVector distant{1.f,-kOrbitEyeAheadOfNeck,0};
+        const auto clamped=BodyOrbitModel(recipe,angle,0,&distant);
+        const auto clampedNeck=RotateAnchorYaw({pivot.x+clamped.x,pivot.y+clamped.y,0},angle);
+        Near(clampedNeck.x,pivot.x+kOrbitRestNeckReach,1e-6f,"a far ledger neck was not clamped");
         const auto first=pose;
         for(int repeat=0;repeat<100;++repeat)SolveBody(pose,nullptr,nullptr,orbit);
         for(size_t i=0;i<pose.size();++i)for(int k=0;k<3;++k)Near(pose[i].p[k],first[i].p[k],1e-5f,"orbit accumulated across repeated poses");
@@ -297,7 +330,8 @@ void BodyBendGeometry() {
         auto& seq=*reinterpret_cast<uint32_t*>(&shared[127]);seq+=2;RefreshHandsSnapshot();
     };
     publish(.7f);const float head[4]={-std::sin(.35f),0,0,std::cos(.35f)};
-    SolveBody(pose,head);
+    // the body's bend angle eases in (0.06 s) -- a solve is a 90 Hz frame here: a second of them is the settled bend
+    for(int frame=0;frame<90;++frame)SolveBody(pose,head);
     std::cout<<"bend_pelvis_delta_mm="<<(g_fkPos[2][1]-hipsY)*1000<<','<<(g_fkPos[2][2]-hipsZ)*1000
         <<" head_forward_mm="<<(g_fkPos[22][1]-headY)*1000<<'\n';
     Check(g_fkPos[2][1]<hipsY-.03f,"bending did not move pelvis back");
@@ -329,7 +363,8 @@ void BodyBendGeometry() {
     VRIK_CaptureModelCache();auto replay=native;
     VRIK_ReplayModelCache(reinterpret_cast<uint8_t*>(replay.data()));
     for(int i=0;i<6;++i)for(int k=0;k<3;++k)Near(g_fkPos[legs[i]][k],cached[i][k],2e-5f,"pose replay lost bent knees");
-    publish(0);SolveBody(pose);
+    // the bend eases out and its limit fades over 0.35 s (a solve is a 90 Hz frame here): the legs are native after
+    publish(0);for(int frame=0;frame<200;++frame)SolveBody(pose);
     for(int bone:legs)for(int k=0;k<12;++k)Near(reinterpret_cast<float*>(&pose[bone])[k],reinterpret_cast<const float*>(&native[bone])[k],1e-5f,"standing did not release native legs");
     VRIK_SyncShadowUpper(reinterpret_cast<uint8_t*>(pose.data()));
     for(int source:legs) {
@@ -343,7 +378,7 @@ void BodyBendGeometry() {
     // release we must return that new gait, not the first standing snapshot.
     const auto newNative=Read<Bone>("shotgun-3.bin");
     for(int bone:legs)pose[bone]=newNative[bone];
-    publish(.5f);SolveBody(pose,head);publish(0);SolveBody(pose);
+    publish(.5f);SolveBody(pose,head);publish(0);for(int frame=0;frame<200;++frame)SolveBody(pose);
     for(int bone:legs)for(int k=0;k<12;++k)Near(reinterpret_cast<float*>(&pose[bone])[k],reinterpret_cast<const float*>(&newNative[bone])[k],1e-5f,"bend release restored a stale native gait");
 }
 void FloorReachGeometry() {
@@ -384,6 +419,9 @@ void FloorReachGeometry() {
     Near(g_fkPos[2][2],standingHip,1e-5f,"standing retains the final crouch EMA deadband");
     std::cout<<"floor_chest_down="<<-front[2]<<'\n';
 }
+// The bend limit fades by this clock: one 90 Hz frame per body solve (g_VRBendLimitClockUs).
+int64_t g_testClockUs=0,g_testClockStepUs=11111;
+int64_t TestClock() { return g_testClockUs+=g_testClockStepUs; }
 void HeadBoundBend(bool bind) {
     Setup("weapon_stance");const auto reference=Read<Bone>("reference_full.bin");
     auto find=[](const char* a,const char* b) {
@@ -393,23 +431,40 @@ void HeadBoundBend(bool bind) {
     const int le=find("LeftEye","l_J_eye_JNT"),re=find("RightEye","r_J_eye_JNT");
     auto neutral=reference;SolveBody(neutral);float neutralEye[3];
     for(int k=0;k<3;++k)neutralEye[k]=.5f*(g_fkPos[le][k]+g_fkPos[re][k]);
+    // The limit fades in and out over 0.35 s (32 frames at 90 Hz): it binds once it is in.
+    const int fadeFrames=33;
     float maxLead=0,maxAbove=0,maxDeepError=0;int constrained=0;
+    float pelvisStep[2]{};
+    // pass 0: a clock of a second a solve, the limit at once (as it was); pass 1: 90 Hz, faded
+    for(int pass=0;pass<2;++pass) {
+    g_testClockStepUs=pass ? 11111:1000000;
     for(float forwardFraction:{0.0f,.25f,1.0f}) {
         cvr::body::BendTracker tracker;
+        // the bend's geometry under the head, not the reach's handover to the squat (BendTracker::Update; tested in
+        // roomscale floor_reach_tracking): the deepest squat depth, and a straight-down reach kept within a reach
+        tracker.SetSquatDepth(.55f);
+        int bentFor=0;float lastPelvis=std::numeric_limits<float>::quiet_NaN();
         for(int frame=0;frame<=200;++frame) {
             // Include a deep reach hold: the accepted 24cm bend threshold
-            // intentionally leaves more of the approach upright now.
+            // intentionally leaves more of the approach upright now. (The 20 cm below the hinge go with the neck's
+            // forward travel: straight down they are a squat's depth, 0.56 m, where the reach hands over to the squat.)
             const float t=frame<=80 ? float(frame)/80 : (frame<=120 ? 1.0f:float(200-frame)/80);
             const float a=1.134464f*t,q[4]={-std::sin(a*.5f),0,0,std::cos(a*.5f)};
-            const float optical[3]={0,.08f,-.15f};float rotated[3];VRIK_QuatRotateVec(q,optical,rotated);
-            const float xr[3]={0,-.63f*(1-std::cos(a))-.2f*t+rotated[1]-.08f,
-                -.63f*std::sin(a)*forwardFraction+rotated[2]+.15f};
+            const float optical[3]={0,cvr::body::EyeAboveNeck,-cvr::body::EyeAheadOfNeck};float rotated[3];VRIK_QuatRotateVec(q,optical,rotated);
+            const float xr[3]={0,-.63f*(1-std::cos(a))-(forwardFraction>=1 ? .2f*t:0.0f)+rotated[1]-cvr::body::EyeAboveNeck,
+                -.63f*std::sin(a)*forwardFraction+rotated[2]+cvr::body::EyeAheadOfNeck};
             const auto bend=tracker.Update({xr[0],xr[1],xr[2]},{q[0],q[1],q[2],q[3]},1);
             shared[114]=bend.angle;shared[115]=2;shared[89]=xr[1];shared[90]=xr[1]-rotated[1];
             auto& seq=*reinterpret_cast<uint32_t*>(&shared[127]);seq+=2;RefreshHandsSnapshot();
             const float delta[3]={xr[0],-xr[2],xr[1]};auto pose=reference;
             SolveBody(pose,q,bind ? delta:nullptr);
-            if(bend.angle>1e-5f) {
+            const float pelvis=g_fkPos[g_VRHipsIdx][2];
+            // the bend's edges -- coming in and going out, under 6 degrees -- not the fast hinge's own geometry between
+            if(std::isfinite(lastPelvis) && bend.angle<.1f)
+                pelvisStep[pass]=std::max(pelvisStep[pass],std::abs(pelvis-lastPelvis));
+            lastPelvis=pelvis;
+            bentFor=bend.angle>1e-5f ? bentFor+1:0;
+            if(pass==1 && bentFor>fadeFrames) {
                 ++constrained;
                 float error[3];for(int k=0;k<3;++k)error[k]=.5f*(g_fkPos[le][k]+g_fkPos[re][k])-neutralEye[k]-delta[k];
                 maxLead=std::max(maxLead,error[1]);maxAbove=std::max(maxAbove,error[2]);
@@ -417,9 +472,17 @@ void HeadBoundBend(bool bind) {
             }
         }
     }
+    }
+    g_testClockStepUs=11111;
     std::cout<<"head_anchor_forward_lead_mm="<<maxLead*1000<<" above_mm="<<maxAbove*1000
-        <<" deep_error_mm="<<maxDeepError*1000<<'\n';
-    Check(constrained>300,"head anchor trajectory failed to exercise bending");
+        <<" deep_error_mm="<<maxDeepError*1000<<" pelvis_frame_step_mm instant="<<pelvisStep[0]*1000
+        <<" faded="<<pelvisStep[1]*1000<<'\n';
+    Check(constrained>200,"head anchor trajectory failed to exercise bending");
+    if(bind) {
+        // the jump between bent and upright (2026-11-06): at once, the limit moved the pelvis by the whole gap in a frame
+        Check(pelvisStep[1]<.015f,"the bend's limit still moves the pelvis in a jump");
+        Check(pelvisStep[1]<pelvisStep[0]*.3f,"fading the bend's limit did not soften its edge");
+    }
     Check(maxLead<=.0101f,"bending upper body overtakes the HMD forward position");
     Check(maxAbove<=.0151f,"bending upper body stays above the lowered HMD");
     Check(maxDeepError<.001f,"deep bend is not built under the paired HMD");
@@ -1061,6 +1124,21 @@ void ForearmSolve() {
             Check(change>previous+.05f,"full arm solve did not drive forearm helpers with wrist roll");previous=change;
         }
     }
+}
+extern "C" float CyberpunkVR_DebugToes[2][3];
+// The knee's pole in a squat follows the toes (CyberpunkVR_SquatKneeMode): the toes must be the ToeBase bones, ahead of
+// the ankles -- the foot's other child, LeftHeel, is behind them and bent the knees backward (2026-11-07).
+void ToesAhead() {
+    auto pose=Read<Bone>("player_local.bin");SolveBody(pose);VRIK_PublishBodyBones();
+    const int feet[2]={g_VRRightFootIdx,g_VRLeftFootIdx};
+    for(int side=0;side<2;++side) {
+        Check(feet[side]>=0,"no foot");
+        const float* toe=CyberpunkVR_DebugToes[side];const float* foot=g_fkPos[feet[side]];
+        const float ahead=toe[1]-foot[1],below=foot[2]-toe[2];
+        std::cout<<(side ? "left":"right")<<" toe ahead of the ankle "<<ahead*1000<<" mm, below "<<below*1000<<" mm\n";
+        Check(ahead>.05f,"the toe is not ahead of the ankle");
+    }
+    std::cout<<"PASS toes ahead of the ankles\n";
 }
 void NativeLowerPreserved() {
     auto pose=Read<Bone>("player_local.bin");const auto native=pose;SolveBody(pose);
@@ -2005,6 +2083,7 @@ void LadderUpper() {
 }
 int main(int argc,char** argv) {
     try {
+        g_VRBendLimitClockUs=TestClock;
         Setup();const std::string name=argc>1?argv[1]:"";
         if(name=="fk_fixture")FkFixture();
         else if(name=="packet_atomicity")PacketAtomicity();
@@ -2048,6 +2127,7 @@ int main(int argc,char** argv) {
         else if(name=="forearm_roll")ForearmRoll();
         else if(name=="forearm_solve")ForearmSolve();
         else if(name=="native_lower")NativeLowerPreserved();
+        else if(name=="toes_ahead")ToesAhead();
         else if(name=="head_basis")HeadBasis();
         else if(name=="neck_mount")NeckMount();
         else if(name=="body_centre_orbit")BodyCentreOrbit();

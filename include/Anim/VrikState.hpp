@@ -57,6 +57,11 @@ inline SRWLOCK g_PlayerPoseStateLock = SRWLOCK_INIT;
 // Last completed binding owns the camera's accumulated yaw during a rebind.
 // Its temporary boneCount=0 pauses new motion but must not reset the view offset.
 inline std::atomic<bool> g_PlayerPoseHeadingReady{false};
+// THE MIRROR DOUBLE (src/Natives/VrikArming.cpp): the scene's NPC copy of V, bound from CET, takes the player's
+// pose after each pass. While one is bound the scene does not suspend VRIK: the tier below reads -1 then.
+bool VRIK_MirrorDoubleActive();
+int VRIK_EffectiveCutsceneSuspendTier();
+void VRIK_MirrorDoublePass(uint8_t* boneBuf,uintptr_t trackBuf,uint32_t slots);
 inline bool VRIK_PlayerPoseFits(uint32_t slots,int bones,int fkCount) {
     return bones>0 && bones<=VRIK_MAX_BONES && slots>=static_cast<uint32_t>(bones) &&
         fkCount>=0 && fkCount<=bones;

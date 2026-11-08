@@ -17,7 +17,7 @@ inline float WheelFullLockDegrees(float value) {
 // model's turn input, not in proportion to it: at the game's post-deadzone input n (0..1) the wheel stands at
 // 89.9 n + 40.1 n^3 degrees -- measured 2026-11-05 on the Porsche 911 and the Thorton Mackinaw, within 0.2 degrees at
 // every tenth of the range (docs/wheel-range-20261011.md), with the graph's gain (mulFactor) at 2: full lock 130 = the
-// native 65 doubled. The gain is 2.5 since 2026-11-05 (players: "the wheel is too sharp, a little less";
+// native 65 doubled. The gain is 2.5 since 2026-11-05 ("the wheel is too sharp, a little less";
 // tools/driving_tests/wheel_ratio_graph.py): the cabin wheel, and the hands holding it, turn 25 % further for the same
 // road-wheel angle, full lock 162.5. The curve scales with the gain.
 inline constexpr float CarCabinGain=2.5f;

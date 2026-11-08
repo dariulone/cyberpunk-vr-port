@@ -20,6 +20,7 @@
 #include "Camera/PoseIdentity.hpp"
 #include "Camera/PlayerCameraState.hpp"
 #include "Camera/SceneCameraHeading.hpp"
+#include "Camera/SceneCameraComfort.hpp"
 #include "Camera/CameraState.hpp"
 #include "Anim/CharacterRig.hpp"  // g_VrikFrameEpoch: exact camera/entity frame pairing
 #include "Anim/WheelGrab.hpp"
@@ -369,6 +370,76 @@ void RefreshPlayerCameraState() {
     }
 }
 
+// SCENE CAMERA COMFORT (Camera/SceneCameraComfort.hpp): one filter for the scene camera MAIN is composed
+// onto. The correction it applied is kept here for the other sites that compose from the same scene camera.
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugSceneComfortLagDeg = 0.0f;
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugSceneComfortCuts = 0;
+// Scene camera pose labels published from this site (diagnostics only).
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugSceneLabelPublished = 0;
+namespace {
+cvr::camera::SceneCameraComfort s_sceneComfort;
+int64_t s_sceneComfortQpc{};
+std::mutex s_sceneComfortMutex;
+float s_sceneComfortRaw[4]{0,0,0,1},s_sceneComfortCorr[4]{0,0,0,1};
+bool s_sceneComfortValid{};
+
+float SceneComfortDt() {
+    LARGE_INTEGER now{},freq{};
+    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
+    float dt=0.0f;
+    if(s_sceneComfortQpc && freq.QuadPart>0)
+        dt=static_cast<float>(static_cast<double>(now.QuadPart-s_sceneComfortQpc)/static_cast<double>(freq.QuadPart));
+    s_sceneComfortQpc=now.QuadPart;
+    return dt;
+}
+
+void SceneComfortStop() {
+    if(!s_sceneComfort.Valid() && !s_sceneComfortValid)return;
+    std::lock_guard lock(s_sceneComfortMutex);
+    s_sceneComfort.Reset();s_sceneComfortQpc=0;s_sceneComfortValid=false;
+    CyberpunkVR_DebugSceneComfortLagDeg=0.0f;
+}
+
+// raw: the scene camera orientation chosen as MAIN's base this frame; position: that camera's, metres.
+void SceneComfortFilter(float& x,float& y,float& z,float& w,const float* position) {
+    const float deadDeg=g_liveControls.xrSceneCamComfortDeg;
+    // Never in a vehicle (2026-11-06: "in the car it is not needed"): a scene there turns with the car, and
+    // holding its camera back would hold the car's own turning back with it. The FPP path excludes mounts too.
+    if(!(deadDeg>0.0f) || g_isInVehicle) { SceneComfortStop();return; }
+    cvr::camera::SceneComfortSettings settings{};
+    settings.deadDeg=deadDeg;
+    std::lock_guard lock(s_sceneComfortMutex);
+    const cvr::camera::SceneCameraComfort::Quat raw{x,y,z,w};
+    const auto held=s_sceneComfort.Step(raw,position,SceneComfortDt(),settings);
+    float rx=raw[0],ry=raw[1],rz=raw[2],rw=raw[3];
+    NormalizeQuat(rx,ry,rz,rw);
+    s_sceneComfortRaw[0]=rx;s_sceneComfortRaw[1]=ry;s_sceneComfortRaw[2]=rz;s_sceneComfortRaw[3]=rw;
+    MulQuat(held[0],held[1],held[2],held[3],-rx,-ry,-rz,rw,
+            s_sceneComfortCorr[0],s_sceneComfortCorr[1],s_sceneComfortCorr[2],s_sceneComfortCorr[3]);
+    NormalizeQuat(s_sceneComfortCorr[0],s_sceneComfortCorr[1],s_sceneComfortCorr[2],s_sceneComfortCorr[3]);
+    s_sceneComfortValid=true;
+    x=held[0];y=held[1];z=held[2];w=held[3];
+    CyberpunkVR_DebugSceneComfortLagDeg=s_sceneComfort.LagDeg();
+    CyberpunkVR_DebugSceneComfortCuts=s_sceneComfort.Cuts();
+}
+}
+
+bool SceneComfortApply(const float* raw, float* out) {
+    if(!raw || !out)return false;
+    for(int i=0;i<4;++i)out[i]=raw[i];
+    std::lock_guard lock(s_sceneComfortMutex);
+    if(!s_sceneComfortValid || !(g_liveControls.xrSceneCamComfortDeg>0.0f))return false;
+    const cvr::camera::SceneCameraComfort::Quat a{raw[0],raw[1],raw[2],raw[3]},
+        b{s_sceneComfortRaw[0],s_sceneComfortRaw[1],s_sceneComfortRaw[2],s_sceneComfortRaw[3]};
+    // A raw value a cut away from the one LocateCamera last filtered is the next shot, which LocateCamera
+    // has not seen yet: it is taken as it is, as LocateCamera will take it.
+    if(cvr::camera::SceneCameraComfort::AngleDeg(a,b)>cvr::camera::SceneComfortSettings{}.cutDeg)return false;
+    MulQuat(s_sceneComfortCorr[0],s_sceneComfortCorr[1],s_sceneComfortCorr[2],s_sceneComfortCorr[3],
+            raw[0],raw[1],raw[2],raw[3],out[0],out[1],out[2],out[3]);
+    NormalizeQuat(out[0],out[1],out[2],out[3]);
+    return true;
+}
+
 extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val) {
     (void)xmm0_val;
     g_locateCameraHits++;
@@ -389,6 +460,9 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     // composed onto -- see CyberpunkVR_BdBaseFromLocate. Captured here because this hook writes that
     // same quaternion further down; read afterwards it would be our own output.
     const float bdEntryQuat[4] = { quat[0], quat[1], quat[2], quat[3] };
+    // ...and its position, which tells a cut from a pan for the scene camera comfort filter.
+    const float entryPos[3] = { static_cast<float>(posFP[0]) / 131072.0f, static_cast<float>(posFP[1]) / 131072.0f,
+                                static_cast<float>(posFP[2]) / 131072.0f };
 
     // Raw ENGINE view at entry (yaw + pos), for the [dx-win] snap-window diag.
     g_dbgEntryYaw = atan2f(2.0f * (quat[3] * quat[2] + quat[0] * quat[1]),
@@ -590,6 +664,10 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
     OpenXRHeadPose takeoverPose{};
     uint64_t takeoverPoseId{};
     bool takeoverLabelKnown=false;
+    // The scene camera's label (a braindance, or a scene the ForceFPP gate hands to this route): see its publish.
+    OpenXRHeadPose scenePose{};
+    uint64_t scenePoseId{};
+    bool sceneLabelKnown=false;
     if (hasXR) {
         // Hand the EXACT sample this frame's camera is built from to the submit path, so
         // the image is labelled with the pose it was rendered from instead of whatever the
@@ -801,6 +879,13 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
                     CVR_DIAGNOSTIC(++CyberpunkVR_DebugBdBaseFromScript);
                 }
             }
+            // THE SCENE CAMERA'S OWN TURNING, HELD BACK (xr_scene_cam_comfort_deg). The base above is the
+            // scene's camera, so every pan and sway in it turns the world round a player standing still.
+            // Within the dead zone the view keeps its orientation, past it the view eases after the camera,
+            // and a cut is taken at once. The head composes on top as before.
+            SceneComfortFilter(headX, headY, headZ, headW, entryPos);
+        } else {
+            SceneComfortStop();
         }
         float tmpX, tmpY, tmpZ, tmpW;
         MulQuat(headX, headY, headZ, headW, xrGameX, xrGameY, xrGameZ, xrGameW,
@@ -971,6 +1056,19 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
                 takeoverPoseId && takeoverPoseId==cameraPoseSequence &&
                 takeoverPose.originSerial==xrPose.originSerial &&
                 cvr::camera::CurrentSerializedCameraComponent()==g_lensComp.load(std::memory_order_acquire);
+            // The head sample the scene camera's orientation was composed from: the write site's, when that
+            // composition was taken, or this site's own -- the frame's one sample, the same struct PatchCamera
+            // composes from (AcquireCameraPoseFrame), identified by its sequence.
+            if (bdNow && !takeoverNow) {
+                if (bdUseWriteSite) {
+                    scenePose=takeoverPose;scenePoseId=takeoverPoseId;
+                    sceneLabelKnown=takeoverPose.valid && takeoverPoseId && takeoverPoseId==cameraPoseSequence &&
+                        takeoverPose.originSerial==xrPose.originSerial;
+                } else {
+                    scenePose=xrPose;scenePoseId=cameraPoseSequence;
+                    sceneLabelKnown=CyberpunkVR_OneSamplePerFrame && cameraPoseSequence && xrPose.valid;
+                }
+            }
         }
     }
 
@@ -1422,6 +1520,24 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
                                 takeoverLabelKnown?&takeoverPose:nullptr,takeoverPoseId);
             CVR_DIAGNOSTIC(++CyberpunkVR_DebugTakeoverPush);
         }
+    }
+    // A SCENE CAMERA IS LABELLED LIKE A TAKEOVER, and frame generation depends on it.
+    //
+    // In a braindance, and in every scene the ForceFPP gate hands to this route (the post-prologue montage, a
+    // dialogue with its own camera), MAIN is rendered through THIS buffer with the orientation written above. The
+    // label the component carried into it no longer matches what is in it, and nothing replaced it. So the render
+    // nodes had no pose identity, the image had no label, and framegen found no depth and motion vectors belonging
+    // to the submitted pose. It sat at "Waiting for matching depth and motion vectors in both eyes" for the whole
+    // scene (measured 2026-11-06 in the montage: input stage 2 = 0 of 1210 calls, 482 unlabelled captures in 3 s).
+    // "framegen does not work in bd/scene cam".
+    //
+    // Published here, after the last write to the buffer (the half-IPD above), so the fingerprint is what the
+    // engine copies on. The blender and MainRead carry it to the view like any other, the same chain as the
+    // takeover's.
+    if (sceneLabelKnown && scenePoseId) {
+        cvr::camera::PublishCameraSetupPose(reinterpret_cast<uintptr_t>(rbxPtr),
+            cvr::camera::CurrentSerializedCameraComponent(),1,scenePoseId,scenePose);
+        CVR_DIAGNOSTIC(++CyberpunkVR_DebugSceneLabelPublished);
     }
 
     if (CyberpunkVR_BdPushTransform != 0 && g_headQuatValid &&

@@ -10,9 +10,8 @@ namespace cvr::roomscale {
 // came out as a staircase -- a catch-up every time the head had gained the cone's width again -- and every catch-up
 // started and stopped at full speed: the jerk at each step.
 //
-// Now the body's turn RATE is a continuous function of how far the head is from it (Into the Radius 2's standing
-// body tracks the head within a degree, never by jumps; BONELAB's chest and pelvis are joint drives, soft springs --
-// the same idea):
+// Now the body's turn RATE is a continuous function of how far the head is from it (a standing body tracking the head
+// within a degree, never by jumps; BONELAB's chest and pelvis are joint drives, soft springs -- the same idea):
 //   - past the cone the body is pulled hard (kLeashGain per radian beyond the cone), so the head never gets far past
 //     the cone's edge while it turns, and the body turns WITH it rather than after it;
 //   - once the head has been past the cone, the body also turns toward the head at kCentreGain per radian of the

@@ -67,6 +67,9 @@ void InitRuntimePaths() {
     // Default: immersive holsters ON (current behaviour -- equip by visual holster).
     g_liveControls.xrImmersiveHolsters = 1;
 
+    // Default: the physical reload highlights the magazine and the bolt to rack.
+    g_liveControls.xrReloadGlow = 1;
+
     // The in-vehicle head offset starts at zero: it is a correction on top of the standing
     // calibration, and a default that moved the car view would be a surprise, not a feature.
     g_liveControls.xrVehHeadOffsetX = 0.0f;
@@ -162,10 +165,12 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_3dof_movement=0\n");
     fprintf(file, "xr_roomscale_movement=1\n");
     fprintf(file, "xr_tracked_body_rotation=0\n");
-    fprintf(file, "xr_hybrid_body_rotation=1\n");
+    fprintf(file, "xr_hybrid_body_rotation=0\n");
+    fprintf(file, "xr_head_led_body_rotation=1\n");
     fprintf(file, "xr_body_free_look_deg=10.0\n");
     fprintf(file, "xr_body_free_look_down_deg=30.0\n");
     fprintf(file, "xr_body_move_radius=0.10\n");
+    fprintf(file, "xr_scene_cam_comfort_deg=30.0\n");
     fprintf(file, "xr_breaststroke_swim=1\n");
     fprintf(file, "xr_ladder_grip_climb=1\n");
     fprintf(file, "xr_left_handed=0\n");
@@ -232,6 +237,7 @@ void LoadLauncherConfig() {
     g_launcherHmdType = 0;
     g_launcherDebug = 0;
     g_launcherShow = 1;
+    g_launcherCustomRes = 0;
     g_launcherDelayMs = 1000;
 
     FILE* file = _fsopen(g_launcherConfigPath, "r", _SH_DENYNO);
@@ -266,6 +272,12 @@ void LoadLauncherConfig() {
             g_launcherHmdType = intValue;
             continue;
         }
+        // 1: width x height was typed or slid in the launcher, not a ladder entry -- kept as it is (engine stereo)
+        if (sscanf_s(line, "custom_res=%d", &intValue) == 1 ||
+            sscanf_s(line, "custom_res = %d", &intValue) == 1) {
+            g_launcherCustomRes = intValue != 0 ? 1 : 0;
+            continue;
+        }
         if (sscanf_s(line, "debug=%d", &intValue) == 1 ||
             sscanf_s(line, "debug = %d", &intValue) == 1) {
             g_launcherDebug = intValue != 0 ? 1 : 0;
@@ -285,6 +297,7 @@ void SaveLauncherConfig(int width, int height) {
     fprintf(file, "width=%d\n", g_launcherWidth);
     fprintf(file, "height=%d\n", g_launcherHeight);
     fprintf(file, "hmd_type=%d\n", g_launcherHmdType);
+    fprintf(file, "custom_res=%d\n", g_launcherCustomRes);
     fprintf(file, "debug=%d\n", g_launcherDebug);
     fprintf(file, "show_launcher=%d\n", g_launcherShow);
     fprintf(file, "launcher_delay_ms=%d\n", g_launcherDelayMs);

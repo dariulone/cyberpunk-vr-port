@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <commctrl.h>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -14,6 +16,7 @@ volatile int g_verboseLog=0;
 bool g_cursorClipped=false;
 void Log(const char*,...) {}
 bool OverlayIsVisible(){return false;}
+namespace cvr::lua { bool OverlayOpen(){return false;} }
 extern "C" UINT GetForcedDisplayModeWidth(){return 7654;}
 extern "C" UINT GetForcedDisplayModeHeight(){return 4321;}
 extern "C" UINT GetForcedSwapchainWidth(){return 7654;}
@@ -40,6 +43,19 @@ extern "C" void SetLauncherDebugAndPersist(int value){savedDebug=value;}
 extern "C" int GetLauncherDebug(){return savedDebug;}
 int engineStereo=1;
 extern "C" int GetLauncherEngineStereo(){return engineStereo;}
+int savedCustom=0,savedLobby=1;
+extern "C" int GetLauncherCustomResolution(){return savedCustom;}
+extern "C" void SetLauncherCustomResolution(int on){savedCustom=on;}
+extern "C" int GetLauncherLobby(){return savedLobby;}
+extern "C" void SetLauncherLobbyAndPersist(int on){savedLobby=on;}
+// Types `text` into a size field and takes it with Enter (the field's own Enter, not the dialog's Start).
+void TypeField(HWND window,int id,const wchar_t* text){
+    HWND edit=GetDlgItem(window,id);SetWindowTextW(edit,text);
+    SendMessageW(edit,WM_KEYDOWN,VK_RETURN,0);
+}
+std::wstring FieldText(HWND window,int id){
+    wchar_t text[32]{};GetWindowTextW(GetDlgItem(window,id),text,32);return text;
+}
 void Check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 unsigned clips{},warps{};bool clipped{};
 BOOL WINAPI FakeClip(const RECT* rect){++clips;clipped=rect!=nullptr;return TRUE;}
@@ -137,9 +153,55 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,10,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
             Check(savedHmd==14 && savedWidth==6080 && savedHeight==5928,"Reverb G2 selection was not saved");
-        } else {
+        } else if(mode==5) {
             Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==14 && SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==10,"Reverb G2 selection did not reload");
+            Check(FieldText(window,109)==L"6080" && FieldText(window,110)==L"5928","the size fields do not show the pick");
             PostMessageW(window,WM_CLOSE,0,0);
+        } else if(mode==6) {
+            // OWN SIZES (engine stereo): typed sides, a typed aspect, - / +, the slider's keys, the lobby switch
+            SelectHmd(window,2);    // Quest 3
+            HWND combo=GetDlgItem(window,101);
+            const auto ladder=SendMessageW(combo,CB_GETCOUNT,0,0);
+            TypeField(window,109,L"3001");TypeField(window,110,L"2999");
+            Check(FieldText(window,109)==L"3000" && FieldText(window,110)==L"3000","typed sides were not rounded to multiples of 8");
+            Check(SendMessageW(combo,CB_GETCOUNT,0,0)==ladder+1 && SendMessageW(combo,CB_GETCURSEL,0,0)==ladder &&
+                  ComboText(combo,int(ladder))==L"Custom  3000 x 3000","an own size is not the combo box's Custom item");
+            TypeField(window,111,L"16:9");
+            const int w=_wtoi(FieldText(window,109).c_str()),h=_wtoi(FieldText(window,110).c_str());
+            Check(w%8==0 && h%8==0 && std::abs(double(w)/h-16.0/9)<0.01 && std::abs(double(w)*h/9e6-1.0)<0.02,"a typed aspect did not keep the pixel count");
+            Check(FieldText(window,111)==L"1.7778","the aspect field does not show the typed aspect");
+            SendMessageW(GetDlgItem(window,107),BM_CLICK,0,0);
+            Check(_wtoi(FieldText(window,109).c_str())==w+32,"+ did not step the width by 32");
+            SendMessageW(GetDlgItem(window,106),BM_CLICK,0,0);
+            Check(_wtoi(FieldText(window,109).c_str())==w,"- did not step the width back");
+            SendMessageW(GetDlgItem(window,108),WM_KEYDOWN,VK_PRIOR,0);
+            Check(_wtoi(FieldText(window,109).c_str())>w,"Page Up on the slider did not grow the size");
+            const int sw=_wtoi(FieldText(window,109).c_str()),sh=_wtoi(FieldText(window,110).c_str());
+            Check(std::abs(double(sw)/sh-16.0/9)<0.01,"the slider did not keep the aspect");
+            // a ladder entry picked again: the Custom item goes
+            SendMessageW(combo,CB_SETCURSEL,4,0);
+            SendMessageW(window,WM_COMMAND,MAKEWPARAM(101,CBN_SELCHANGE),reinterpret_cast<LPARAM>(combo));
+            Check(SendMessageW(combo,CB_GETCOUNT,0,0)==ladder && FieldText(window,109)==L"2648","a ladder pick did not replace the own size");
+            TypeField(window,110,L"2400");
+            SendMessageW(GetDlgItem(window,112),BM_SETCHECK,BST_UNCHECKED,0);
+            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            Check(savedHmd==2 && savedWidth==2648 && savedHeight==2400 && savedCustom==1,"an own size was not saved as custom");
+            Check(savedLobby==0,"the VR lobby switch was not saved");
+        } else if(mode==7) {
+            // the own size reloads as the Custom item; without engine stereo it lands on the ladder
+            HWND combo=GetDlgItem(window,101);
+            const auto count=SendMessageW(combo,CB_GETCOUNT,0,0);
+            Check(ComboText(combo,int(SendMessageW(combo,CB_GETCURSEL,0,0)))==L"Custom  2648 x 2400" && count==11,"the own size did not reload");
+            Check(SendMessageW(GetDlgItem(window,112),BM_GETCHECK,0,0)==BST_UNCHECKED,"the VR lobby switch did not reload");
+            engineStereo=0;
+            SelectHmd(window,2);
+            TypeField(window,109,L"3000");
+            int w=_wtoi(FieldText(window,109).c_str()),h=_wtoi(FieldText(window,110).c_str());
+            Check(SnapLauncherResolution(2,&w,&h)==0,"without engine stereo a typed size left the ladder");
+            engineStereo=1;
+            SendMessageW(GetDlgItem(window,112),BM_SETCHECK,BST_CHECKED,0);
+            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            Check(savedCustom==0 && savedLobby==1,"a ladder size was saved as custom");
         }
     }catch(const std::exception& e){failure=e.what();if(window)PostMessageW(window,WM_CLOSE,0,0);else PostQuitMessage(20);}
 }
@@ -157,7 +219,7 @@ int main()try {
     InstallOSHooks();
     g_origClipCursor=FakeClip;g_origSetCursorPos=FakeWarp;g_origGetCursorPos=FakePos;
     g_origGetCursorInfo=FakeInfo;g_origGetMessagePos=FakeMessagePos;
-    for(mode=0;mode<6;++mode){
+    for(mode=0;mode<8;++mode){
         deadline=GetTickCount64()+3000;timer=SetTimer(nullptr,0,20,Inspect);Check(timer!=0,"timer unavailable");
         ShowLauncherDialog();KillTimer(nullptr,timer);
         Check(failure.empty(),failure.c_str());
@@ -168,7 +230,7 @@ int main()try {
         else Check(!PeekMessageW(&message,nullptr,WM_QUIT,WM_QUIT,PM_REMOVE),"closing launcher posted application WM_QUIT");
         RECT client{};HookedGetClientRect(g_gameHwnd,&client);Check(client.right==7654 && client.bottom==4321,"game virtual input did not resume");
     }
-    Check(saves==3 && savedDebug==1,"Start did not save once per selection");
+    Check(saves==5 && savedDebug==1,"Start did not save once per selection");
     WNDCLASSW failed{};failed.lpfnWndProc=RejectWindow;failed.hInstance=gameClass.hInstance;failed.lpszClassName=L"CyberpunkVRPortLauncherClass";
     Check(RegisterClassW(&failed)!=0,"failure class unavailable");ShowLauncherDialog();
     Check(!IsLauncherOpen() && IsWindowVisible(g_gameHwnd),"creation failure stranded game/input");

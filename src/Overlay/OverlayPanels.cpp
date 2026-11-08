@@ -209,19 +209,20 @@ void DrawVRHandsControls() {
         }
         using BodyMode=cvr::body::RotationMode;
         int mode=static_cast<int>(cvr::body::RotationModeFromFlags(st.xrPhysicalBodyRotation,
-            st.xrTrackedBodyRotation,st.xrHybridBodyRotation));
+            st.xrTrackedBodyRotation,st.xrHybridBodyRotation,st.xrHeadLedBodyRotation));
         static const char* bodyModes[]{"Stick / snap only","Head + free-look cone",
-            "HMD + controllers","Hybrid (default)"};
+            "HMD + controllers","Hybrid","Head-led (default)"};
         UI::SetNextItemWidth(410.0f);
-        if(widgets::Combo("Body rotation",&mode,bodyModes,4)){
+        if(widgets::Combo("Body rotation",&mode,bodyModes,5)){
             st.xrPhysicalBodyRotation=mode==static_cast<int>(BodyMode::HeadCone);
             st.xrTrackedBodyRotation=mode==static_cast<int>(BodyMode::Tracked);
             st.xrHybridBodyRotation=mode==static_cast<int>(BodyMode::Hybrid);
+            st.xrHeadLedBodyRotation=mode==static_cast<int>(BodyMode::HeadLed);
             SetLiveControlsUiState(&st,1);
         }
-        if(UI::IsItemHovered())UI::SetTooltip("Hybrid: use the head cone while upright.\n"
-            "Looking down by 10 degrees or bending by 5 degrees uses HMD + controllers.\n"
-            "Return below 8 / 3 degrees; the current body heading is preserved at handover.\n"
+        if(UI::IsItemHovered())UI::SetTooltip("Head-led: the body stays while the head looks within 10 degrees, then turns\n"
+            "to the head at 300 deg/s; looking down (past 30 degrees) it stays until 70 degrees. No controllers.\n"
+            "Hybrid: the head cone upright, HMD + controllers looking down or bent.\n"
             "HMD + controllers always disables the body cones. Missing tracking holds heading.");
         const bool trackedBody=mode==static_cast<int>(BodyMode::Tracked);
         const bool hybridBody=mode==static_cast<int>(BodyMode::Hybrid);
@@ -266,6 +267,15 @@ void DrawVRHandsControls() {
             st.xrVehicleCutsceneSuspendTier,kVehicleTierLabels,3,
             "Applies in vehicles, including passenger window combat.\n"
             "VRIK yields to the scene animation at or above this tier. Never keeps VRIK enabled.");
+        {
+            float comfort=st.xrSceneCamComfortDeg;
+            if(widgets::SliderFloat("Scene camera smoothing",&comfort,0.0f,45.0f,"%.0f deg")) {
+                st.xrSceneCamComfortDeg=comfort;SetLiveControlsUiState(&st,1);
+            }
+            if(UI::IsItemHovered())UI::SetTooltip("While a scene drives the camera, its turning within this angle does not\n"
+                "turn the view; past it the view eases after the scene camera. Cuts still switch at once.\n"
+                "0 = the scene camera exactly as the game moves it. Default: 30 degrees.");
+        }
         UI::BeginDisabled(!bodyRot || trackedBody);
         float cone = st.xrBodyFreeLookDeg;
         if (widgets::SliderFloat("Free-look cone", &cone, 0.0f, 60.0f, "%.0f deg")) {
@@ -1186,6 +1196,15 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                     "      hip is pulled out along its handle); grip at its place to put it away.\n"
                     "OFF - no weapons on the body, fixed slot per zone:\n"
                     "      over-shoulder = EquipmentSlot1, right hip = Slot2, left hip = Slot3.");
+            }
+
+            UI::Separator();
+            UI::TextUnformatted("Physical reload");
+            changed |= CheckboxInt("Reload highlight", &state.xrReloadGlow);
+            if (UI::IsItemHovered()) {
+                UI::SetTooltip("On: the gun shows the free hand what it needs - an empty magazine pulses,\n"
+                                  "the place of a removed one stays lit, the bolt or the slide to rack glows.\n"
+                                  "Off: no highlight; the reload itself works the same.");
             }
 
 

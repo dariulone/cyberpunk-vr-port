@@ -7,6 +7,8 @@ public class VrCyberwareSwing extends IScriptable {
   public let strong: Bool;
   public let number: Int32;
   public let peakSpeed: Float;
+  public let chain: Bool;    // a light stroke of the combo chain (VRMeleeChainAttack)
+  public let landed: Bool;   // its attack started on a body: the chain moved on once
 }
 public class VrCyberwareAttackTicket extends IScriptable {
   public let attack: ref<IAttack>;
@@ -37,6 +39,72 @@ public func VRCyberwareKind(weapon: wref<WeaponObject>) -> Int32 {
   return 0;
 }
 
+// THE LIGHT COMBO. The flat game numbers light attacks MeleeComboAttack0, 1, ... and
+// makes the last one of AttacksNumber (a weapon stat) MeleeFinalAttack0, the
+// FinalAttack subtype that hit reactions and the VR training count as a combo
+// finisher (meleeTransitions CheckIfFinalAttack / IncrementAttackNumber).
+// There every button press is an attack. A tracked hand also strokes on the way
+// back, and the reversal re-arms the swing, so the chain moves on only for a
+// stroke that reached a body, and holds through whiffs and retractions. A hit
+// within VRMeleeChainWindow() of the previous one continues the chain, as
+// pressing attack before the recovery ends does there.
+@addField(PlayerPuppet) public let vrMeleeChainNumber: Int32;   // the attack number of the next light stroke
+@addField(PlayerPuppet) public let vrMeleeChainTime: Float;     // when the last chained stroke landed
+@addField(PlayerPuppet) public let vrMeleeChainWeapon: ItemID;
+@addField(PlayerPuppet) public let vrMeleeChainFinals: Int32;   // finishers landed, read by live tests
+
+public func VRMeleeChainWindow() -> Float { return 1.50; }
+
+@addMethod(PlayerPuppet)
+public func VRMeleeChainReset() -> Void {
+  this.vrMeleeChainNumber = 0;
+  this.vrMeleeChainTime = -10.00;
+}
+
+@addMethod(PlayerPuppet)
+private func VRMeleeChainLength(weapon: wref<WeaponObject>, out infinite: Bool) -> Int32 {
+  let stats = GameInstance.GetStatsSystem(this.GetGame());
+  let weaponStats = Cast<StatsObjectID>(weapon.GetEntityID());
+  infinite = stats.GetStatValue(weaponStats, gamedataStatType.CanWeaponInfinitlyCombo) > 0.00
+    && stats.GetStatValue(Cast<StatsObjectID>(this.GetEntityID()), gamedataStatType.CanMeleeInfinitelyCombo) > 0.00;
+  return Cast<Int32>(stats.GetStatValue(weaponStats, gamedataStatType.AttacksNumber));
+}
+
+@addMethod(PlayerPuppet)
+private func VRMeleeChainAttack(weapon: wref<WeaponObject>, out number: Int32) -> ref<Attack_GameEffect> {
+  let now = EngineTime.ToFloat(GameInstance.GetSimTime(this.GetGame()));
+  let infinite: Bool;
+  let attacks = this.VRMeleeChainLength(weapon, infinite);
+  let attack: ref<Attack_GameEffect>;
+  if this.vrMeleeChainWeapon != weapon.GetItemID() || now < this.vrMeleeChainTime || now - this.vrMeleeChainTime > VRMeleeChainWindow() {
+    this.vrMeleeChainNumber = 0;
+  };
+  number = this.vrMeleeChainNumber;
+  if !infinite && attacks > 1 && number + 1 >= attacks {
+    attack = weapon.GetAttack(n"MeleeFinalAttack0") as Attack_GameEffect;
+  };
+  if !IsDefined(attack) { attack = weapon.GetAttack(StringToName("MeleeComboAttack" + IntToString(number))) as Attack_GameEffect; };
+  if !IsDefined(attack) { number = 0; attack = weapon.GetAttack(n"MeleeComboAttack0") as Attack_GameEffect; };
+  return attack;
+}
+
+// A chained stroke reached a body: the next light stroke is the next attack.
+@addMethod(PlayerPuppet)
+private func VRMeleeChainLanded(swing: ref<VrCyberwareSwing>) -> Void {
+  let infinite: Bool;
+  let attacks = this.VRMeleeChainLength(swing.weapon, infinite);
+  let subtype = swing.record.AttackSubtype();
+  let next = swing.number + 1;
+  if IsDefined(subtype) && Equals(subtype.Type(), gamedataAttackSubtype.FinalAttack) {
+    this.vrMeleeChainFinals += 1;
+    next = attacks;
+  };
+  if next >= attacks { next = infinite ? 1 : 0; };
+  this.vrMeleeChainNumber = next;
+  this.vrMeleeChainTime = EngineTime.ToFloat(GameInstance.GetSimTime(this.GetGame()));
+  this.vrMeleeChainWeapon = swing.weapon.GetItemID();
+}
+
 @addMethod(PlayerPuppet)
 public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, strong: Bool, opt speed: Float) -> Bool {
   let attack: ref<Attack_GameEffect>;
@@ -49,6 +117,12 @@ public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, stron
   if side < 0 || side > 1 || !IsDefined(weapon) || this.VRHolsterIntentActive(1.00) { return false; };
   item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this));
   if !IsDefined(item) || item.GetItemID() != weapon.GetItemID() { return false; };
+  // Hand-held weapons and fists walk the game's light combo; arm cyberware keeps
+  // its per-arm records, which drive the arm animation.
+  let chained = this.VRCyberwareKind(weapon) == 0 && !strong;
+  if this.VRCyberwareKind(weapon) == 0 {
+    if strong { this.VRMeleeChainReset(); } else { attack = this.VRMeleeChainAttack(weapon, number); };
+  };
   if strong { attack = weapon.GetAttack(StringToName("MeleeStrongAttack" + IntToString(number))) as Attack_GameEffect; };
   if strong && !IsDefined(attack) { attack = weapon.GetAttack(n"MeleeStrongAttack0") as Attack_GameEffect; };
   if !IsDefined(attack) { attack = weapon.GetAttack(StringToName("MeleeComboAttack" + IntToString(number))) as Attack_GameEffect; };
@@ -62,6 +136,7 @@ public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, stron
   swing.record = record;
   swing.strong = strong;
   swing.number = number;
+  swing.chain = chained;
   swing.peakSpeed = ClampF(speed, 0.00, 30.00);
   weapon.SetAttack(record.GetID());
   while ArraySize(this.vrCyberwareSwings) < 2 { ArrayPush(this.vrCyberwareSwings, null); };
@@ -254,7 +329,11 @@ private func VRCyberwareAttack(swing: ref<VrCyberwareSwing>, contact: Vector4, t
   };
   context.record = swing.record;
   context.instigator = this;
-  context.source = swing.weapon;
+  // The source is the attacking puppet, as in the flat game (meleeTransitions): hit reactions read the
+  // attacker's weapon type through ScriptedPuppet.GetWeaponRight(GetSource()). With the weapon object as the
+  // source that type came out empty, "not fists", so every hit on a blocking fist fighter broke the guard
+  // and a block never counted (VR training course 4).
+  context.source = this;
   context.weapon = swing.weapon;
   attack = IAttack.Create(context) as Attack_GameEffect;
   if !IsDefined(attack) { return false; };
@@ -284,6 +363,7 @@ private func VRCyberwareAttack(swing: ref<VrCyberwareSwing>, contact: Vector4, t
   ArrayPush(this.vrCyberwareTickets, ticket);
   enhanced = this.VRMeleeRegisterAttack(attack, swing.weapon, targetID, swing.peakSpeed);
   if !attack.StartAttack() { ArrayRemove(this.vrCyberwareTickets, ticket); this.VRMeleeCancelAttack(enhanced); return false; };
+  if swing.chain && !swing.landed { swing.landed = true; this.VRMeleeChainLanded(swing); };
   this.vrCyberwareAttackCount += 1;
   return true;
 }

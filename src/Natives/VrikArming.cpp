@@ -53,6 +53,8 @@
 #include <RED4ext/Scripting/Natives/Generated/ent/MeshComponent.hpp>
 #include <windows.h>
 #include <algorithm>
+#include <cstdio>
+#include "Core/LiveControls.hpp"
 #include <cctype>
 #include <cstring>
 #include <atomic>
@@ -109,6 +111,220 @@ bool ReadPlayerBinding(RED4ext::anim::AnimatedObject* object,PlayerBinding& key)
 bool VRIK_PlayerBindingChanged() {
     PlayerBinding current{};
     return !ReadPlayerBinding(FindPlayerAnimatedObjectByComponentName("root"),current) || !(current==s_playerBinding);
+}
+
+// THE MIRROR DOUBLE. A mirror (V's bathroom, game 2.5) does not reflect the player. Looking into it starts a
+// workspot and spawns an NPC copy of V (Character.q110_tpp_male_v / _female_v) exactly where the player stands,
+// with V's head, hair and clothes, and the scene animates that copy. The reflection shows the copy, so nothing
+// VRIK solves ever reaches it, and the player's own first-person body has no head to show anyway.
+//
+// While a double is bound (VRMirrorDouble, from CET), every player pass -- VRIK already written into it -- is
+// cached, and every pass of the double's root rig takes the cached LOCAL transforms of the bones whose names
+// both rigs share. The double then stands in the reflection with the tracked arms and the head turned where the
+// headset looks, and its head mesh is the one drawn. VRIK is not suspended for the scene while the double is
+// bound (VRIK_EffectiveCutsceneSuspendTier), otherwise there would be no tracked pose to copy.
+//
+// The double is told apart by its track buffers, read the way ArmPlayerLocked reads the player's. Buffer B is
+// the instance's own; buffer A is taken too only when CET asks for it (flags bit 0), until it is shown not to
+// be shared with other skeletons. The copy runs after the original apply and after the player's own work.
+//
+// THE POSE COPIED IS THE LAST PASS OF A BATCH. The engine applies the player's pose 4-5 times per animation batch,
+// back to back; VRIK solves once and replays only what it owns (arms, spine, head -- Hooks/AnimPose.cpp), so the
+// legs of each pass are the graph's own output for that pass, and they differ from pass to pass. A double pass
+// lands anywhere among them: copying "the player's latest pass" gave it the legs of a different pass every frame,
+// and the legs shook in place while the arms held still. Each player pass now goes to a pending copy, and the
+// pending copy is published when the next batch starts (the gap the VRIK batch clock uses): the double always takes
+// the pose the player's batch ended with, one batch late.
+extern "C" __declspec(dllexport) extern float CyberpunkVR_VrikBatchGapMs;
+namespace {
+SRWLOCK s_mirrorLock=SRWLOCK_INIT;
+std::atomic<int> s_mirrorActive{0};
+std::atomic<uintptr_t> s_mirrorTrackA{0},s_mirrorTrackB{0};
+uintptr_t s_mirrorObject=0,s_mirrorPlayerRig=0;
+uint32_t s_mirrorBones=0;                       // the double's root rig, bones
+int16_t s_mirrorMap[VRIK_MAX_BONES];            // double bone -> player bone, -1 = no bone of that name
+alignas(16) uint8_t s_mirrorPose[VRIK_MAX_BONES*48];
+uint32_t s_mirrorPoseBones=0;                   // player bones published; 0 = nothing published yet
+alignas(16) uint8_t s_mirrorPending[VRIK_MAX_BONES*48];
+uint32_t s_mirrorPendingBones=0;                // the current batch's latest player pass
+int64_t s_mirrorLastPassQpc=0;                  // the player's previous pass
+
+double MirrorQpcMs(int64_t ticks) {
+    static const double perMs=[] {LARGE_INTEGER f;QueryPerformanceFrequency(&f);return double(f.QuadPart)/1000.0;}();
+    return double(ticks)/perMs;
+}
+
+void MirrorDoubleClear() {
+    s_mirrorActive.store(0,std::memory_order_release);
+    AcquireSRWLockExclusive(&s_mirrorLock);
+    s_mirrorTrackA.store(0,std::memory_order_relaxed);
+    s_mirrorTrackB.store(0,std::memory_order_relaxed);
+    s_mirrorObject=s_mirrorPlayerRig=0;
+    s_mirrorBones=0;
+    s_mirrorPoseBones=0;
+    s_mirrorPendingBones=0;
+    s_mirrorLastPassQpc=0;
+    ReleaseSRWLockExclusive(&s_mirrorLock);
+}
+
+uintptr_t MirrorTrackA(RED4ext::anim::AnimatedObject* object) {
+    __try {
+        auto* ownerA=*reinterpret_cast<uint8_t**>(reinterpret_cast<uint8_t*>(object)+0x8);
+        return ownerA ? *reinterpret_cast<uintptr_t*>(ownerA+0x40):0;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {return 0;}
+}
+
+// Names are CName hashes, 8 bytes each. Returns the number of double bones that found a player bone.
+int MirrorBuildMap(const uint64_t* doubleNames,uint32_t doubleBones,const uint64_t* playerNames,uint32_t playerBones) {
+    int mapped=0;
+    __try {
+        for(uint32_t i=0;i<doubleBones;++i) {
+            s_mirrorMap[i]=-1;
+            const uint64_t h=doubleNames[i];
+            if(!h)continue;
+            // Same rig family first: the bone is usually at the same index.
+            if(i<playerBones && playerNames[i]==h) {s_mirrorMap[i]=static_cast<int16_t>(i);++mapped;continue;}
+            for(uint32_t j=0;j<playerBones;++j) {
+                if(playerNames[j]==h) {s_mirrorMap[i]=static_cast<int16_t>(j);++mapped;break;}
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {return -1;}
+    return mapped;
+}
+}
+
+// [0] binds  [1] bind failures  [2] player passes cached  [3] double passes written  [4] double passes skipped
+// [5] bones mapped  [6] double bones  [7] double passes through buffer A
+__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_DebugMirrorDouble[8]{};
+
+bool VRIK_MirrorDoubleActive() {return s_mirrorActive.load(std::memory_order_relaxed)!=0;}
+
+int VRIK_EffectiveCutsceneSuspendTier() {
+    return VRIK_MirrorDoubleActive() ? -1 : g_liveControls.xrCutsceneSuspendTier;
+}
+
+// Runs inside the pose detour's __try, after the original apply and after the player's own work.
+void VRIK_MirrorDoublePass(uint8_t* boneBuf,uintptr_t trackBuf,uint32_t slots) {
+    if(trackBuf==g_PlayerTrackBufA || trackBuf==g_PlayerTrackBufB) {
+        const int n=g_VRBoneCount;
+        if(n<=0 || n>VRIK_MAX_BONES || slots<static_cast<uint32_t>(n))return;
+        LARGE_INTEGER now;QueryPerformanceCounter(&now);
+        AcquireSRWLockExclusive(&s_mirrorLock);
+        __try {
+            const bool newBatch=s_mirrorLastPassQpc==0 ||
+                MirrorQpcMs(now.QuadPart-s_mirrorLastPassQpc)>CyberpunkVR_VrikBatchGapMs;
+            s_mirrorLastPassQpc=now.QuadPart;
+            if(newBatch && s_mirrorPendingBones>0) {
+                std::memcpy(s_mirrorPose,s_mirrorPending,static_cast<size_t>(s_mirrorPendingBones)*48);
+                s_mirrorPoseBones=s_mirrorPendingBones;
+            }
+            std::memcpy(s_mirrorPending,boneBuf,static_cast<size_t>(n)*48);
+            s_mirrorPendingBones=static_cast<uint32_t>(n);
+        } __finally {ReleaseSRWLockExclusive(&s_mirrorLock);}
+        CyberpunkVR_DebugMirrorDouble[2].fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    const uintptr_t a=s_mirrorTrackA.load(std::memory_order_relaxed);
+    const bool viaA=a && trackBuf==a;
+    if(!viaA && trackBuf!=s_mirrorTrackB.load(std::memory_order_relaxed))return;
+    bool written=false;
+    AcquireSRWLockShared(&s_mirrorLock);
+    __try {
+        const uint32_t bones=s_mirrorBones,cached=s_mirrorPoseBones;
+        if(bones>0 && cached>0 && slots>=bones) {
+            for(uint32_t i=0;i<bones;++i) {
+                const int j=s_mirrorMap[i];
+                if(j<0 || static_cast<uint32_t>(j)>=cached)continue;
+                std::memcpy(boneBuf+static_cast<size_t>(i)*48,s_mirrorPose+static_cast<size_t>(j)*48,48);
+            }
+            written=true;
+        }
+    } __finally {ReleaseSRWLockShared(&s_mirrorLock);}
+    CyberpunkVR_DebugMirrorDouble[written ? 3:4].fetch_add(1,std::memory_order_relaxed);
+    if(viaA)CyberpunkVR_DebugMirrorDouble[7].fetch_add(1,std::memory_order_relaxed);
+}
+
+// VRMirrorDouble(entity, flags) -> Bool: the entity (the scene's NPC copy of V) takes the player's pose, bone by
+// bone, until VRMirrorDoubleClear. Calling it again with the same entity is cheap: the map is rebuilt only when the
+// double's or the player's rig object changed. flags bit 0: identify its passes by buffer A as well.
+void VRMirrorDouble(RED4ext::IScriptable*,RED4ext::CStackFrame* aFrame,bool* aOut,int64_t) {
+    RED4ext::Handle<RED4ext::IScriptable> entity;
+    int32_t flags=0;
+    RED4ext::GetParameter(aFrame,&entity);
+    RED4ext::GetParameter(aFrame,&flags);
+    aFrame->code++;
+    if(aOut)*aOut=false;
+    auto* rtti=RED4ext::CRTTISystem::Get();
+    auto* entityClass=rtti ? rtti->GetClass("entEntity"):nullptr;
+    if(!entity.instance || !entityClass || !entity.instance->GetType()->IsA(entityClass)) {
+        CyberpunkVR_DebugMirrorDouble[1].fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    auto* object=FindAnimatedObjectForEntity(reinterpret_cast<RED4ext::ent::Entity*>(entity.instance),"root",false);
+    auto* playerObject=FindPlayerAnimatedObjectByComponentName("root");
+    PlayerBinding dbl{},player{};
+    if(!object || object==playerObject || !ReadPlayerBinding(object,dbl) || !ReadPlayerBinding(playerObject,player)) {
+        CyberpunkVR_DebugMirrorDouble[1].fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    const uintptr_t trackA=(flags&1) ? MirrorTrackA(object):0;
+    const uintptr_t trackB=dbl.trackB;
+    const bool sharedWithPlayer=(trackA && (trackA==g_PlayerTrackBufA || trackA==g_PlayerTrackBufB)) ||
+        (trackB && (trackB==g_PlayerTrackBufA || trackB==g_PlayerTrackBufB));
+    if(!trackB || sharedWithPlayer) {
+        CyberpunkVR_DebugMirrorDouble[1].fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    if(s_mirrorActive.load(std::memory_order_acquire) && s_mirrorObject==dbl.object && s_mirrorPlayerRig==player.rig &&
+        s_mirrorTrackB.load(std::memory_order_relaxed)==trackB && s_mirrorTrackA.load(std::memory_order_relaxed)==trackA) {
+        if(aOut)*aOut=true;
+        return;
+    }
+    AcquireSRWLockExclusive(&s_mirrorLock);
+    const int mapped=MirrorBuildMap(reinterpret_cast<const uint64_t*>(dbl.names),dbl.bones,
+        reinterpret_cast<const uint64_t*>(player.names),player.bones);
+    if(mapped>0) {
+        s_mirrorBones=dbl.bones;
+        s_mirrorObject=dbl.object;
+        s_mirrorPlayerRig=player.rig;
+        s_mirrorPoseBones=0;
+        s_mirrorTrackA.store(trackA,std::memory_order_relaxed);
+        s_mirrorTrackB.store(trackB,std::memory_order_relaxed);
+    }
+    ReleaseSRWLockExclusive(&s_mirrorLock);
+    if(mapped<=0) {
+        MirrorDoubleClear();
+        CyberpunkVR_DebugMirrorDouble[1].fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    CyberpunkVR_DebugMirrorDouble[5].store(static_cast<uint64_t>(mapped),std::memory_order_relaxed);
+    CyberpunkVR_DebugMirrorDouble[6].store(dbl.bones,std::memory_order_relaxed);
+    CyberpunkVR_DebugMirrorDouble[0].fetch_add(1,std::memory_order_relaxed);
+    s_mirrorActive.store(1,std::memory_order_release);
+    if(aOut)*aOut=true;
+}
+
+// VRMirrorDoubleClear(): no double; the scene suspends VRIK again as configured.
+void VRMirrorDoubleClear(RED4ext::IScriptable*,RED4ext::CStackFrame* aFrame,void*,int64_t) {
+    aFrame->code++;
+    MirrorDoubleClear();
+}
+
+// VRMirrorDoubleStats() -> String: the counters above, for the harness.
+void VRMirrorDoubleStats(RED4ext::IScriptable*,RED4ext::CStackFrame* aFrame,RED4ext::CString* aOut,int64_t) {
+    aFrame->code++;
+    char text[256];
+    std::snprintf(text,sizeof(text),"active=%d binds=%llu fails=%llu cached=%llu written=%llu skipped=%llu mapped=%llu bones=%llu viaA=%llu",
+        s_mirrorActive.load(),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[0].load()),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[1].load()),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[2].load()),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[3].load()),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[4].load()),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[5].load()),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[6].load()),
+        static_cast<unsigned long long>(CyberpunkVR_DebugMirrorDouble[7].load()));
+    if(aOut)*aOut=RED4ext::CString(text);
 }
 
 static int ArmPlayerLocked() {

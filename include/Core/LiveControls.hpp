@@ -76,6 +76,7 @@ struct LiveControls {
     volatile int xrSnapTurnYawIndex; // which float index in deltaHead[] gets the snap yaw. Default 1.
     volatile int xrImmersiveHolsters; // 1 = visual-holster equip (default), 0 = simple slot mapping (back=Slot1, R hip=Slot2, L hip=Slot3). Published to shared[23] for the CET Holster mod.
     volatile int xrBodyHandsOnly;     // 1 = draw only the hands of the player's body (the rest of the body and every garment hidden, the belt and the holsters kept). Published to shared[173] for the CET HandsOnly mod; the neck cap stays off.
+    volatile int xrReloadGlow;        // 1 = the physical reload highlights what the free hand reaches for (the magazine, the bolt to rack; default). Published inverted to shared[174] for the CET Reload mod.
     // Cutscene VRIK suspend (PR #40): minimum GameplayTier at which the pose-apply hook fully
     // suspends the body+arm solve. Stored UI index: -1/0 = never, 1..4 = Tier2..Tier5.
     // Default 3 selects engine Tier4 (enum value 4). Read directly by AnimPose.
@@ -103,13 +104,15 @@ struct LiveControls {
     volatile float xrVehicleThrottleTrim; // how much of the throttle's full travel the left stick adds or removes per second while a weapon is out. Default 0.5.
     volatile int xrPhysicalBodyRotation; // 1 = physical body rotation (avatar body follows HMD/aim heading). 0 (default) = classic stick/snap heading. Gates the aiming/weapon body-turn paths; vehicles unaffected.
     volatile int xrTrackedBodyRotation = 0; // HMD + controllers, replaces head/cone follow while enabled
-    volatile int xrHybridBodyRotation = 1; // upright head cone; tracked body yaw on looking down / bending
-    volatile int xrBodyRotationMode = 3; // derived single-scalar publication; never serialize separately
+    volatile int xrHybridBodyRotation = 0; // upright head cone; tracked body yaw on looking down / bending (not the default)
+    volatile int xrHeadLedBodyRotation = 1; // the head-led body turn (Runtimes/HeadLedBodyTurn.hpp); the default
+    volatile int xrBodyRotationMode = 4; // derived single-scalar publication; never serialize separately
     volatile int xrRoomscaleMovement = 1; // horizontal physical displacement through the native CCT
     volatile int xrPhysicalCrouch = 1;
     volatile float xrPhysicalCrouchDepth = .45f; // height loss after measured hinge contribution, metres (default: the tuned value, 2026-10-17)
     volatile float xrBodyFreeLookDeg = 10.0f;
     volatile float xrBodyMoveRadius = .10f; // metres; roomscale movement starts outside this radius
+    volatile float xrSceneCamComfortDeg = 30.0f; // scene camera turn the view absorbs (Camera/SceneCameraComfort.hpp); 0 = off
     volatile float xrBodyFreeLookDownDeg = 30.0f;
     volatile float xrBodyFreeLookSwimDeg = 5.0f;
     // Independent vehicle scene threshold; same stored tier encoding as on foot.

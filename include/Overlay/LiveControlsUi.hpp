@@ -116,6 +116,9 @@ struct LiveControlsUiState {
     // 1 = only the hands of the player's body are drawn: the body and every garment hidden, the tactical belt and
     // the holstered weapons kept. Read by the CET HandsOnly mod via GetVRSharedSlot(173).
     int xrBodyHandsOnly;
+    // 1 = the physical reload highlights what the free hand reaches for: the magazine pulses where it seats, the
+    // bolt or the slide to rack glows. Read by the CET Reload mod via GetVRSharedSlot(174), inverted.
+    int xrReloadGlow;
     // Physical body rotation. 1 = the avatar body follows the HMD/aim heading
     // (continuous body-yaw tracking on foot; aiming / holding a weapon switches the
     // camera to full head-look + head-relative movement). 0 (default) = classic
@@ -123,6 +126,7 @@ struct LiveControlsUiState {
     int xrPhysicalBodyRotation;
     int xrTrackedBodyRotation;
     int xrHybridBodyRotation;
+    int xrHeadLedBodyRotation;
     int xrRoomscaleMovement;
     int xrPhysicalCrouch;
     float xrPhysicalCrouchDepth;
@@ -169,6 +173,7 @@ struct LiveControlsUiState {
     float xrVehicleThrottleTrim;
     float xrBodyFreeLookDeg;
     float xrBodyMoveRadius;
+    float xrSceneCamComfortDeg;
     float xrBodyFreeLookDownDeg;
     float xrBodyFreeLookSwimDeg;
     int xrVehicleCutsceneSuspendTier;

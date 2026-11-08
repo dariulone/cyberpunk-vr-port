@@ -174,6 +174,12 @@ class Sim:
         lay = struct.unpack('<8I', self._read(self.base + ex['SimXR_ControllerLayout'], 32))
         self.lay = dict(zip(('size', 'pos', 'yaw', 'roll', 'mode', 'orient', 'world', 'grip'), lay))
         self.saved = [self._read(c, self.lay['size']) for c in self.ctrl]
+        # v3: the body under the head (body yaw, hands follow head, head on neck); None on an older simulator
+        self.body_state = None
+        if 'SimXR_BodyState' in ex:
+            self.body_state = [self._u64(self.base + ex['SimXR_BodyState'] + 8 * i) for i in range(3)]
+            self.saved_body = (self._read(self.body_state[0], 4), self._read(self.body_state[1], 1),
+                               self._read(self.body_state[2], 1))
         if focus_away:
             unfocus_game()
 
@@ -195,9 +201,29 @@ class Sim:
     def _u64(self, a): return struct.unpack('<Q', self._read(a, 8))[0]
 
     def restore(self):
-        """The hands as they were when this Sim was made (poses, buttons, modes)."""
+        """The hands as they were when this Sim was made (poses, buttons, modes; the body's yaw and hand mode)."""
         for c, data in zip(self.ctrl, self.saved):
             self._write(c, data)
+        if self.body_state:
+            for a, data in zip(self.body_state, self.saved_body):
+                self._write(a, data)
+
+    # the body under the head (simulator v3): the hands in legacy/body mode hang off the body's yaw, not the head's
+    def body_yaw(self, degrees=None):
+        """The body's heading in degrees (the head-yaw convention: positive turns LEFT); sets it when given."""
+        if not self.body_state:
+            raise RuntimeError('this simulator has no body state (needs SimXR_HarnessVersion >= 3)')
+        if degrees is not None:
+            self._write(self.body_state[0], struct.pack('<f', math.radians(degrees)))
+        return math.degrees(struct.unpack('<f', self._read(self.body_state[0], 4))[0])
+
+    def hands_follow_head(self, on=None):
+        """True: the old desktop behaviour, the hands turn with the head. Sets it when given."""
+        if not self.body_state:
+            return True
+        if on is not None:
+            self._write(self.body_state[1], bytes([1 if on else 0]))
+        return self._read(self.body_state[1], 1)[0] != 0
 
     # hands
     def hand(self, which, pos=None, quat=None, ypr=None, mode='body'):

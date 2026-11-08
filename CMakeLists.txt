@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CyberpunkVRPort VERSION 0.2.2 LANGUAGES CXX C ASM_MASM)
+project(CyberpunkVRPort VERSION 0.2.3 LANGUAGES CXX C ASM_MASM)
 
 include(FetchContent)
 FetchContent_Declare(

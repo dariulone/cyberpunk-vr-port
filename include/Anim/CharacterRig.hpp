@@ -133,6 +133,8 @@ void VRIK_ReplayModelCache(uint8_t* boneBuf);
 void VRIK_PublishBodyBones();
 void VRIK_BeginBodySolve(uint8_t* boneBuf);
 extern float g_VRIKBodyBendAngle,g_VRIKBodyBendPelvis[3];
+// The clock the bend limit fades by (microseconds); tests set it, null = the steady clock.
+extern int64_t (*g_VRBendLimitClockUs)();
 extern float g_VRIKBodyEyeTarget[3],g_VRIKBodyEyeSolved[3];
 extern bool g_VRIKBodyEyeBound;
 extern bool g_VRIKVehicleUpperActive;

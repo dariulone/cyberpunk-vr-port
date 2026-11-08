@@ -53,6 +53,61 @@ void Turns(){int count=0;float worst=0;
         Check(error<2.0f,std::string("missed turn ")+pose.name+" hz="+std::to_string(hz)+" speed="+std::to_string(sign*speed)+" error="+std::to_string(error));
     }std::cout<<count<<" turn trajectories; worst settled error "<<worst<<" deg\n";
 }
+// THE HEAD LEADS, THE TORSO FOLLOWS (2026-11-07). A person turns the head first and the torso after it: the head
+// reaches the new heading while the torso is still on its way. The estimator re-anchors after 60 degrees of accepted
+// turn, and the rest of the torso's turn -- with the head already still -- was refused as a hand gesture: in game the
+// body stopped at 62-65 degrees of a 90-degree turn and stayed there while the head was down. Also the same with the
+// head pitched down, and a head lead of 0-40 % of the turn (up to 75 degrees ahead of the torso).
+void HeadLedTurns(){int count=0;float worst=0;
+    for(const auto& pose:poses)for(float hz:{45.f,90.f,144.f})for(float goal:{40.f,90.f,120.f,180.f})for(float lead:{0.f,.2f,.4f})
+    for(float pitch:{0.f,-30.f})for(float sign:{-1.f,1.f}){
+        Run r(hz);r.Warm(pose);const float seconds=std::max(.6f,goal/90.f*1.2f);const int n=int(seconds*hz);
+        auto ease=[](float u){u=std::clamp(u,0.0f,1.0f);return u*u*(3-2*u);};
+        // a neck turns the head at most ~80 degrees off the torso: no lead past that
+        float gap=0;for(int i=1;i<=n;++i){const float u=float(i)/n;gap=std::max(gap,goal*(ease(u/(1-lead))-ease((u-lead)/(1-lead))));}
+        if(gap>75)continue;
+        float body=0,head=0;
+        for(int i=1;i<=n;++i){const float u=float(i)/n;
+            body=sign*goal*deg*ease((u-lead)/(1-lead));head=sign*goal*deg*ease(u/(1-lead));r.Step(pose,body,head,pitch*deg);}
+        for(int i=0;i<int(hz*.5f);++i)r.Step(pose,body,head,pitch*deg);
+        float error=Error(r.last.yaw,body);worst=std::max(worst,error);++count;
+        Check(error<2.0f,std::string("head-led turn lost ")+pose.name+" hz="+std::to_string(hz)+" goal="+std::to_string(sign*goal)+
+              " lead="+std::to_string(lead)+" pitch="+std::to_string(pitch)+" error="+std::to_string(error));
+        // held, then back the same way, the head leading again
+        for(int i=0;i<int(hz*2);++i)r.Step(pose,body,head,pitch*deg);
+        for(int i=1;i<=n;++i){const float u=float(i)/n;
+            body=sign*goal*deg*(1-ease((u-lead)/(1-lead)));head=sign*goal*deg*(1-ease(u/(1-lead)));r.Step(pose,body,head,pitch*deg);}
+        for(int i=0;i<int(hz*.5f);++i)r.Step(pose,body,head,pitch*deg);
+        error=Error(r.last.yaw,0);worst=std::max(worst,error);
+        Check(error<2.0f,std::string("head-led return lost ")+pose.name+" hz="+std::to_string(hz)+" goal="+std::to_string(sign*goal)+
+              " lead="+std::to_string(lead)+" pitch="+std::to_string(pitch)+" error="+std::to_string(error));
+    }std::cout<<count<<" head-led turn trajectories; worst settled error "<<worst<<" deg\n";
+}
+void Jitter(TrackingFrame& f,std::mt19937& rng,float mm);
+// The same out and back with device noise and a 30 % head lead, as the simulator ran it (2026-11-07: the return turn
+// started late and then overshot the torso by 13 degrees, and stayed so while the head was down).
+void HeadLedNoisy(){int count=0;float worst=0;std::mt19937 rng(110711);
+    for(const auto& pose:poses)for(float mm:{.5f,2.f})for(float goal:{60.f,90.f,120.f})for(float pitch:{0.f,-30.f})for(float sign:{-1.f,1.f}){
+        const float hz=90,lead=.3f;
+        Run r(hz);for(int i=0;i<int(hz*.5f);++i){auto f=Frame(pose,0,0,++r.seq,r.time+=uint64_t(1000000/hz),pitch*deg);Jitter(f,rng,mm);r.last=r.tracker.Update(f);}
+        const float seconds=std::max(.6f,goal/90.f*1.2f);const int n=int(seconds*hz);
+        auto ease=[](float u){u=std::clamp(u,0.0f,1.0f);return u*u*(3-2*u);};
+        float body=0,head=0;
+        auto step=[&](){auto f=Frame(pose,body,head,++r.seq,r.time+=uint64_t(1000000/hz),pitch*deg);Jitter(f,rng,mm);r.last=r.tracker.Update(f);};
+        for(int i=1;i<=n;++i){const float u=float(i)/n;body=sign*goal*deg*ease((u-lead)/(1-lead));head=sign*goal*deg*ease(u/(1-lead));step();}
+        for(int i=0;i<int(hz*2);++i)step();
+        float error=Error(r.last.yaw,body);worst=std::max(worst,error);
+        Check(error<3.0f,std::string("noisy head-led turn lost ")+pose.name+" mm="+std::to_string(mm)+" goal="+std::to_string(sign*goal)+
+              " pitch="+std::to_string(pitch)+" error="+std::to_string(error));
+        float peak=0;
+        for(int i=1;i<=n;++i){const float u=float(i)/n;body=sign*goal*deg*(1-ease((u-lead)/(1-lead)));head=sign*goal*deg*(1-ease(u/(1-lead)));step();
+            peak=std::max(peak,Error(r.last.yaw,body));}
+        for(int i=0;i<int(hz*.5f);++i)step();
+        error=Error(r.last.yaw,0);worst=std::max(worst,error);++count;
+        Check(error<3.0f,std::string("noisy head-led return lost ")+pose.name+" mm="+std::to_string(mm)+" goal="+std::to_string(sign*goal)+
+              " pitch="+std::to_string(pitch)+" error="+std::to_string(error)+" peak="+std::to_string(peak));
+    }std::cout<<count<<" noisy head-led out-and-back turns; worst settled error "<<worst<<" deg\n";
+}
 void HeadOnly(){float worst=0;int count=0;
     for(const auto& pose:poses)for(float hz:{30.f,60.f,90.f,144.f})for(float pitch:{-89.f,-60.f,0.f,60.f,89.f}){
         Run r(hz);r.Warm(pose);
@@ -226,7 +281,8 @@ void SmallTurns(){for(const auto& pose:poses)for(float angle:{-.05f,-.2f,-1.f,.0
 }
 void Discontinuities(){Run r(90);r.Warm(poses[0]);
     auto f=Frame(poses[0],pi,pi,++r.seq,r.time+=11111);const auto invalid=r.tracker.Update(f);
-    Check(!invalid.valid && Error(invalid.yaw,0)<.001f,"one-frame whole-tracking yaw jump was injected");
+    // (a whole-player turn is held for a sample and carried only when the next confirms it: Update)
+    Check(Error(invalid.yaw,0)<.001f && invalid.confidence==0,"one-frame whole-tracking yaw jump was injected");
     for(int i=0;i<90;++i)r.Step(poses[0],0,0);
     Check(Error(r.last.yaw,0)<.01f,"outlier left a permanent offset");
     r.tracker.Reset();uint64_t stamp=1000000;uint32_t seq=0xffffff00;
@@ -263,10 +319,12 @@ int main(int argc,char** argv)try{Check(argc==2,"case required");std::string nam
     if(name=="hybrid_policy")HybridPolicy();else if(name=="hybrid_transitions")HybridTransitions();
     else if(name=="hybrid_boundary")HybridBoundary();else if(name=="hybrid_recovery")HybridRecovery();
     else if(name=="hybrid_posture")HybridPosture();
+    else if(name=="hybrid_low_glance")HybridLowGlance();else if(name=="hybrid_neck_limit")HybridNeckLimit();else if(name=="hybrid_fast_turn_down")HybridFastTurnDown();
+    else if(name=="hybrid_glance_then_down")HybridGlanceThenDown();else if(name=="hybrid_missed_turn_heals")HybridMissedTurnHeals();else if(name=="hybrid_freeze_turn")HybridFreezeTurn();else if(name=="hybrid_down_glance_then_turn")HybridDownGlanceThenTurn();else if(name=="hybrid_hands_change_then_turn")HybridHandsChangeThenTurn();else if(name=="head_led_turn")HeadLedTurn();
     else {
     if(name=="noisy_gestures"){NoisyGestures();std::cout<<"PASS "<<name<<'\n';return 0;}
     if(name=="return_turns"){ReturnTurns();std::cout<<"PASS "<<name<<'\n';return 0;}
-    if(name=="turns")Turns();else if(name=="head_only")HeadOnly();else if(name=="gestures")Gestures();else if(name=="tracking")Tracking();else if(name=="cadence")Cadence();else if(name=="noise")Noise();else if(name=="invariants")Invariants();else if(name=="noisy_turns")NoisyTurns();else if(name=="mixed_motion")MixedMotion();else if(name=="lifecycle")Lifecycle();else if(name=="noisy_idle")NoisyIdle();else if(name=="wrist_only")WristOnly();else if(name=="startup")Startup();else if(name=="source_freshness")Freshness();else if(name=="baselines")Baselines();else if(name=="neck_lever")NeckLever();else if(name=="small_turns")SmallTurns();else if(name=="discontinuities")Discontinuities();else if(name=="benchmark")Benchmark();else Check(false,"unknown case");
+    if(name=="turns")Turns();else if(name=="head_led_turns")HeadLedTurns();else if(name=="head_led_noisy")HeadLedNoisy();else if(name=="head_only")HeadOnly();else if(name=="gestures")Gestures();else if(name=="tracking")Tracking();else if(name=="cadence")Cadence();else if(name=="noise")Noise();else if(name=="invariants")Invariants();else if(name=="noisy_turns")NoisyTurns();else if(name=="mixed_motion")MixedMotion();else if(name=="lifecycle")Lifecycle();else if(name=="noisy_idle")NoisyIdle();else if(name=="wrist_only")WristOnly();else if(name=="startup")Startup();else if(name=="source_freshness")Freshness();else if(name=="baselines")Baselines();else if(name=="neck_lever")NeckLever();else if(name=="small_turns")SmallTurns();else if(name=="discontinuities")Discontinuities();else if(name=="benchmark")Benchmark();else Check(false,"unknown case");
     }
     std::cout<<"PASS "<<name<<'\n';return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

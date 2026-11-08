@@ -169,14 +169,20 @@ local function armed()
   return out
 end
 
-local bbDefs, psm = nil, nil
+-- THE BOARD OF THE PLAYER THERE IS NOW. It was taken once, from the first player the menu saw. The VR training
+-- swaps the player (V, its own puppet, V again), and a board left over from the puppet that is gone kept its last
+-- scene tier: the chord asked a cinematic tier that no longer existed and the menu would not open.
+local bbDefs, psm, psmFor = nil, nil, nil
 local function sceneTier()
   local pl = Game.GetPlayer()
   local tier = 0
+  if pl == nil then return tier end
   pcall(function()
     if bbDefs == nil then bbDefs = Game.GetAllBlackboardDefs() end
-    if psm == nil then
+    local who = tostring(pl:GetEntityID().hash)
+    if psm == nil or psmFor ~= who then
       psm = Game.GetBlackboardSystem():GetLocalInstanced(pl:GetEntityID(), bbDefs.PlayerStateMachine)
+      psmFor = who
     end
     tier = psm:GetInt(bbDefs.PlayerStateMachine.SceneTier)
   end)

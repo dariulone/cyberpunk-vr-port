@@ -127,7 +127,9 @@ __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoMergePatchFailed{0
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_StereoMergePatchBinds{0};
 // Group 9 (stereo_eye\, tools/asym_tests/stereo_eye_shaders.py): 2.5 engine stereo only. Passes dispatched once
 // over both eyes that told a pixel's eye by the camera block's eye (one block for the whole dispatch) instead of
-// the pixel's half -- the volumetric clouds' fog lookup, which gave the left eye's clouds the right eye's haze.
+// the pixel's half -- the volumetric clouds' fog lookup, which gave the left eye's clouds the right eye's haze --
+// or rebuilt the world position with the frame camera over both halves: the underwater volume, its fog and depth
+// under the surface different in each eye.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoEyePatch{1};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoEyePatchLoaded{0};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_StereoEyePatchBuilt{0};

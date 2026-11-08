@@ -17,7 +17,7 @@ if(MSVC)
     target_link_options(vrik_chain_tests PRIVATE /OPT:REF /OPT:ICF /INCREMENTAL:NO)
 endif()
 foreach(case fk_fixture packet_atomicity coordinate_roundtrip body_write_census
-             rig_policy native_lower head_basis shadow_upper model_replay hand_gestures
+             rig_policy native_lower toes_ahead head_basis shadow_upper model_replay hand_gestures
              rig_rebind pose_buffer_rebind shoulder_reference forearm_roll forearm_solve launcher_wrist
              weapon_stance weapon_stance_armed_start weapon_stance_bending body_arm_frame body_bend_geometry floor_reach_geometry
              head_bound_bend girdle_reach overhead_reach cyberware_pose mantis_pose mantis_wrist cyberware_wire combat_elbow elbow_blend cyberware_muscles launcher_pose launcher_axis passenger_window vehicle_hand_frame vehicle_upper_body

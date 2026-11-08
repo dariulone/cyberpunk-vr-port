@@ -929,10 +929,17 @@ local CFG = {
         ucbeltgrenade_ozob      = "grenade=ozob",
     },
 
-    -- Last on the list on purpose: a belt missing from the one cutscene that shows the player with a
-    -- weapon looks worse than a belt that is simply always there.
-    hide_in_cutscene = false,
+    -- OFF THE BODY IN A SCENE (2026-11-06: "hide the holsters and the belt in cutscenes"): the belt,
+    -- its pieces and its elements, while a scene plays the body -- the plugin's VRSceneOwnsBody, the
+    -- tier that suspends VRIK, the signal the holsters and the hands-only mode go by. A new key: the old
+    -- `hide_in_cutscene` (off) is in every belt.cfg saved before, and read back it would keep the belt on.
+    -- cutscene_tier is the fallback where the plugin has no VRSceneOwnsBody.
+    hide_in_scenes = true,
     cutscene_tier = 3,
+    -- OFF THE BODY IN A VEHICLE as well (2026-11-06: "in the car all the holsters and the belt off, the same
+    -- as in scenes"): seen exactly as in a scene. The reaches stay, as they do in a scene: a magazine is still
+    -- taken from the belt for a reload in a gunfight from the car.
+    hide_in_vehicles = true,
 
     -- Equipment does not change per frame, and this file is not going to be the reason a frame is late.
     rate_hz = 4,
@@ -1067,7 +1074,7 @@ local WEAPON_MAG = {
 --
 -- The break-action pair is not that and stays in the list: a Satara or a Palica takes TWO rounds held
 -- together and inserted as one, which is a loading clip and its own object on the belt. Both were
--- briefly swept into the shell row on my inference, and that was wrong.
+-- briefly swept into the shell row, and that was wrong.
 -- tools/build_belt_mags.py holds the same list in BACK_CARRIED, which is what generated this.
 
 -- The magazines' rules and centres are GENERATED rather than typed: fifty-one pairs of lines that
@@ -1538,11 +1545,22 @@ local function beltComponents()
             if c ~= nil then found[name] = c end
         end
     else
+        -- THE BELT'S PIECES FROM THE SAME WALK (beltParts). Their map was kept as long as one entry passed
+        -- IsDefined -- and the map's own strong handles keep a replaced component defined, so after the
+        -- garment was rebuilt (the appearance asked for after the first scan, on every load) every piece
+        -- toggle went into the old components: the pieces never followed the panel or a scene again
+        -- (2026-11-06, the strap left on through a scene, the live one never touched).
+        local parts = {}
         for i = 1, #list do
             local nm = nil
             pcall(function() nm = tostring(list[i]:GetName().value) end)
-            if nm ~= nil and string.find(nm, CFG.prefix, 1, true) then found[nm] = list[i] end
+            if nm ~= nil then
+                if string.find(nm, CFG.prefix, 1, true) then found[nm] = list[i] end
+                if string.sub(nm, 1, 8) == "vrp_belt" then parts[nm] = list[i] end
+            end
         end
+        S.beltComp, S.beltCompName = nil, nil
+        S.beltParts, S.beltPartsFor, S.beltPartsScan = parts, who, os.clock()
     end
     S.comps = found
 
@@ -1853,6 +1871,7 @@ local function applyBeltPieces(pl, who)
     for i, nm in ipairs(BELT_PIECE_NAMES) do
         local on
         if i == 1 then on = beltAllInOne() else on = (pieces[BELT_PIECES[i - 1]] == true) end
+        if S.scene then on = false end   -- OFF THE BODY IN A SCENE (CFG.hide_in_scenes)
         local c = map[nm]
         if c ~= nil and IsDefined(c) then
             local is = known[nm]
@@ -2379,11 +2398,33 @@ local function eulerQuat(rx, ry, rz)
            cr * cp * cy + sr * sp * sy
 end
 
+-- OFF THE BODY IN A SCENE (CFG.hide_in_scenes): the plugin's answer, the scene tier where it has none.
+local function askScene() return Game.VRSceneOwnsBody() end
+-- Mounted is asked four times a second, not every frame.
+local mountedAt, mounted = -1.0, false
+local function inVehicle()
+    local now = os.clock()
+    if now - mountedAt >= 0.25 or now < mountedAt then
+        mountedAt = now
+        local ok, v = pcall(function() local pl = Game.GetPlayer(); return pl ~= nil and Game.GetMountedVehicle(pl) ~= nil end)
+        mounted = ok and v == true
+    end
+    return mounted
+end
+local function sceneHides()
+    if CFG.hide_in_vehicles and inVehicle() then return true end
+    if not CFG.hide_in_scenes then return false end
+    local ok, v = pcall(askScene)
+    if ok and type(v) == "boolean" then return v end
+    local st = S.state
+    return st ~= nil and (st.tier or 0) >= CFG.cutscene_tier
+end
+
 local function applyElements(st)
     local comps = beltComponents()
     if comps == nil then return end
 
-    local hideAll = CFG.hide_in_cutscene and st.tier >= CFG.cutscene_tier
+    local hideAll = S.scene == true
 
     for name, comp in pairs(comps) do
         -- THE PORT'S OWN MARK TWINS ARE NOT RULED. A `*_lit` component is driven by the hand, in
@@ -2407,7 +2448,8 @@ local function applyElements(st)
 
         local okE, is = pcall(isEnabled, comp)
         if not okE then is = nil end
-        if not isTwin and is ~= nil and is ~= want then
+        -- (a mark twin goes off with the rest in a scene; the hand lights it again after)
+        if (not isTwin or hideAll) and is ~= nil and is ~= want then
             S.want[name] = want
             pcall(toggle, comp, want)
             if CFG.verbose then log("%s -> %s (was %s)", name, tostring(want), tostring(is)) end
@@ -4057,6 +4099,11 @@ registerForEvent("onUpdate", function(dt)
         if os.clock() < S.holdOff then return end
         S.holdOff = nil
     end
+    -- OFF THE BODY IN A SCENE, read every frame: the pieces follow it below, and a change runs the elements'
+    -- pass in this same frame instead of up to a quarter of a second later.
+    -- (a flip also walks the pieces again: what it hides or shows are the components worn now)
+    local scene = sceneHides()
+    if scene ~= (S.scene == true) then S.scene, S.sceneFlip, S.beltParts = scene, true, nil end
     applyBeltChunks(applyBeltPieces(pl, who))
 
     updateMagReach()
@@ -4076,8 +4123,8 @@ registerForEvent("onUpdate", function(dt)
 
     S.acc = S.acc + (dt or 0.016)
     local period = 1.0 / math.max(1.0, CFG.rate_hz)
-    if S.acc < period then return end
-    S.acc = 0.0
+    if S.acc < period and not S.sceneFlip then return end
+    S.acc, S.sceneFlip = 0.0, nil
     local now = os.clock()
 
     ensureEquipped(now)
@@ -4470,7 +4517,7 @@ registerForEvent("onDraw", function()
         if ImGui.SmallButton("colour route: " .. CFG.color_route) then
             CFG.color_route = (CFG.color_route == "item") and "component" or "item"
         end
-        CFG.hide_in_cutscene = ImGui.Checkbox("hide in cutscenes", CFG.hide_in_cutscene)
+        CFG.hide_in_scenes = ImGui.Checkbox("hide in scenes", CFG.hide_in_scenes)
         CFG.verbose = ImGui.Checkbox("log every toggle", CFG.verbose)
         if ImGui.Button("equip now") then S.lastEquipTry = 0.0; ensureEquipped(os.clock()) end
         ImGui.SameLine()

@@ -1,3 +1,4 @@
+#include "Runtimes/HeadLedBodyTurn.hpp"
 #include "Utils/DebugGate.hpp"
 // Estimates physical body heading from HMD/controllers. BodyHeading.cpp feeds
 // each request to the native movement adapter and retains only committed
@@ -42,12 +43,30 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugVrikNativePairPhaseMi
 // body-only catch-up toward the centre, restoring the full free-look zone.
 // Camera tracking consumes its independent reference immediately.
 extern "C" __declspec(dllexport) float CyberpunkVR_BodyYawFollowDeadDeg = 5.0f;
+// Hybrid: the hands' share of the body's turn, 0 (head cone) .. 1 (tracked); fades between the two.
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridTrackedWeight = 0.0f;
+// Hybrid: the hands' heading and the neck limit's pull on top of it (degrees, the follower's offset convention).
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridHandsDeg = 0.0f;
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridNeckPullDeg = 0.0f;
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugHybridAlignDeg = 0.0f;   // hands' alignment to the body
+extern "C" __declspec(dllexport) int   CyberpunkVR_DebugHybridEstimate = 0;      // 1: the hands' estimate is valid
+// The head-led turn: looking down (0/1), the head's yaw, the body's (degrees, the model's [0, 360)), re-seeds
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugHeadLedTurn[4] = {};
+// The body's turning speed (deg/s), upright and looking down alike; Runtimes/HeadLedBodyTurn.hpp kDefaultBodyTurnConfig
+extern "C" __declspec(dllexport) int CyberpunkVR_BodyTurnSpeedDps = 300;
+// The upright cone (deg): a look within it of where the body last re-aimed leaves the body; kDefaultBodyTurnConfig
+extern "C" __declspec(dllexport) int CyberpunkVR_BodyUprightConeDeg = 10;
+// The hands' estimator's last update (TrackedBodyYaw::Trace): delta, wristMean, headDelta, headLead, accepted, evidence,
+// residual, target (radians / seconds / metres), then the gate bits as a float-sized integer
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugTrackedTrace[8] = {};
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_DebugTrackedGates = 0;
 
 namespace {
 cvr::roomscale::BodyYawFollower s_yawFollower;
 cvr::body::TrackedBodyYaw s_trackedBody;
 cvr::body::RotationMode s_bodyRotationMode=cvr::body::RotationMode::Off;
 cvr::body::HybridBodyYaw s_hybridBody;
+cvr::body::HeadLedBodyTurn s_headLedBody;
 std::mutex s_yawFollowerMutex;
 std::atomic<uint32_t> s_nativePairSeq{0};
 std::mutex s_nativePairWriter;
@@ -186,7 +205,7 @@ void RefreshFollowerState(float observedOffset) {
                             cvr::roomscale::PhysicalBodyHeadingOwned());
     if(mode!=s_bodyRotationMode || !s_yawFollower.Enabled()){
         s_trackedBody.Reset(observedOffset,mode!=cvr::body::RotationMode::Hybrid);
-        s_hybridBody.Reset();s_bodyRotationMode=mode;
+        s_hybridBody.Reset();s_headLedBody.Reset();s_bodyRotationMode=mode;
     }
     PublishFollowerState();
 }
@@ -208,6 +227,7 @@ extern "C" void BodyYawFollowRelease() {
     s_yawFollower.Reset();
     s_trackedBody.Reset(0,s_bodyRotationMode!=cvr::body::RotationMode::Hybrid);
     s_hybridBody.Reset();
+    s_headLedBody.Reset();
     PublishFollowerState();
 }
 
@@ -236,15 +256,55 @@ extern "C" float BodyYawFollowStep(float observedOffset) {
     cvr::body::YawEstimate result{};
     if(cvr::body::NeedsBodyTracking(s_bodyRotationMode)){
         if(haveBody && bodyFrame.origin==origin) {
+            s_trackedBody.trace.bits=0;
             result=s_trackedBody.Update(bodyFrame);
+            {
+                const auto& t=s_trackedBody.trace;
+                const float v[8]{t.delta,t.wristMean,t.headDelta,t.headLead,t.accepted,t.evidence,t.residual,t.target};
+                for(int i=0;i<8;++i)CyberpunkVR_DebugTrackedTrace[i]=v[i];
+                CyberpunkVR_DebugTrackedGates=t.bits;
+            }
             if(result.valid)result=s_trackedBody.Predict(now);
         }
         else s_trackedBody.Suspend();
     }
+    if(s_bodyRotationMode==cvr::body::RotationMode::HeadLed){
+        // The head-led turn (Runtimes/HeadLedBodyTurn.hpp): the head alone decides; no follow zone, no controllers.
+        CyberpunkVR_BodyYawFollowDeadDeg=0;
+        if(!yawDefined)return 0;
+        const float bodyDeg=s_yawFollower.Offset()*57.2957795f;
+        // started from the body as it stands; started again if the body was turned from outside (a reset, a teleport):
+        // a missed apply is not that -- the model's own heading carries on and the next request catches the body up
+        if(!s_headLedBody.Seeded() || std::fabs(cvr::body::TurnDeltaAngle(s_headLedBody.Output(),bodyDeg))>20.0f) {
+            s_headLedBody.Seed(bodyDeg);
+            CyberpunkVR_DebugHeadLedTurn[3]+=1;
+        }
+        const float dt=std::clamp(s_yawFollower.SinceLast(now),0.0f,.25f);
+        const float pitch=-headDownDegrees;   // up positive
+        auto config=cvr::body::kDefaultBodyTurnConfig;
+        const int speed=CyberpunkVR_BodyTurnSpeedDps;
+        if(speed>0 && speed<=3600)config.upperSpeedDps=config.lowerSpeedDps=float(speed);
+        const int cone=CyberpunkVR_BodyUprightConeDeg;
+        if(cone>0 && cone<=90)config.upperToleranceDeg=float(cone);
+        const float out=s_headLedBody.Step(hmdYaw*57.2957795f,pitch,dt,config);
+        CyberpunkVR_DebugHeadLedTurn[0]=pitch<cvr::body::kLookDownAngleDeg ? 1.0f:0.0f;
+        CyberpunkVR_DebugHeadLedTurn[1]=cvr::body::TurnClampAxis(hmdYaw*57.2957795f);
+        CyberpunkVR_DebugHeadLedTurn[2]=out;
+        const float step=s_yawFollower.Set(out*.01745329252f,now,origin);
+        PublishFollowerState();
+        if(step!=0)CVR_DIAGNOSTIC(++CyberpunkVR_DebugBodyFollowApplied);
+        return step;
+    }
     if(s_bodyRotationMode==cvr::body::RotationMode::Hybrid){
         const auto command=s_hybridBody.Step({hmdYaw,headDownDegrees,bodyBend,s_yawFollower.Offset(),
-            g_liveControls.xrBodyFreeLookDeg,result,yawDefined,result.valid && s_trackedBody.Ready(),now,origin});
+            g_liveControls.xrBodyFreeLookDeg,result,yawDefined,result.valid && s_trackedBody.Ready(),now,origin,
+            g_liveControls.xrBodyFreeLookDownDeg});
         CyberpunkVR_BodyYawFollowDeadDeg=command.coneDegrees;
+        CyberpunkVR_DebugHybridTrackedWeight=command.trackedWeight;
+        CyberpunkVR_DebugHybridHandsDeg=command.handsYaw*57.2957795f;
+        CyberpunkVR_DebugHybridNeckPullDeg=command.neckPull*57.2957795f;
+        CyberpunkVR_DebugHybridAlignDeg=command.alignment*57.2957795f;
+        CyberpunkVR_DebugHybridEstimate=command.estimate ? 1:0;
         const float step=s_yawFollower.Step(command.targetYaw,0,now,origin);
         PublishFollowerState();
         if(step!=0)CVR_DIAGNOSTIC(++CyberpunkVR_DebugBodyFollowApplied);

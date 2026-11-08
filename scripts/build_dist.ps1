@@ -6,11 +6,11 @@
 #
 # Usage:
 #   pwsh scripts\build_dist.ps1
-#   pwsh scripts\build_dist.ps1 -Version 0.2.2 -Zip
+#   pwsh scripts\build_dist.ps1 -Version 0.2.3 -Zip
 
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$')]
-    [string]$Version = "0.2.2",
+    [string]$Version = "0.2.3",
     # The game 2.5 build tree (RED4ext.SDK game-2.5); build\ is the old 2.31 tree and its DLL is stale.
     [string]$BuildDir = "build\patchday\sdk25-build",
     [switch]$Zip,
@@ -176,8 +176,9 @@ foreach ($twin in $rtTwins) {
     Add-File $twin.FullName "red4ext\plugins\cyberpunkvrport\shaders\stereo_rt\$($twin.Name)"
 }
 # The engine-stereo eye twins (tools/asym_tests/stereo_eye_shaders.py): the volumetric clouds (both qualities of the
-# march) look up the fog in front of a cloud in the pixel's own eye, not the dispatch camera's.
-foreach ($hash in @('8a6c46c528ce5160', 'c944329b340f33c2')) {
+# march) look up the fog in front of a cloud in the pixel's own eye, not the dispatch camera's; the underwater volume
+# (4145873fbf34bf87, one draw over both eyes) rebuilds its world position with the pixel's eye, not the frame camera.
+foreach ($hash in @('8a6c46c528ce5160', 'c944329b340f33c2', '4145873fbf34bf87')) {
     Add-File (Need (Join-Path $RepoRoot "src\Shaders\stereo_eye\$hash.dxil") "engine-stereo eye twin $hash") "red4ext\plugins\cyberpunkvrport\shaders\stereo_eye\$hash.dxil"
 }
 # First stereo bloom downsample; enabled separately from the other stereo patches.
@@ -320,8 +321,13 @@ REQUIREMENTS
     mounts the port's archive, writes its TweakDB records, merges its input bindings, has its own
     natives for what the scripts used Codeware for, and carries redscript's script compiler (built
     from redscript's sources) for a game without redscript. Keep them if other mods of yours need
-    them (Equipment-EX and Nova Optics do, for themselves); with redscript installed, its compiler
-    compiles the port's scripts too. The port works with or without them.
+    them; with redscript installed, its compiler compiles the port's scripts too. The port works
+    with or without them.
+
+    Not needed any more, though earlier releases listed them: Visual Holsters (the port hangs the
+    weapons on the body itself), Equipment-EX, Nova Optics and More Occluders. More Occluders'
+    scripted v0.3 has been reported not to compile on 2.5, and one script that fails to compile
+    turns every redscript mod off, the port's too.
 
     Nothing else may proxy dxgi. If another VR mod installed bin\x64\dxgi.dll, move it
     out of the folder -- two VR paths in one process fight over the same engine hooks.
@@ -353,10 +359,6 @@ INSTALL
     bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_QuickBoot) to keep
     normal startup and save selection. Existing launcher preferences are preserved;
     show_launcher defaults to 1 only when no saved preference overrides it.
-
-    Install More Occluders (Scripted v0.3) separately from its author's page:
-    https://www.nexusmods.com/cyberpunk2077/mods/33136
-    It is not included in this archive.
 
     Then start your OpenXR runtime, then the game. A small launcher window appears first: pick
     your headset and per-eye render resolution there.
@@ -393,7 +395,8 @@ Set-Content (Join-Path $Out "INSTALL.txt") $readme -Encoding utf8
 # This is documentation that lives inside the zip, like INSTALL.txt itself.
 $changelog = Join-Path $RepoRoot "CHANGELOG.md"
 if (Test-Path $changelog) {
-    $text = (Get-Content -LiteralPath $changelog -Raw)
+    # Its first line names the port: UNINSTALL.bat deletes a CHANGELOG.txt in the game root only when it does.
+    $text = "CyberpunkVRPort $Version -- changes`r`n`r`n" + (Get-Content -LiteralPath $changelog -Raw)
     Set-Content (Join-Path $Out "CHANGELOG.txt") $text -Encoding utf8
     Write-Host ("  {0,-64}{1,10:N0}" -f "CHANGELOG.txt", (Get-Item (Join-Path $Out "CHANGELOG.txt")).Length)
 } else {
@@ -428,6 +431,11 @@ foreach ($e in $manifest) {
 # Files earlier releases installed and this one no longer ships, removed like the package's own.
 $retiredFiles = @("engine\config\platform\pc\vrcam_cpu_tweaks.ini")
 $loose = ($loose + $retiredFiles) | Sort-Object -Unique
+# Folders earlier releases installed whole and this one no longer ships: the old hands plugin (its natives are in
+# cyberpunkvrport.dll) and the TweakXL folders (the plugin applies its records itself since 0.2.0). The plugin takes
+# out what in them is the same as its own and sets the rest aside as .legacy, so the folders outlive it.
+$retiredDirs = @("red4ext\plugins\CyberpunkVR_Hands", "r6\tweaks\vrport", "r6\tweaks\vrcigarette")
+$ownDirs = ($ownDirs + $retiredDirs) | Sort-Object -Unique
 
 $dirLines   = ($ownDirs | ForEach-Object { "    " + $_ + "\" }) -join "`r`n"
 $looseLines = ($loose   | ForEach-Object { "    " + $_        }) -join "`r`n"
@@ -456,13 +464,27 @@ $dirLines
 
 $looseLines
 
-3. AND THESE -- the plugin writes them at runtime, so they are not in the package
+3. AND THESE -- written while the plugin runs, or left by an earlier release, so they are not in the package
+   (a * stands for any name; every match carries the port's name)
 
-    bin\x64\vrport.ini                     every setting you changed in the F10 overlay
-    bin\x64\vrport-launcher.ini            the launcher's headset, resolution and DEBUG choice
-    red4ext\plugins\cyberpunkvrport\log\cyberpunkvrport.log   the plugin's log
-    r6\input\CyberpunkVRPort_ScannerHud.xml   the port's bindings, handed to Input Loader when it is installed
-    r6\input\CyberpunkVRPort_PhotoMode.xml    (the same)
+    r6\input\CyberpunkVRPort_*.xml         the port's bindings, handed to Input Loader when it is installed
+    bin\x64\vrport.ini, bin\x64\vrport-launcher.ini
+                                           an earlier release's settings, beside the exe
+    bin\x64\CyberpunkVR*                   an earlier release's logs, hand poses and recordings (files and folders)
+    r6\scripts\CyberpunkVRPort_*\          an earlier release's scripts; the plugin sets any it does not
+                                           carry itself aside as .legacy, which keeps the folder
+    archive\pc\mod\cyberpunkvrport.archive*   an earlier release's archive and manifest (.legacy: set aside)
+    archive\pc\mod\vrport_*.archive*, archive\pc\mod\VRCigarette.archive*   0.1.7 and older
+    bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_*\
+                                           an earlier release's CET mods: the plugin moves them into its own
+                                           folder, CET's own files (db.sqlite3) stay behind
+    r6\cache\final.redscripts.modded, r6\cache\final.redscripts.ts, r6\logs\redscript_r*.log
+                                           the scripts the plugin's compiler built and its logs -- ONLY when
+                                           redscript is not installed (no engine\tools\scc.exe or scc_lib.dll).
+                                           With redscript installed they are redscript's and are left alone.
+
+    INSTALL.txt, UNINSTALL.txt, CHANGELOG.txt and UNINSTALL.bat itself, in the game root: the .bat
+    deletes them last, and only when everything above is gone.
 
 4. RESTORE YOUR GAME SETTINGS IF NEEDED
 
@@ -488,14 +510,13 @@ $looseLines
     save: no custom quest facts, no items that stop existing, no scripted entities parked in the
     world. A save made with the mod loads without it.
 
-    The other mods this one uses -- RED4ext,
-    Visual Holsters, Equipment-EX, Nova Optics.
-    Each has its own uninstall; the lists above remove only what carries the
+    The other mod this one uses -- RED4ext.
+    It has its own uninstall; the lists above remove only what carries the
     CyberpunkVRPort name.
 
 Generated from commit $(git -C $RepoRoot rev-parse --short HEAD 2>$null) on $(Get-Date -Format "yyyy-MM-dd").
 "@
-Set-Content (Join-Path $Out "UNINSTALL.txt") $uninstall -Encoding utf8
+Set-Content (Join-Path $Out "UNINSTALL.txt") ($uninstall -replace "`r?`n", "`r`n") -Encoding utf8
 
 # ---- and the same lists as a batch file anyone can double-click --------------------------------
 # A .bat rather than a .ps1 on purpose: no ExecutionPolicy to explain, no "right-click, Run with
@@ -551,12 +572,29 @@ $batDirs
 
 $batFiles
 
+rem ---- what the plugin writes while it runs, and what earlier releases left -------------------------
+rem Matched by name, and every pattern carries the port's: nothing another mod or the game owns can match.
+rem Written by the plugin for Input Loader (Core/InputConfig.cpp), when that mod is installed.
+for %%F in ("r6\input\CyberpunkVRPort_*.xml") do call :killfile "%%~F"
+rem Up to 0.1.9 the settings, the logs, the hand poses and the recordings sat beside the exe.
 call :killfile "bin\x64\vrport.ini"
 call :killfile "bin\x64\vrport-launcher.ini"
-call :killfile "bin\x64\cyberpunkvrport.log"
-rem Written by the plugin for Input Loader (Core/InputConfig.cpp), when that mod is installed.
-call :killfile "r6\input\CyberpunkVRPort_ScannerHud.xml"
-call :killfile "r6\input\CyberpunkVRPort_PhotoMode.xml"
+for %%F in ("bin\x64\CyberpunkVR*") do call :killfile "%%~F"
+for /d %%D in ("bin\x64\CyberpunkVR*") do call :killdir "%%~D"
+rem An earlier release's scripts, archives and CET mods. The plugin deletes the copies that match its own and
+rem renames the rest .legacy (ScriptCompiler / ArchiveExtensions RetireLegacy*, Lua/Migration), so they outlive it.
+for /d %%D in ("r6\scripts\CyberpunkVRPort_*") do call :killdir "%%~D"
+for %%F in ("archive\pc\mod\cyberpunkvrport.archive*") do call :killfile "%%~F"
+for %%F in ("archive\pc\mod\vrport_*.archive*") do call :killfile "%%~F"
+for %%F in ("archive\pc\mod\VRCigarette.archive*") do call :killfile "%%~F"
+for /d %%D in ("bin\x64\plugins\cyber_engine_tweaks\mods\CyberpunkVRPort_*") do call :killdir "%%~D"
+rem Without redscript the plugin's own compiler (redscript's, Core/ScriptCompiler.cpp) builds the scripts into
+rem r6\cache\final.redscripts.modded and logs into r6\logs. With redscript installed those files are redscript's.
+if not exist "engine\tools\scc.exe" if not exist "engine\tools\scc_lib.dll" (
+  call :killfile "r6\cache\final.redscripts.modded"
+  call :killfile "r6\cache\final.redscripts.ts"
+  for %%F in ("r6\logs\redscript_r*.log") do call :killfile "%%~F"
+)
 
 echo.
 echo   Removed !GONE!, already gone !ABSENT!, could not remove !STUCK!.
@@ -603,10 +641,22 @@ goto :done
 
 :done
 echo.
-echo   Done. UNINSTALL.txt is still here if you want to check anything by hand --
-echo   delete it, INSTALL.txt and this file whenever you like.
+if !STUCK! GTR 0 (
+  echo   Done, but not everything could be removed. UNINSTALL.txt, INSTALL.txt and this file stay
+  echo   here so you can finish by hand or run this again.
+  echo.
+  pause
+  exit /b 1
+)
+rem The package's notes in the game root go last, each only if it is ours (it names the port), then this file:
+rem (goto) leaves the batch file before del runs, so cmd is not left reading a file that is gone.
+for %%F in ("INSTALL.txt" "UNINSTALL.txt" "CHANGELOG.txt") do (
+  if exist "%%~F" "%SystemRoot%\System32\findstr.exe" /m /c:"CyberpunkVRPort" "%%~F" >nul 2>&1 && del /f /q "%%~F"
+)
+echo   Done. CyberpunkVRPort is removed, this uninstaller and its notes with it.
 echo.
 pause
+(goto) 2>nul & del /f /q "%~f0"
 exit /b 0
 
 :notgameroot
@@ -666,6 +716,10 @@ if exist "%~1" (
 )
 exit /b 0
 "@
+# CRLF throughout. This script is saved with LF, so the here-string above is LF while the generated lists are joined
+# with CRLF; cmd reads a mixed or LF-only batch file wrongly once `call :label` makes it seek in it -- it resumes at
+# the wrong byte after a call and lines are skipped, which left files behind in an uninstall that reported success.
+$bat = $bat -replace "`r?`n", "`r`n"
 Set-Content (Join-Path $Out "UNINSTALL.bat") $bat -Encoding ascii
 
 # ---- report -------------------------------------------------------------------------------------
@@ -682,7 +736,7 @@ if (Test-Path -LiteralPath (Join-Path $Out 'r6\scripts\cache')) {
     throw "Shared script cache must not be owned by the release package"
 }
 if (Test-Path -LiteralPath (Join-Path $Out 'r6\scripts\MoreOccluders.reds')) {
-    throw "More Occluders must be installed separately from its author's page"
+    throw "More Occluders is not part of the port and must not be packaged"
 }
 Write-Host ""
 Write-Host ("  {0} files, {1:N0} bytes total" -f $all.Count, ($all | Measure-Object Length -Sum).Sum)

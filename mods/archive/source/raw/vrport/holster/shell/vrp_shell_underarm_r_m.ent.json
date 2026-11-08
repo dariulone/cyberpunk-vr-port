@@ -25,7 +25,7 @@
      "CruidIndex": 0,
      "CruidDict": {
       "0": "0",
-      "1": "2800000000000010025"
+      "1": "2800000000000020025"
      },
      "Chunks": [
       {
@@ -43,7 +43,7 @@
        "chunkMask": "6144",
        "forcedLodDistance": "Default",
        "forceLODLevel": -1,
-       "id": "2800000000000010025",
+       "id": "2800000000000020025",
        "isEnabled": 1,
        "isReplicable": 0,
        "localTransform": {
@@ -76,14 +76,14 @@
         "DepotPath": {
          "$type": "ResourcePath",
          "$storage": "string",
-         "$value": "raem\\accessories\\rm_harness_val_full\\meshes\\m_base_body_harness_base.mesh"
+         "$value": "vrport\\holster\\own\\vrp_own_underarm_m.mesh"
         },
         "Flags": "Default"
        },
        "meshAppearance": {
         "$type": "CName",
         "$storage": "string",
-        "$value": "carbon"
+        "$value": "black"
        },
        "motionBlurScale": 0,
        "name": {
@@ -126,7 +126,7 @@
      "chunkMask": "6144",
      "forcedLodDistance": "Default",
      "forceLODLevel": -1,
-     "id": "2800000000000010025",
+     "id": "2800000000000020025",
      "isEnabled": 1,
      "isReplicable": 0,
      "localTransform": {
@@ -159,14 +159,14 @@
       "DepotPath": {
        "$type": "ResourcePath",
        "$storage": "string",
-       "$value": "raem\\accessories\\rm_harness_val_full\\meshes\\m_base_body_harness_base.mesh"
+       "$value": "vrport\\holster\\own\\vrp_own_underarm_m.mesh"
       },
       "Flags": "Default"
      },
      "meshAppearance": {
       "$type": "CName",
       "$storage": "string",
-      "$value": "carbon"
+      "$value": "black"
      },
      "motionBlurScale": 0,
      "name": {

@@ -62,8 +62,8 @@ struct Geometry {
     }
     // The state-machine exit plane is one step below the physical top -- on the ladders it was measured on. The
     // description does not always say where the ladder ends: a 10 m ladder of two 4 m modules and a 2 m one under a
-    // finisher rail says 9.1 and -0.3, and its two last rungs (9.6, 10.0) and the rail could not be gripped (players,
-    // 2026-11-05: "on a long ladder, at the end, it does not take the last rung"). Its modules say it: their rungs stand
+    // finisher rail says 9.1 and -0.3, and its two last rungs (9.6, 10.0) and the rail could not be gripped
+    // (2026-11-05: "on a long ladder, at the end, it does not take the last rung"). Its modules say it: their rungs stand
     // every 0.4 m from the foot up to each module's top (generic_ladder_a/b/c, every height), so the top of the highest
     // module (SetMeasuredTop) is the last rung's height when it is known.
     float PhysicalTop() const { return measuredTop>0 ? measuredTop:height-std::min(topStep,0.0f); }
@@ -191,7 +191,7 @@ public:
         // THE FLOOR AT THE TOP CAN LIE ABOVE THE EXIT PLANE: by -topStep (0.4 m on the
         // generic ladders with a finisher). The climb used to stop 0.35 m past the plane,
         // short of that floor, and V dropped back down the ladder on exactly those ladders
-        // (players, 2026-11-04: "on some ladders the character falls at the end").
+        // (2026-11-04: "on some ladders the character falls at the end").
         const float floorAbove=std::max(0.0f,-std::min(g.topStep,0.0f));
         if(!f.autoFinish || remaining>finishDistance || remaining<-(floorAbove+.35f) ||
             (!f.handValid[0] && !f.handValid[1]) || signedPull<-.008f) {

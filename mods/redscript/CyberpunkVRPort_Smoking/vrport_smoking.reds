@@ -108,6 +108,21 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
 @addMethod(PlayerPuppet) private func VRSmokeLighter() -> ref<GameObject> {
   return this.VRSmokeTS().GetItemInSlot(this, this.VRSmokeLighterSlot());
 }
+// ONLY THE SMOKING PROPS COME OFF A SLOT (2026-11-07). A cigarette in the mouth leaves both hands free, and a weapon
+// drawn meanwhile sits in WeaponRight. Burnt out, VRSmokeExtinguish took WeaponRight/WeaponLeft off with the
+// TransactionSystem -- the weapon with them, behind the EquipmentSystem's back: it still had that weapon active, so no
+// draw, holster or swap went through again (reproduced live: draw with the cigarette in the mouth, burn out, every
+// ReequipWeapon / UnequipAll refused; putting the weapon back into its slot recovered it). Every removal here goes
+// through this: it takes the item off only when it is the cigarette or the lighter.
+@addMethod(PlayerPuppet) private func VRSmokeRemoveProp(slot: TweakDBID, fromInventory: Bool) -> Void {
+  let ts = this.VRSmokeTS();
+  let item = ts.GetItemInSlot(this, slot);
+  if !IsDefined(item) { return; }
+  let id = ItemID.GetTDBID(item.GetItemID());
+  if id == t"Items.cigarette_i_stick" || id == t"Items.apparel_lighter_a" {
+    ts.RemoveItemFromSlot(this, slot, fromInventory);
+  }
+}
 // The lighter left the hand holding it: that hand lets go.
 @addMethod(PlayerPuppet) private func VRSmokeReleaseLighterHand() -> Void {
   if this.m_vrSmokeLeftHanded { SetVRSmokeFingers(0); SetVRSmokeRightLighter(0); } else { SetVRSmokeFingersL(0); }
@@ -272,7 +287,7 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
   GameObjectEffectHelper.StartEffectEvent(cig, n"smoke_trail", true);    // continuous smoke trail from the cig
   GameObject.PlaySound(cig, n"cmn_generic_male_inhale_smoking");
   this.VRSmokeDouse();
-  this.VRSmokeTS().RemoveItemFromSlot(this, this.VRSmokeLighterSlot(), true); // lighter gone
+  this.VRSmokeRemoveProp(this.VRSmokeLighterSlot(), true); // lighter gone
   this.VRSmokeReleaseLighterHand();
   if this.m_vrSmokeMouth { this.VRSmokeSchedulePuff(); } // lit while in the mouth -> start auto-puff
 }
@@ -326,14 +341,14 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
     // 2 = LEFT (WeaponLeft). If THAT hand already holds a weapon, leave the cig in the mouth.
     if destHand == 2 {
       if IsDefined(ts.GetItemInSlot(this, t"AttachmentSlots.WeaponLeft")) { return; }   // left hand busy -> stay
-      ts.RemoveItemFromSlot(this, t"AttachmentSlots.Splinter", false);
+      this.VRSmokeRemoveProp(t"AttachmentSlots.Splinter", false);
       SetVRSmokeLeftCig(1);   // the left hand now holds the CIG -> apply the cig-left grip pose
       ts.AddItemToSlot(this, t"AttachmentSlots.WeaponLeft", this.m_vrSmokeCigId, true);
       SetVRSmokeFingersL(1);
       this.m_vrSmokeCigSlot = 2;
     } else {
       if IsDefined(ts.GetItemInSlot(this, t"AttachmentSlots.WeaponRight")) { return; }  // right hand busy -> stay
-      ts.RemoveItemFromSlot(this, t"AttachmentSlots.Splinter", false);
+      this.VRSmokeRemoveProp(t"AttachmentSlots.Splinter", false);
       ts.AddItemToSlot(this, t"AttachmentSlots.WeaponRight", this.m_vrSmokeCigId, true);
       SetVRSmokeFingers(1);
       this.m_vrSmokeCigSlot = 0;
@@ -345,7 +360,7 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
     // INTO the mouth: move the cig off its current hand onto Splinter (WeaponRight1 leaf) -> frees BOTH
     // hands + both weapon slots. Can be put in unlit (to light it there).
     if !this.m_vrSmokeHas { return; }
-    ts.RemoveItemFromSlot(this, this.VRSmokeCigSlotID(this.m_vrSmokeCigSlot), false);
+    this.VRSmokeRemoveProp(this.VRSmokeCigSlotID(this.m_vrSmokeCigSlot), false);
     ts.AddItemToSlot(this, t"AttachmentSlots.Splinter", this.m_vrSmokeCigId, true, null, ERenderingPlane.RPl_Scene, false, true);
     if this.m_vrSmokeCigSlot == 2 { SetVRSmokeFingersL(0); SetVRSmokeLeftCig(0); } else { SetVRSmokeFingers(0); }
     this.m_vrSmokeCigSlot = 1;
@@ -405,10 +420,10 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
     GameObjectEffectHelper.StopEffectEvent(cig, n"smoke_trail");
     GameObjectEffectHelper.StopEffectEvent(cig, n"ember_passive");
   }
-  this.VRSmokeTS().RemoveItemFromSlot(this, t"AttachmentSlots.WeaponRight", true);
-  this.VRSmokeTS().RemoveItemFromSlot(this, t"AttachmentSlots.WeaponLeft", true);
-  this.VRSmokeTS().RemoveItemFromSlot(this, t"AttachmentSlots.Splinter", true);   // in the mouth (WeaponRight1)
-  this.VRSmokeTS().RemoveItemFromSlot(this, this.VRSmokeMouthSlotID(this.m_vrSmokeMouthSlot), true);
+  this.VRSmokeRemoveProp(t"AttachmentSlots.WeaponRight", true);
+  this.VRSmokeRemoveProp(t"AttachmentSlots.WeaponLeft", true);
+  this.VRSmokeRemoveProp(t"AttachmentSlots.Splinter", true);   // in the mouth (WeaponRight1)
+  this.VRSmokeRemoveProp(this.VRSmokeMouthSlotID(this.m_vrSmokeMouthSlot), true);
   this.m_vrSmokeCigSlot = 0;
   this.m_vrSmokeHas = false;
   this.m_vrSmokeLit = false;
@@ -546,7 +561,7 @@ native func SetVRSmokeSmokeOffset(x: Float, y: Float, z: Float, pitch: Float, ya
 
 // ...BUT NOT A CIGARETTE IN THE MOUTH. There it sits on Splinter (the WeaponRight1 leaf pinned to the lips), off
 // both hands and both weapon slots, so a weapon drawn takes nothing from it -- and it went out with every draw
-// (players, 2026-11-04: "the cigarette vanishes from the mouth when a weapon is chosen"). Only the lighter, if a
+// (2026-11-04: "the cigarette vanishes from the mouth when a weapon is chosen"). Only the lighter, if a
 // hand still holds it, is put away so that hand is free for the weapon.
 @addMethod(PlayerPuppet) public func VRSmokeFreeHands() -> Void {
   let ts = this.VRSmokeTS();

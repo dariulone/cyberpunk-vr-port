@@ -10,6 +10,8 @@ __declspec(dllexport) float CyberpunkVR_PhysicalCrouchDepth=0;
 __declspec(dllexport) int CyberpunkVR_PhysicalCrouchDesired=0;
 __declspec(dllexport) int CyberpunkVR_PhysicalCrouchApplied=0;
 __declspec(dllexport) int CyberpunkVR_PhysicalCrouchActual=0;
+// 1: while the body walks after the head the bend tracker reads a bob as a step (Anim/BodyBend.hpp BendWalkBobDrop)
+__declspec(dllexport) int CyberpunkVR_BendWalkMode=1;
 }
 namespace {
 uint64_t NowUs() {
@@ -28,8 +30,10 @@ void OpenXRManager::SetPhysicalCrouchBridgeReady(bool ready) {
     m_crouchBridgeStampUs.store(ready ? NowUs():0,std::memory_order_release);
 }
 void OpenXRManager::UpdateBodyPosture(OpenXRHeadPose& p) {
+    m_bodyBendTracker.SetSquatDepth(cvr::body::CrouchThreshold(g_liveControls.xrPhysicalCrouchDepth));
     p.bodyBend=m_bodyBendTracker.Update({p.posX,p.posY,p.posZ},
-        {p.oriX,p.oriY,p.oriZ,p.oriW},p.originSerial,cvr::swimming::Active() || cvr::ladder::Active());
+        {p.oriX,p.oriY,p.oriZ,p.oriW},p.originSerial,cvr::swimming::Active() || cvr::ladder::Active(),
+        CyberpunkVR_BendWalkMode!=0 && cvr::roomscale::BodyFollowing());
     p.crouchDepth=cvr::body::CrouchDepth(m_bodyBendTracker.NeckDrop(),p.bodyBend);
     const auto now=NowUs();
     const float norm=p.oriX*p.oriX+p.oriY*p.oriY+p.oriZ*p.oriZ+p.oriW*p.oriW;
@@ -50,9 +54,8 @@ void OpenXRManager::UpdateBodyPosture(OpenXRHeadPose& p) {
     }
     p.physicalCrouch=m_physicalCrouch.Update(p.crouchDepth,g_liveControls.xrPhysicalCrouchDepth,
         now,p.originSerial,cvr::roomscale::PlayerIdentity(),allowed);
-    // A genuine crouch wins over the gaze-only floor-reach inference. Retain
-    // measured lean and its XY displacement so roomscale never consumes it twice.
-    if(p.physicalCrouch)p.bodyBend.angle=m_bodyBendTracker.MeasuredAngle();
+    // (The gaze-only floor-reach inference has handed over to the squat by the crouch's depth -- BendTracker::Update --
+    // so the crouch coming on no longer replaces it: that replacement was a one-frame jump of the torso and hips.)
     CyberpunkVR_PhysicalCrouchDepth=p.crouchDepth;
     CyberpunkVR_PhysicalCrouchDesired=p.physicalCrouch ? 1:0;
 }

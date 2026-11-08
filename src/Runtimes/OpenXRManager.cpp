@@ -1211,6 +1211,8 @@ void OpenXRManager::EndSession() {
 // 1 = recenter automatically when the player puts the headset back on (xr_auto_recenter, see
 // Runtimes/PresenceRecenter.hpp). 0 = only F7 / the controller gesture / the runtime's own recenter.
 extern "C" __declspec(dllexport) int CyberpunkVR_AutoRecenter = 1;
+// Debug: GetRoomscaleSample's neck (frame x, y; runtime x, y), eye lever (x, y), head yaw, eye (x, -z)
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugRoomscaleNeck[9] = {};
 
 void OpenXRManager::PollEvents() {
     if (m_instance == XR_NULL_HANDLE) return;
@@ -1760,7 +1762,20 @@ bool OpenXRManager::GetRoomscaleSample(cvr::roomscale::Sample* out, OpenXRHeadPo
     cvr::roomscale::Sample frame{{head.posX-head.bodyBend.right-lever.x,-head.posZ-head.bodyBend.forward-lever.y},
                                  sequence,head.originSerial,sampledUs,haveFrame && head.valid};
     frame.eyeFromNeck=lever;
+    frame.bend={head.bodyBend.right,head.bodyBend.forward};
+    {   // standing upright and looking ahead (the standing recentre waits for it): no crouch, no hinge held, level-ish.
+        // 5 cm of crouch is still standing: players stand a little lower than they calibrated.
+        const float up=2.0f*(head.oriW*head.oriX-head.oriY*head.oriZ);   // the gaze's vertical part, sin(pitch)
+        frame.upright=head.crouchDepth<.05f && std::hypot(head.bodyBend.right,head.bodyBend.forward)<.03f &&
+            std::fabs(up)<.342f;
+    }
     *out=cvr::roomscale::MovementFrameSample(tracking,frame);
+    // Debug: the neck roomscale walks (frame head, runtime head), the eye's lever over it and the head's yaw (radians)
+    CyberpunkVR_DebugRoomscaleNeck[0]=frame.head.x;CyberpunkVR_DebugRoomscaleNeck[1]=frame.head.y;
+    CyberpunkVR_DebugRoomscaleNeck[2]=tracking.head.x;CyberpunkVR_DebugRoomscaleNeck[3]=tracking.head.y;
+    CyberpunkVR_DebugRoomscaleNeck[4]=lever.x;CyberpunkVR_DebugRoomscaleNeck[5]=lever.y;
+    CyberpunkVR_DebugRoomscaleNeck[6]=2.0f*std::atan2(head.oriY,head.oriW);
+    CyberpunkVR_DebugRoomscaleNeck[7]=head.posX;CyberpunkVR_DebugRoomscaleNeck[8]=-head.posZ;
     if (out->valid) {
         if (frameHead) *frameHead=head;
         if (frameTime) *frameTime=aim;

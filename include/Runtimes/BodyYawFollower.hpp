@@ -21,6 +21,21 @@ public:
         if (origin != m_origin) { m_origin=origin; Reset(); }
         m_offset=std::remainder(offset,6.28318530718f);
     }
+    // The body's yaw is a model's own output (the head-led turn): set it, no zone. Returns the step and dt.
+    float Set(float bodyYaw,uint64_t stamp,uint64_t origin,float* dtOut=nullptr) {
+        if(!m_enabled)return 0;
+        if(origin!=m_origin) { m_origin=origin;Reset();return 0; }
+        if(!std::isfinite(bodyYaw))return 0;
+        if(m_stamp && stamp<=m_stamp)return 0;
+        const float dt=m_stamp ? float(stamp-m_stamp)*.000001f : .011111111f;
+        m_stamp=stamp;
+        if(dtOut)*dtOut=dt;
+        const float step=std::remainder(bodyYaw-m_offset,6.28318530718f);
+        m_offset=std::remainder(m_offset+step,6.28318530718f);
+        return step;
+    }
+    // The seconds since the last applied update (the head-led turn steps with it).
+    float SinceLast(uint64_t stamp) const { return m_stamp && stamp>m_stamp ? float(stamp-m_stamp)*.000001f : .011111111f; }
     float Step(float headYaw,float cone,uint64_t stamp,uint64_t origin) {
         if(!m_enabled)return 0;
         if(origin!=m_origin) { m_origin=origin;Reset();return 0; }

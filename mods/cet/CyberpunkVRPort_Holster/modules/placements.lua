@@ -85,7 +85,7 @@ local RIGHT = {
   -- from above -- palm down, the fingers out over the far side -- has the edge pointing out. Hung like that the blade
   -- never turns: not in the sheath, not when it leaves, not going back. Hung edge down it was a quarter turn off that
   -- hold, edge up a half turn with the wrist bent back, and the difference had to be made up somewhere: the blade spun
-  -- about its own axis on the way out (players, 2026-11-05: "held from below, and it turns about its axis").
+  -- about its own axis on the way out (2026-11-05: "held from below, and it turns about its axis").
   -- (the reach 3 cm shorter than 0.16, as at the right hip)
   hip_l = { at = HIPS, reach = 0.13, pull = 0.22,
     melee = { pos = { 0.105, 0.147, -0.178 }, dir = { -0.293, -0.944, -0.150 }, face = { -0.095, 0.185, -0.977 } } },
@@ -104,7 +104,7 @@ local RIGHT = {
   -- REACHED OVER THE SHOULDER, along the handle or the stock (`grab`, per family: metres out from the origin along
   -- the handle, the way it is drawn): the origin, where the hand closes, is low on the back -- a gun's grip 10 cm
   -- above Spine3 -- and a hand over the shoulder meets the stock or the pommel 20-30 cm above it, out of a reach
-  -- round the origin alone (players, 2026-11-05: "nothing can be taken from behind the shoulder")
+  -- round the origin alone (2026-11-05: "nothing can be taken from behind the shoulder")
   shoulder_r = { at = CHEST, reach = 0.18, grab = { gun = 0.32, melee = 0.22 },
     melee = { pos = { 0.175, -0.12, 0.16 }, dir = { -0.760, 0.053, -0.648 }, face = { 0.649, 0.008, -0.761 } },
     -- the grip 12.5 cm behind Spine3: the gun's side 1.5-2 cm off the bare back (17 cm left 6 cm of air)

@@ -1,4 +1,4 @@
-// AIMING AND BLOCKING AT FULL SPEED (players, 2026-11-05: "with the left trigger held -- block / aim -- V must not
+// AIMING AND BLOCKING AT FULL SPEED (2026-11-05: "with the left trigger held -- block / aim -- V must not
 // slow down").
 //
 // The game walks V slowly (the AimWalk locomotion state, 1.4 m/s measured on the H10 save against 8.3 m/s) while

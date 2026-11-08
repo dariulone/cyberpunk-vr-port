@@ -1554,6 +1554,20 @@ function M.release(weapon)
     pcall(yieldAll, weapon)
     pcall(M.thMask, 0)
     if M.sg and M.sgH then pcall(M.sg.lost, M.sgH) end
+    if M.sg and M.sg.previewStop and M.sgH then pcall(M.sg.previewStop, M.sgH) end
+end
+
+-- TEST ONLY: a pump's handful played in the hand without the gun (shotgun.lua M.previewHandful). `match` is the
+-- weapon config's own `match` ('constitutional_tactician', 'budget_carnage'); side 0 left, 1 right.
+function M.previewHandful(match, side, n, hold)
+    if not (M.sg and M.sg.previewHandful and M.sgH) then return 'no shotgun module' end
+    for _, cfg in ipairs(CONFIGS) do
+        if cfg.match == match and cfg.shotgun then
+            local ok, r = pcall(M.sg.previewHandful, M.sgH, cfg.shotgun, side, n, hold)
+            return ok and r or ('error: ' .. tostring(r))
+        end
+    end
+    return 'no config ' .. tostring(match)
 end
 
 -- Called by init.lua before M.frame. True while this module must stay out of the frame.

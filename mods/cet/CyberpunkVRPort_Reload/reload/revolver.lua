@@ -78,13 +78,13 @@ function M.eject(ctx, cyl, live)
         -- ...and along the axis, where the ROUNDS SIT. The game draws them at `bullet_NN`, whose rig hangs off the
         -- weapon's `mag_slot` -- and that bone is 23.9 mm from the cylinder's centre, on its REAR FACE. The slot we
         -- read is the cylinder itself, so without this the cases are seated from the middle of the cylinder and sit
-        -- a whole half-length too deep: "как только наши появляются, они глубже".
+        -- a whole half-length too deep the moment ours appear.
         local lx, ly = math.cos(a) * rr, math.sin(a) * rr
         local lz = ec.seatZ or 0.0
         local ox, oy, oz = qrot(cyl.qi, cyl.qj, cyl.qk, cyl.qr, lx, ly, lz)
         -- THE MESH IS NOT BUILT ON THE CHAMBER'S AXIS. A case's mesh runs along its own Y -- 35 mm of it, against
         -- 11 across -- while the chamber runs along Z, so an entity spawned with the cylinder's own orientation
-        -- lies ACROSS the bore: "гильза смотрит в бок ствола". `meshRot` is the turn between the two, and it also
+        -- lies ACROSS the bore, the case pointing at the side of the barrel. `meshRot` is the turn between the two, and it also
         -- has to carry the offset, since `meshAt` is read in the mesh's frame like everything else about it.
         local mr = ec.meshRot or { 0, 0, 0, 1 }
         local s1, s2, s3, s4 = qmul(cyl.qi, cyl.qj, cyl.qk, cyl.qr, mr[1], mr[2], mr[3], mr[4])
@@ -105,8 +105,8 @@ function M.eject(ctx, cyl, live)
         --     a = g * (cos(theta) - mu * sin(theta))
         --
         -- with theta the axis against vertical. So a gun held barely past the threshold gives them up slowly and
-        -- one held straight up spits them, which is the whole behaviour a revolver has here and what "они должны
-        -- скатываться, а сейчас падают сразу" was asking for. It goes ballistic at the moment it clears.
+        -- one held straight up spits them, which is the whole behaviour a revolver has here: the cases slide out,
+        -- they do not drop at once. It goes ballistic at the moment it clears.
         --
         -- The direction is the chamber's, and it is -Z: `mag_slot` sits on the cylinder's -Z face, so that is the
         -- end the rounds go in and the end the cases come out. Taken as +Z they left forwards, through the frame.
@@ -141,13 +141,13 @@ function M.eject(ctx, cyl, live)
             -- WHERE IN THE CYLINDER IT IS, kept so its world place can be rebuilt from the live cylinder every
             -- frame while it is still inside. Holding a spawned POSITION instead leaves it where the gun was when
             -- it was spawned -- and since an entity takes a frame or two to resolve, that is a frame or two of
-            -- staleness the eye catches at once: "я уже наклонил, а пули заспавнились на предыдущем кадре".
+            -- staleness the eye catches at once: the gun already tilted, the cases spawned where it was a frame ago.
             chamber = { lx, ly, lz },
             meshAt = { ma[1], ma[2], ma[3] },
             mrot = { mr[1], mr[2], mr[3], mr[4] },
             -- IT LEAVES WITH NO SPIN AT ALL. Nothing in free flight can twist it, so whatever it turns at is what
-            -- it EARNED on the way out -- see the overhang below. Starting it at a fixed rate was the "они как-то
-            -- поворачиваются" -- a case flipping the instant it cleared, for no reason the eye could credit.
+            -- it EARNED on the way out -- see the overhang below. Starting it at a fixed rate made them turn
+            -- oddly -- a case flipping the instant it cleared, for no reason the eye could credit.
             wa = { 0.0, 0.0, 1.0 },
             w = 0.0,
             len = ec.caseLen or 0.035,
@@ -236,7 +236,7 @@ function M.tick(ctx)
                 if a < 0.0 then a = 0.0 end            -- not steep enough yet: it stays where it is
                 -- ...and the head start is counted from the moment it COULD move, not from when it was put in the
                 -- cylinder. Counted from the spawn it was spent while the gun was still being raised, and all six
-                -- then started together: "они как-то синхронно все выезжают".
+                -- then started together, sliding out in sync.
                 if c.exitSpeed > 0 then
                     -- Deliberate tilt releases the extractor. Once released, finish the
                     -- short travel even if the hand levels out to reach for a loader.
@@ -283,7 +283,7 @@ function M.tick(ctx)
                     for k = 1, 3 do c.v[k] = c.axis[k] * c.sv + c.radial[k] end
                     -- ITS LIFE STARTS HERE, not at the spawn. Counted from the spawn, a gun held just at the
                     -- release angle ran the clock down while the cases were still sitting in their chambers and
-                    -- they vanished where they sat: "держу угол, а они просто исчезают".
+                    -- they vanished where they sat while the angle was held.
                     c.free = c.t
                 end
                 alive = alive + 1

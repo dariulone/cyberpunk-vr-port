@@ -37,6 +37,7 @@ extern char g_vrikSettingsPath[MAX_PATH];
 extern int g_lastVrikRecenterCounter;
 extern int g_launcherDebug;
 extern int g_launcherShow;
+extern int g_launcherCustomRes;
 extern int g_launcherDelayMs;
 extern int g_launcherHmdType;
 extern size_t g_gameModuleSize;

@@ -213,6 +213,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     leftHanded->flags=flags;leftHanded->SetReturnType("Bool");rtti->RegisterFunction(leftHanded);
     auto sceneBody=RED4ext::CGlobalFunction::Create("VRSceneOwnsBody","VRSceneOwnsBody",&VRSceneOwnsBody);
     sceneBody->flags=flags;sceneBody->SetReturnType("Bool");rtti->RegisterFunction(sceneBody);
+    auto physicalMelee=RED4ext::CGlobalFunction::Create("VRPhysicalMelee","VRPhysicalMelee",&VRPhysicalMelee);
+    physicalMelee->flags=flags;physicalMelee->SetReturnType("Bool");rtti->RegisterFunction(physicalMelee);
     auto setupNeeded=RED4ext::CGlobalFunction::Create("VRFirstSetupNeeded","VRFirstSetupNeeded",&VRFirstSetupNeeded);
     setupNeeded->flags=flags;setupNeeded->SetReturnType("Bool");rtti->RegisterFunction(setupNeeded);
     auto setLeftHanded=RED4ext::CGlobalFunction::Create("VRSetLeftHanded","VRSetLeftHanded",&VRSetLeftHanded);
@@ -242,6 +244,18 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     rtti->RegisterFunction(setHeight);
     auto playerHeight=RED4ext::CGlobalFunction::Create("VRPlayerHeight","VRPlayerHeight",&VRPlayerHeight);
     playerHeight->flags=flags;playerHeight->SetReturnType("Float");rtti->RegisterFunction(playerHeight);
+    // The scene's NPC copy of V in a mirror takes the tracked pose (src/Natives/VrikArming.cpp).
+    auto mirrorDouble=RED4ext::CGlobalFunction::Create("VRMirrorDouble","VRMirrorDouble",&VRMirrorDouble);
+    mirrorDouble->flags=flags;mirrorDouble->AddParam("handle:IScriptable","entity");mirrorDouble->AddParam("Int32","flags");
+    mirrorDouble->SetReturnType("Bool");rtti->RegisterFunction(mirrorDouble);
+    auto mirrorClear=RED4ext::CGlobalFunction::Create("VRMirrorDoubleClear","VRMirrorDoubleClear",&VRMirrorDoubleClear);
+    mirrorClear->flags=flags;rtti->RegisterFunction(mirrorClear);
+    auto mirrorStats=RED4ext::CGlobalFunction::Create("VRMirrorDoubleStats","VRMirrorDoubleStats",&VRMirrorDoubleStats);
+    mirrorStats->flags=flags;mirrorStats->SetReturnType("String");rtti->RegisterFunction(mirrorStats);
+    // One choice-hub input action straight to the game's interaction visualizers (src/Natives/InteractionAction.cpp).
+    auto interactionAction=RED4ext::CGlobalFunction::Create("VRInteractionAction","VRInteractionAction",&VRInteractionAction);
+    interactionAction->flags=flags;interactionAction->AddParam("CName","action");interactionAction->SetReturnType("Bool");
+    rtti->RegisterFunction(interactionAction);
     auto neckCap=RED4ext::CGlobalFunction::Create("VRNeckCapSync","VRNeckCapSync",&VRNeckCapSync);
     neckCap->flags=flags;neckCap->SetReturnType("Int32");rtti->RegisterFunction(neckCap);
     auto leftHandedAnimations=RED4ext::CGlobalFunction::Create("VRLeftHandedAnimations","VRLeftHandedAnimations",&VRLeftHandedAnimations);

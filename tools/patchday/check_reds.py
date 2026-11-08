@@ -59,6 +59,10 @@ def build_sandbox(game, scc_dir, box, include_all, frameworks=()):
     staged = {os.path.basename(os.path.normpath(d)): d for d in frameworks}
     names = set(os.listdir(plugins)) if os.path.isdir(plugins) else set()
     for name in sorted(names | set(staged)):
+        # The installed port itself (one-folder layout: plugins/cyberpunkvrport/scripts) is what the repo's
+        # mods/redscript above stands for; a second copy redefines every type.
+        if name.lower() == 'cyberpunkvrport':
+            continue
         for sub in ('Scripts', 'scripts'):
             src = os.path.join(staged.get(name, os.path.join(plugins, name)), sub)
             if os.path.isdir(src):

@@ -13,7 +13,7 @@
 -- be taken. Of loot lying together the game keeps its prompt on one, whatever the look (a flat game's player gets the
 -- same); a prompt kept on a thing beside the one chosen puts the ring on that one: it is what the grip takes.
 --
--- THE GRIP TAKES IT, AS INTO THE RADIUS 2 DOES. A grip closing on a thing in reach presses the game's interaction
+-- THE GRIP TAKES IT. A grip closing on a thing in reach presses the game's interaction
 -- button for a moment (VRReachUse): the game does what its button does there. A grip closing on a thing pointed at
 -- holds it from where it lies (the ring becomes brackets); the hand snatched back toward the body pulls it: loot
 -- flies to the palm on a low arc (the drop moved a frame at a time, Game.VREntitySetWorldTransform) and the game takes

@@ -2,6 +2,9 @@
 // Inject displacement at the already-buffered native CCT boundary. The original
 // move owns contacts, steps, gravity, backend velocity and entity propagation.
 #include "Hooks/RoomscaleMove.hpp"
+#include "Runtimes/BodyDeadZones.hpp"
+#include "Runtimes/HybridBodyYaw.hpp"
+#include "Runtimes/LookDownCone.hpp"
 #include "Hooks/BodyHeading.hpp"
 #include "Hooks/RoomscaleSites.hpp"
 #include "Hooks/RoomscaleEligibility.hpp"
@@ -46,11 +49,30 @@ struct RoomscaleDebug {
     float consumed[2]{}, feedback[2]{};
     float accepted[2]{}, lead[2]{}; // controller's share of the physical step; view lead over the capsule (m)
     float leadRadius{}, eyeBase[2]{};
+    float reported[2]{};          // strict: the physical velocity the readers other than the solver see (m/s)
+    uint32_t strict{}, walking{}; // strict mode on this move; PhysicalWalkGate's walk
 };
 extern "C" {
 // 1: the view keeps the headset's lead over a blocked capsule (up to the capsule's free footprint);
 // 0: the old ledger, the refused distance is consumed and the view is held on the capsule.
 __declspec(dllexport) int CyberpunkVR_HeadLeadsCapsule = 1;
+// 1: the body strictly under the head (RoomscaleMovement.hpp, Movement::Begin's strict): every tick the capsule is asked
+// for the head's whole lead, and the velocity readers other than the solver see it only as a walk (PhysicalWalkGate);
+// 0: the follow -- the free zone, the critically damped follow and its settle.
+__declspec(dllexport) int CyberpunkVR_BodyStrictUnderHead = 1;
+// 1: with the head-led body rotation and strict roomscale, the visible body keeps the dead zones of
+// Runtimes/BodyDeadZones.hpp while the capsule stays under the head.
+// 0 (the default since 2026-11-07): the visible body is under the head every frame with the capsule, as BONELAB's
+// physics body is -- no dead zone, no catching up. Eased (CyberpunkVR_BodyDeadZoneEase) or not, the zones read in the
+// headset as the body trailing the head.
+__declspec(dllexport) int CyberpunkVR_BodyDeadZones = 0;
+// 1: the body goes to a new place eased (BodyDeadZones::kShowOmega); 0: in one frame
+__declspec(dllexport) int CyberpunkVR_BodyDeadZoneEase = 1;
+// 1: in strict roomscale the visible body stands under the RENDERED head's neck every frame (Hooks/AnimPose.cpp)
+__declspec(dllexport) int CyberpunkVR_BodyUnderRenderedHead = 1;
+// the body less the neck (x, y tracking metres), looking down, breached, inner breached, distance(false) (game metres),
+// the shown body less the neck (x, y)
+__declspec(dllexport) float CyberpunkVR_DebugBodyZones[8] = {};
 __declspec(dllexport) RoomscaleDebug CyberpunkVR_RoomscaleDebug{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_RoomscaleDebugSeq{0};
 __declspec(dllexport) int CyberpunkVR_RoomscaleHooksReady = 0;
@@ -58,6 +80,7 @@ __declspec(dllexport) uint64_t CyberpunkVR_SwimmingFeedbackReads[2]{};
 __declspec(dllexport) uint64_t CyberpunkVR_SwimmingPropertyFeedbackReads{};
 __declspec(dllexport) float CyberpunkVR_SwimmingRedirect[3]{};
 }
+extern "C" int Get3DofMovement();   // Core/VrCore.cpp: the ledger walks the eyes, not the neck, when set
 
 namespace cvr::roomscale {
 namespace {
@@ -65,7 +88,14 @@ std::atomic<uintptr_t> s_player{}, s_movement{};
 uintptr_t s_base{};
 std::mutex s_mutex;
 Movement s_motion;
+BodyDeadZones s_headLedBody;
+uint64_t s_bodyZonesOrigin{};
+bool s_bodyZonesActive{};
+std::atomic<bool> s_bodyFollowing{};
 bool s_waterMode{};
+PhysicalWalkGate s_walkGate;
+bool s_strict{};          // the last move was strict: the readers get s_reported in place of s_feedback
+Vec2 s_reported{};
 Vec2 s_feedback{};
 float s_feedbackZ{};
 uintptr_t s_feedbackBackend{};
@@ -146,7 +176,7 @@ constexpr float kDefaultCapsuleRadius = 0.25f;
 //
 // NOT ON A LADDER. The ladder's exit over the top carries the capsule forward by what a 0.40 m one needs to stand on
 // the floor beyond; a 0.25 m capsule was left over the gap between the ladder and that floor and fell -- the whole
-// height of a long ladder (players, 2026-11-05, a 9.1 m ladder with exitStepTop -1: V reached the floor level, moved
+// height of a long ladder (2026-11-05, a 9.1 m ladder with exitStepTop -1: V reached the floor level, moved
 // 12 cm and dropped 9 m; with the ladder states at 0.40 it walked off onto the roof). Nothing on a ladder needs the
 // shoulders nearer a wall, so all five ladder states keep the game's radius.
 constexpr float kVrCapsuleRadius = 0.25f;
@@ -243,13 +273,17 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
     const float yaw = BodyTrackingYaw(before.yaw);
     Step step{};
     const bool waterMode=cvr::swimming::Active();
+    // On land, and not under full-body tracking (the trackers place the body there).
+    const bool strict = CyberpunkVR_BodyStrictUnderHead != 0 && !waterMode && !cvr::fbt::game::BodyActive();
     {
         std::lock_guard lock(s_mutex);
         // Removing/reinstating the land hinge component is a posture-mode
         // change, not a physical step. Keep the consumed camera ledger.
         if(waterMode!=s_waterMode) { s_motion.Suspend();s_waterMode=waterMode; }
         step = s_motion.Begin(sample, XrDiagNowUs(), dt, GetWorldScale(), yaw, allowed,
-                              g_liveControls.xrBodyMoveRadius);
+                              g_liveControls.xrBodyMoveRadius, strict);
+        // The bend tracker's walking mode: in strict mode a walk is the gate's walk, not every move of the head.
+        s_bodyFollowing.store(strict ? s_walkGate.Walking() : s_motion.Following(), std::memory_order_relaxed);
     }
     const float native[3]{displacement[0], displacement[1], displacement[2]};
     XrVector3f swimDirection{};int swimState{};
@@ -285,11 +319,35 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
             : step.world;
         s_motion.Complete(step,accepted,leadLimit);
         completedConsumed=s_motion.Consumed(sample.origin);
+        // THE VISIBLE BODY'S DEAD ZONES: it stays in the world while the neck -- the capsule -- moves under it, and is
+        // placed again only when the head leaves its dead zones (Runtimes/BodyDeadZones.hpp). The neck's move is what
+        // the controller accepted: a step the wall refused moved neither the capsule nor the body.
+        const bool bodyZones = CyberpunkVR_BodyDeadZones != 0 && strict && resultOk &&
+            static_cast<cvr::body::RotationMode>(g_liveControls.xrBodyRotationMode)==cvr::body::RotationMode::HeadLed;
+        if (!bodyZones || sample.origin != s_bodyZonesOrigin) { s_headLedBody.Reset(); s_bodyZonesOrigin = sample.origin; }
+        if (bodyZones && step.reason == Reason::Applied && step.scale > 0 && frameHead.valid) {
+            const Vec2 moved = Rotate(accepted, -step.yaw) * (1.0f / step.scale);
+            const float bodyInTracking = before.yaw - yaw;   // tracking -> world turns by `yaw`, the body faces before.yaw
+            const Vec2 forward{-std::sin(bodyInTracking), std::cos(bodyInTracking)};
+            const float pitch = -HeadDownDegrees(frameHead.oriX, frameHead.oriY, frameHead.oriZ, frameHead.oriW);
+            const Vec2 offset = s_headLedBody.Step(moved, sample.eyeFromNeck, forward, pitch, step.scale, step.dt,
+                                                CyberpunkVR_BodyDeadZoneEase != 0 ? BodyDeadZones::kShowOmega : 0.0f);
+            const auto& st = s_headLedBody.Last();
+            CyberpunkVR_DebugBodyZones[0] = offset.x; CyberpunkVR_DebugBodyZones[1] = offset.y;
+            CyberpunkVR_DebugBodyZones[2] = st.lookingDown; CyberpunkVR_DebugBodyZones[3] = st.breached;
+            CyberpunkVR_DebugBodyZones[4] = st.inner; CyberpunkVR_DebugBodyZones[5] = st.distance;
+            CyberpunkVR_DebugBodyZones[6] = s_headLedBody.Shown().x; CyberpunkVR_DebugBodyZones[7] = s_headLedBody.Shown().y;
+        }
+        s_bodyZonesActive = bodyZones && s_headLedBody.Valid();
         s_feedback = resultOk ? PhysicalVelocity({native[0],native[1]},{added.x,added.y},
             {after.velocity[0],after.velocity[1]},dt) : Vec2{};
         // Pitch and buoyancy are already part of the native vertical solve.
         // Neither heading correction nor roomscale adds vertical velocity.
         s_feedbackZ=0;
+        if (strict && resultOk) s_walkGate.Update(s_feedback, dt);
+        else s_walkGate.Reset();
+        s_strict = strict && resultOk;
+        s_reported = s_walkGate.Reported();
         s_feedbackBackend = resultOk ? before.backend : 0;
         s_feedbackProvider = resultOk ? before.provider : 0;
         s_feedbackHandle = resultOk ? before.handle : 0;
@@ -314,6 +372,8 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
         const auto consumed = s_motion.Consumed(sample.origin);
         d.consumed[0] = consumed.x; d.consumed[1] = consumed.y;
         d.feedback[0] = s_feedback.x; d.feedback[1] = s_feedback.y;
+        d.reported[0] = s_reported.x; d.reported[1] = s_reported.y;
+        d.strict = s_strict ? 1u : 0u; d.walking = s_walkGate.Walking() ? 1u : 0u;
         const auto lead = s_motion.Pending() * GetWorldScale();
         d.accepted[0] = accepted.x; d.accepted[1] = accepted.y;
         d.lead[0] = lead.x; d.lead[1] = lead.y; d.leadRadius = leadLimit.radius;
@@ -348,7 +408,20 @@ float* __fastcall Velocity(void* provider, float* output) {
     // Their direct call sites are checked against the installed EXE at startup.
     const bool swimDiving=caller==s_base+sites::SwimmingDivingVelocityReturn;
     const bool swimSurface=caller==s_base+sites::SwimmingSurfaceVelocityReturn;
-    if (caller != s_base + sites::SolverVelocityReturn && !swimDiving && !swimSurface)return result;
+    const bool solver=caller==s_base+sites::SolverVelocityReturn || swimDiving || swimSurface;
+    // Every other reader -- the locomotion animation among them -- sees the full velocity in the follow mode. In
+    // strict mode it sees the physical part only as a walk (PhysicalWalkGate): the head's every move is a capsule move
+    // there, and read raw each one would start and stop the walking animation.
+    if(!solver) {
+        if(CyberpunkVR_BodyStrictUnderHead==0 || !IsPlayerProvider(provider))return result;
+        const auto now = XrDiagNowUs();
+        std::lock_guard lock(s_mutex);
+        if (!s_strict || !s_feedbackBackend || reinterpret_cast<uintptr_t>(provider) != s_feedbackProvider ||
+            now < s_feedbackUs || now - s_feedbackUs > Movement::MaxAgeUs) return result;
+        result[0] += s_reported.x - s_feedback.x;
+        result[1] += s_reported.y - s_feedback.y;
+        return result;
+    }
     if(!IsPlayerProvider(provider))return result;
     const auto now = XrDiagNowUs();
     std::lock_guard lock(s_mutex);
@@ -506,7 +579,7 @@ bool PoseFrameAllowed() {
     // Keep publishing the camera's coherent pose when VRIK is switched off;
     // only physical body motion depends on the solver mode, not the view.
     return OnFootViewAllowed() && !g_isInVehicle && IsVrikPoseTierAllowed(
-        g_sceneTier.load(std::memory_order_relaxed),g_liveControls.xrCutsceneSuspendTier);
+        g_sceneTier.load(std::memory_order_relaxed),VRIK_EffectiveCutsceneSuspendTier());
 }
 
 Vec2 CameraConsumed(uint64_t origin) {
@@ -519,6 +592,37 @@ Vec2 CameraConsumed(uint64_t origin) {
 
 Vec2 CameraConsumed() {
     return CameraConsumed(OpenXRManager::Get().GetTrackingOriginSerial());
+}
+
+bool CameraRestNeck(uint64_t origin, Vec2* out) {
+    if (Get3DofMovement() != 0) return false;
+    std::lock_guard lock(s_mutex);
+    return s_motion.RestNeck(origin, out);
+}
+
+bool CameraRestNeck(Vec2* out) {
+    return CameraRestNeck(OpenXRManager::Get().GetTrackingOriginSerial(), out);
+}
+
+bool BodyFollowing() {
+    return s_bodyFollowing.load(std::memory_order_relaxed);
+}
+
+bool StrictTickEye(Vec2* out) {
+    if (!out || Get3DofMovement() != 0 || CyberpunkVR_BodyUnderRenderedHead == 0) return false;
+    const auto origin = OpenXRManager::Get().GetTrackingOriginSerial();
+    std::lock_guard lock(s_mutex);
+    if (!s_strict) return false;
+    return s_motion.TickEye(origin, out);
+}
+
+bool BodyDeadZoneOffset(Vec2* out) {
+    if (!out || Get3DofMovement() != 0) return false;
+    const auto origin = OpenXRManager::Get().GetTrackingOriginSerial();
+    std::lock_guard lock(s_mutex);
+    if (!s_bodyZonesActive || origin != s_bodyZonesOrigin || !s_headLedBody.Valid()) return false;
+    *out = s_headLedBody.Shown();
+    return Finite(*out);
 }
 
 CVR_HOOK("RoomscaleMovement", ::cvr::hooks::Stage::Boot, 77, InstallRoomscale);

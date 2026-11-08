@@ -16,7 +16,7 @@ struct WheelTrackingFrame {
 // Tracking that goes stale, a hand that drops out of tracking, a publication that pauses (a game freeze stops all of
 // them at once) only SUSPEND it: the turn so far and the hands' last vector are kept, the last output is held a moment,
 // and when tracking comes back the turn the hands made meanwhile is added. Reset there instead, the wheel came back
-// centred under hands still turned -- "after a freeze the wheel's position is off" (players, 2026-11-05).
+// centred under hands still turned -- "after a freeze the wheel's position is off" (2026-11-05).
 class TrackedWheelSteering {
 public:
     static constexpr uint64_t kStaleUs=250000;   // tracking older than this is not used

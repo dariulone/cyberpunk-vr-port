@@ -4,13 +4,14 @@
 
 WHY. After every shot the game plays the weapon's `add_cycle_round` (and its _01 / ironsight variants): the pump
 racked by the left hand, the Grad's bolt lever worked -- and their sounds ride that animation as sound events of the
-weapon's own FPP set (pwa_). In VR the player works the action, and the reload module plays the same sounds at the
+player's FPP arm sets, one per body: pma_ (male) and pwa_ (female). In VR the player works the action, and the reload module plays the same sounds at the
 stroke (reload/shotgun.lua pumpOpen / pumpClose, reload.lua slidePull / slideRelease / eject). With the events left
 in, the whole pump or lever is heard right after the shot, before the hand has moved.
 
-WHICH. Every pwa_ firearm set was scanned (2026-10-31): only these three carry sounds in their cycle animations --
-the two pump shotguns and the Grad. Only the cycle's sound events go; the reload's, the equip's and the rest stay,
-and so does the animation itself.
+WHICH. Every pma_ and pwa_ firearm set was scanned (2026-11-07): only these three carry sounds in their cycle
+animations -- the two pump shotguns and the Grad -- on both bodies. (The first pass, 2026-10-31, took pwa_ for the
+weapon's own set and stripped only the female body's: a male V still heard the whole pump after every shot.) Only the
+cycle's sound events go; the reload's, the equip's and the rest stay, and so does the animation itself.
 
 WHERE. The game's set is overridden by a copy in the pack under its own depot path (the pack's own wins over the
 game's), and the left-handed copy (vrport\\lefthanded\\<set>_left.anims, tools/lefthanded_anims/generate.py) is
@@ -30,11 +31,12 @@ import make_lobby_scene as MS  # noqa: E402
 GAME = Path(r'C:\Program Files (x86)\Steam\steamapps\common\Cyberpunk 2077')
 WORK = MS.ROOT / 'build' / 'strip-cycle-sounds'
 LEFT_WORK = MS.ROOT / 'build' / 'lefthanded_anims' / 'work' / 'src'
-SETS = (
-    'base\\animations\\weapon\\firearms\\shotgun\\budget_carnage\\pwa_w_shotgun__budget_carnage.anims',
-    'base\\animations\\weapon\\firearms\\shotgun\\constitutional_tactician\\pwa_w_shotgun__constitutional_arms_tactician.anims',
-    'base\\animations\\weapon\\firearms\\rifle_sniper\\techtronika_grad\\pwa_w_rifle_sniper__techtronika_grad.anims',
-)
+SETS = tuple(
+    'base\\animations\\weapon\\firearms\\%s\\%s_w_%s.anims' % (folder, body, name)
+    for folder, name in (('shotgun\\budget_carnage', 'shotgun__budget_carnage'),
+                         ('shotgun\\constitutional_tactician', 'shotgun__constitutional_arms_tactician'),
+                         ('rifle_sniper\\techtronika_grad', 'rifle_sniper__techtronika_grad'))
+    for body in ('pma', 'pwa'))
 CYCLE = re.compile(r'^add_cycle_round')
 V = '$value'
 

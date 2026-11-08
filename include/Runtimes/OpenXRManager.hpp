@@ -750,6 +750,9 @@ public:
     // Hands only: 1 = the player's body drawn as its hands alone. Published to shared[173] (vrshared::kBodyHandsOnly).
     void SetBodyHandsOnly(int v) { m_bodyHandsOnly.store(v, std::memory_order_relaxed); }
     int GetBodyHandsOnly() const { return m_bodyHandsOnly.load(std::memory_order_relaxed); }
+    // Reload highlight: 1 = on (default). Published inverted to shared[174] (vrshared::kReloadGlowOff).
+    void SetReloadGlow(int v) { m_reloadGlow.store(v, std::memory_order_relaxed); }
+    int GetReloadGlow() const { return m_reloadGlow.load(std::memory_order_relaxed); }
     // Read a shared-mem slot (plugin publishes the muzzle world forward to [24..26], valid [27]).
     // BOUND = 256: the mapping is 1024 bytes = 256 floats. The old `< 128` bound silently
     // no-opped BOTH sides of the weapon flag when it moved from [126] to [144] (the barrel
@@ -1035,6 +1038,7 @@ private:
     std::atomic<int> m_weaponAimEnable{1};
     std::atomic<int> m_immersiveHolsters{1};   // 1 = visual-holster equip (default), 0 = simple slot mapping
     std::atomic<int> m_bodyHandsOnly{0};       // 1 = only the hands of the player's body are drawn
+    std::atomic<int> m_reloadGlow{1};          // 1 = the physical reload highlights the magazine / the bolt
     float* m_sharedHandsPtr = nullptr;   // cached shared-mem view (set in OnPresent) for GetSharedSlot
 
     // VR hand IK calibration, pushed from the overlay into shared-mem slots [33..47] each

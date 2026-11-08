@@ -700,11 +700,12 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
             // Gameplay screen only: in menus LB pages the popup list, which is not what a hand near
             // a headset should do. And the ear zone is what keeps this off the reload -- the
             // magazine grab is a left grip too, but it happens at the weapon, not at the head.
-            const bool gripHeld = vr.leftGrip >= 0.7f;
             // A SQUEEZE THAT STARTED AT THE EAR. A hand that is already squeezing -- a shotgun shell, a
             // magazine off the belt on its way to the gun -- passes within the zone's 22 cm of the head
-            // whenever the gun is held close in to load, and opened the scanner on the way.
-            const bool squeezed = s_squeeze.Update(gripHeld, inZone || s_earArmed);
+            // whenever the gun is held close in to load, and opened the scanner on the way. A clean new
+            // press only (ScannerSqueeze: the analog grip with a release hysteresis, a release first after
+            // a reset), made with the hand settled in the zone now -- not within the exit timer after it left.
+            const bool squeezed = s_squeeze.Update(vr.leftGrip, s_earArmed && inZone);
             s_gesture = s_earArmed && squeezed && (g_menuModeValue == 0);
         } else {
             s_earArmed = false;
@@ -1225,7 +1226,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         const double holdMs = (CyberpunkVR_SprintHoldMs >= 0) ? CyberpunkVR_SprintHoldMs : 200;
         bool want = detent && (s_detentMs >= holdMs);
 
-        // SPRINT ON A CLICK (xr_sprint_mode=1, players asked for it beside the stick held at the stop): a click of the
+        // SPRINT ON A CLICK (xr_sprint_mode=1, beside the stick held at the stop): a click of the
         // left stick starts the sprint and it lasts until the stick is let go -- the game's own toggle on a pad (its L3
         // is ToggleSprint: a second press does not end a sprint, only the stick coming back does), only kept: after a
         // dash or a jump it comes back by itself, through the same hold below. A click made standing still waits

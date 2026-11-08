@@ -377,6 +377,12 @@ bool InBraindance();
 extern std::atomic<int32_t> g_bdScenePosFP[3];
 extern float g_bdSceneQuat[4];
 extern std::atomic<int> g_bdScenePoseValid;
+// THE SCENE CAMERA AS THE HEADSET IS GIVEN IT (Camera/SceneCameraComfort.hpp). LocateCamera filters the
+// scene camera's orientation it composes MAIN onto. Every other site that composes from the scene camera
+// (PatchCamera's component write and its second eye) passes its own copy through here, so all of them sit on
+// one base: the same correction (held * conjugate(raw)) applied to their raw quaternion. Returns false, out =
+// raw, when there is no correction: filter off, no scene camera, or a raw value a cut away from LocateCamera's.
+bool SceneComfortApply(const float* raw, float* out);
 // 1 once a patched object has matched that pose and been latched as the device camera. Everything that
 // asks DeviceCamActive() keys off this rather than off "a braindance is running": the answer means "the
 // port has a camera that is not the player's", and before the match it does not.

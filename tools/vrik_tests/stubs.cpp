@@ -103,3 +103,7 @@ volatile uint64_t CyberpunkVR_DualWieldUntil = 0;
 #include <string>
 namespace cvr::paths { enum class Folder; std::wstring File(Folder, const wchar_t*) { return {}; } }
 std::string VRGripPath(const char*) { return {}; }
+// Solver dependencies added since the stubs were last brought up to date (the build stopped linking on these four).
+namespace cvr::paths { std::string FileA(Folder, const char*) { return {}; } }
+namespace cvr::fbt::game { bool BodyActive() { return false; } }
+namespace cvr::fingergrip { bool TrackedCurl(int, float[5]) { return false; } bool TrackedSplay(int, float[4]) { return false; } }

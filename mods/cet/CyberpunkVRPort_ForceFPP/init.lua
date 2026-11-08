@@ -673,7 +673,21 @@ local function takeoverActive()
   return tos ~= nil and tos:GetControlledObject() ~= nil
 end
 
-local function publishBraindance()
+-- Whether the scene system reports a camera of its own. Outside a scene its getter returns the origin
+-- (measured (0,0,0), 1785 m from the player): the same test the lens pose below makes.
+local function sceneCameraReported()
+  if memo.sceneIface == nil then memo.sceneIface = Game.GetSceneSystem():GetScriptInterface() end
+  local si = memo.sceneIface
+  local sp = si and si:GetSceneSystemCameraLastCameraPosition()
+  local sv = sp and WorldPosition.ToVector4(sp)
+  return sv ~= nil and (math.abs(sv.x) + math.abs(sv.y) + math.abs(sv.z)) > 1.0
+end
+
+-- How long the scene must report no camera before a latched gate lets go. Not the first empty read:
+-- see the latch below for why a gate that closes on one sample oscillates.
+local kSceneCamLostSec = 0.5
+
+local function publishBraindance(dt)
   if type(VRBraindance) ~= "function" then return end
   local pl0 = Game.GetPlayer()
   local on = false
@@ -751,8 +765,27 @@ local function publishBraindance()
   -- carries braindance assumptions that do not hold on a mount. The takeover has its own path in the
   -- plugin instead (xr_dev_cam_in_locate).
   local blockedByTakeover = takeover and not S.sceneInTakeover
+
+  -- ...AND ONLY WHILE THE SCENE HAS A CAMERA OF ITS OWN. Tier 2 or more does not mean a scene owns the
+  -- camera. The VR training (q000) is Tier 2 staged gameplay from its first frame. It renders through the
+  -- player's own camera, and the scene system reports no camera for the whole course: measured (0,0,0).
+  -- The training's replacer brings a new camera component, and its fov differed on the first frames,
+  -- before this port's forced fov reached it. That latched the gate for the rest of the course.
+  -- With the gate up, the plugin takes the frame for a braindance and stops publishing the camera/body
+  -- pair that VRIK solves from. The body and arms then stayed in the game's animation (2026-11-06, user:
+  -- "VRIK did not rebind when I accepted the VR training").
+  -- So a latch needs the scene's camera, and it lets go once the scene has reported none for
+  -- kSceneCamLostSec. Asked only at Tier 2 and above, so ordinary gameplay pays nothing for it.
+  local sceneCam = false
+  if tier >= 2 then
+    local okC2, rep = pcall(sceneCameraReported)
+    sceneCam = okC2 and rep == true
+  end
+  if sceneCam then S.sceneCamLost = 0.0 else S.sceneCamLost = (S.sceneCamLost or 0.0) + (dt or 0.0) end
+  S.sceneCam = sceneCam
   if tier >= 2 and not blockedByTakeover then
-    if mismatch then S.latched = true end
+    if mismatch and sceneCam then S.latched = true end
+    if S.sceneCamLost >= kSceneCamLostSec then S.latched = false end
   else
     S.latched = false
   end
@@ -887,7 +920,7 @@ registerForEvent("onUpdate", function(dt)
   publishUiPopup(dt)
 
   -- Scene/device publications remain active regardless of camera perspective.
-  publishBraindance()
+  publishBraindance(dt)
 
   -- THE TAKEOVER POSITION, EVERY FRAME. The plugin believes a camera only within a metre and a half of
   -- what this publishes, and at four times a second a flying AV moves far further than that between
@@ -930,7 +963,8 @@ registerForEvent("onDraw", function()
                tostring(S.takeover == true), S.tier or -1))
     ImGui.Text(string.format("fov  active camera %.2f   player component %.2f   diff %.2f",
                S.bdFov or 0.0, S.fppFov or 0.0, math.abs((S.bdFov or 0.0) - (S.fppFov or 0.0))))
-    ImGui.Text("scene camera: " .. tostring(S.scam or "-"))
+    ImGui.Text("scene camera: " .. tostring(S.scam or "-") ..
+               "   reported: " .. tostring(S.sceneCam == true))
     ImGui.Text("pose gate (scene owns, plugin side): " .. tostring(S.bdOwns == true))
     ImGui.Text("remote camera: " .. (S.remote and ("yes, at " .. tostring(S.remotePos)) or "no"))
     ImGui.Separator()

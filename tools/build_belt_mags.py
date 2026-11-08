@@ -76,7 +76,7 @@ SPECIAL = {
 # A model name too short to match a record safely falls back to the manufacturer.
 SHORT = {"lx": "senkoh"}
 
-# CARRIED ON THE BACK, so no belt magazine at all -- the user's own list. A rifle slung over the
+# CARRIED ON THE BACK, so no belt magazine at all. A rifle slung over the
 # shoulder is reached for over the shoulder, and a magazine for it sitting on the hip is a second
 # place the hand would have to know about. Everything here is dropped: no mesh, no component, no rule.
 BACK_CARRIED = {
@@ -90,7 +90,7 @@ BACK_CARRIED = {
 #
 # The break-action pair is NOT the same thing and stays: what goes into a Satara or a Palica is TWO
 # rounds held together and inserted as one, which is a loading clip and reads as its own object on the
-# belt. Both were briefly swept into the row on my inference and the user pulled them back out.
+# belt. Both were briefly swept into the row and pulled back out.
 SHOTGUN_ROW = {"carnage", "tactician"}
 
 SHELL_SRC = "w_shotgun__constitutional_tactician__mag_std_01"

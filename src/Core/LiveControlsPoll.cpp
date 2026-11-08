@@ -646,9 +646,11 @@ void PollLiveControls() {
     int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
     int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
     int xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
+    int xrReloadGlow = g_liveControls.xrReloadGlow;
     int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
     int xrTrackedBodyRotation = g_liveControls.xrTrackedBodyRotation;
     int xrHybridBodyRotation = g_liveControls.xrHybridBodyRotation;
+    int xrHeadLedBodyRotation = g_liveControls.xrHeadLedBodyRotation;
     int xrRoomscaleMovement = g_liveControls.xrRoomscaleMovement;
     int xrPhysicalCrouch = g_liveControls.xrPhysicalCrouch;
     float xrPhysicalCrouchDepth = g_liveControls.xrPhysicalCrouchDepth;
@@ -662,6 +664,7 @@ void PollLiveControls() {
     float xrBodyFreeLookDownDeg = g_liveControls.xrBodyFreeLookDownDeg;
     float xrBodyFreeLookSwimDeg = g_liveControls.xrBodyFreeLookSwimDeg;
     float xrBodyMoveRadius = g_liveControls.xrBodyMoveRadius;
+    float xrSceneCamComfortDeg = g_liveControls.xrSceneCamComfortDeg;
     int xrCutsceneSuspendTier = g_liveControls.xrCutsceneSuspendTier;
     int xrVehicleCutsceneSuspendTier = g_liveControls.xrVehicleCutsceneSuspendTier;
     bool vehicleCutsceneTierConfigured = false;
@@ -1541,6 +1544,7 @@ void PollLiveControls() {
             sscanf_s(line, "xr_body_free_look_down_deg = %f", &value) == 1) xrBodyFreeLookDownDeg=value;
         if (sscanf_s(line, "xr_body_free_look_swim_deg=%f", &value) == 1) xrBodyFreeLookSwimDeg=value;
         if (sscanf_s(line, "xr_body_move_radius=%f", &value) == 1) xrBodyMoveRadius=value;
+        if (sscanf_s(line, "xr_scene_cam_comfort_deg=%f", &value) == 1) xrSceneCamComfortDeg=value;
         if (sscanf_s(line, "xr_physical_crouch=%d", &intValue) == 1) xrPhysicalCrouch=intValue;
         if (sscanf_s(line, "xr_physical_crouch_depth=%f", &value) == 1) xrPhysicalCrouchDepth=value;
         if (sscanf_s(line, "xr_ladder_grip_climb=%d", &intValue) == 1) xrLadderGripClimb=intValue;
@@ -1558,6 +1562,7 @@ void PollLiveControls() {
         }
         if (sscanf_s(line, "xr_tracked_body_rotation = %d", &intValue) == 1) xrTrackedBodyRotation=intValue;
         if (sscanf_s(line, "xr_hybrid_body_rotation = %d", &intValue) == 1) xrHybridBodyRotation=intValue;
+        if (sscanf_s(line, "xr_head_led_body_rotation = %d", &intValue) == 1) xrHeadLedBodyRotation=intValue;
         if (sscanf_s(line, "xr_physical_body_rotation=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_physical_body_rotation = %d", &intValue) == 1) {
             xrPhysicalBodyRotation = intValue;
@@ -1601,6 +1606,11 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_body_hands_only=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_body_hands_only = %d", &intValue) == 1) {
             xrBodyHandsOnly = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_reload_glow=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_reload_glow = %d", &intValue) == 1) {
+            xrReloadGlow = intValue;
             continue;
         }
         if (sscanf_s(line, "xr_veh_head_offset_x=%f", &value) == 1 ||
@@ -1781,8 +1791,9 @@ void PollLiveControls() {
     g_liveControls.xrPhysicalBodyRotation = xrPhysicalBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrTrackedBodyRotation = xrTrackedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrHybridBodyRotation = xrHybridBodyRotation != 0 ? 1 : 0;
+    g_liveControls.xrHeadLedBodyRotation = xrHeadLedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrBodyRotationMode=static_cast<int>(cvr::body::RotationModeFromFlags(
-        xrPhysicalBodyRotation,xrTrackedBodyRotation,xrHybridBodyRotation));
+        xrPhysicalBodyRotation,xrTrackedBodyRotation,xrHybridBodyRotation,xrHeadLedBodyRotation));
     g_liveControls.xrRoomscaleMovement = xrRoomscaleMovement != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouch = xrPhysicalCrouch != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouchDepth = cvr::body::CrouchThreshold(xrPhysicalCrouchDepth);
@@ -1796,6 +1807,7 @@ void PollLiveControls() {
     g_liveControls.xrBodyFreeLookDownDeg=std::clamp(std::isfinite(xrBodyFreeLookDownDeg) ? xrBodyFreeLookDownDeg:30.0f,0.0f,90.0f);
     g_liveControls.xrBodyFreeLookSwimDeg=std::clamp(std::isfinite(xrBodyFreeLookSwimDeg) ? xrBodyFreeLookSwimDeg:5.0f,0.0f,90.0f);
     g_liveControls.xrBodyMoveRadius=std::clamp(xrBodyMoveRadius,0.0f,.30f);
+    g_liveControls.xrSceneCamComfortDeg=std::clamp(std::isfinite(xrSceneCamComfortDeg) ? xrSceneCamComfortDeg:30.0f,0.0f,45.0f);
     g_liveControls.xrCutsceneSuspendTier =
         (xrCutsceneSuspendTier < -1) ? -1 : (xrCutsceneSuspendTier > 4 ? 4 : xrCutsceneSuspendTier);
     g_liveControls.xrVehicleCutsceneSuspendTier = cvr::anim::ResolveVehicleVrikSuspendTier(
@@ -1814,6 +1826,8 @@ void PollLiveControls() {
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
     g_liveControls.xrBodyHandsOnly = xrBodyHandsOnly != 0 ? 1 : 0;
     OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);
+    g_liveControls.xrReloadGlow = xrReloadGlow != 0 ? 1 : 0;
+    OpenXRManager::Get().SetReloadGlow(g_liveControls.xrReloadGlow);
     // Clamped wider than the slider (+/-0.50) but still bounded: the value can arrive from a
     // hand-edited ini, and a metre of head offset is not a setting, it is a typo.
     auto clampVehOff = [](float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); };
@@ -2144,6 +2158,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrPhysicalBodyRotation = bodyMode==cvr::body::RotationMode::HeadCone;
     state.xrTrackedBodyRotation = bodyMode==cvr::body::RotationMode::Tracked;
     state.xrHybridBodyRotation = bodyMode==cvr::body::RotationMode::Hybrid;
+    state.xrHeadLedBodyRotation = bodyMode==cvr::body::RotationMode::HeadLed;
     state.xrRoomscaleMovement = g_liveControls.xrRoomscaleMovement;
     state.xrPhysicalCrouch = g_liveControls.xrPhysicalCrouch;
     state.xrPhysicalCrouchDepth = g_liveControls.xrPhysicalCrouchDepth;
@@ -2160,6 +2175,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrBodyFreeLookDownDeg=g_liveControls.xrBodyFreeLookDownDeg;
     state.xrBodyFreeLookSwimDeg=g_liveControls.xrBodyFreeLookSwimDeg;
     state.xrBodyMoveRadius=g_liveControls.xrBodyMoveRadius;
+    state.xrSceneCamComfortDeg=g_liveControls.xrSceneCamComfortDeg;
     state.xrCutsceneSuspendTier = g_liveControls.xrCutsceneSuspendTier;
     state.xrVehicleCutsceneSuspendTier = g_liveControls.xrVehicleCutsceneSuspendTier;
     state.xrXInputInstall = g_liveControls.xrXInputInstall;
@@ -2169,6 +2185,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs;
     state.xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
     state.xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
+    state.xrReloadGlow = g_liveControls.xrReloadGlow;
     state.xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
     state.xrVehHeadOffsetY = g_liveControls.xrVehHeadOffsetY;
     state.xrVehHeadOffsetZ = g_liveControls.xrVehHeadOffsetZ;
@@ -2516,6 +2533,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_physical_body_rotation=%d\n", state.xrPhysicalBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_tracked_body_rotation=%d\n", state.xrTrackedBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_hybrid_body_rotation=%d\n", state.xrHybridBodyRotation != 0 ? 1 : 0);
+    fprintf(file, "xr_head_led_body_rotation=%d\n", state.xrHeadLedBodyRotation != 0 ? 1 : 0);
     fprintf(file, "xr_roomscale_movement=%d\n", state.xrRoomscaleMovement != 0 ? 1 : 0);
     fprintf(file, "xr_physical_crouch=%d\n", state.xrPhysicalCrouch != 0 ? 1 : 0);
     fprintf(file, "xr_physical_crouch_depth=%.3f\n", cvr::body::CrouchThreshold(state.xrPhysicalCrouchDepth));
@@ -2528,6 +2546,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_body_free_look_down_deg=%.3f\n", state.xrBodyFreeLookDownDeg);
     fprintf(file, "xr_body_free_look_swim_deg=%.3f\n", state.xrBodyFreeLookSwimDeg);
     fprintf(file, "xr_body_move_radius=%.4f\n", state.xrBodyMoveRadius);
+    fprintf(file, "xr_scene_cam_comfort_deg=%.1f\n", state.xrSceneCamComfortDeg);
     fprintf(file, "xr_cutscene_suspend_tier=%d\n",
             state.xrCutsceneSuspendTier < -1 ? -1 : (state.xrCutsceneSuspendTier > 4 ? 4 : state.xrCutsceneSuspendTier));
     fprintf(file, "xr_vehicle_cutscene_suspend_tier=%d\n",
@@ -2539,6 +2558,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_snap_turn_pulse_ms=%d\n", state.xrSnapTurnPulseMs > 0 ? state.xrSnapTurnPulseMs : 30);
     fprintf(file, "xr_immersive_holsters=%d\n", state.xrImmersiveHolsters != 0 ? 1 : 0);
     fprintf(file, "xr_body_hands_only=%d\n", state.xrBodyHandsOnly != 0 ? 1 : 0);
+    fprintf(file, "xr_reload_glow=%d\n", state.xrReloadGlow != 0 ? 1 : 0);
     fprintf(file, "xr_veh_head_offset_x=%.4f\n", state.xrVehHeadOffsetX);
     fprintf(file, "xr_veh_head_offset_y=%.4f\n", state.xrVehHeadOffsetY);
     fprintf(file, "xr_veh_head_offset_z=%.4f\n", state.xrVehHeadOffsetZ);
@@ -2653,8 +2673,9 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrMaxInputThreshold=cvr::input::StickFullInput(state->xrMaxInputThreshold);
     g_liveControls.xrTrackedBodyRotation = state->xrTrackedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrHybridBodyRotation = state->xrHybridBodyRotation != 0 ? 1 : 0;
+    g_liveControls.xrHeadLedBodyRotation = state->xrHeadLedBodyRotation != 0 ? 1 : 0;
     g_liveControls.xrBodyRotationMode=static_cast<int>(cvr::body::RotationModeFromFlags(
-        state->xrPhysicalBodyRotation,state->xrTrackedBodyRotation,state->xrHybridBodyRotation));
+        state->xrPhysicalBodyRotation,state->xrTrackedBodyRotation,state->xrHybridBodyRotation,state->xrHeadLedBodyRotation));
     g_liveControls.xrRoomscaleMovement = state->xrRoomscaleMovement != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouch = state->xrPhysicalCrouch != 0 ? 1 : 0;
     g_liveControls.xrPhysicalCrouchDepth = cvr::body::CrouchThreshold(state->xrPhysicalCrouchDepth);
@@ -2673,6 +2694,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrBodyFreeLookDownDeg=std::clamp(std::isfinite(state->xrBodyFreeLookDownDeg) ? state->xrBodyFreeLookDownDeg:30.0f,0.0f,90.0f);
     g_liveControls.xrBodyFreeLookSwimDeg=std::clamp(std::isfinite(state->xrBodyFreeLookSwimDeg) ? state->xrBodyFreeLookSwimDeg:5.0f,0.0f,90.0f);
     g_liveControls.xrBodyMoveRadius=std::clamp(state->xrBodyMoveRadius,0.0f,.30f);
+    g_liveControls.xrSceneCamComfortDeg=std::clamp(std::isfinite(state->xrSceneCamComfortDeg) ? state->xrSceneCamComfortDeg:30.0f,0.0f,45.0f);
     g_liveControls.xrCutsceneSuspendTier =
         (state->xrCutsceneSuspendTier < -1) ? -1
                                            : (state->xrCutsceneSuspendTier > 4 ? 4 : state->xrCutsceneSuspendTier);
@@ -2691,6 +2713,8 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
     g_liveControls.xrBodyHandsOnly = state->xrBodyHandsOnly != 0 ? 1 : 0;
     OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);
+    g_liveControls.xrReloadGlow = state->xrReloadGlow != 0 ? 1 : 0;
+    OpenXRManager::Get().SetReloadGlow(g_liveControls.xrReloadGlow);
     {   // In-vehicle head offset: same bound as the ini path, for the same reason.
         auto cl = [](float v) { return (v < -1.0f) ? -1.0f : (v > 1.0f ? 1.0f : v); };
         g_liveControls.xrVehHeadOffsetX = cl(state->xrVehHeadOffsetX);

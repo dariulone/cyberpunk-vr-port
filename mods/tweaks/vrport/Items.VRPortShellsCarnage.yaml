@@ -1,0 +1,21 @@
+# The Carnage's shells for the pump's multi-shell load, as a real item the game can put in the free hand.
+#
+# A pump takes several shells off the belt at once (2026-11-06: the Tactician four, the Carnage two); several shells
+# are several meshes, which one carrier component on the player's template cannot draw. So, like the break-actions'
+# pairs, they are an ITEM attached to the free hand's weapon slot through VRPortHoldItem (CyberpunkVRPort_Hold); its
+# entity (vrp_sg_shells_carnage.ent, built by build/shotgun-reload-20261019/tools/make_sg_multi.py from the EMP grenade
+# prop, which attaches) has two plain mesh parts, shell_a.., which reload/shotgun.lua places one by one in the hold
+# slot and switches off as each shell goes into the gun.
+Items.VRPortShellsCarnage:
+  $base: Items.cigarette_i_stick
+  entityName: vrp_sg_shells_carnage      # -> vrp_props.csv -> base\vrport\vrp_sg_shells_carnage.ent
+  appearanceName: default
+  friendlyName: vrp_sg_shells_carnage
+  equivalent: Items.VRPortShellsCarnage
+  OnAttach: []
+  OnEquip: []
+  tags:
+    - Prop
+  placementSlots:
+    - AttachmentSlots.WeaponLeft
+    - AttachmentSlots.WeaponRight

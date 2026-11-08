@@ -12,7 +12,7 @@ local B=require("modules/backpack_data")
 local HI=require("modules/holster_icons")
 -- THE HOLSTERS (CyberpunkVRPort_Holster, immersive holsters): each weapon slot's tile carries a badge -- the figure and
 -- its weapon where it hangs -- that opens a row of the places its kind can take (auto, each place, not carried), and
--- the page has a switch that hides every holstered weapon (players, 2026-11-05). The icons are one atlas
+-- the page has a switch that hides every holstered weapon (2026-11-05). The icons are one atlas
 -- (tools/vr_lobby_assets/make_holster_icons.py); the names are the player's own side (left-handed: turned over).
 local PLACE_NAMES={auto={"АВТО","AUTO"},none={"НЕ\nНОСИТЬ","NOT\nCARRIED"},
   hip_r={"ПРАВОЕ\nБЕДРО","RIGHT\nHIP"},hip_l={"ЛЕВОЕ\nБЕДРО","LEFT\nHIP"},
@@ -250,7 +250,7 @@ function V.draw(kit,p,p2)
     end
     Preview.show(kit,p,486,100,760,1080)
     -- the holster badges just right of the slots, over the preview's empty edge (drawn after it, on top), and the row
-    -- of places, wider than a slot so every name fits (players, 2026-11-05: "a little to the right of the slot")
+    -- of places, wider than a slot so every name fits (2026-11-05: "a little to the right of the slot")
     if Hol then
       for slot=0,2 do
         if I.equipped(ctx,"Weapon",slot) then holsterBadge(kit,p,origin,488,163+slot*222+60,slot,Hol) end

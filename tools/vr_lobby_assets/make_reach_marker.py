@@ -1,6 +1,6 @@
-"""A hand's reach marker as geometry in the world (mods/cet/CyberpunkVRPort_Reach modules/marker.lua): Into the
-Radius 2's selector -- a thin ring open on one side, and four corner brackets once the trigger has locked -- drawn
-the way ITR2 draws it, as a sprite in the world and not as a widget.
+"""A hand's reach marker as geometry in the world (mods/cet/CyberpunkVRPort_Reach modules/marker.lua): a thin ring
+open on one side, and four corner brackets once the trigger has locked -- drawn as a sprite in the world and not as
+a widget.
 
     py -3.13 -B tools/vr_lobby_assets/make_reach_marker.py            all of it
     py -3.13 -B tools/vr_lobby_assets/make_reach_marker.py mesh       the mesh and its materials
@@ -18,7 +18,7 @@ the way ITR2 draws it, as a sprite in the world and not as a widget.
                                (chunkMask), so a part comes and goes by its appearance alone: a chunk mask changed at
                                run time is not read again until the component is switched off and on
 
-THE SIZE IS ITR2's, read from its assets: its selectors (PS_Selector, PS_SelectorTrigger) are 2.5 cm sprites
+THE SIZE: the selectors are 2.5 cm sprites
 (ParticleModuleSize, a constant -- whatever the thing and however far), and their textures fill them: the ring's stroke
 centred at 0.917 of the half and 0.137 of it thick, open 70 deg; the brackets a square 0.955 of the sprite, each arm a
 third of a side, 0.066 of the sprite thick.
@@ -51,7 +51,7 @@ WORK = ROOT / 'build/reach-marker/work'
 NAME = 'vr_marker'
 DEPOT = 'vrport\\ui\\'
 
-SPRITE = 0.025                       # ITR2's selector, across (m)
+SPRITE = 0.025                       # the selector, across (m)
 RING = SPRITE / 2 * 0.917            # the ring's radius: its stroke's centre
 LINE = 0.149                         # the ring's stroke, of its radius
 GAP = math.radians(70)               # the ring's opening, whole, toward +X

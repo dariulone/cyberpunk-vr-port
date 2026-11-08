@@ -37,7 +37,7 @@
 -- can be TAKEN from the hand -- gone from the world until it is put back (M.take, M.restore); a reset leaves it
 -- where it went.
 --
--- REACHING, marked and done the way Into the Radius 2 does it, and the way the game's own things are reached for
+-- REACHING, marked and done the way the game's own things are reached for
 -- (CyberpunkVRPort_Reach: it draws the marker, and its modules/world.lua is the same gesture in the game): a free hand
 -- near an item sees a ring on the one it would take, faint while it is near and full once it is in reach. A free hand
 -- pointing at an item further off sees the ring on that one; the grip closed on it holds it from afar (the ring turns

@@ -12,6 +12,8 @@ namespace Gdiplus { using std::min; using std::max; }
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <utility>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -35,12 +37,25 @@ extern "C" void SetLauncherDebugAndPersist(int on);
 extern "C" int GetLauncherDebug();
 // 1 when this launch renders both eyes through engine stereo (src/Core/VrCore.cpp).
 extern "C" int GetLauncherEngineStereo();
+// The saved pick is the player's own size, not a ladder entry (custom_res in vrport-launcher.ini).
+extern "C" int GetLauncherCustomResolution();
+extern "C" void SetLauncherCustomResolution(int on);
+// The VR lobby: the main menu in its own world (xr_lobby in vrport.ini).
+extern "C" int GetLauncherLobby();
+extern "C" void SetLauncherLobbyAndPersist(int on);
 
 #define ID_COMBO_RES     101
 #define ID_BUTTON_START  102
 #define ID_COMBO_RUNTIME 103
 #define ID_COMBO_HMD     104
 #define ID_CHECK_DEBUG   105
+#define ID_BUTTON_RES_DOWN 106
+#define ID_BUTTON_RES_UP   107
+#define ID_SLIDER_RES      108
+#define ID_EDIT_WIDTH      109
+#define ID_EDIT_HEIGHT     110
+#define ID_EDIT_ASPECT     111
+#define ID_CHECK_LOBBY     112
 
 struct ResolutionPreset {
     int width;
@@ -559,6 +574,28 @@ static int g_clientW = 0, g_clientH = 0;
 // Painted by the window itself: the header and the field labels.
 static RECT g_rcTitle, g_rcSub, g_rcRule, g_rcLabelHmd, g_rcLabelRuntime, g_rcLabelRes, g_rcNote;
 
+// THE RENDER SIZE, three ways: the headset's ladder (the combo box), a slider with - / + beside it, and the width,
+// height and aspect typed. The slider runs over the pixel count (log scale) at the pick's aspect, the ladder's
+// entries marked on it; - / + step the width by kResStepPx at that aspect; a typed width or height sets that side
+// alone (the aspect follows), a typed aspect keeps the pixel count. A size that is not a ladder entry is the
+// player's own: the combo box shows it as its last item ("Custom"), and it is saved with custom_res=1 so the
+// startup snap leaves it alone. Engine stereo renders any size; without it the second eye is a VRCAM view of one of
+// the ladder's sizes, so every control lands on the ladder entry nearest in cost.
+static HWND g_hResDown = nullptr, g_hResUp = nullptr, g_hSlider = nullptr;
+static HWND g_hEditW = nullptr, g_hEditH = nullptr, g_hEditAspect = nullptr;
+static HWND g_hLobby = nullptr;
+static bool g_lobbyOn = true;
+static int g_resW = 0, g_resH = 0;         // the pick the controls show
+static int g_refW = 0, g_refH = 0;         // the size asked for: the saved one, or the last one the player set
+static bool g_refCustom = false;           // ... and whether it was the player's own
+static double g_resAspect = 1.0;           // width / height the slider and the steps keep
+static int g_sliderPos = 0;
+static bool g_sliderDrag = false;
+static double g_sliderLo = 1.0, g_sliderHi = 2.0;   // pixel counts at the slider's ends
+static RECT g_rcCapW, g_rcCapH, g_rcCapAspect, g_rcFrameW, g_rcFrameH, g_rcFrameAspect;
+static constexpr int kSliderSteps = 1000;
+static constexpr int kResMinPx = 512, kResMaxPx = 8192, kResStepPx = 32;
+
 static int Px(int v) { return MulDiv(v, int(g_dpi), 96); }
 
 static HFONT MakeFont(int tenthsOfPoint, int weight) {
@@ -746,10 +783,11 @@ static LRESULT CALLBACK ButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     switch (msg) {
     case BM_GETCHECK:
         if (hwnd == g_hDebug) return g_debugOn ? BST_CHECKED : BST_UNCHECKED;
+        if (hwnd == g_hLobby) return g_lobbyOn ? BST_CHECKED : BST_UNCHECKED;
         break;
     case BM_SETCHECK:
-        if (hwnd == g_hDebug) {
-            g_debugOn = wParam == BST_CHECKED;
+        if (hwnd == g_hDebug || hwnd == g_hLobby) {
+            (hwnd == g_hDebug ? g_debugOn : g_lobbyOn) = wParam == BST_CHECKED;
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
@@ -813,7 +851,228 @@ static const ResolutionPreset* SelectedResolution() {
     return entry >= 0 && entry < hmd->resolutionCount ? &hmd->resolutions[entry] : nullptr;
 }
 
-// The resolution field lists the headset's ladder, the entries this launch offers.
+// --- The render size: the pick and the controls that show it ---------------------------------------------------
+
+static bool OwnSizesAllowed() { return GetLauncherEngineStereo() != 0; }
+
+static int RoundSide(double v) {
+    const int r = int(std::lround(v / 8.0)) * 8;   // both sides multiples of 8, as every ladder entry
+    return std::clamp(r, kResMinPx, kResMaxPx);
+}
+
+// The offered ladder entry of exactly w x h, or -1.
+static int LadderEntryOf(const HmdPreset* hmd, int w, int h) {
+    if (!hmd) return -1;
+    for (int i = 0; i < hmd->resolutionCount; ++i)
+        if (Offered(hmd->resolutions[i]) && hmd->resolutions[i].width == w && hmd->resolutions[i].height == h)
+            return i;
+    return -1;
+}
+
+static int ComboItemOfEntry(int entry) {
+    const int count = int(SendMessageW(g_hRes, CB_GETCOUNT, 0, 0));
+    for (int item = 0; item < count; ++item)
+        if (int(SendMessageW(g_hRes, CB_GETITEMDATA, item, 0)) == entry) return item;
+    return -1;
+}
+
+// The slider's ends: the ladder's cheapest and dearest offered entries, with room on both sides for own sizes when
+// engine stereo takes them, and always the pick itself.
+static void ResetSliderRange() {
+    const HmdPreset* hmd = SelectedHmd();
+    double lo = 0.0, hi = 0.0;
+    if (hmd)
+        for (int i = 0; i < hmd->resolutionCount; ++i) {
+            if (!Offered(hmd->resolutions[i])) continue;
+            const double cost = double(hmd->resolutions[i].width) * hmd->resolutions[i].height;
+            lo = lo > 0.0 ? std::min(lo, cost) : cost;
+            hi = std::max(hi, cost);
+        }
+    if (hi <= 0.0) { lo = 1024.0 * 1024.0; hi = 6144.0 * 6144.0; }
+    if (OwnSizesAllowed()) { lo *= 0.5; hi *= 1.3; }
+    const double pick = double(g_resW) * g_resH;
+    if (pick > 0.0) { lo = std::min(lo, pick); hi = std::max(hi, pick); }
+    if (hi <= lo * 1.01) hi = lo * 2.0;
+    g_sliderLo = lo;
+    g_sliderHi = hi;
+}
+
+static int SliderPosOf(double cost) {
+    const double t = (std::log(cost) - std::log(g_sliderLo)) / (std::log(g_sliderHi) - std::log(g_sliderLo));
+    return std::clamp(int(std::lround(t * kSliderSteps)), 0, kSliderSteps);
+}
+
+static double SliderCostAt(int pos) {
+    return std::exp(std::log(g_sliderLo) + (std::log(g_sliderHi) - std::log(g_sliderLo)) * pos / kSliderSteps);
+}
+
+static void SetEditText(HWND edit, const wchar_t* text) {
+    if (edit) SetWindowTextW(edit, text);
+}
+
+// The fields show the pick (the aspect to four places).
+static void ShowPickInFields() {
+    wchar_t text[32];
+    swprintf_s(text, L"%d", g_resW);
+    SetEditText(g_hEditW, text);
+    swprintf_s(text, L"%d", g_resH);
+    SetEditText(g_hEditH, text);
+    swprintf_s(text, L"%.4f", g_resAspect);
+    SetEditText(g_hEditAspect, text);
+}
+
+// The combo box shows the pick: its ladder entry, or a last item "Custom  W x H" (item data -1) for an own size.
+static void ShowPickInCombo() {
+    if (!g_hRes) return;
+    for (int item = int(SendMessageW(g_hRes, CB_GETCOUNT, 0, 0)) - 1; item >= 0; --item)
+        if (int(SendMessageW(g_hRes, CB_GETITEMDATA, item, 0)) < 0) SendMessageW(g_hRes, CB_DELETESTRING, item, 0);
+    const int entry = LadderEntryOf(SelectedHmd(), g_resW, g_resH);
+    int item = entry >= 0 ? ComboItemOfEntry(entry) : -1;
+    if (item < 0) {
+        wchar_t text[64];
+        swprintf_s(text, L"Custom  %d x %d", g_resW, g_resH);
+        item = int(SendMessageW(g_hRes, CB_ADDSTRING, 0, (LPARAM)text));
+        SendMessageW(g_hRes, CB_SETITEMDATA, item, LPARAM(-1));
+    }
+    SendMessageW(g_hRes, CB_SETCURSEL, item, 0);
+    SizeList(g_hRes);
+    InvalidateRect(g_hRes, nullptr, FALSE);
+}
+
+static void RepaintResolutionText() {
+    if (HWND parent = g_hRes ? GetParent(g_hRes) : nullptr) {
+        InvalidateRect(parent, &g_rcLabelRes, FALSE);
+        InvalidateRect(parent, &g_rcNote, FALSE);
+    }
+}
+
+// Where a change to the pick came from: each source leaves its own control as the player set it.
+enum class PickFrom { Ladder, Slider, Step, Side, Aspect };
+
+// Makes w x h the pick. Without engine stereo it lands on the ladder entry nearest in cost.
+static void SetPick(int w, int h, PickFrom from, double aspect = 0.0) {
+    const HmdPreset* hmd = SelectedHmd();
+    w = RoundSide(w);
+    h = RoundSide(h);
+    if (!OwnSizesAllowed() && hmd && LadderEntryOf(hmd, w, h) < 0) {
+        const int nearest = NearestCostEntry(*hmd, w, h);
+        if (nearest >= 0) { w = hmd->resolutions[nearest].width; h = hmd->resolutions[nearest].height; aspect = 0.0; }
+    }
+    g_resW = w;
+    g_resH = h;
+    if (aspect > 0.0) g_resAspect = aspect;
+    else if (from != PickFrom::Slider && from != PickFrom::Step) g_resAspect = double(w) / h;
+    g_refW = w;
+    g_refH = h;
+    g_refCustom = LadderEntryOf(hmd, w, h) < 0;
+    if (from != PickFrom::Ladder) ShowPickInCombo();
+    else if (g_hRes) {
+        // a ladder entry picked: an own size listed before goes from the list
+        for (int item = int(SendMessageW(g_hRes, CB_GETCOUNT, 0, 0)) - 1; item >= 0; --item)
+            if (int(SendMessageW(g_hRes, CB_GETITEMDATA, item, 0)) < 0) SendMessageW(g_hRes, CB_DELETESTRING, item, 0);
+        const int item = ComboItemOfEntry(LadderEntryOf(hmd, w, h));
+        if (item >= 0) SendMessageW(g_hRes, CB_SETCURSEL, item, 0);
+        SizeList(g_hRes);
+    }
+    if (from != PickFrom::Slider) {
+        ResetSliderRange();
+        g_sliderPos = SliderPosOf(double(w) * h);
+    }
+    if (g_hSlider) InvalidateRect(g_hSlider, nullptr, FALSE);
+    ShowPickInFields();
+    RepaintResolutionText();
+}
+
+// The slider moved to `pos`: that pixel count at the kept aspect. Within 2 % of a ladder entry of the same aspect
+// it takes the entry itself (the marks hold the knob).
+static void SliderMoved(int pos) {
+    g_sliderPos = std::clamp(pos, 0, kSliderSteps);
+    const double cost = SliderCostAt(g_sliderPos), aspect = g_resAspect;
+    int w = RoundSide(std::sqrt(cost * aspect)), h = RoundSide(w / aspect);
+    if (const HmdPreset* hmd = SelectedHmd())
+        for (int i = 0; i < hmd->resolutionCount; ++i) {
+            const ResolutionPreset& r = hmd->resolutions[i];
+            if (!Offered(r)) continue;
+            const double c = double(r.width) * r.height, a = double(r.width) / r.height;
+            if (std::fabs(std::log(c / cost)) < 0.02 && std::fabs(a / aspect - 1.0) < 0.004) { w = r.width; h = r.height; }
+        }
+    if (!OwnSizesAllowed()) {
+        SetPick(w, h, PickFrom::Ladder);   // the nearest entry; the knob jumps onto its mark
+        g_sliderPos = SliderPosOf(double(g_resW) * g_resH);
+        ShowPickInCombo();
+        return;
+    }
+    SetPick(w, h, PickFrom::Slider);
+}
+
+// - / +: the width by kResStepPx at the kept aspect; without engine stereo the next ladder entry by cost.
+static void StepPick(int direction) {
+    const HmdPreset* hmd = SelectedHmd();
+    if (!OwnSizesAllowed() && hmd) {
+        const double now = double(g_resW) * g_resH;
+        int best = -1;
+        for (int i = 0; i < hmd->resolutionCount; ++i) {
+            const ResolutionPreset& r = hmd->resolutions[i];
+            const double c = double(r.width) * r.height;
+            if (!Offered(r) || (direction > 0 ? c <= now : c >= now)) continue;
+            const double bestCost = best < 0 ? 0.0 : double(hmd->resolutions[best].width) * hmd->resolutions[best].height;
+            if (best < 0 || (direction > 0 ? c < bestCost : c > bestCost)) best = i;
+        }
+        if (best >= 0) SetPick(hmd->resolutions[best].width, hmd->resolutions[best].height, PickFrom::Ladder);
+        ShowPickInCombo();
+        return;
+    }
+    const int w = RoundSide(g_resW + direction * kResStepPx);
+    SetPick(w, RoundSide(w / g_resAspect), PickFrom::Step);
+}
+
+// "16:9", "16/9", "16x9", "0.926" or "0,926" -> width / height; 0 when it is none of them or out of range.
+static double ParseAspect(std::wstring text) {
+    std::replace(text.begin(), text.end(), L',', L'.');
+    const size_t split = text.find_first_of(L":/xX");
+    double value = 0.0;
+    if (split != std::wstring::npos) {
+        const double a = _wtof(text.substr(0, split).c_str()), b = _wtof(text.substr(split + 1).c_str());
+        value = b > 0.0 ? a / b : 0.0;
+    } else {
+        value = _wtof(text.c_str());
+    }
+    return value >= 0.25 && value <= 4.0 ? value : 0.0;
+}
+
+static std::wstring WindowText(HWND hwnd) {
+    const int length = GetWindowTextLengthW(hwnd);
+    std::wstring text(size_t(length) + 1, L'\0');
+    GetWindowTextW(hwnd, text.data(), length + 1);
+    text.resize(size_t(length));
+    return text;
+}
+
+// A field's text taken (Enter or the field left): a width or a height sets that side, an aspect keeps the pixel
+// count. Anything unreadable puts the pick back in the field.
+static void CommitField(HWND edit) {
+    const std::wstring text = WindowText(edit);
+    if (edit == g_hEditAspect) {
+        const double aspect = ParseAspect(text);
+        if (aspect > 0.0 && std::fabs(aspect - g_resAspect) > 1e-6) {
+            const double cost = double(g_resW) * g_resH;
+            const int w = RoundSide(std::sqrt(cost * aspect));
+            SetPick(w, RoundSide(w / aspect), PickFrom::Aspect, aspect);
+            return;
+        }
+    } else {
+        const int value = _wtoi(text.c_str());
+        if (value > 0) {
+            const int w = edit == g_hEditW ? value : g_resW, h = edit == g_hEditH ? value : g_resH;
+            if (RoundSide(w) != g_resW || RoundSide(h) != g_resH) { SetPick(w, h, PickFrom::Side); return; }
+        }
+    }
+    ShowPickInFields();
+}
+
+// The resolution field lists the headset's ladder, the entries this launch offers, and the pick shows in every
+// resolution control. The size asked for (g_ref*) carries over a change of headset: kept when it is in the new
+// ladder or the player's own (with engine stereo), else the entry nearest in cost, so the pick keeps its frame time.
 static void PopulateResolutionCombo(int hmdIndex) {
     if (!g_hRes) return;
     SendMessageW(g_hRes, CB_RESETCONTENT, 0, 0);
@@ -823,35 +1082,189 @@ static void PopulateResolutionCombo(int hmdIndex) {
     }
 
     const HmdPreset& hmd = kHmdPresets[hmdIndex];
-    const int currentWidth = GetCurrentWindowWidth();
-    const int currentHeight = GetCurrentWindowHeight();
-    int resSel = 0;
-    bool found = false;
-
     for (int i = 0; i < hmd.resolutionCount; ++i) {
         if (!Offered(hmd.resolutions[i])) continue;
         const int item = int(SendMessageW(g_hRes, CB_ADDSTRING, 0, (LPARAM)hmd.resolutions[i].label));
         SendMessageW(g_hRes, CB_SETITEMDATA, item, i);
-        if (!found &&
-            hmd.resolutions[i].width == currentWidth &&
-            hmd.resolutions[i].height == currentHeight) {
-            resSel = item;
-            found = true;
+    }
+
+    int w = g_refW, h = g_refH;
+    const bool keepOwn = g_refCustom && OwnSizesAllowed() && w > 0 && h > 0;
+    if (LadderEntryOf(&hmd, w, h) < 0 && !keepOwn && hmd.resolutionCount > 0) {
+        // Not in this headset's ladder (another headset's pick, a size the ladders retired, or one only engine
+        // stereo offers): the entry nearest in cost.
+        const int nearest = w > 0 && h > 0 ? NearestCostEntry(hmd, w, h) : -1;
+        const int entry = nearest >= 0 ? nearest : int(SendMessageW(g_hRes, CB_GETITEMDATA, 0, 0));
+        if (entry >= 0) { w = hmd.resolutions[entry].width; h = hmd.resolutions[entry].height; }
+    }
+    if (w <= 0 || h <= 0) { w = 2048; h = 2048; }
+    g_resW = w;
+    g_resH = h;
+    g_resAspect = double(w) / h;
+    ShowPickInCombo();
+    ResetSliderRange();
+    g_sliderPos = SliderPosOf(double(w) * h);
+    if (g_hSlider) InvalidateRect(g_hSlider, nullptr, FALSE);
+    ShowPickInFields();
+    RepaintResolutionText();
+}
+
+// --- The slider ---------------------------------------------------------------------------------------------------
+
+static void SliderTrack(const RECT& rc, int& left, int& right, int& cy) {
+    const int knob = Px(9);
+    left = rc.left + knob + Px(1);
+    right = rc.right - knob - Px(1);
+    cy = (rc.top + rc.bottom) / 2;
+}
+
+static void PaintSlider(HWND hwnd, HDC dc, const RECT& rc) {
+    FillRect(dc, &rc, g_brushBg);
+    int left, right, cy;
+    SliderTrack(rc, left, right, cy);
+    const bool hot = g_hot == hwnd, focus = GetFocus() == hwnd;
+    const RECT track{left, cy - Px(3), right, cy + Px(3)};
+    Rounded(dc, track, Px(3), kColSurface, hot ? kColBorderHot : kColBorder);
+    const int x = left + MulDiv(right - left, g_sliderPos, kSliderSteps);
+    if (x > left + Px(2)) {
+        const RECT fill{left, cy - Px(3), x, cy + Px(3)};
+        Rounded(dc, fill, Px(3), kColAccent, kColAccent);
+    }
+    // the ladder's entries, marked under the track
+    if (const HmdPreset* hmd = SelectedHmd()) {
+        HBRUSH mark = CreateSolidBrush(kColBorderHot);
+        for (int i = 0; i < hmd->resolutionCount; ++i) {
+            const ResolutionPreset& r = hmd->resolutions[i];
+            if (!Offered(r)) continue;
+            const int tx = left + MulDiv(right - left, SliderPosOf(double(r.width) * r.height), kSliderSteps);
+            const RECT tick{tx, cy + Px(7), tx + std::max(1, Px(1)), cy + Px(11)};
+            FillRect(dc, &tick, mark);
         }
+        DeleteObject(mark);
     }
-
-    // Not in this headset's ladder (another headset's pick, a size the ladders retired, or one only engine
-    // stereo offers): the entry nearest in cost, so the pick keeps its frame time.
-    if (!found && hmd.resolutionCount > 0 && currentWidth > 0 && currentHeight > 0) {
-        const int nearest = NearestCostEntry(hmd, currentWidth, currentHeight);
-        const int count = int(SendMessageW(g_hRes, CB_GETCOUNT, 0, 0));
-        for (int item = 0; item < count; ++item)
-            if (int(SendMessageW(g_hRes, CB_GETITEMDATA, item, 0)) == nearest) resSel = item;
+    const int k = Px(9);
+    const RECT knob{x - k, cy - k, x + k, cy + k};
+    const COLORREF fill = g_sliderDrag || hot ? kColAccentHot : kColText;
+    Rounded(dc, knob, k, fill, focus ? kColAccent : fill);
+    if (focus) {
+        RECT ring = knob;
+        InflateRect(&ring, Px(3), Px(3));
+        Gdiplus::Graphics g(dc);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        Gdiplus::Pen pen(ToColor(kColAccent), 1.5f * g_dpi / 96.0f);
+        if (g_gdiplus) g.DrawEllipse(&pen, float(ring.left), float(ring.top), float(ring.right - ring.left - 1),
+                                     float(ring.bottom - ring.top - 1));
     }
+}
 
-    SendMessageW(g_hRes, CB_SETCURSEL, resSel, 0);
-    SizeList(g_hRes);
-    InvalidateRect(g_hRes, nullptr, FALSE);
+static void SliderToPoint(HWND hwnd, int x) {
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    int left, right, cy;
+    SliderTrack(rc, left, right, cy);
+    SliderMoved(right > left ? MulDiv(std::clamp(x, left, right) - left, kSliderSteps, right - left) : 0);
+}
+
+static LRESULT CALLBACK SliderProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_GETDLGCODE:
+        return DLGC_WANTARROWS;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+        Buffered(hwnd, dc, [hwnd](HDC mem, const RECT& rc) { PaintSlider(hwnd, mem, rc); });
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_LBUTTONDOWN:
+        SetFocus(hwnd);
+        SetCapture(hwnd);
+        g_sliderDrag = true;
+        SliderToPoint(hwnd, short(LOWORD(lParam)));
+        return 0;
+    case WM_MOUSEMOVE:
+        SetHot(hwnd);
+        if (g_sliderDrag) SliderToPoint(hwnd, short(LOWORD(lParam)));
+        return 0;
+    case WM_LBUTTONUP:
+        if (g_sliderDrag) { g_sliderDrag = false; ReleaseCapture(); InvalidateRect(hwnd, nullptr, FALSE); }
+        return 0;
+    case WM_CAPTURECHANGED:
+        g_sliderDrag = false;
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    case WM_MOUSELEAVE:
+        if (g_hot == hwnd) SetHot(nullptr);
+        return 0;
+    case WM_KEYDOWN:
+        // arrows: one step of the - / + buttons; Page Up / Down: a tenth of the slider; Home / End: its ends
+        switch (wParam) {
+        case VK_LEFT: case VK_DOWN: StepPick(-1); return 0;
+        case VK_RIGHT: case VK_UP: StepPick(+1); return 0;
+        case VK_PRIOR: SliderMoved(g_sliderPos + kSliderSteps / 10); return 0;
+        case VK_NEXT: SliderMoved(g_sliderPos - kSliderSteps / 10); return 0;
+        case VK_HOME: SliderMoved(0); return 0;
+        case VK_END: SliderMoved(kSliderSteps); return 0;
+        }
+        break;
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS:
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// --- The size fields ----------------------------------------------------------------------------------------------
+
+// Enter takes the field (not the dialog's Start), as does leaving it; focus outlines the field's frame.
+static LRESULT CALLBACK EditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR) {
+    switch (msg) {
+    case WM_GETDLGCODE:
+        if (lParam && reinterpret_cast<const MSG*>(lParam)->message == WM_KEYDOWN && wParam == VK_RETURN)
+            return DLGC_WANTALLKEYS | DefSubclassProc(hwnd, msg, wParam, lParam);
+        break;
+    case WM_KEYDOWN:
+        if (wParam == VK_RETURN) {
+            CommitField(hwnd);
+            SendMessageW(hwnd, EM_SETSEL, 0, -1);
+            return 0;
+        }
+        break;
+    case WM_CHAR:
+        if (wParam == L'\r') return 0;
+        break;
+    case WM_SETFOCUS: {
+        const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+        PostMessageW(hwnd, EM_SETSEL, 0, -1);
+        InvalidateRect(GetParent(hwnd), nullptr, FALSE);
+        return result;
+    }
+    case WM_KILLFOCUS: {
+        const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+        CommitField(hwnd);
+        InvalidateRect(GetParent(hwnd), nullptr, FALSE);
+        return result;
+    }
+    case WM_NCDESTROY:
+        RemoveWindowSubclass(hwnd, EditProc, 1);
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+static HWND MakeEdit(HWND parent, int id, const RECT& frame) {
+    const int textH = Px(22);
+    const int top = (frame.top + frame.bottom - textH) / 2;
+    HWND edit = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_CENTER | ES_AUTOHSCROLL,
+        frame.left + Px(8), top, (frame.right - frame.left) - Px(16), textH, parent, (HMENU)(INT_PTR)id, nullptr,
+        nullptr);
+    SendMessageW(edit, WM_SETFONT, (WPARAM)g_fontBody, TRUE);
+    SendMessageW(edit, EM_SETLIMITTEXT, 12, 0);
+    SetWindowSubclass(edit, EditProc, 1, 0);
+    return edit;
 }
 
 static void PaintWindow(HWND hwnd, HDC dc, const RECT& rc) {
@@ -867,14 +1280,33 @@ static void PaintWindow(HWND hwnd, HDC dc, const RECT& rc) {
     Text(dc, L"VR HEADSET", g_rcLabelHmd, g_fontLabel, kColMuted, label, Px(1));
     Text(dc, L"VR RUNTIME", g_rcLabelRuntime, g_fontLabel, kColMuted, label, Px(1));
     Text(dc, L"RENDER RESOLUTION", g_rcLabelRes, g_fontLabel, kColMuted, label, Px(1));
-    if (const ResolutionPreset* res = SelectedResolution()) {
+    if (g_resW > 0 && g_resH > 0) {
         wchar_t cost[48];
-        swprintf_s(cost, L"%.1f MP per eye", double(res->width) * res->height / 1e6);
+        swprintf_s(cost, L"%.1f MP per eye", double(g_resW) * g_resH / 1e6);
         Text(dc, cost, g_rcLabelRes, g_fontHint, kColMuted, DT_RIGHT | DT_BOTTOM | DT_SINGLELINE);
     }
-    if (!GetLauncherEngineStereo())
-        Text(dc, L"Engine stereo is off: sizes that need it are not listed.", g_rcNote, g_fontHint, kColMuted,
-             DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+    // the size fields: their captions and frames (the edits sit inside, borderless)
+    Text(dc, L"WIDTH", g_rcCapW, g_fontLabel, kColMuted, label, Px(1));
+    Text(dc, L"HEIGHT", g_rcCapH, g_fontLabel, kColMuted, label, Px(1));
+    Text(dc, L"ASPECT  W / H", g_rcCapAspect, g_fontLabel, kColMuted, label, Px(1));
+    const std::pair<const RECT*, HWND> frames[] = {{&g_rcFrameW, g_hEditW}, {&g_rcFrameH, g_hEditH},
+                                                   {&g_rcFrameAspect, g_hEditAspect}};
+    for (const auto& [frame, edit] : frames) {
+        if (!edit || IsRectEmpty(frame)) continue;
+        const bool focus = GetFocus() == edit;
+        Rounded(dc, *frame, Px(6), kColSurface, focus ? kColAccent : kColBorder);
+    }
+    wchar_t note[160] = L"";
+    const HmdPreset* hmd = SelectedHmd();
+    const double lens = hmd && hmd->resolutionCount > 0
+        ? double(hmd->resolutions[0].width) / hmd->resolutions[0].height : 0.0;
+    if (!OwnSizesAllowed())
+        swprintf_s(note, L"Engine stereo is off: only the listed sizes.");
+    else if (lens > 0.0 && std::fabs(g_resAspect / lens - 1.0) > 0.005)
+        swprintf_s(note, L"Headset aspect %.4f; another renders past the lenses.", lens);
+    else
+        swprintf_s(note, L"Slide, step with - / +, or type a size or an aspect (16:9).");
+    Text(dc, note, g_rcNote, g_fontHint, kColMuted, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
     (void)hwnd;
 }
 
@@ -892,21 +1324,22 @@ static void DrawStart(const DRAWITEMSTRUCT& d) {
     Text(d.hDC, L"START GAME", d.rcItem, g_fontButton, kColOnAccent, DT_CENTER | DT_VCENTER | DT_SINGLELINE, Px(1));
 }
 
-static void DrawDebugSwitch(const DRAWITEMSTRUCT& d) {
+// An on / off switch with its title and a line under it (the debug mode, the VR lobby).
+static void DrawSwitch(const DRAWITEMSTRUCT& d, bool on, const wchar_t* titleText, const wchar_t* subText) {
     FillRect(d.hDC, &d.rcItem, g_brushBg);
     const bool hot = g_hot == d.hwndItem;
     const int h = Px(22), w = Px(40);
     const int top = (d.rcItem.top + d.rcItem.bottom - h) / 2;
     const RECT track{d.rcItem.left, top, d.rcItem.left + w, top + h};
-    const COLORREF fill = g_debugOn ? (hot ? kColAccentHot : kColAccent) : (hot ? kColSurfaceHot : kColSurface);
-    Rounded(d.hDC, track, h / 2, fill, g_debugOn ? fill : (d.itemState & ODS_FOCUS) ? kColAccent
-                                                          : hot ? kColBorderHot : kColBorder);
+    const COLORREF fill = on ? (hot ? kColAccentHot : kColAccent) : (hot ? kColSurfaceHot : kColSurface);
+    Rounded(d.hDC, track, h / 2, fill, on ? fill : (d.itemState & ODS_FOCUS) ? kColAccent
+                                                 : hot ? kColBorderHot : kColBorder);
     const int knob = h - Px(8);
-    const int kx = g_debugOn ? track.right - Px(4) - knob : track.left + Px(4);
+    const int kx = on ? track.right - Px(4) - knob : track.left + Px(4);
     const RECT dot{kx, top + Px(4), kx + knob, top + Px(4) + knob};
-    const COLORREF knobColor = g_debugOn ? kColOnAccent : kColMuted;
+    const COLORREF knobColor = on ? kColOnAccent : kColMuted;
     Rounded(d.hDC, dot, knob / 2, knobColor, knobColor);
-    if ((d.itemState & ODS_FOCUS) && g_debugOn) {
+    if ((d.itemState & ODS_FOCUS) && on) {
         RECT ring = track;
         InflateRect(&ring, Px(2), Px(2));
         HBRUSH frame = CreateSolidBrush(kColText);
@@ -916,12 +1349,29 @@ static void DrawDebugSwitch(const DRAWITEMSTRUCT& d) {
     RECT title = d.rcItem;
     title.left = track.right + Px(14);
     title.bottom = (d.rcItem.top + d.rcItem.bottom) / 2 + Px(1);
-    Text(d.hDC, L"Debug mode", title, g_fontBody, kColText, DT_LEFT | DT_BOTTOM | DT_SINGLELINE);
+    Text(d.hDC, titleText, title, g_fontBody, kColText, DT_LEFT | DT_BOTTOM | DT_SINGLELINE);
     RECT sub = d.rcItem;
     sub.left = title.left;
     sub.top = title.bottom + Px(1);
-    Text(d.hDC, L"Probes and a verbose log. Slower; for bug reports.", sub, g_fontHint, kColMuted,
-         DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+    Text(d.hDC, subText, sub, g_fontHint, kColMuted, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+}
+
+// - / + beside the slider: a small field-coloured button with its sign.
+static void DrawStep(const DRAWITEMSTRUCT& d, bool up) {
+    FillRect(d.hDC, &d.rcItem, g_brushBg);
+    const bool hot = g_hot == d.hwndItem, down = (d.itemState & ODS_SELECTED) != 0;
+    Rounded(d.hDC, d.rcItem, Px(6), down || hot ? kColSurfaceHot : kColSurface,
+            (d.itemState & ODS_FOCUS) ? kColAccent : hot ? kColBorderHot : kColBorder);
+    const int cx = (d.rcItem.left + d.rcItem.right) / 2, cy = (d.rcItem.top + d.rcItem.bottom) / 2, s = Px(6);
+    HBRUSH sign = CreateSolidBrush(hot ? kColAccent : kColText);
+    const int t = std::max(1, Px(2)) / 2;
+    const RECT bar{cx - s, cy - t, cx + s, cy - t + std::max(2, Px(2))};
+    FillRect(d.hDC, &bar, sign);
+    if (up) {
+        const RECT post{cx - t, cy - s, cx - t + std::max(2, Px(2)), cy + s};
+        FillRect(d.hDC, &post, sign);
+    }
+    DeleteObject(sign);
 }
 
 static void DrawListItem(const DRAWITEMSTRUCT& d) {
@@ -951,11 +1401,22 @@ static void DrawListItem(const DRAWITEMSTRUCT& d) {
 }
 
 static void StartGame(HWND hwnd) {
+    // a field still being typed in counts as taken
+    const HWND focus = GetFocus();
+    if (focus && (focus == g_hEditW || focus == g_hEditH || focus == g_hEditAspect)) CommitField(focus);
     SetLauncherDebugAndPersist(SendMessageW(g_hDebug, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    SetLauncherLobbyAndPersist(SendMessageW(g_hLobby, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     if (const HmdPreset* hmd = SelectedHmd()) SetHmdTypeAndPersist(hmd->mhdType);
     const int rIdx = int(SendMessageW(g_hRuntime, CB_GETCURSEL, 0, 0));
     if (rIdx >= 0 && rIdx < static_cast<int>(std::size(kRuntimeOptions))) SetRuntimeModeAndPersist(kRuntimeOptions[rIdx].mode);
-    if (const ResolutionPreset* res = SelectedResolution()) SetWindowResolutionAndPersist(res->width, res->height);
+    if (const ResolutionPreset* res = SelectedResolution()) {
+        SetLauncherCustomResolution(0);
+        SetWindowResolutionAndPersist(res->width, res->height);
+    } else if (g_resW > 0 && g_resH > 0) {
+        // the combo box's "Custom" item: the player's own size
+        SetLauncherCustomResolution(1);
+        SetWindowResolutionAndPersist(g_resW, g_resH);
+    }
     g_restoreGameFocus = GetForegroundWindow() == hwnd;
     DestroyWindow(hwnd);
 }
@@ -1015,13 +1476,43 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         SizeList(g_hRuntime);
 
         g_hRes = field(g_rcLabelRes, ID_COMBO_RES);
+        y -= Px(8);
+        // - [slider] +
+        const int stepW = Px(34), rowH = Px(30);
+        g_hResDown = MakeButton(hwnd, ID_BUTTON_RES_DOWN, L"-", {margin, y, margin + stepW, y + rowH});
+        g_hSlider = CreateWindowExW(0, L"CyberpunkVRPortLauncherSlider", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            margin + stepW + Px(10), y, fieldW - 2 * (stepW + Px(10)), rowH, hwnd, (HMENU)(INT_PTR)ID_SLIDER_RES,
+            nullptr, nullptr);
+        g_hResUp = MakeButton(hwnd, ID_BUTTON_RES_UP, L"+", {right - stepW, y, right, y + rowH});
+        y += rowH + Px(12);
+        // WIDTH   HEIGHT   ASPECT: captions over borderless edits in painted frames
+        const int gap = Px(12), colW = (fieldW - 2 * gap) / 3, frameH = Px(34);
+        const int colX[3] = {margin, margin + colW + gap, right - colW};
+        g_rcCapW = {colX[0], y, colX[0] + colW, y + Px(16)};
+        g_rcCapH = {colX[1], y, colX[1] + colW, y + Px(16)};
+        g_rcCapAspect = {colX[2], y, colX[2] + colW, y + Px(16)};
+        y += Px(22);
+        g_rcFrameW = {colX[0], y, colX[0] + colW, y + frameH};
+        g_rcFrameH = {colX[1], y, colX[1] + colW, y + frameH};
+        g_rcFrameAspect = {colX[2], y, colX[2] + colW, y + frameH};
+        g_hEditW = MakeEdit(hwnd, ID_EDIT_WIDTH, g_rcFrameW);
+        g_hEditH = MakeEdit(hwnd, ID_EDIT_HEIGHT, g_rcFrameH);
+        g_hEditAspect = MakeEdit(hwnd, ID_EDIT_ASPECT, g_rcFrameAspect);
+        if (!OwnSizesAllowed()) SendMessageW(g_hEditAspect, EM_SETREADONLY, TRUE, 0);
+        y += frameH + Px(8);
+        g_rcNote = {margin, y, right, y + Px(18)};
+        y += Px(18) + Px(18);
+
+        // the pick: the saved size (its ladder entry, or the player's own when engine stereo takes it)
+        g_refW = GetCurrentWindowWidth();
+        g_refH = GetCurrentWindowHeight();
+        g_refCustom = GetLauncherCustomResolution() != 0;
         PopulateResolutionCombo(hmdSel);
-        if (!GetLauncherEngineStereo()) {
-            g_rcNote = {margin, y - Px(12), right, y + Px(6)};
-            y += Px(14);
-        } else {
-            g_rcNote = {};
-        }
+
+        // The VR lobby: the main menu in its own world instead of the game's flat one. On by default.
+        g_lobbyOn = GetLauncherLobby() != 0;
+        g_hLobby = MakeButton(hwnd, ID_CHECK_LOBBY, L"VR lobby", {margin, y, right, y + Px(42)});
+        y += Px(42) + Px(14);
 
         // Master switch for every probe, census and dump in the mod (see debug_gate.cpp). Off is the normal way
         // to play: on, the log grows by tens of MB and the frame time with it, because probes like
@@ -1048,12 +1539,27 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         const auto& d = *reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
         if (d.CtlType == ODT_COMBOBOX) DrawListItem(d);
         else if (d.CtlID == ID_BUTTON_START) DrawStart(d);
-        else if (d.CtlID == ID_CHECK_DEBUG) DrawDebugSwitch(d);
+        else if (d.CtlID == ID_CHECK_DEBUG)
+            DrawSwitch(d, g_debugOn, L"Debug mode", L"Probes and a verbose log. Slower; for bug reports.");
+        else if (d.CtlID == ID_CHECK_LOBBY)
+            DrawSwitch(d, g_lobbyOn, L"VR lobby", L"The main menu in its own VR world.");
+        else if (d.CtlID == ID_BUTTON_RES_DOWN || d.CtlID == ID_BUTTON_RES_UP)
+            DrawStep(d, d.CtlID == ID_BUTTON_RES_UP);
         return TRUE;
     }
     case WM_CTLCOLORLISTBOX: {
         HDC dc = (HDC)wParam;
         SetTextColor(dc, kColText);
+        SetBkColor(dc, kColSurface);
+        return (LRESULT)g_brushSurface;
+    }
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORSTATIC: {
+        // the size fields (a read-only one sends the STATIC message): the frame's colour, muted when read-only
+        HDC dc = (HDC)wParam;
+        const HWND edit = reinterpret_cast<HWND>(lParam);
+        const bool readOnly = (GetWindowLongPtrW(edit, GWL_STYLE) & ES_READONLY) != 0;
+        SetTextColor(dc, readOnly ? kColMuted : kColText);
         SetBkColor(dc, kColSurface);
         return (LRESULT)g_brushSurface;
     }
@@ -1078,11 +1584,20 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             InvalidateRect(hwnd, &g_rcLabelRes, FALSE);
             break;
         }
-        if (id == ID_COMBO_RES && notif == CBN_SELCHANGE) InvalidateRect(hwnd, &g_rcLabelRes, FALSE);
+        if (id == ID_COMBO_RES && notif == CBN_SELCHANGE) {
+            if (const ResolutionPreset* res = SelectedResolution())
+                SetPick(res->width, res->height, PickFrom::Ladder);
+            InvalidateRect(hwnd, &g_rcLabelRes, FALSE);
+        }
         if ((notif == CBN_DROPDOWN || notif == CBN_CLOSEUP || notif == CBN_SELCHANGE) &&
             (id == ID_COMBO_HMD || id == ID_COMBO_RUNTIME || id == ID_COMBO_RES))
             InvalidateRect(reinterpret_cast<HWND>(lParam), nullptr, FALSE);
-        if (id == ID_CHECK_DEBUG && notif == BN_CLICKED) {
+        if ((id == ID_BUTTON_RES_DOWN || id == ID_BUTTON_RES_UP) && notif == BN_CLICKED) {
+            StepPick(id == ID_BUTTON_RES_UP ? +1 : -1);
+        } else if (id == ID_CHECK_LOBBY && notif == BN_CLICKED) {
+            g_lobbyOn = !g_lobbyOn;
+            InvalidateRect(g_hLobby, nullptr, FALSE);
+        } else if (id == ID_CHECK_DEBUG && notif == BN_CLICKED) {
             g_debugOn = !g_debugOn;
             InvalidateRect(g_hDebug, nullptr, FALSE);
         } else if (id == ID_BUTTON_START || id == IDOK) {
@@ -1102,6 +1617,8 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             if (*font) { DeleteObject(*font); *font = nullptr; }
         if (g_brushSurface) { DeleteObject(g_brushSurface); g_brushSurface = nullptr; }
         g_hHmd = g_hRuntime = g_hRes = g_hDebug = g_hStart = g_hot = nullptr;
+        g_hResDown = g_hResUp = g_hSlider = g_hEditW = g_hEditH = g_hEditAspect = g_hLobby = nullptr;
+        g_sliderDrag = false;
         break;
     default:
         return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -1175,6 +1692,17 @@ void ShowLauncherDialog() {
         Log("Launcher: RegisterClassW failed (%lu)\n",GetLastError());
         DeleteObject(g_brushBg);g_brushBg=nullptr;return;
     }
+    // the resolution slider's own class (painted and driven in SliderProc)
+    WNDCLASSW sliderClass = {};
+    sliderClass.lpfnWndProc = SliderProc;
+    sliderClass.hInstance = wc.hInstance;
+    sliderClass.lpszClassName = L"CyberpunkVRPortLauncherSlider";
+    sliderClass.hCursor = LoadCursor(nullptr, IDC_HAND);
+    const auto sliderRegistered = RegisterClassW(&sliderClass);
+    struct SliderClassEnd {
+        ATOM atom; HINSTANCE instance;
+        ~SliderClassEnd() { if (atom) UnregisterClassW(L"CyberpunkVRPortLauncherSlider", instance); }
+    } sliderClassEnd{sliderRegistered, wc.hInstance};
 
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     const DWORD extended=WS_EX_TOPMOST|WS_EX_APPWINDOW;

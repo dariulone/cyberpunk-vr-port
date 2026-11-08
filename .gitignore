@@ -235,3 +235,16 @@ tools/lua_host_tests/__pycache__/
 tools/vr_bench/__pycache__/
 tools/vr_bench/*.exe
 tools/vr_bench/*.obj
+# The holster shells and the walkable mirror scenes are built by these generators; patch day runs them again.
+!tools/holsters/
+tools/holsters/*
+!tools/holsters/make_own_holsters.py
+!tools/holsters/ownshell.cpp
+!tools/holsters/build_ownshell.bat
+!tools/mirror/
+tools/mirror/*
+!tools/mirror/walkable_mirror.py
+
+# The packed archive: 100+ MB, over GitHub's file size limit. Its files come back out of it with WolvenKit, and the
+# release package (scripts/build_dist.ps1) takes it from mods/archive on disk.
+mods/archive/cyberpunkvrport.archive

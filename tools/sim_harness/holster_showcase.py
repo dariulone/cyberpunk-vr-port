@@ -113,6 +113,7 @@ def main():
     index = []
     try:
         set_ini('xr_hybrid_body_rotation', '0')
+        set_ini('xr_body_free_look_deg', '180.000')    # the head looks round, the body stays (11-06 body follow)
         time.sleep(1.0)
         s.hand('right', pos=(0.21, 0.88, 0.06), ypr=(0, -88, 0), mode='world')
         s.hand('left', pos=(-0.21, 0.88, 0.06), ypr=(0, -88, 0), mode='world')

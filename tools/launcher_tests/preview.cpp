@@ -19,6 +19,11 @@ extern "C" int GetCurrentHmdType() { return savedHmd; }
 extern "C" void SetLauncherDebugAndPersist(int value) { savedDebug = value; }
 extern "C" int GetLauncherDebug() { return savedDebug; }
 extern "C" int GetLauncherEngineStereo() { return engineStereo; }
+int savedCustom = 0, savedLobby = 1;
+extern "C" int GetLauncherCustomResolution() { return savedCustom; }
+extern "C" void SetLauncherCustomResolution(int on) { savedCustom = on; }
+extern "C" int GetLauncherLobby() { return savedLobby; }
+extern "C" void SetLauncherLobbyAndPersist(int on) { savedLobby = on; }
 
 static std::string g_out;
 

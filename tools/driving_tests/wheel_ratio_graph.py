@@ -3,8 +3,8 @@
 The hands hold the cabin wheel one to one (WheelRange.hpp: the hands' share of the cabin wheel's full lock is turned
 into the input that stands the cabin wheel at the hands' angle). So the steering's sensitivity IS the cabin wheel's
 gain: `mulFactor` of the animAnimNode_FloatTrackDirectConnConstraint that turns `steering_wheel_turn` by
-`steer_turn_rate` on RotY. It was doubled (1 -> 2, build_wheel_graphs.py, full lock 65 -> 130 degrees); players found
-that too sharp (2026-11-05: "the wheel is too sharp, make it a little less") -> 2.5, full lock 162.5 degrees. Road wheels
+`steer_turn_rate` on RotY. It was doubled (1 -> 2, build_wheel_graphs.py, full lock 65 -> 130 degrees); that was
+too sharp (2026-11-05: "the wheel is too sharp, make it a little less") -> 2.5, full lock 162.5 degrees. Road wheels
 and the drive model are untouched: only the cabin wheel and with it the hands turn further.
 
     py -3.13 tools/driving_tests/wheel_ratio_graph.py [factor]

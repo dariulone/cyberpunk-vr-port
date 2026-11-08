@@ -43,8 +43,8 @@
 -- place in the hand and goes home by itself -- over the holster's mouth, then down into it -- while the game takes the
 -- weapon out of the hand.
 --
--- THE HOLSTERS THEMSELVES (modules/shells.lua): with "Valentino Holsters" installed, its leg holster at the drawing
--- hip, its shoulder harness with the holster under the off arm and the knife sheath on the chest hang round the
+-- THE HOLSTERS THEMSELVES (modules/shells.lua): the port's own leg holster at the drawing hip, the shoulder harness
+-- with the holster under the off arm and the knife sheath on the chest (copies of the game's gang pieces) hang round the
 -- copies -- each a mesh carried by the same bone -- and stay there, empty, while the weapon is in the hand.
 --
 -- THE BELT'S GRENADES (CyberpunkVRPort_TacticalBelt) sit at the front of the belt on the drawing side. The belt asks
@@ -88,15 +88,38 @@ local S = {
   gripPrev = { [0] = false, [1] = false },
   looks = {},         -- item key -> the copy's appearance
   hiddenReal = {},    -- item key -> { id, names }: the weapon itself made unseen while its copy went home (stow)
+  scene = false,      -- a scene plays the body this tick (sceneNow)
 }
 
 local function key(id) return tostring(ItemID.GetCombinedHash(id)) end
+
+-- OFF THE BODY IN A SCENE (2026-11-06: "hide the holsters and the belt in cutscenes"). While a scene plays the
+-- body -- the tier that suspends VRIK, the plugin's VRSceneOwnsBody, the same signal the hands-only mode and the
+-- belt go by -- the copies and the holster shells are out of sight and no hand draws from them; they stay on their
+-- bones and are seen again the tick the scene lets go.
+-- IN A VEHICLE TOO (2026-11-06: "in the car all the holsters and the belt off, the same as in scenes"): a
+-- seated body has nothing to draw from at the hips, and the copies only clipped through the seat. Mounted is asked
+-- four times a second, not every tick.
+local function askScene() return Game.VRSceneOwnsBody() end
+local mountedAt, mounted = -1, false
+local function inVehicle(now)
+  if now - mountedAt >= 0.25 or now < mountedAt then
+    mountedAt = now
+    local ok, v = pcall(function() local pl = Game.GetPlayer(); return pl ~= nil and Game.GetMountedVehicle(pl) ~= nil end)
+    mounted = ok and v == true
+  end
+  return mounted
+end
+local function sceneNow(now)
+  local ok, v = pcall(askScene)
+  return (ok and v == true) or inVehicle(now or 0)
+end
 
 local function drawLeft() return type(VRLeftHanded) == "function" and VRLeftHanded() == true end
 
 ---------------------------------------------------------------- the player's choices (the VR menu's inventory)
 
--- WHERE EACH WEAPON SLOT'S WEAPON HANGS, AND WHETHER THE HOLSTERED WEAPONS ARE SEEN (players, 2026-11-05: "in the
+-- WHERE EACH WEAPON SLOT'S WEAPON HANGS, AND WHETHER THE HOLSTERED WEAPONS ARE SEEN (2026-11-05: "in the
 -- inventory, let the slots change where the holsters are ... a switch to hide all the holsters"). Per weapon slot
 -- (1..3): "auto" (the first free place of its kind, P.ORDER), a place of P.CHOICES for its kind (right-handed names,
 -- turned over for the left hand as every place is), or "none" (not carried on the body). Hidden: the copies on the
@@ -468,7 +491,7 @@ end
 -- The weapon itself out of sight, remembered by its entity and the components that were on: only those come back on,
 -- the ones the game keeps off (a sight's housing, an attachment not fitted) stay off. Called every tick it is to stay
 -- hidden: a weapon still being built gets components switched on after this has switched them off (3 of 7 back within
--- 0.13 s, measured), and those were seen beside the copy at another angle (players, 2026-11-05: "two copies at
+-- 0.13 s, measured), and those were seen beside the copy at another angle (2026-11-05: "two copies at
 -- different angles for a moment").
 local function hideReal(k, obj)
   local ok, id = pcall(function() return obj:GetEntityID().hash end)
@@ -493,6 +516,28 @@ local function unhideReal(rec, obj)
     if rec.id == nil or obj:GetEntityID().hash ~= rec.id then return end   -- a new object: drawn as the game made it
     for _, comp in ipairs(obj:GetComponents()) do
       if rec.names[NameToString(comp:GetName())] then comp:Toggle(true) end
+    end
+  end)
+end
+
+-- An entity's visual and light components that are on, switched off; returns their names for showKept.
+local function hideKept(e)
+  local names = {}
+  pcall(function()
+    for _, comp in ipairs(e:GetComponents()) do
+      if (comp:IsA(CName.new("entIVisualComponent")) or comp:IsA(CName.new("entLightComponent"))) and comp:IsEnabled() then
+        names[NameToString(comp:GetName())] = true
+        comp:Toggle(false)
+      end
+    end
+  end)
+  return names
+end
+
+local function showKept(e, names)
+  pcall(function()
+    for _, comp in ipairs(e:GetComponents()) do
+      if names[NameToString(comp:GetName())] then comp:Toggle(true) end
     end
   end)
 end
@@ -676,6 +721,16 @@ local function settleShells()
     if sh.entity ~= nil and not sh.attached then
       sh.attached = attachTo(sh, sh.comp, sh.slot) and setLocal(sh, sh.pose.p, sh.pose.q)
     end
+    -- out of sight while a scene plays the body (OFF THE BODY IN A SCENE): only the parts that were on come back,
+    -- a shell's appearance keeps some of its meshes off
+    if sh.entity ~= nil then
+      if S.scene and sh.sceneHidden == nil then
+        sh.sceneHidden = hideKept(sh.entity)
+      elseif not S.scene and sh.sceneHidden ~= nil then
+        showKept(sh.entity, sh.sceneHidden)
+        sh.sceneHidden = nil
+      end
+    end
   end
 end
 
@@ -722,7 +777,7 @@ end
 
 -- Out of the holster: the copy in the weapon's hold until the weapon itself is there. It rides the hand's own bone, not
 -- the weapon slot: that one jumps to the weapon's hold in the frame the weapon arrives, and a copy on it was seen for
--- that frame another 10-35 degrees round, a second blade crossing the first (players, 2026-11-05).
+-- that frame another 10-35 degrees round, a second blade crossing the first (2026-11-05).
 local function intoHand(c, side, hold)
   local bone = side == 0 and "LeftHand" or "RightHand"
   if not attachTo(c, "ItemAttachmentSlots", bone) then return false end
@@ -809,8 +864,8 @@ end
 
 -- THE WEAPON MADE UNSEEN BY `stow` IS SEEN AGAIN once it is in a hand with its copy home. The game does not always
 -- destroy the weapon it takes out of the hand: drawn again soon it hands back the same object, still unseen -- the gun
--- fired and reloaded with nothing in the hand, and its copy showed again on the hip as soon as it went back (players,
--- 2026-11-04: "after a few draws the weapon's model is gone from the hand").
+-- fired and reloaded with nothing in the hand, and its copy showed again on the hip as soon as it went back
+-- (2026-11-04: "after a few draws the weapon's model is gone from the hand").
 local function revealReal(real)
   for k, rec in pairs(S.hiddenReal) do
     local c = S.copies[k]
@@ -888,16 +943,16 @@ local function settle(held, real)
         end
       elseif c.mode == "stow" then
         stowTick(c)
-        show(c, true)
+        show(c, not S.scene)
         if real[k] ~= nil then hideReal(k, real[k]) end
       elseif c.mode == "homing" then
-        show(c, true)
+        show(c, not S.scene)
         if real[k] ~= nil then hideReal(k, real[k]) end
         if not (held[k] or inHand(c, held, real)) or S.t - c.stowAt > IN_HAND_WAIT then c.mode = "place" end
       else
-        -- (hidden holsters: unseen on the body, seen once the hand draws it)
+        -- (hidden holsters: unseen on the body, seen once the hand draws it; none in a scene)
         local pulling = S.pull ~= nil and S.pull.key == k
-        show(c, pulling or (not inHand(c, held, real) and not PREFS.hidden))
+        show(c, not S.scene and (pulling or (not inHand(c, held, real) and not PREFS.hidden)))
       end
     end
   end
@@ -1141,6 +1196,7 @@ function H.update(dt, enabled)
   local es, pd = playerData(pl)
   if pd == nil then return end
   local held, real = inHands(pl, pd)
+  S.scene = sceneNow(S.t)
   if S.t - S.scanAt >= SCAN_EVERY then
     S.scanAt = S.t
     scan(pl, pd, enabled)
@@ -1149,7 +1205,7 @@ function H.update(dt, enabled)
   revealReal(real)
   learnHolds(pl, real, drawLeft() and 0 or 1)
   settleShells()
-  if enabled then hand(pl, held, real, dt) elseif S.pull ~= nil then endPull(S.copies[S.pull.key]) end
+  if enabled and not S.scene then hand(pl, held, real, dt) elseif S.pull ~= nil then endPull(S.copies[S.pull.key]) end
   graspTick(dt)
 end
 

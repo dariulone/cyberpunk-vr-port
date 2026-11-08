@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(SceneComfortTests LANGUAGES CXX)
+enable_testing()
+add_executable(scene_comfort_tests main.cpp)
+target_include_directories(scene_comfort_tests PRIVATE ../../include)
+target_compile_features(scene_comfort_tests PRIVATE cxx_std_20)
+add_test(NAME scene_camera_comfort COMMAND scene_comfort_tests)

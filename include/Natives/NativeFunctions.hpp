@@ -44,6 +44,7 @@ void VRWeaponTriggerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,in
 void VRWeaponInLeftHand(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRLeftHanded(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRSceneOwnsBody(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRPhysicalMelee(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 // The first-launch setup (src/Natives/BodySetup.cpp).
 void VRFirstSetupNeeded(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRSetLeftHanded(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
@@ -59,6 +60,10 @@ void VRSetPlayerHeight(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t
 void VRPlayerHeight(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
 // The first-person neck cap takes the body's skin tone (src/Natives/NeckCap.cpp).
 void VRNeckCapSync(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+void VRMirrorDouble(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRMirrorDoubleClear(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+void VRMirrorDoubleStats(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
+void VRInteractionAction(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRLeftHandedAnimations(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRMeleeRealTime(RED4ext::IScriptable*,RED4ext::CStackFrame*,float*,int64_t);
 void VRMeleeTwoHandedActive(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);

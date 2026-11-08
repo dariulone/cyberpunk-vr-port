@@ -25,6 +25,7 @@
 #include "Camera/PoseIdentity.hpp"
 #include "Camera/CameraState.hpp"
 #include "Camera/VehicleStereoHeading.hpp"
+#include "Camera/SceneCameraComfort.hpp"
 #include "Camera/SceneCameraHeading.hpp"
 #include "Anim/VrikState.hpp"
 #include "Utils/LogThrottle.hpp"
@@ -96,8 +97,37 @@ static float SceneStickYawRad() {
     return s_yaw;
 }
 
+extern "C" __declspec(dllexport) float CyberpunkVR_DebugFppSceneComfortLagDeg = 0.0f;
+
 namespace {
 std::mutex s_cameraComposeMutex;
+// FPP CINEMATIC COMFORT, see its use at the native MAIN heading. Touched only under s_cameraComposeMutex.
+cvr::camera::SceneCameraComfort s_fppSceneComfort;
+int64_t s_fppSceneComfortQpc{};
+bool FppSceneComfortWanted() {
+    // Tier 4 (FPP cinematic) and 5 (cinematic): the scene owns the player's camera. Tier 3 still hands
+    // the look to the player, and a mount turns the camera with the vehicle.
+    return g_liveControls.xrSceneCamComfortDeg>0.0f && !g_isInVehicle &&
+           g_sceneTier.load(std::memory_order_relaxed)>=4;
+}
+cvr::camera::SceneComfortSettings FppSceneComfortSettings() {
+    cvr::camera::SceneComfortSettings settings{};
+    settings.deadDeg=g_liveControls.xrSceneCamComfortDeg;
+    return settings;
+}
+float FppSceneComfortDt() {
+    LARGE_INTEGER now{},freq{};
+    QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
+    float dt=0.0f;
+    if(s_fppSceneComfortQpc && freq.QuadPart>0)
+        dt=static_cast<float>(static_cast<double>(now.QuadPart-s_fppSceneComfortQpc)/static_cast<double>(freq.QuadPart));
+    s_fppSceneComfortQpc=now.QuadPart;
+    return dt;
+}
+void FppSceneComfortStop() {
+    s_fppSceneComfort.Reset();s_fppSceneComfortQpc=0;
+    CyberpunkVR_DebugFppSceneComfortLagDeg=0.0f;
+}
 cvr::camera::VehicleStereoHeading s_vehicleStereoHeading;
 cvr::camera::VehicleStereoHeading s_takeoverStereoHeading;
 float s_surveillanceRenderYaw{};
@@ -461,12 +491,16 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                                            : OpenXRManager::Get().GetFrameAimEpoch();
             cvr::camera::VehicleStereoHeading::Selection nativeHeading{};
             cvr::camera::VehicleStereoHeading::Selection deviceHeading{};
+            float nativeStickYaw=0.0f;
             if (nativeMainBase && CyberpunkVR_HeadingFromPreWrite) {
                 const float sceneYaw=SceneStickYawRad();
+                nativeStickYaw=sceneYaw;
                 nativeHeading=s_vehicleStereoHeading.ForFrame(epoch,
                     haveCameraOwner && cameraOwnerBefore.owner==currentPlayer ? cameraOwnerBefore.rotation : nullptr,
                     2.0f*atan2f(g_headingSy,g_headingCy)+sceneYaw,
                     sceneYaw);
+            } else {
+                FppSceneComfortStop();   // the next FPP cinematic starts on its own camera
             }
             if (takeoverHeading)
                 deviceHeading=s_takeoverStereoHeading.ForFrame(epoch,
@@ -565,7 +599,18 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                         // Seats, Combat and scripted scenes use MAIN, regardless
                         // of which eye claims the pose epoch. VRCAM's native
                         // attachment is not a second source of view heading.
-                        const float yaw = nativeHeading.yaw;
+                        float yaw = nativeHeading.yaw;
+                        // AN FPP CINEMATIC TURNS THE PLAYER'S OWN CAMERA (Tier 4 and 5, on foot: the
+                        // player has no control of it there). Its yaw is the base, so the scene's look-ats
+                        // and pans turn the world. The same comfort filter as the scene camera's, on the
+                        // scene's part only: the port's stick turn (nativeStickYaw) passes straight through.
+                        if (FppSceneComfortWanted()) {
+                            yaw = s_fppSceneComfort.StepYaw(yaw - nativeStickYaw, FppSceneComfortDt(),
+                                                            FppSceneComfortSettings()) + nativeStickYaw;
+                            CyberpunkVR_DebugFppSceneComfortLagDeg = s_fppSceneComfort.LagDeg();
+                        } else {
+                            FppSceneComfortStop();
+                        }
                         g_viewYawUsedRad = yaw;
                         g_viewYawUsedValid = 1;
                         hSy = sinf(yaw * 0.5f);
@@ -663,10 +708,13 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
                     if (CyberpunkVR_BdSceneBaseInPatch &&
                         g_bdActive.load(std::memory_order_relaxed) &&
                         g_bdScenePoseValid.load(std::memory_order_acquire)) {
-                        headX = g_bdSceneQuat[0];
-                        headY = g_bdSceneQuat[1];
-                        headZ = g_bdSceneQuat[2];
-                        headW = g_bdSceneQuat[3];
+                        // the base LocateCamera composes MAIN onto: the scene camera with its comfort filter
+                        float sceneBase[4];
+                        SceneComfortApply(g_bdSceneQuat, sceneBase);
+                        headX = sceneBase[0];
+                        headY = sceneBase[1];
+                        headZ = sceneBase[2];
+                        headW = sceneBase[3];
                         CVR_DIAGNOSTIC(++CyberpunkVR_DebugBdSceneBaseInPatch);
                     }
                     // A DEVICE CAMERA HAS NO BODY HEADING, AND NEITHER HAS THE FRAME IT IS RENDERED IN.
@@ -800,7 +848,9 @@ extern "C" void __fastcall OnPatchCameraCallback(float* cameraState, void* owner
         if (!gotBd) gotBd = OpenXRManager::Get().GetHeadPose(&bp) && bp.valid;
         if (gotBd) {
             float o[4] = {};
-            MulQuat(g_bdSceneQuat[0], g_bdSceneQuat[1], g_bdSceneQuat[2], g_bdSceneQuat[3],
+            float sceneBase[4];   // the same filtered base as MAIN's, see SceneComfortApply
+            SceneComfortApply(g_bdSceneQuat, sceneBase);
+            MulQuat(sceneBase[0], sceneBase[1], sceneBase[2], sceneBase[3],
                     bp.oriX, -bp.oriZ, bp.oriY, bp.oriW, o[0], o[1], o[2], o[3]);
             NormalizeQuat(o[0], o[1], o[2], o[3]);
             if (IsPlausibleUnitQuaternion(o)) {

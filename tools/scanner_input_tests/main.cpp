@@ -59,10 +59,17 @@ int main(){
     Check(!zone.Contains(-.20f,-.30f,-.40f,false)); // ordinary hand rest / weapon position
     Check(!zone.Contains(.10f,-.03f,.06f,false)); // other side of the head
     cvr::input::ScannerSqueeze squeeze;
-    Check(!squeeze.Update(true,false));Check(!squeeze.Update(true,true)); // carried in from the belt: no scan
-    Check(!squeeze.Update(false,true));Check(squeeze.Update(true,true));   // squeezed at the ear: scan
-    Check(squeeze.Update(true,false)); // leaving keeps the squeeze; the zone's own exit timer decides
-    squeeze.Update(false,false);Check(!squeeze.Update(true,false));
+    Check(!squeeze.Update(1,true));   // held from the start: a grip must open first
+    Check(!squeeze.Update(0,true));Check(squeeze.Update(1,true));          // a clean press at the ear: scan
+    Check(squeeze.Update(1,false)); // leaving keeps the squeeze; the zone's own exit timer decides
+    squeeze.Update(0,false);Check(!squeeze.Update(1,false));Check(!squeeze.Update(1,true)); // carried in: no scan
+    squeeze.Update(0,false);
+    Check(!squeeze.Update(.8f,false));Check(!squeeze.Update(.6f,true));Check(!squeeze.Update(.8f,true));
+    Check(!squeeze.Update(.4f,true));Check(!squeeze.Update(.9f,true)); // a held grip dipping at the ear is no new press
+    Check(!squeeze.Update(.3f,true));Check(squeeze.Update(.75f,true));  // a real release, then a press: scan
+    squeeze.Reset();Check(!squeeze.Update(1,true));                     // held across a reset: no scan
+    Check(!squeeze.Update(0,true));Check(squeeze.Update(1,true));
+    Check(!squeeze.Update(std::numeric_limits<float>::quiet_NaN(),true)); // a bad sample reads as open
     Check(!zone.Contains(std::numeric_limits<float>::quiet_NaN(),0,0,false));
     cvr::input::ScannerRequest request;bool held=true;
     request.Update(held,0,1000);Check(held);

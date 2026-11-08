@@ -4,7 +4,7 @@
 #include <mutex>
 
 namespace cvr::psvr2 {
-// Same payload and heartbeat contract as the user's Toolkit slot-guard fork,
+// Same payload and heartbeat contract as the Toolkit slot-guard fork,
 // in a DIFFERENT named mapping. Never alias upstream's live input slots.
 inline constexpr char HapticMapping[] = "Local\\CyberpunkVR_PSVR2_Haptics_017_v1";
 class HapticChannel {

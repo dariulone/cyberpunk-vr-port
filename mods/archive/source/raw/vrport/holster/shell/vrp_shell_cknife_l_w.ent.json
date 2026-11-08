@@ -25,7 +25,7 @@
      "CruidIndex": 0,
      "CruidDict": {
       "0": "0",
-      "1": "2800000000000010002"
+      "1": "2800000000000020002"
      },
      "Chunks": [
       {
@@ -40,10 +40,10 @@
        "castRayTracedGlobalShadows": "Always",
        "castRayTracedLocalShadows": "Always",
        "castShadows": "Always",
-       "chunkMask": "9223372036854775807",
+       "chunkMask": "18446744073709551615",
        "forcedLodDistance": "Default",
        "forceLODLevel": -1,
-       "id": "2800000000000010002",
+       "id": "2800000000000020002",
        "isEnabled": 1,
        "isReplicable": 0,
        "localTransform": {
@@ -76,14 +76,14 @@
         "DepotPath": {
          "$type": "ResourcePath",
          "$storage": "string",
-         "$value": "raem\\accessories\\rm_harness_val_full\\meshes\\w_base_body_harness_l_cknife.mesh"
+         "$value": "vrport\\holster\\own\\vrp_own_cknife_l_w.mesh"
         },
         "Flags": "Default"
        },
        "meshAppearance": {
         "$type": "CName",
         "$storage": "string",
-        "$value": "carbon_black"
+        "$value": "maelstrom"
        },
        "motionBlurScale": 0,
        "name": {
@@ -123,10 +123,10 @@
      "castRayTracedGlobalShadows": "Always",
      "castRayTracedLocalShadows": "Always",
      "castShadows": "Always",
-     "chunkMask": "9223372036854775807",
+     "chunkMask": "18446744073709551615",
      "forcedLodDistance": "Default",
      "forceLODLevel": -1,
-     "id": "2800000000000010002",
+     "id": "2800000000000020002",
      "isEnabled": 1,
      "isReplicable": 0,
      "localTransform": {
@@ -159,14 +159,14 @@
       "DepotPath": {
        "$type": "ResourcePath",
        "$storage": "string",
-       "$value": "raem\\accessories\\rm_harness_val_full\\meshes\\w_base_body_harness_l_cknife.mesh"
+       "$value": "vrport\\holster\\own\\vrp_own_cknife_l_w.mesh"
       },
       "Flags": "Default"
      },
      "meshAppearance": {
       "$type": "CName",
       "$storage": "string",
-      "$value": "carbon_black"
+      "$value": "maelstrom"
      },
      "motionBlurScale": 0,
      "name": {

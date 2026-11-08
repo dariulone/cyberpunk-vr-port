@@ -27,8 +27,8 @@
 -- releases later.
 --
 -- A SCENE GETS THE BODY BACK. While a scene plays the body (the scene tier that suspends VRIK, VRSceneOwnsBody) the
--- mode yields: the scene's authored body is what is meant to be seen, not two hands where its arms are (players,
--- 2026-11-05: "in cutscenes with hands only the body should appear smoothly but quickly"). It comes and goes with the
+-- mode yields: the scene's authored body is what is meant to be seen, not two hands where its arms are
+-- (2026-11-05: "in cutscenes with hands only the body should appear smoothly but quickly"). It comes and goes with the
 -- engine's dissolve (VRComponentDissolve, Rendering/DissolveTime 0.5 s), checked every frame, not every scan:
 --   in:  every piece the mode had off or masked comes back dissolved out (the dissolve set while it is still off: the
 --        proxy it is given keeps it, no frame of it is seen) and fades in once it is attached (VRComponentDissolveReady:

@@ -1,9 +1,7 @@
--- A hand's reach marker: a ring in the world on what that hand can take or use, the way Into the Radius 2 marks it
--- (read from its assets: BP_GripSelectorsController puts a PS_Selector sprite on the grip point of what a hand points
--- at -- a thin white ring open on one side -- and a PS_SelectorTrigger one -- four corner brackets -- on what the held
--- trigger has locked).
+-- A hand's reach marker: a ring in the world on what that hand can take or use -- a thin white ring open on one side
+-- on the grip point of what a hand points at, and four corner brackets on what the held trigger has locked.
 --
--- ITS SIZE IS ITR2's: a 2.5 cm sprite, whatever the thing and however far it is (tools/vr_lobby_assets/
+-- ITS SIZE: 2.5 cm, whatever the thing and however far it is (tools/vr_lobby_assets/
 -- make_reach_marker.py has the measures).
 --
 -- WHAT IT SHOWS, per hand (1 left, 2 right), as the caller says every frame (M.mark):
@@ -14,7 +12,7 @@
 --   pull   what flies to the hand: the brackets ride on it.
 -- A hand not marked in a frame lets its marker fade out.
 --
--- WHAT IT IS: geometry, as ITR2's sprite is (vrport\ui\vr_marker.ent: a mesh component a part -- the ring, and the
+-- WHAT IT IS: geometry, a sprite in the world (vrport\ui\vr_marker.ent: a mesh component a part -- the ring, and the
 -- brackets at each step of their snap -- on the game's own world-marker material, additive), turned to the eyes every
 -- frame with the ring's opening toward the hand, and put a little before the thing. A part's fade is a step through
 -- its appearances (l0 nothing .. LEVELS the full colour): its colour is its material's, which no component can

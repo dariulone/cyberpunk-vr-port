@@ -73,6 +73,11 @@ local GLASS_BACK = 0.006
 -- bone): the wheel hangs a little past the fingertips, so it is pointed at, not touched by accident. Across
 -- from the weapon hand: its side's shoulder line at least, as far out as the hand when it opens.
 local REACH, LIFT = 0.90, 0.20
+-- THE WHEEL'S OWN FREE-LOOK CONE (2026-11-07). The wheel used to hang in the body's frame, and the body turns after the
+-- head (the head-led turn): every look at a wedge turned the wheel away with it. The wheel keeps its own heading -- the
+-- body's when it opens -- and stays while the head looks within FREE_LOOK_DEG of it; past that it follows the excess
+-- only, as a leash at the cone's edge.
+local FREE_LOOK_DEG = 10.0
 local SIDE_MIN, SIDE_MAX, SIDE_DEFAULT = 0.10, 0.35, 0.18
 local HOVER, THROUGH = 0.10, -0.05         -- a fingertip this close in front of the screen points with itself
 local IDLE = 20.0
@@ -106,6 +111,7 @@ local S = {
   choiceGlass = {},      -- discs under the choices
   ctx = nil,             -- InventoryDataManagerV2, while the screen lives
   anchor = nil,          -- { C, R, U } in the body's frame
+  yaw = nil,             -- the wheel's heading (world, radians): the body's at the opening, then the head's cone
   slots = {},            -- by sector: { item, blocked, active, choices }
   hover = nil,           -- { index } or { index, choice }, or { hub }
   arc = nil,             -- the sector whose choices are out on the arc
@@ -535,7 +541,7 @@ local function release()
   S.screen, S.beam, S.glass, S.choiceGlass = nil, nil, nil, {}
   if S.ctx ~= nil then pcall(I.close, S.ctx) end
   S.ctx, S.fits = nil, {}
-  S.open, S.hover, S.arc, S.anchor = false, nil, nil, nil
+  S.open, S.hover, S.arc, S.anchor, S.yaw = false, nil, nil, nil, nil
 end
 
 ---------------------------------------------------------------- the body's frame
@@ -579,10 +585,32 @@ local function anchorFor(b)
   return { C = C, R = R, U = cross(N, R) }
 end
 
+-- heading of a horizontal forward (the game's yaw: forward = (-sin, cos))
+local function yawOf(f) return math.atan2(-f[1], f[2]) end
+local function yawQuat(y) return Quaternion.new(0, 0, math.sin(y / 2), math.cos(y / 2)) end
+local function wrapAngle(a) return (a + math.pi) % (2 * math.pi) - math.pi end
+
+-- The wheel's heading starts as the body's (the anchor is taken in the body's frame then)...
+local function headingFromBody(b)
+  local f = qrot(b.q, { 0, 1, 0 })
+  S.yaw = yawOf(norm({ f[1], f[2], 0 }))
+end
+-- ...and then follows the head only past the cone.
+local function followHead()
+  if S.yaw == nil then return end
+  local view = Space.view()
+  if view == nil or view.f == nil then return end
+  local d = wrapAngle(yawOf(view.f) - S.yaw)
+  local cone = math.rad(FREE_LOOK_DEG)
+  if d > cone then S.yaw = wrapAngle(S.yaw + d - cone)
+  elseif d < -cone then S.yaw = wrapAngle(S.yaw + d + cone) end
+end
+
 local function frame(b)
   local a = S.anchor
   if a == nil or b == nil then return nil end
-  return add(b.p, qrot(b.q, a.C)), qrot(b.q, a.R), qrot(b.q, a.U)
+  local q = S.yaw ~= nil and yawQuat(S.yaw) or b.q
+  return add(b.p, qrot(q, a.C)), qrot(q, a.R), qrot(q, a.U)
 end
 
 ---------------------------------------------------------------- drawing
@@ -973,6 +1001,7 @@ end
 local function prepare(b)
   if S.screen ~= nil and S.screen.id ~= nil then return end
   S.anchor = anchorFor(b)
+  headingFromBody(b)
   local C, R, U = frame(b)
   if C == nil then return end
   local tr = transformFor(C, R, U)
@@ -990,6 +1019,7 @@ end
 
 local function open(pl, b)
   S.anchor = anchorFor(b)
+  headingFromBody(b)
   if S.anchor == nil or S.ctx == nil then return false end
   S.lang = D.language()
   L.set(S.lang)
@@ -1085,6 +1115,7 @@ local function tick(dt, menuOpen)
   end
   local b = body()
   if b == nil then return end
+  if S.open then followHead() end
 
   -- spawned on the press and built while the hold is undecided, so it is ready by the time it is a hold
   if hold >= 1 and allowed then prepare(b) end
@@ -1195,6 +1226,7 @@ function Wheel.state()
       quantity = e.item and e.item.quantity, choices = e.choices and #e.choices or nil, fists = e.fists }
   end
   return { open = S.open, allowed = S.allowedValue, choiceOnY = choiceOnY(), hover = S.hover, arc = S.arc, slots = slots,
+    yaw = S.yaw and math.deg(S.yaw) or nil,
     screen = S.screen ~= nil and S.screen.id ~= nil, gpu = S.screen and S.screen.gpu, stats = S.stats,
     lastError = S.lastError, anchor = S.anchor }
 end

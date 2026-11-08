@@ -25,7 +25,7 @@
      "CruidIndex": 0,
      "CruidDict": {
       "0": "0",
-      "1": "2800000000000010018"
+      "1": "2800000000000020018"
      },
      "Chunks": [
       {
@@ -43,7 +43,7 @@
        "chunkMask": "384",
        "forcedLodDistance": "Default",
        "forceLODLevel": -1,
-       "id": "2800000000000010018",
+       "id": "2800000000000020018",
        "isEnabled": 1,
        "isReplicable": 0,
        "localTransform": {
@@ -76,14 +76,14 @@
         "DepotPath": {
          "$type": "ResourcePath",
          "$storage": "string",
-         "$value": "raem\\accessories\\rm_legholster_val\\meshes\\w_base_body_r_legholster_val_base_holsters.mesh"
+         "$value": "vrport\\holster\\own\\vrp_own_leg_r_w.mesh"
         },
         "Flags": "Default"
        },
        "meshAppearance": {
         "$type": "CName",
         "$storage": "string",
-        "$value": "carbon"
+        "$value": "black"
        },
        "motionBlurScale": 0,
        "name": {
@@ -126,7 +126,7 @@
      "chunkMask": "384",
      "forcedLodDistance": "Default",
      "forceLODLevel": -1,
-     "id": "2800000000000010018",
+     "id": "2800000000000020018",
      "isEnabled": 1,
      "isReplicable": 0,
      "localTransform": {
@@ -159,14 +159,14 @@
       "DepotPath": {
        "$type": "ResourcePath",
        "$storage": "string",
-       "$value": "raem\\accessories\\rm_legholster_val\\meshes\\w_base_body_r_legholster_val_base_holsters.mesh"
+       "$value": "vrport\\holster\\own\\vrp_own_leg_r_w.mesh"
       },
       "Flags": "Default"
      },
      "meshAppearance": {
       "$type": "CName",
       "$storage": "string",
-      "$value": "carbon"
+      "$value": "black"
      },
      "motionBlurScale": 0,
      "name": {
