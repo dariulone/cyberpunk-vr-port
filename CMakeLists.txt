@@ -214,6 +214,7 @@ target_link_libraries(cyberpunkvrport_stereo PRIVATE
     bcrypt
     dxgi.lib        # the SYSTEM import lib -- bare "dxgi" would resolve to our own target
     psapi
+    iphlpapi ws2_32 ole32 uuid # bridge listener detection and native vehicle audio loopback
     xaudio2.lib     # the port's own sounds (Audio/PortSound.cpp)
     d2d1.lib        # lines of text set for a hung screen (Render/Caption.cpp)
     dwrite.lib

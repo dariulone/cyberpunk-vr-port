@@ -131,6 +131,11 @@ struct LiveControlsUiState {
     int xrPhysicalCrouch;
     float xrPhysicalCrouchDepth;
     int xrAsymProjection = 1; // 1 = each eye renders its own off-centre lens window (CyberpunkVR_AsymProjection)
+    int xrPsvr2HapticBackend = 2; // 0 OpenXR, 1 prefer Toolkit, 2 auto; startup detection
+    float xrOpenXrHapticGain = 1.25f;
+    float xrOpenXrVehicleHapticGain = 1.0f;
+    int xrVehicleAudioChannels = 0;
+    bool xrVehicleAudioRequireGrip = false;
     int xrHaptics = 1;        // controller vibration (Runtimes/Haptics.cpp)
     float xrHapticScale = 1.0f;
     // Cutscene VRIK suspend (PR #40). The minimum GameplayTier at which the plugin fully suspends

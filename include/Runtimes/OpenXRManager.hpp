@@ -978,6 +978,8 @@ private:
     XrAction m_primaryButtonAction = XR_NULL_HANDLE;     // Bool, per hand (X / A)
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)
     XrAction m_menuButtonAction = XR_NULL_HANDLE;        // Bool, global menu/start action
+    bool m_hapticBindingLogged = false;
+    int m_hapticLastResult[2] = {123456, 123456};
     XrAction m_hapticAction = XR_NULL_HANDLE;            // Vibration OUTPUT, per hand
     XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};

@@ -248,3 +248,7 @@ tools/mirror/*
 # The packed archive: 100+ MB, over GitHub's file size limit. Its files come back out of it with WolvenKit, and the
 # release package (scripts/build_dist.ps1) takes it from mods/archive on disk.
 mods/archive/cyberpunkvrport.archive
+
+# Haptics regression fixtures; generated output stays local.
+!tools/psvr2_input_tests/stubs/
+/build-haptics-tests/

@@ -1,3 +1,4 @@
+#include "Runtimes/HapticRouting.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include "Runtimes/FingerGrip.hpp"
 #include "Utils/DebugGate.hpp"
@@ -1187,7 +1188,7 @@ DWORD OpenXRManager::FrameThreadMain() {
         // is computed from QPC capture timestamps, not this counter.
         ++displayFrameIndex;
         // the PSVR2 Toolkit bridge reads the port's haptic channel only while it is beating
-        if (IsRuntimePsvr2()) cvr::psvr2::Haptics().Heartbeat();
+        if (cvr::haptics::HapticRoute().Toolkit()) cvr::psvr2::Haptics().Heartbeat();
         if (frameState.predictedDisplayPeriod > 0) {
             cvr::framegen::DisplayPeriod(frameState.predictedDisplayPeriod);
             m_predictedDisplayPeriodNs.store(frameState.predictedDisplayPeriod, std::memory_order_relaxed);
@@ -1560,7 +1561,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                 syncInfo.activeActionSets = &activeActionSet;
                 XrResult syncRes = xrSyncActions(m_session, &syncInfo);
                 // Vibration queued since the last frame, played where the actions are synced.
-                if (XR_SUCCEEDED(syncRes)) cvr::haptics::Tick();
+                if (XR_SUCCEEDED(syncRes) && m_sessionState == XR_SESSION_STATE_FOCUSED) cvr::haptics::Tick();
+                else cvr::haptics::Clear();
                 
                 if (doHandLog) {
                     Log("OpenXRManager[Hands]: syncRes=%d sessionState=%d\n", syncRes, (int)m_sessionState);
