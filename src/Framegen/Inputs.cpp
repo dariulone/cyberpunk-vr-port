@@ -9,6 +9,7 @@
 #include "Render/ViewCameraLayout.hpp"
 #include "Render/PhysicalOpticsShaders.hpp"
 #include "Stereo/EngineStereoDlss.hpp"
+#include "Stereo/ScopeDlssState.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include <MinHook.h>
 #include <sl_core_types.h>
@@ -122,6 +123,17 @@ sl::Result Evaluate(sl::Feature feature,const sl::FrameToken& frame,const sl::Ba
     sl::Result result;
     if(!cvr::engine_stereo::dlss::Evaluate(feature,frame,inputs,count,list,originalEvaluate,originalConstants,&result))
         result=cvr::engine_stereo::dlss::EvaluateOriginal(feature,frame,inputs,count,list,originalEvaluate);
+    // A camera-scope completion is not a completed headset eye.
+    for(uint32_t i=0;inputs && i<count;++i)
+        if(inputs[i] && inputs[i]->structType==sl::ViewportHandle::s_structType &&
+           uint32_t(*static_cast<const sl::ViewportHandle*>(inputs[i]))==cvr::scope_dlss::kViewport) {
+            static std::atomic<unsigned> reports[2]{};
+            if(reports[feature==1001 ? 1 : 0].fetch_add(1,std::memory_order_relaxed)<4)
+                Log("[scope-dlss] Streamline received viewport=%08X version=%llu feature=%u frame=%u result=%d\n",
+                    cvr::scope_dlss::kViewport,static_cast<unsigned long long>(inputs[i]->structVersion),
+                    unsigned(feature),uint32_t(frame),int(result));
+            return result;
+        }
     if(!CaptureInputsEnabled())return result;
     const auto pose=cvr::camera::CurrentNodePoseIdentity();
     if(CaptureInputsEnabled() && result==sl::Result::eOk && (feature==0 || feature==1001) && pose && pose.hasRenderFrameId && pose.view>=1 && pose.view<=2 && list) {
@@ -343,13 +355,14 @@ static bool RecordInputs(const InputTag* tags,uint32_t count,void* commandList,b
     }
     return complete;
 }
-void RecordTags(const void*,const void* tags,uint32_t count,void* commandList) {
+void RecordTags(const void* viewport,const void* tags,uint32_t count,void* commandList) {
     CVR_DIAGNOSTIC(CyberpunkVR_FramegenInputStages[0].fetch_add(1,std::memory_order_relaxed));
     // Scope lenses write their velocity into this target (independent of framegen).
     if(tags && count<=32)for(uint32_t i=0;i<count;++i) {
         InputTag tag{};
         if(ReadTag(static_cast<const sl::ResourceTag*>(tags)+i,&tag) && tag.type==1)cvr::optics::MotionVectorsTagged(tag.resource);
     }
+    if(viewport && uint32_t(*static_cast<const sl::ViewportHandle*>(viewport))==cvr::scope_dlss::kViewport)return;
     if(!CaptureInputsEnabled() || !tags || count>32)return;
     std::array<InputTag,32> decoded{};
     for(uint32_t i=0;i<count;++i)

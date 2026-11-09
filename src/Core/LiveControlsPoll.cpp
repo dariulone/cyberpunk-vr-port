@@ -17,6 +17,7 @@
 #include "Anim/WheelRange.hpp"
 #include "Hooks/Reflex.hpp"
 #include "Hooks/ReflexOptions.hpp"
+#include "Stereo/ScopeResolution.hpp"
 #include <windows.h>
 #include <psapi.h>
 #include <xinput.h>
@@ -532,6 +533,7 @@ void PollLiveControls() {
     int      xrGbufferPartitions = CyberpunkVR_VrcamGbufferPartitionsSetting;
     int      xrScopeGbufferPartitions = CyberpunkVR_ScopeGbufferPartitionsSetting;
     int      xrScopeGraphDag = CyberpunkVR_ScopeGraphDag ? 1 : 0;
+    int xrScopeRrFullResolution = cvr::scope_dlss::fullResolution.load(std::memory_order_relaxed) ? 1 : 0;
     int      xrSubmitChain = CyberpunkVR_SubmitChainSetting;
     int      xrDeferPresent = CyberpunkVR_DeferPresentSetting;
     int      xrGtSkipRenderQueue = CyberpunkVR_GtSkipRenderQueueSetting;
@@ -1254,6 +1256,10 @@ void PollLiveControls() {
             xrScopeGbufferPartitions = intValue != 0;
             continue;
         }
+        if(sscanf_s(line,"xr_scope_rr_full_resolution = %d",&intValue)==1) {
+            xrScopeRrFullResolution=intValue!=0;
+            continue;
+        }
         if (sscanf_s(line, "xr_scope_graph_dag=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_scope_graph_dag = %d", &intValue) == 1) {
             xrScopeGraphDag = intValue != 0;
@@ -1903,6 +1909,7 @@ void PollLiveControls() {
     CyberpunkVR_ScopeGbufferPartitionsSetting = xrScopeGbufferPartitions ? 1 : 0;
     CyberpunkVR_ScopeGbufferPartitionsConfigure(CyberpunkVR_ScopeGbufferPartitionsSetting);
     CyberpunkVR_ScopeGraphDag = xrScopeGraphDag ? 1u : 0u;
+    cvr::scope_dlss::fullResolution.store(xrScopeRrFullResolution!=0,std::memory_order_relaxed);
     if (xrSubmitChainRev < kSubmitChainRev) {
         xrSubmitChain = 1;
         xrDeferPresent = 1;
@@ -2308,6 +2315,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // 1 = the camera scope's render graph runs its passes side by side like MAIN's (same image). 0 = the
     // engine's one chain for a render-to-texture view.
     fprintf(file, "xr_scope_graph_dag=%d\n", CyberpunkVR_ScopeGraphDag ? 1 : 0);
+    fprintf(file,"xr_scope_rr_full_resolution=%d\n",cvr::scope_dlss::fullResolution.load(std::memory_order_relaxed)?1:0);
     // 2 = render-graph submission points chain their Close/Submit jobs among themselves instead of
     // holding up the graph (the next Synchronize starts while the previous batch is submitted); only
     // Present waits for the chain. 1 = view jobs wait for it too. 0 = the engine's order.

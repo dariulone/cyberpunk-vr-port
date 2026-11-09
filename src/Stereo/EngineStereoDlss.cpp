@@ -23,6 +23,7 @@
 // tags or constants for the evaluate's viewport and frame, an odd width) runs the engine's evaluate unchanged,
 // counted in CyberpunkVR_DebugEngineStereoDlss.
 #include "Stereo/EngineStereoDlss.hpp"
+#include "Stereo/ScopeDlssState.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/IdleDlssContext.hpp"
 #include "Render/SceneGpuProfile.hpp"
@@ -39,34 +40,8 @@
 #endif
 #include <sl_dlss.h>
 
-// Ray Reconstruction's options (Streamline's sl_dlss_d.h, MIT; not in externals/streamline): what the split reads
-// and writes of them. The engine's copy keeps its own structVersion, so Streamline reads only what it declared.
-namespace sl {
-enum class DLSSDPreset : uint32_t { eDefault };
-enum class DLSSDNormalRoughnessMode : uint32_t { eUnpacked, ePacked };
-// {0AD87504-774E-4BF3-9633-A44D1F7F9CB8}
-SL_STRUCT_BEGIN(DLSSDOptions, StructType({ 0x0ad87504, 0x774e, 0x4bf3, { 0x96, 0x33, 0xa4, 0x4d, 0x1f, 0x7f, 0x9c, 0xb8 } }), kStructVersion3)
-    DLSSMode mode = DLSSMode::eOff;
-    uint32_t outputWidth = INVALID_UINT;
-    uint32_t outputHeight = INVALID_UINT;
-    float sharpness = 0.0f;
-    float preExposure = 1.0f;
-    float exposureScale = 1.0f;
-    Boolean colorBuffersHDR = Boolean::eTrue;
-    Boolean indicatorInvertAxisX = Boolean::eFalse;
-    Boolean indicatorInvertAxisY = Boolean::eFalse;
-    DLSSDNormalRoughnessMode normalRoughnessMode = DLSSDNormalRoughnessMode::eUnpacked;
-    float4x4 worldToCameraView;
-    float4x4 cameraViewToWorld;
-    Boolean alphaUpscalingEnabled = Boolean::eFalse;
-    DLSSDPreset dlaaPreset = DLSSDPreset::eDefault;
-    DLSSDPreset qualityPreset = DLSSDPreset::eDefault;
-    DLSSDPreset balancedPreset = DLSSDPreset::eDefault;
-    DLSSDPreset performancePreset = DLSSDPreset::eDefault;
-    DLSSDPreset ultraPerformancePreset = DLSSDPreset::eDefault;
-    DLSSDPreset ultraQualityPreset = DLSSDPreset::eDefault;
-SL_STRUCT_END()
-}  // namespace sl
+// Share the SDK ABI with the private scope RR options hook.
+#include <sl_dlss_d.h>
 
 extern void Log(const char*,...);
 // 1 = DLSS per eye under engine stereo (default); 0 = the engine's one evaluate over both eyes. Live.
@@ -436,7 +411,7 @@ sl::Result TrackedFree(sl::Feature feature,const sl::ViewportHandle& viewport) {
 sl::Result HookedSetOptions(const sl::ViewportHandle& viewport, const sl::DLSSOptions& options) {
     std::lock_guard lock(mutex);
     const uint32_t v = ViewportValue(&viewport);
-    if (!OwnViewport(v)) {
+    if (!OwnViewport(v) && v != scope_dlss::kViewport) {
         CopyOptions(options, v);
         ++CyberpunkVR_DebugEngineStereoDlss[7];
     }
@@ -458,7 +433,7 @@ void CopyRrOptions(const sl::DLSSDOptions& options, uint32_t v) {
 sl::Result HookedSetRrOptions(const sl::ViewportHandle& viewport, const sl::DLSSDOptions& options) {
     std::lock_guard lock(mutex);
     const uint32_t v = ViewportValue(&viewport);
-    if (!OwnViewport(v)) {
+    if (!OwnViewport(v) && v != scope_dlss::kViewport) {
         CopyRrOptions(options, v);
         ++CyberpunkVR_DebugEngineStereoRr[3];
     }
@@ -609,7 +584,7 @@ void LogOnce(const TagSet& t, const ConstantSet& c, const sl::DLSSOptions& o, bo
 void RecordTags(const void* viewport, const void* list, uint32_t count, SetTagFn original) {
     if (!Enabled() || !viewport || !list || !count) return;
     const uint32_t v = ViewportValue(viewport);
-    if (OwnViewport(v)) return;
+    if (OwnViewport(v) || v == scope_dlss::kViewport) return;
     std::lock_guard lock(mutex);
     setTag = original;
     CopyTags(v, static_cast<const sl::ResourceTag*>(list), count);
@@ -618,7 +593,7 @@ void RecordTags(const void* viewport, const void* list, uint32_t count, SetTagFn
 void RecordConstants(const sl::Constants& values, const sl::FrameToken& frame, const sl::ViewportHandle& viewport) {
     if (!Enabled()) return;
     const uint32_t v = ViewportValue(&viewport);
-    if (OwnViewport(v)) return;
+    if (OwnViewport(v) || v == scope_dlss::kViewport) return;
     std::lock_guard lock(mutex);
     CopyConstants(values, uint32_t(frame), v);
 }
@@ -676,7 +651,7 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
     uint32_t viewport = 0;
     const int at = FindViewport(inputs, count, &viewport);
     std::lock_guard lock(mutex);
-    if (at < 0 || OwnViewport(viewport) || !setTag || !setOptions) { ++debug[1]; return false; }
+    if (at < 0 || OwnViewport(viewport) || viewport == scope_dlss::kViewport || !setTag || !setOptions) { ++debug[1]; return false; }
     if (rr && (!setRrOptions || !engineRrOptions.valid || engineRrOptions.viewport != viewport ||
                engineRrOptions.values.mode == sl::DLSSMode::eOff)) {
         ++CyberpunkVR_DebugEngineStereoRr[1];
