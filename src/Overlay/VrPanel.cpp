@@ -1,3 +1,4 @@
+#include "Runtimes/PresentationQueue.hpp"
 #include "Overlay/VrPanel.hpp"
 #include "Camera/ImagePoseIdentity.hpp"
 #include <array>
@@ -32,12 +33,13 @@ std::shared_ptr<Canvas> AcquireCanvas(ID3D12Device* device,DXGI_FORMAT format){
 void PublishCanvas(const std::shared_ptr<Canvas>& c,ID3D12Fence* f,uint64_t value){std::lock_guard lock(canvasMutex);c->fence=f;c->value=value;c->serial=++serial;latest=c;}
 void ClearCanvas(){std::lock_guard lock(canvasMutex);latest.reset();for(auto& p:pool)if(p && p.use_count()==1 && (!p->fence || p->fence->GetCompletedValue()>=p->value))p.reset();}
 const XrCompositionLayerBaseHeader* Panel::Prepare(XrSession session,XrSpace space,ID3D12Device* device,ID3D12CommandQueue* queue){
+    if(auto* runtime=cvr::xrqueue::Queue())queue=runtime;
     rayVisible=false;
     if(!Visible()){Shutdown();return nullptr;}
     const auto view=GetView();if(!view.valid || !device || !queue)return nullptr;
     std::shared_ptr<Canvas> source;{std::lock_guard lock(canvasMutex);source=latest;}
     if(!source)return nullptr;
-    // Same queue as the producer. Hold its lease until this copy has completed.
+    // Wait on the exact canvas receipt on the runtime queue; retain it until copy completion.
     if(!swapchain){
         uint32_t count=0;if(XR_FAILED(xrEnumerateSwapchainFormats(session,0,&count,nullptr)))return nullptr;
         std::vector<int64_t> formats(count);if(XR_FAILED(xrEnumerateSwapchainFormats(session,count,&count,formats.data())))return nullptr;
@@ -62,7 +64,8 @@ const XrCompositionLayerBaseHeader* Panel::Prepare(XrSession session,XrSpace spa
                 if(xrWaitSwapchainImage(swapchain,&w)==XR_SUCCESS){
                     if(SUCCEEDED(allocator->Reset()) && SUCCEEDED(list->Reset(allocator.Get(),nullptr)) &&
                        blit.EnsureInitialized(device,DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,CanvasWidth,CanvasHeight) &&
-                       blit.RecordOverlay(list.Get(),source->texture.Get(),images[index].texture,4) && SUCCEEDED(list->Close())){
+                       blit.RecordOverlay(list.Get(),source->texture.Get(),images[index].texture,4) && SUCCEEDED(list->Close()) &&
+                       (!cvr::xrqueue::Private() || cvr::xrqueue::WaitPublished(source->fence.Get(),source->value))){
                         std::lock_guard submit(cvr::camera::ImageSubmissionMutex());
                         ID3D12CommandList* commands[]={list.Get()};queue->ExecuteCommandLists(1,commands);
                         flight=source;

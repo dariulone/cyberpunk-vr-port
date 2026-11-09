@@ -14,6 +14,8 @@ set(cvr_ffx_libs)
 foreach(component backend_dx12 frameinterpolation opticalflow)
     list(APPEND cvr_ffx_libs "${CVR_FIDELITYFX_ROOT}/sdk/bin/ffx_sdk/ffx_${component}_x64.lib")
 endforeach()
+option(CVR_FRAMEGEN_PREBUILT "Use already-built libraries from the pinned FidelityFX SDK" OFF)
+if(NOT CVR_FRAMEGEN_PREBUILT)
 ExternalProject_Add(cvr_framegen_sdk
     SOURCE_DIR "${CVR_FIDELITYFX_ROOT}/sdk"
     BINARY_DIR "${CMAKE_BINARY_DIR}/fidelityfx-native-build"
@@ -24,6 +26,13 @@ ExternalProject_Add(cvr_framegen_sdk
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${cvr_ffx_libs})
 add_dependencies(cyberpunkvrport_stereo cvr_framegen_sdk)
+else()
+    foreach(library IN LISTS cvr_ffx_libs)
+        if(NOT EXISTS "${library}")
+            message(FATAL_ERROR "Missing prebuilt FidelityFX library: ${library}")
+        endif()
+    endforeach()
+endif()
 target_include_directories(cyberpunkvrport_stereo PRIVATE
     "${CVR_FIDELITYFX_ROOT}/sdk/include" "${CMAKE_SOURCE_DIR}/externals/nvidia-optical-flow")
 target_link_libraries(cyberpunkvrport_stereo PRIVATE ${cvr_ffx_libs})
@@ -56,3 +65,10 @@ if(EXISTS "${CVR_DLSS_SDK_ROOT}/include/nvsdk_ngx_helpers_dlssg_d3d.h" AND
 else()
     message(WARNING "NVIDIA DLSS SDK not found: native DLSS Frame Generation is left out of this build")
 endif()
+
+# Reconstruction-only V557 component, built from attributed source with our SDKs.
+set(CVR_V557_FFX_INCLUDE "${CVR_FIDELITYFX_ROOT}/sdk/include")
+set(CVR_V557_FFX_LIBS ${cvr_ffx_libs})
+add_subdirectory(externals/v557-reconstruction)
+target_link_libraries(cyberpunkvrport_stereo PRIVATE cvr_v557)
+target_compile_definitions(cyberpunkvrport_stereo PRIVATE CVR_V557_RECONSTRUCTION)

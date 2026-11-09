@@ -136,9 +136,9 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
     if (deviceOwner.Get()!=device) { SetConsumerReady(false,channel); return; }
     const auto completed=fence->GetCompletedValue();
     for (auto& slot:slots) {
-        // The XR reader holds Frame until its copy is queued on this same queue. Thus a free
-        // slot cannot be overwritten before that read. Its own producer fence protects both
-        // the command allocator/descriptors and all native source texture leases.
+        // The XR reader holds Frame until its GPU copy completes, including on
+        // a separate presentation queue. The producer fence protects the native
+        // source leases and allocator; shared ownership prevents canvas reuse.
         if (slot.fenceValue > completed || (slot.frame && slot.frame.use_count()!=1)) continue;
         slot.sources.reset();slot.frameConstants.Reset();slot.hudConstants.Reset();slot.exposure.Reset();
         if (!Initialize(slot,device,source->width,source->height)) { SetConsumerReady(false,channel); return; }
@@ -204,14 +204,17 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         if (FAILED(cmd->Close())) return;
         ID3D12CommandList* lists[]={cmd}; queue->ExecuteCommandLists(1,lists);
         slot.fenceValue=++submitted;
-        if (SUCCEEDED(queue->Signal(fence.Get(),submitted)))
+        const bool signaled=SUCCEEDED(queue->Signal(fence.Get(),submitted));
+        if (signaled)
             cvr::gpu::profile::Submitted(gpuProfile, queue, fence.Get(), submitted);
         slot.sources=source;
         slot.frame->stamp=source->stamp; slot.frame->generation=source->generation;
         slot.frame->serial=submitted;
+        slot.frame->readyFence=fence;
+        slot.frame->readyValue=signaled ? submitted : 0;
         slot.frame->masked=source->masked;
         slot.frame->lootVisible=source->lootVisible;
-        if (ok) latest=slot.frame; else SetConsumerReady(false,channel);
+        if (ok && signaled) latest=slot.frame; else SetConsumerReady(false,channel);
         return;
     }
 }

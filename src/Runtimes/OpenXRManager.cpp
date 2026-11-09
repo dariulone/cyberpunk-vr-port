@@ -1,3 +1,6 @@
+#include "Runtimes/PresentationQueue.hpp"
+#include "Framegen/RefreshCadence.hpp"
+#include "Framegen/FlightRecorder.hpp"
 #include "Fbt/Game/Trackers.hpp"
 #include "Runtimes/PresenceRecenter.hpp"
 #include "Runtimes/FingerGrip.hpp"
@@ -742,6 +745,9 @@ bool OpenXRManager::Init() {
     res = xrGetSystem(m_instance, &systemInfo, &m_systemId);
     if (XR_FAILED(res)) {
         Log("OpenXRManager: Failed to get XrSystemId (res=%d)\n", res);
+        cvr::framegen::refresh::Stop();
+        cvr::framegen::flight::Stop();
+        cvr::framegen::flight::ReleaseConnection();
         xrDestroyInstance(m_instance);
         m_instance = XR_NULL_HANDLE;
         return false;
@@ -752,9 +758,15 @@ bool OpenXRManager::Init() {
     m_eyeImageLimit[0] = m_eyeImageLimit[1] = 0;
     if (XR_SUCCEEDED(xrGetSystemProperties(m_instance, m_systemId, &systemProps))) {
         strncpy_s(m_systemName, systemProps.systemName, _TRUNCATE);
+        cvr::framegen::flight::Runtime(instanceProps.runtimeName,m_runtimeIsSteamVR.load(),systemProps.systemName);
         m_eyeImageLimit[0] = systemProps.graphicsProperties.maxSwapchainImageWidth;
         m_eyeImageLimit[1] = systemProps.graphicsProperties.maxSwapchainImageHeight;
         m_runtimeIsPsvr2.store(cvr::input::IsPsvr2System(systemProps.systemName), std::memory_order_relaxed);
+        // SteamVR can report a throttled app period on any HMD. VDXR stays on its native path.
+        const bool packageRequested=cvr::framegen::GetSettings().steamVrOptimizations;
+        cvr::framegen::refresh::Start(m_runtimeIsSteamVR.load(),packageRequested);
+        Log("[framegen-package] requested=%d active=%d steamvr=%d (latched at startup; restart to apply changes)\n",
+            packageRequested,cvr::framegen::refresh::Targeted(),m_runtimeIsSteamVR.load());
         if (IsRuntimePsvr2()) {
             Log("OpenXRManager[PSVR2]: Sense Triangle touch D-pad and Create SystemButton enabled. "
                 "Haptic actuator ownership remains with the external Toolkit bridge; no OpenXR vibration action.\n");
@@ -1070,7 +1082,8 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
 
     m_graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_D3D12_KHR;
     m_graphicsBinding.device = device;
-    m_graphicsBinding.queue = queue;
+    if(!cvr::xrqueue::Initialize(device,queue,cvr::framegen::refresh::Targeted()))return false;
+    m_graphicsBinding.queue = cvr::xrqueue::Queue();
 
     LogDxgiAdapterForDevice(device);
 
@@ -1081,6 +1094,7 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
     XrResult res = xrCreateSession(m_instance, &sessionInfo, &m_session);
     if (XR_FAILED(res)) {
         Log("OpenXRManager: Failed to create XrSession (res=%d)\n", res);
+        cvr::xrqueue::Shutdown();
         return false;
     }
     cvr::fingergrip::OnSessionCreated(m_instance, m_session);
@@ -2391,6 +2405,8 @@ void OpenXRManager::FlushHandsToShared(const OpenXRHeadPose* frameHead, XrTime f
 
 
 void OpenXRManager::Shutdown() {
+    cvr::framegen::refresh::Stop();
+    cvr::framegen::flight::Stop();
     cvr::foveated::Shutdown();
     cvr::vrs::Shutdown();
     RemoveSimulatorRecenterHook();
@@ -2426,7 +2442,9 @@ void OpenXRManager::Shutdown() {
     // the swapchains afterwards -- i.e. it handed the runtime handles whose parent was already gone.
     // (dabinn, TofuExpress fbe336fa)
     cvr::framegen::SetDepthCaptureEnabled(false);
-    m_framegen.Reset();
+    m_submitPacer.Reset();
+    m_framegen.Shutdown();
+    cvr::xrqueue::Drain();
     m_stereoDepth.Poll();
     m_framegenOverlay.Shutdown(true);
     m_settingsPanel.Shutdown();
@@ -2612,6 +2630,7 @@ void OpenXRManager::Shutdown() {
     // before the blit's pipeline objects, the capture textures and the last-good eye copies -- so
     // every one of those was freed against a device this object had already let go of. Nothing else
     // in here can be freed after them, which is exactly why they belong at the end.
+    cvr::xrqueue::Shutdown();
     if (m_d3dQueue) {
         m_d3dQueue->Release();
         m_d3dQueue = nullptr;
@@ -2632,6 +2651,9 @@ void OpenXRManager::Shutdown() {
     m_depthSwapchainFormat = 0;
 
     if (m_instance != XR_NULL_HANDLE) {
+        cvr::framegen::refresh::Stop();
+        cvr::framegen::flight::Stop();
+        cvr::framegen::flight::ReleaseConnection();
         xrDestroyInstance(m_instance);
         m_instance = XR_NULL_HANDLE;
     }

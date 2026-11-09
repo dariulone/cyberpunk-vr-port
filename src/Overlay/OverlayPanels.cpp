@@ -1,3 +1,6 @@
+#include "Framegen/FlightRecorder.hpp"
+#include "Framegen/FrameCapture.hpp"
+#include "Framegen/RefreshCadence.hpp"
 // OverlayPanels -- every control the headset overlay draws, and the small widgets they are made of.
 //
 // The widgets exist because ImGui has no clamped-int slider that reports change the way this file needs:
@@ -994,28 +997,59 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
 
         if (section>=0 ? section==1 : UI::BeginTabItem("FRAMEGEN")) {
             auto& fg=state.framegen;
+            changed|=UI::Checkbox("Flight recorder",&fg.flightRecorder);
+            if(UI::IsItemHovered())UI::SetTooltip("Persist pacing, missed inputs, GPU generation and XR submission counters, plus SteamVR compositor estimates. Works with FPS overlay off. No image capture. Toggle off to stop. Files capped at 16 MiB.");
+            {char status[160]{};cvr::framegen::flight::Status(status,sizeof(status));UI::TextWrapped("Recorder: %s",status);}
+            if(fg.flightRecorder){
+                UI::TextWrapped("Logs: cyberpunkvrport/log/framegen-flight-*.jsonl");
+                if(UI::Button("Mark performance problem"))cvr::framegen::flight::Count(cvr::framegen::flight::Event::Marker);
+                UI::TextWrapped("Submitted frames are not displayed FPS. SteamVR delivery is an estimate; unavailable on VDXR.");
+            }
+            {
+                char captureStatus[192]{};bool capturing=false;
+                cvr::framegen::FrameCaptureStatus(captureStatus,sizeof(captureStatus),&capturing);
+                UI::BeginDisabled(capturing || !fg.enabled);
+                if(UI::Button("Capture ghosting images (10s delay)"))cvr::framegen::ScheduleFrameCapture(10);
+                UI::EndDisabled();
+                UI::TextWrapped("Image capture: %s",captureStatus);
+                if(capturing && UI::Button("Cancel image capture"))cvr::framegen::CancelFrameCapture();
+                if(UI::IsItemHovered())UI::SetTooltip("A capture already saving will finish safely.");
+                UI::TextWrapped("Saves 3 stereo images with depth/motion for analysis. Close F10 and ride; capture may briefly hitch. It does not fix ghosting.");
+            }
             changed|=UI::Checkbox("Enable frame generation",&fg.enabled);
             if(UI::IsItemHovered())UI::SetTooltip("While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off).");
             int backend=int(fg.backend);
-            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0NVIDIA OFA + FidelityFX\0NVIDIA DLSS Frame Generation\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
+            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0NVIDIA OFA + FidelityFX\0NVIDIA DLSS Frame Generation\0NVIDIA OFA + V557 (experimental)\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
             using cvr::framegen::Backend;
             const Backend active=cvr::framegen::ActiveBackend();
             if(fg.backend==Backend::DlssG && fg.enabled && active!=Backend::DlssG)
                 UI::TextWrapped("DLSS Frame Generation is not available here (%s); FidelityFX is used.",cvr::framegen::dlssg::Reason());
-            else if(fg.backend==Backend::Nvidia && fg.enabled && active==Backend::FidelityFX)
+            else if(cvr::framegen::UsesNvidiaOFA(fg.backend) && fg.enabled && active==Backend::FidelityFX)
                 UI::TextWrapped("NVIDIA optical flow is not available on this GPU; FidelityFX optical flow is used.");
-            else if(fg.backend==Backend::Nvidia && fg.flowScale)
+            else if(cvr::framegen::UsesNvidiaOFA(fg.backend) && fg.flowScale)
                 changed|=widgets::Combo("NVIDIA quality",&fg.quality,"Fast (performance)\0Medium (balanced)\0Slow (best)\0");
-            if(fg.backend==Backend::FidelityFX || fg.backend==Backend::Nvidia) {
+            if(fg.backend==Backend::FidelityFX || cvr::framegen::UsesNvidiaOFA(fg.backend)) {
                 int scale=fg.flowScale==100?3:(fg.flowScale==75?2:(fg.flowScale==0?0:1));
                 if(widgets::Combo("Optical flow",&scale,"Off (game vectors only)\0 50%\0 75%\0 100%\0")) {fg.flowScale=scale==3?100:(scale==2?75:(scale==0?0:50));changed=true;}
                 if(UI::IsItemHovered())UI::SetTooltip("The game's motion vectors already describe almost all motion; optical flow adds GPU time\nand memory for what they miss (some particles and effects).");
             }
+            if(fg.backend==Backend::NvidiaV557){
+                if(!fg.flowScale){fg.flowScale=50;changed=true;}
+                UI::TextWrapped("Experimental V557 optical reconstruction: current-camera pre-warp and flow confidence. Uses more color history; compare ghosting and performance. Existing pacing is retained. Optical flow is required.");
+            }
             if(fg.backend==Backend::DlssG)
                 UI::TextWrapped("NVIDIA's frame generation model on the game's motion vectors and depth. Highest quality, RTX 40/50.");
+            changed|=UI::Checkbox("SteamVR framegen optimizations (restart game)",&fg.steamVrOptimizations);
+            if(UI::IsItemHovered())UI::SetTooltip("Our SteamVR timing and queue package. Applies to Steam Link too; VDXR is unaffected.\nIncludes physical refresh correction, private queues and pacing improvements.\nSave your choice here, then restart the game. Adaptive real-frame pacing remains a separate control.");
+            if(OpenXRManager::Get().IsRuntimeSteamVR()) {
+                const bool packageActive=cvr::framegen::refresh::Targeted();
+                UI::TextWrapped("SteamVR package active this session: %s",packageActive?"ON":"OFF");
+                if(fg.steamVrOptimizations!=packageActive)
+                    UI::TextWrapped("Restart required to turn the SteamVR package %s.",fg.steamVrOptimizations?"ON":"OFF");
+            } else UI::TextWrapped("SteamVR package inactive on this runtime. Preference saved for SteamVR / Steam Link.");
             changed|=UI::Checkbox("Adaptive real-frame pacing",&fg.autoPace);
             if(UI::IsItemHovered())UI::SetTooltip("Up to half headset refresh. Leaves more GPU time for generated frames when adjacent real frames are being missed.");
-            UI::TextWrapped("Uses game motion vectors and depth in both eyes. Adds one intermediate frame between real frames.");
+            UI::TextWrapped(fg.backend==Backend::NvidiaV557?"V557 uses optical flow in both eyes; no engine-vector/depth interpolation. Adds one intermediate frame.":"Uses game motion vectors and depth in both eyes. Adds one intermediate frame between real frames.");
             UI::Separator();
             const auto runtimeStatus=cvr::framegen::GetRuntimeStatus();
             UI::TextWrapped("%s",runtimeStatus.text);

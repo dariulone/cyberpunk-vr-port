@@ -1,3 +1,5 @@
+#include "Framegen/SourceTimeline.hpp"
+#include "Camera/PoseIdentity.hpp"
 // EngineStereoDlss -- under render feature 98 the engine's one DLSS evaluate over the side-by-side frame becomes one
 // evaluate per eye (include/Stereo/EngineStereoDlss.hpp).
 //
@@ -865,6 +867,12 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
         if (r == sl::Result::eOk && nAfter) {
             cvr::gpu::scene_profile::Mark(profileList, 0xD15A0030u + uint32_t(eye), 0, nullptr, 0);
             RunCopies(commandList, after, nAfter, true);
+        }
+        if(r==sl::Result::eOk){
+            const auto pose=cvr::camera::CurrentNodePoseIdentity();
+            if(pose && pose.hasRenderFrameId)cvr::framegen::source_timing::Record(profileList,
+                pose.renderFrameId,pose.poseId,pose.head.originSerial,unsigned(eye),
+                cvr::framegen::source_timing::Stage::Upscale,rr);
         }
         cvr::gpu::scene_profile::EndRange(profileList);
         if (log)

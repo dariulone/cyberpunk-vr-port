@@ -1,4 +1,7 @@
 #include "Runtimes/HudQuad.hpp"
+#include "Runtimes/PresentationQueue.hpp"
+#include "Runtimes/OpenXRManager.hpp"
+#include "Framegen/FlightRecorder.hpp"
 #include "Render/GpuStageProfile.hpp"
 #include "Core/LiveControls.hpp"
 #include <dxgi1_6.h>
@@ -16,6 +19,21 @@ extern "C" int CyberpunkVR_RuntimeDiagnostics=0;
 extern "C" std::atomic<uint32_t> CyberpunkVR_HudSubmitRing;
 extern "C" cvr::hud::PoseDebug CyberpunkVR_HudPoseDebug;
 void Log(const char*,...) {}
+extern "C" int CyberpunkVR_InteractionAnchor=0;
+extern "C" int CyberpunkVR_HudClearance=0;
+extern "C" int CyberpunkVR_HudClearanceHands=0;
+extern "C" float CyberpunkVR_HudClearanceGrow=0;
+extern "C" float CyberpunkVR_HudClearanceHandsScale=1;
+namespace cvr::interaction {float TargetDepth(uint64_t){return 0;}}
+namespace cvr::hud::clearance {
+float Published(uint64_t){return 0;}
+float GrowFactor(float,float,float){return 1;}
+}
+OpenXRManager& OpenXRManager::Get(){throw std::runtime_error("hand tracking outside HUD queue test");}
+bool OpenXRManager::GetHandPose(int,OpenXRHeadPose*) const{return false;}
+namespace cvr::framegen::flight {
+void Time(Timing,double){}
+void Display(const DisplayDeadline&,double,double){}void Count(Event){}}
 void Check(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
 void Hr(HRESULT value) {Check(SUCCEEDED(value),"D3D12 call failed");}
 namespace cvr::gpu::profile {
@@ -149,6 +167,33 @@ int main() try {
         "Cached HUD incorrectly reported a new source");
     Check(CyberpunkVR_HudSubmittedFrames==0,"Preparation is not a successful xrEndFrame");
     CyberpunkVR_RuntimeDiagnostics=0;drain();mainHud.Shutdown();mock::source.reset();
+
+    // Exercise the actual Quad::Prepare/UpdateImage on a different queue.
+    Check(cvr::xrqueue::Initialize(device.Get(),queue.Get(),true) && cvr::xrqueue::Private(),"private HUD binding unavailable");
+    Quad isolatedHud;
+    mock::source=frame(20,64);
+    mock::source->readyFence=done;
+    mock::source->readyValue=++doneValue;
+    Hr(queue->Signal(done.Get(),doneValue));
+    Hr(queue->Wait(gate.Get(),2)); // next game's RT/NR frame must not hold this HUD
+    const auto tailValue=++doneValue;Hr(queue->Signal(done.Get(),tailValue));
+    auto layer=isolatedHud.Prepare(reinterpret_cast<XrSession>(1),reinterpret_cast<XrSpace>(1),
+        device.Get(),queue.Get(),true,true,head,1,clock+33333333);
+    Check(layer && mock::ready,"private HUD source not copied");
+    auto pin=std::weak_ptr<Frame>(mock::source);mock::source.reset();
+    Check(!pin.expired(),"private HUD source dropped before retirement");
+    const auto mark=cvr::xrqueue::Mark();cvr::xrqueue::Drain();
+    Check(cvr::xrqueue::Ready(mark),"private HUD copy blocked behind unrelated game tail");
+    Check(done->GetCompletedValue()<tailValue,"HUD copy should finish while game queue remains blocked");
+    isolatedHud.Prepare(reinterpret_cast<XrSession>(1),reinterpret_cast<XrSpace>(1),
+        device.Get(),queue.Get(),false,true,head,1,clock+44444444);
+    Check(pin.expired(),"completed private HUD source not retired");
+    isolatedHud.Shutdown();Hr(gate->Signal(2));drain();
+    Quad missingReceipt;mock::source=frame(21,64);
+    Check(!missingReceipt.Prepare(reinterpret_cast<XrSession>(1),reinterpret_cast<XrSpace>(1),
+        device.Get(),queue.Get(),true,true,head,1,clock+55555555),"missing receipt must not publish an unsafe HUD canvas");
+    Check(!mock::acquired,"missing receipt leaves a held XR image");
+    missingReceipt.Shutdown();mock::source.reset();cvr::xrqueue::Shutdown();
 
     ComPtr<ID3D12InfoQueue> info;
     if(SUCCEEDED(device.As(&info)))for(UINT64 i=0;i<info->GetNumStoredMessages();++i) {

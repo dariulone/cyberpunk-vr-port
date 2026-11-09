@@ -63,6 +63,14 @@ FetchContent_GetProperties(redscript)
 if(NOT redscript_POPULATED)
   FetchContent_Populate(redscript)
 endif()
+set(CVR_SCC_LIB_PREBUILT "" CACHE FILEPATH "Optional scc_lib.dll from the pinned upstream release")
+if(CVR_SCC_LIB_PREBUILT)
+  if(NOT EXISTS "${CVR_SCC_LIB_PREBUILT}")
+    message(FATAL_ERROR "CVR_SCC_LIB_PREBUILT does not exist")
+  endif()
+  set(CVR_SCC_LIB "${CVR_SCC_LIB_PREBUILT}")
+  add_custom_target(cvr_scc_lib)
+else()
 find_program(CVR_CARGO cargo HINTS "$ENV{USERPROFILE}/.cargo/bin" REQUIRED)
 set(CVR_SCC_LIB "${CMAKE_BINARY_DIR}/redscript/release/scc_lib.dll")
 add_custom_command(
@@ -74,6 +82,7 @@ add_custom_command(
   VERBATIM
 )
 add_custom_target(cvr_scc_lib ALL DEPENDS ${CVR_SCC_LIB})
+endif()
 
 # The TweakDB's record names, for the Lua host's TDBID.ToStringDEBUG and TweakDB API (src/Lua): WolvenKit's resource
 # files (GPL-3.0, shipped beside the plugin as data with their licence, as CET ships them), at the commit that last
@@ -284,4 +293,10 @@ add_custom_command(TARGET cyberpunkvrport_stereo POST_BUILD
 #     cmake --build build --config Release --target xr_probe_layer
 add_subdirectory(tools/xr_probe)
 # rtti_dump_plugin -- patch-day RED4ext plugin: the running game's RTTI layouts as JSON (tools/rtti_dump).
-add_subdirectory(tools/rtti_dump)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/rtti_dump/CMakeLists.txt")
+  add_subdirectory(tools/rtti_dump)
+endif()
+
+# Flight recorder JSON writer; the dependency is already pinned by the Lua host.
+FetchContent_GetProperties(nlohmann_json SOURCE_DIR cvr_flight_json_source)
+target_include_directories(cyberpunkvrport_stereo PRIVATE "${cvr_flight_json_source}/single_include")

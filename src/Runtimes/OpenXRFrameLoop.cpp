@@ -1,3 +1,7 @@
+#include "Framegen/CapturedColor.hpp"
+#include "Runtimes/PresentationQueue.hpp"
+#include "Framegen/RefreshCadence.hpp"
+#include "Framegen/FlightRecorder.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include "Runtimes/FingerGrip.hpp"
 #include "Utils/DebugGate.hpp"
@@ -938,12 +942,56 @@ bool OpenXRManager::ResubmitLastFrame(XrTime displayTime) {
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     endInfo.layerCount = count;
     endInfo.layers = layers;
+    m_submitPacer.BeforeSubmit(cvr::framegen::SteamVrPacer::Kind::Repeat);
+    const double flightStart=cvr::framegen::flight::Enabled()?cvr::framegen::NowMs():0;
     const XrResult res = xrEndFrame(m_session, &endInfo);
+    m_submitPacer.AfterSubmit(XR_SUCCEEDED(res));
+    if(XR_SUCCEEDED(res))cvr::framegen::refresh::Submitted();
+    if(flightStart)cvr::framegen::flight::Time(cvr::framegen::flight::Timing::EndFrame,cvr::framegen::NowMs()-flightStart);
+    cvr::framegen::flight::Error(res);
     if (XR_SUCCEEDED(res)) return true;
     // Refused once, refused again: do not keep offering it.
     last.valid = false;
     Log("OpenXRManager: resubmitting the last frame failed (res=%d); ending this cycle empty\n", res);
     return false;
+}
+
+// Called only by the XR owner during its existing submit hold. No new thread,
+// no capture-mutex wait, and no generation-output join into the current frame.
+bool OpenXRManager::PrepareFramegenAhead(){
+    cvr::framegen::Frame frame;
+    auto lease=std::make_shared<cvr::framegen::ReadLease>();lease->owner=this;
+    lease->release=[](void* owner,ID3D12Resource* resource,uint64_t fence){
+        static_cast<OpenXRManager*>(owner)->ReleaseCapturedRead(resource,fence);
+    };
+    const auto origin=GetTrackingOriginSerial();
+    {
+        std::unique_lock lock(m_presentMutex,std::try_to_lock);
+        if(!lock.owns_lock())return false;
+        const auto& capture=m_monoCapturedFrame;
+        if(!m_framegen.WantsPrepare(capture.serial) || !capture.texture || capture.dark || capture.oneTurn ||
+           !capture.hasView[0] || !capture.hasView[1] || !capture.framegenInputs[0] || !capture.framegenInputs[1] ||
+           !capture.framegenColorReadyValue || !CyberpunkVR_StereoSubmit)return false;
+        const unsigned main=capture.mainEye?1u:0u,other=main^1u;
+        for(unsigned eye=0;eye<2;++eye){frame.pose[eye]=capture.poses[eye];frame.fov[eye]=capture.fovs[eye];
+            frame.identity.pose[eye]=capture.poseIds[eye];frame.inputs[eye]=capture.framegenInputs[eye];}
+        if(!m_captureLeases.Pin(reinterpret_cast<uintptr_t>(capture.texture)))return false;
+        lease->resources[main]=capture.texture;capture.texture->AddRef();
+        bool reused=false;
+        lease->resources[other]=AcquireCapturedVrcamLocked(capture.serial,0,&frame.pose[other],&frame.fov[other],&frame.identity.pose[other],&reused);
+        if(!lease->resources[other] || reused)return false; // exact pair only
+        frame.color[main]=lease->resources[main];frame.color[other]=lease->resources[other];
+        frame.identity.serial=capture.serial;frame.identity.origin=origin;frame.identity.capturedMs=capture.captureMs;
+        frame.identity.stereo=true;frame.identity.inputs=frame.inputs[0]->frameId==frame.inputs[1]->frameId;
+        for(unsigned eye=0;eye<2;++eye){const auto& in=*frame.inputs[eye];
+            frame.identity.nativeFrame=in.frameId;frame.identity.inputs=frame.identity.inputs && in.hasDepth && in.hasMotion &&
+                in.poseId==frame.identity.pose[eye] && in.origin==origin;
+            frame.identity.reset=frame.identity.reset || in.camera.reset;
+        }
+        frame.colorReady=m_captureFence;frame.colorReadyValue=capture.framegenColorReadyValue;
+        frame.captureTiming=capture.framegenCaptureTiming;frame.lease=lease;
+    }
+    return m_framegen.Prepare(m_d3dDevice,m_d3dQueue,std::move(frame),cvr::xrqueue::Queue());
 }
 
 DWORD OpenXRManager::FrameThreadMain() {
@@ -1171,7 +1219,10 @@ DWORD OpenXRManager::FrameThreadMain() {
         XrMark('W');
         CVR_DIAGNOSTIC(CyberpunkVR_DebugXrWaits.fetch_add(1, std::memory_order_relaxed));
         const double waitEnterMs = CyberpunkVR_XrRateLog ? XrDiagNowMs() : 0;
+        const double flightWait=cvr::framegen::flight::Enabled()?cvr::framegen::NowMs():0;
         XrResult res = xrWaitFrame(m_session, &waitInfo, &frameState);
+        if(flightWait)cvr::framegen::flight::Time(cvr::framegen::flight::Timing::WaitFrame,cvr::framegen::NowMs()-flightWait);
+        cvr::framegen::flight::Error(res);
         const double waitMs = CyberpunkVR_XrRateLog ? XrDiagNowMs() - waitEnterMs : 0;
         CVR_DIAGNOSTIC(CyberpunkVR_DebugXrWaitsReturned.fetch_add(1, std::memory_order_relaxed));
         if (XR_FAILED(res)) {
@@ -1202,6 +1253,7 @@ DWORD OpenXRManager::FrameThreadMain() {
         // totals as a loop that is behaving -- and looks, in the headset, like half rate.
         // Nothing branches on it: the control flow here is unchanged, only observed.
         if (beginRes == XR_FRAME_DISCARDED) {
+            cvr::framegen::flight::Count(cvr::framegen::flight::Event::BeginDiscarded);
             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrBeginDiscarded.fetch_add(1, std::memory_order_relaxed));
         }
 
@@ -1287,6 +1339,11 @@ DWORD OpenXRManager::FrameThreadMain() {
         }
         const bool menuRectActive = ((GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture()) &&
             !cvr::lobby::WorldShown() && !cvr::lobby::LoadingInSpace() && !noticeFrame;
+        // Arm inside the begun frame; queue native generation/copies before
+        // the bounded pacing hold at handoff. No capture mutex spans that wait.
+        const auto pacingSettings=cvr::framegen::GetSettings();
+        m_submitPacer.Begin(XR_SUCCEEDED(beginRes) && frameState.shouldRender &&
+            UseThreadedSubmit() && !menuRectActive && pacingSettings.enabled && pacingSettings.autoPace);
         // Menu closed -> drop the latched panel anchors so the NEXT menu re-anchors in
         // front of wherever the player is looking at open time.
         if (!menuRectActive) {
@@ -2030,6 +2087,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                 ID3D12Resource* monoSource = nullptr;
                 ID3D12Resource* vrcamEye=nullptr;
                 uint64_t capturedReadFence=0;
+                uint64_t sourceReadyValue=0;
+                auto* presentationQueue=cvr::xrqueue::Queue();
                 uint64_t presentSerial = 0;
                 XrPosef monoPoses[2]{};
                 uint64_t monoPoseIds[2]{};
@@ -2053,6 +2112,10 @@ DWORD OpenXRManager::FrameThreadMain() {
                         monoSource = m_monoCapturedFrame.texture;
                         monoSource->AddRef();
                         presentSerial = m_monoCapturedFrame.serial;
+                        fgFrame.colorReady=m_captureFence;
+                        fgFrame.colorReadyValue=m_monoCapturedFrame.framegenColorReadyValue;
+                        fgFrame.captureTiming=m_monoCapturedFrame.framegenCaptureTiming;
+                        sourceReadyValue=fgFrame.colorReadyValue;
                         monoCaptureMs = m_monoCapturedFrame.captureMs;
                         monoDark = m_monoCapturedFrame.dark;
                         frameMainEye = m_monoCapturedFrame.mainEye ? 1u : 0u;
@@ -2125,7 +2188,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         WaitForSingleObject(m_fenceEvent, static_cast<DWORD>(left) + 1);
                         if ((allocatorFree = m_fence->GetCompletedValue() >= allocatorBusy)) break;
                     }
-                    if (!allocatorFree) CyberpunkVR_XrAllocatorBusy.fetch_add(1, std::memory_order_relaxed);
+                    if (!allocatorFree) {CyberpunkVR_XrAllocatorBusy.fetch_add(1, std::memory_order_relaxed);cvr::framegen::flight::Count(cvr::framegen::flight::Event::AllocatorBusy);}
                 }
                 if (allocatorFree) m_cmdAllocatorIndex = nextAllocator;
                 ID3D12CommandAllocator* currentAllocator = allocatorFree ? m_cmdAllocators[m_cmdAllocatorIndex] : nullptr;
@@ -2181,7 +2244,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         if(lease->resources[0] && lease->resources[1])fgFrame.lease=std::move(lease);
                     }
                     fgSelection=m_framegen.Select(m_d3dDevice,m_d3dQueue,std::move(fgFrame),
-                        !menuRectActive && m_sessionRunning.load(std::memory_order_relaxed));
+                        !menuRectActive && m_sessionRunning.load(std::memory_order_relaxed),presentationQueue);
                     fgSelected=true;
                     for(unsigned eye=0;eye<2;++eye) {
                         monoPoses[eye]=fgSelection.frame.pose[eye];monoFovs[eye]=fgSelection.frame.fov[eye];
@@ -2191,6 +2254,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     // capture is already C. Timing and identity must follow the selected pixels too.
                     presentSerial=fgSelection.frame.identity.serial;
                     monoCaptureMs=fgSelection.frame.identity.capturedMs;
+                    sourceReadyValue=fgSelection.frame.colorReadyValue;
                 } else m_framegen.Reset();
                 // The image, its own pose, and its read reservation were acquired
                 // together with MAIN above. Reused VRCAM slots keep their own label.
@@ -2200,7 +2264,11 @@ DWORD OpenXRManager::FrameThreadMain() {
                     } else CVR_DIAGNOSTIC(CyberpunkVR_DebugVrcamEyeUnpaired.fetch_add(1,std::memory_order_relaxed));
                 }
 
-                if (currentAllocator && monoSource && monoHasView[0] && monoHasView[1] &&
+                // Selected pending real B must use B's receipt, not the newest capture C.
+                // Generated output already joined to presentationQueue in Generator.
+                const bool sourceReady=monoSource && (fgSelected && fgSelection.synthetic ? true :
+                    cvr::xrqueue::WaitCapture(fgSelected?fgSelection.frame.colorReady.Get():m_captureFence,sourceReadyValue));
+                if (sourceReady && currentAllocator && monoSource && monoHasView[0] && monoHasView[1] &&
                     SUCCEEDED(currentAllocator->Reset()) && SUCCEEDED(m_cmdList->Reset(currentAllocator, nullptr))) {
                     auto gpuProfile = cvr::gpu::profile::Begin(m_cmdList);
                     bool copyReady = true;
@@ -2244,24 +2312,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                         CyberpunkVR_XrRepeatCycles.fetch_add(1, std::memory_order_relaxed);
                     for (uint32_t eye = 0; eye < viewCountOutput; ++eye) {
                         if (!reuseImages) {
-                        uint32_t imageIndex = 0;
-                        XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-                        const XrResult acquireRes = xrAcquireSwapchainImage(m_eyeSwapchains[eye].handle, &acquireInfo, &imageIndex);
-                        if (XR_FAILED(acquireRes)) {
-                            Log("OpenXRManager: xrAcquireSwapchainImage failed for eye %u (res=%d)\n", eye, acquireRes);
-                            copyReady = false;
-                            break;
+                        auto& colorSwap=m_eyeSwapchains[eye];
+                        // Keep timed-out acquisitions for the next cycle. Only a
+                        // successful wait permits writes or release, on either queue.
+                        const XrResult waitRes=cvr::depth::WaitImage(colorSwap.handle,colorSwap.colorPending,
+                            colorSwap.colorPendingIndex,200000000); // preserve 200ms wait budget
+                        if(waitRes!=XR_SUCCESS){
+                            Log("OpenXRManager: color acquire/wait failed or timed out for eye %u (res=%d)\n",eye,waitRes);
+                            copyReady=false;break;
                         }
-                        acquiredEyes[eye] = true;
-
-                        XrSwapchainImageWaitInfo waitSwapchainInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-                        waitSwapchainInfo.timeout = 200000000; // 200 ms (was XR_INFINITE_DURATION): never hang the frame loop
-                        const XrResult waitRes = xrWaitSwapchainImage(m_eyeSwapchains[eye].handle, &waitSwapchainInfo);
-                        if (XR_FAILED(waitRes) || waitRes == XR_TIMEOUT_EXPIRED) {
-                            Log("OpenXRManager: xrWaitSwapchainImage failed/timeout for eye %u (res=%d)\n", eye, waitRes);
-                            copyReady = false;
-                            break;
-                        }
+                        acquiredEyes[eye]=true;
+                        const auto imageIndex=colorSwap.colorPendingIndex;
+                        if(imageIndex>=colorSwap.images.size()){copyReady=false;break;}
 
                         ID3D12Resource* texture = m_eyeSwapchains[eye].images[imageIndex].texture;
                         if (!texture) {
@@ -2283,14 +2345,14 @@ DWORD OpenXRManager::FrameThreadMain() {
                             D3D12_RESOURCE_BARRIER toRead{};
                             toRead.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                             toRead.Transition.pResource = eyeSource;
-                            toRead.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                            toRead.Transition.StateBefore = cvr::framegen::captured_color::ReadState(eyeSource);
                             toRead.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
                             toRead.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                            m_cmdList->ResourceBarrier(1, &toRead);
+                            if(!cvr::framegen::captured_color::Shared(eyeSource))m_cmdList->ResourceBarrier(1, &toRead);
                             const bool decoded = m_srgbToLinearPass->Record(
                                 m_cmdList, eyeSource, texture, m_cmdAllocatorIndex * 2 + eye);
                             std::swap(toRead.Transition.StateBefore, toRead.Transition.StateAfter);
-                            m_cmdList->ResourceBarrier(1, &toRead);
+                            if(!cvr::framegen::captured_color::Shared(eyeSource))m_cmdList->ResourceBarrier(1, &toRead);
                             if (!decoded) {
                                 Log("OpenXRManager: sRGB decode into the swapchain failed for eye %u\n", eye);
                                 copyReady = false;
@@ -2530,8 +2592,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                             }
                             if(depthReason==cvr::depth::Reject::None) {
                                 cvr::gpu::profile::Scope depthScope(gpuProfile,cvr::gpu::profile::Stage::SubmitDepth);
-                                useDepthLayer=m_stereoDepth.Record(m_d3dDevice,m_cmdList,m_d3dQueue,fgSelection.frame.inputs,
-                                    depthTargets,depthPlan,m_cmdAllocatorIndex,m_fence,m_fenceValue+1);
+                                useDepthLayer=m_stereoDepth.Record(m_d3dDevice,m_cmdList,presentationQueue,fgSelection.frame.inputs,
+                                    depthTargets,depthPlan,m_cmdAllocatorIndex,m_fence,m_fenceValue+1,cvr::xrqueue::Private());
                                 if(!useDepthLayer)depthReason=cvr::depth::Reject::Busy;
                             }
                         }
@@ -2554,6 +2616,17 @@ DWORD OpenXRManager::FrameThreadMain() {
                             projectionViews[eye].next = nullptr;
                         }
                     }
+
+                    m_cmdList->Close();
+                    ID3D12CommandList* cmdLists[] = {m_cmdList};
+                    presentationQueue->ExecuteCommandLists(1, cmdLists);
+                    if(cvr::xrqueue::Private())cvr::framegen::flight::Count(cvr::framegen::flight::Event::PresentationCopy);
+
+                    ++m_fenceValue;
+                    m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
+                    if (SUCCEEDED(presentationQueue->Signal(m_fence, m_fenceValue)))
+                        cvr::gpu::profile::Submitted(gpuProfile, presentationQueue, m_fence, m_fenceValue);
+                    capturedReadFence=m_fenceValue;
 
                     if (!copyReady) {
                         // An image released here may hold nothing of this frame: never reuse what is in the swapchains.
@@ -2579,25 +2652,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             }
                         }
 
-                        m_cmdList->Close();
-                        ID3D12CommandList* cmdLists[] = {m_cmdList};
-                        m_d3dQueue->ExecuteCommandLists(1, cmdLists);
-                        
-                        ++m_fenceValue;
-                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
-                        if (SUCCEEDED(m_d3dQueue->Signal(m_fence, m_fenceValue)))
-                            cvr::gpu::profile::Submitted(gpuProfile, m_d3dQueue, m_fence, m_fenceValue);
-                        capturedReadFence=m_fenceValue;
                     } else {
-                        m_cmdList->Close();
-                        ID3D12CommandList* cmdLists[] = {m_cmdList};
-                        m_d3dQueue->ExecuteCommandLists(1, cmdLists);
-                        
-                        ++m_fenceValue;
-                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
-                        if (SUCCEEDED(m_d3dQueue->Signal(m_fence, m_fenceValue)))
-                            cvr::gpu::profile::Submitted(gpuProfile, m_d3dQueue, m_fence, m_fenceValue);
-                        capturedReadFence=m_fenceValue;
 
                         bool releaseOk = true;
                         for (uint32_t eye = 0; eye < viewCountOutput; ++eye) {
@@ -2795,7 +2850,44 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     CVR_DIAGNOSTIC(CyberpunkVR_DebugSubmitAgeBuckets[bucket].fetch_add(1, std::memory_order_relaxed));
                                 }
                             }
+                            const auto handoffKind=fgSelected && fgSelection.synthetic ? cvr::framegen::SteamVrPacer::Kind::Synthetic :
+                                presentSerial==m_lastSubmittedSerial ? cvr::framegen::SteamVrPacer::Kind::Repeat : cvr::framegen::SteamVrPacer::Kind::Real;
+                            const bool probeGpu=cvr::framegen::flight::Enabled() && m_fence && capturedReadFence;
+                            if(probeGpu && handoffKind==cvr::framegen::SteamVrPacer::Kind::Synthetic && m_fence->GetCompletedValue()<capturedReadFence)
+                                cvr::framegen::flight::Count(cvr::framegen::flight::Event::SyntheticGpuPendingBeforeHold);
+                            // Mark after all port-owned layer releases, not just eye-copy
+                            // work. The runtime queue excludes later unrelated game rendering.
+                            // Needed by the readiness guard even with recording disabled.
+                            auto* deadlineProbe=cvr::xrqueue::ProbeBegin(cvr::framegen::flight::Enabled() &&
+                                pacingSettings.enabled && pacingSettings.autoPace);
+                            const auto presentationMark=(cvr::framegen::flight::Enabled() ||
+                                (pacingSettings.enabled && pacingSettings.autoPace))?cvr::xrqueue::Mark():0;
+                            const bool prepareAhead=fgSelected && !menuRectActive && !fgSelection.synthetic &&
+                                cvr::xrqueue::Private() && pacingSettings.enabled && pacingSettings.autoPace &&
+                                cvr::framegen::UsesNvidiaOFA(pacingSettings.backend);
+                            m_submitPacer.BeforeSubmit(handoffKind,presentationMark,&cvr::xrqueue::Ready,deadlineProbe,
+                                prepareAhead?m_monoPresentEvent:nullptr,
+                                prepareAhead?+[](void* owner){return static_cast<OpenXRManager*>(owner)->PrepareFramegenAhead();}:nullptr,this);
+                            if(presentationMark)cvr::framegen::flight::Count(cvr::xrqueue::Ready(presentationMark)?
+                                cvr::framegen::flight::Event::PresentationReady:cvr::framegen::flight::Event::PresentationPending);
+                            if(probeGpu && handoffKind!=cvr::framegen::SteamVrPacer::Kind::Repeat) {
+                                const bool ready=m_fence->GetCompletedValue()>=capturedReadFence;
+                                cvr::framegen::flight::Count(handoffKind==cvr::framegen::SteamVrPacer::Kind::Synthetic ?
+                                    (ready?cvr::framegen::flight::Event::SyntheticGpuReady:cvr::framegen::flight::Event::SyntheticGpuPending) :
+                                    (ready?cvr::framegen::flight::Event::RealGpuReady:cvr::framegen::flight::Event::RealGpuPending));
+                            }
+                            const double flightStart=cvr::framegen::flight::Enabled()?cvr::framegen::NowMs():0;
+                            if(flightStart&&monoCaptureMs>0)cvr::framegen::flight::Time(cvr::framegen::flight::Timing::ImageAge,flightStart-monoCaptureMs);
+                            if(deadlineProbe)deadlineProbe->handoffMs=cvr::framegen::DeadlineQpcMs();
                             const XrResult endRes = xrEndFrame(m_session, &endInfo);
+                            if(deadlineProbe){
+                                deadlineProbe->returnedMs=cvr::framegen::DeadlineQpcMs();
+                                deadlineProbe->accepted=XR_SUCCEEDED(endRes);deadlineProbe->sealed=true;
+                            }
+                            m_submitPacer.AfterSubmit(XR_SUCCEEDED(endRes));
+                            if(XR_SUCCEEDED(endRes))cvr::framegen::refresh::Submitted();
+                            if(flightStart)cvr::framegen::flight::Time(cvr::framegen::flight::Timing::EndFrame,cvr::framegen::NowMs()-flightStart);
+                            cvr::framegen::flight::Error(endRes);
                             CVR_DIAGNOSTIC(
                                 CyberpunkVR_StereoDepthReportSeq.fetch_add(1,std::memory_order_acq_rel);
                                 std::snprintf(CyberpunkVR_StereoDepthReport,sizeof(CyberpunkVR_StereoDepthReport),
@@ -2967,7 +3059,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     CVR_DIAGNOSTIC(++CyberpunkVR_DebugFreshSubmits);
                                 }
                                 if(fgSelected)m_framegen.Submitted(fgSelection,m_fence,capturedReadFence,true);
-                                else if(cvr::framegen::MetricsEnabled())cvr::framegen::OnSubmitted(presentSerial,false,presentSerial==m_lastSubmittedSerial,cvr::framegen::NowMs());
+                                else if(cvr::framegen::MetricsEnabled()||cvr::framegen::flight::Enabled())cvr::framegen::OnSubmitted(presentSerial,false,presentSerial==m_lastSubmittedSerial,cvr::framegen::NowMs());
                                 // A midpoint has B's endpoint serial, but it is not B's presentation.
                                 // Record B only when its real image reaches the compositor.
                                 if (realSubmission) m_lastSubmittedSerial = presentSerial;
@@ -3012,6 +3104,7 @@ DWORD OpenXRManager::FrameThreadMain() {
         // its view to black on one, which is the black flash a busy allocator used to cause. Counted
         // apart from the real submit so the two never average together into a number that says nothing.
         if (frameState.shouldRender && ResubmitLastFrame(frameState.predictedDisplayTime)) {
+            cvr::framegen::flight::Count(cvr::framegen::flight::Event::FallbackRepeat);
             CyberpunkVR_XrResubmits.fetch_add(1, std::memory_order_relaxed);
             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEnds.fetch_add(1, std::memory_order_relaxed));
             XrMark('E');
@@ -3021,11 +3114,16 @@ DWORD OpenXRManager::FrameThreadMain() {
             endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
             endInfo.layerCount = 0;
             endInfo.layers = nullptr;
+            cvr::framegen::flight::Count(cvr::framegen::flight::Event::EmptyEnd);
             CyberpunkVR_XrEmptyEnds.fetch_add(1, std::memory_order_relaxed);
             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEnds.fetch_add(1, std::memory_order_relaxed));
             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEndsEmpty.fetch_add(1, std::memory_order_relaxed));
             XrMark('e');
-            xrEndFrame(m_session, &endInfo);
+            const double flightStart=cvr::framegen::flight::Enabled()?cvr::framegen::NowMs():0;
+            m_submitPacer.Begin(false); // empty/lost render cycle: reacquire on resume
+            const auto flightResult=xrEndFrame(m_session, &endInfo);
+            if(flightStart)cvr::framegen::flight::Time(cvr::framegen::flight::Timing::EndFrame,cvr::framegen::NowMs()-flightStart);
+            cvr::framegen::flight::Error(flightResult);
         }
         XrAccumulateCycle(waitEnterMs, waitMs, frameState.predictedDisplayPeriod);
 

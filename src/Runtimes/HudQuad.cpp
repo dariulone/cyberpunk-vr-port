@@ -1,3 +1,4 @@
+#include "Runtimes/PresentationQueue.hpp"
 #include "Runtimes/HudQuad.hpp"
 #include "Camera/GazeCenter.hpp"
 #include "Render/GpuStageProfile.hpp"
@@ -79,6 +80,9 @@ bool Quad::Ensure(XrSession session, ID3D12Device* device, uint32_t w, uint32_t 
 }
 
 bool Quad::UpdateImage(const std::shared_ptr<Frame>& frame,ID3D12CommandQueue* queue,bool pipelined) {
+    // Bind/copy/release on the runtime queue; only the immutable canvas's
+    // exact producer receipt crosses from the game queue.
+    if(auto* runtime=cvr::xrqueue::Queue())queue=runtime;
     auto completed=fence->GetCompletedValue();
     if(completed==UINT64_MAX){submissionFailed=true;return false;}
     if(!pipelined && completed<fenceValue) {
@@ -124,6 +128,9 @@ bool Quad::UpdateImage(const std::shared_ptr<Frame>& frame,ID3D12CommandQueue* q
         std::swap(b.Transition.StateBefore,b.Transition.StateAfter);commands->ResourceBarrier(1,&b);
     }
     if(FAILED(commands->Close())){release();return false;}
+    if(cvr::xrqueue::Private() && !cvr::xrqueue::WaitPublished(frame->readyFence.Get(),frame->readyValue)) {
+        release();return false;
+    }
     // The exact source remains alive until THIS slot's submitted copy completes.
     // No slot or allocator is reused merely because another copy has completed.
     slot.frame=frame;slot.fenceValue=++fenceValue;

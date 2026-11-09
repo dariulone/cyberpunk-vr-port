@@ -1,3 +1,6 @@
+#include "Framegen/ProducerGate.hpp"
+#include "Framegen/RefreshCadence.hpp"
+#include "Framegen/FlightRecorder.hpp"
 #include "Framegen/Framegen.hpp"
 #include "Framegen/FramePolicy.hpp"
 #include "Render/Afw.hpp"
@@ -32,6 +35,7 @@ std::atomic<bool> enabled{false},metrics{false};
 std::atomic<bool> depthCapture{false};
 std::atomic<bool> autoPace{true},pacingReady{false};
 std::atomic<int64_t> displayPeriod{0};
+std::atomic<int64_t> framegenPeriod{0}; // physical scanout for SteamVR; raw period elsewhere
 // When xrWaitFrame last returned (NowMs): the phase of the display cycle the frame cap aims at.
 std::atomic<double> displayCycleMs{0};
 std::atomic<bool> fpsCap{true};
@@ -85,6 +89,7 @@ Settings GetSettings() {std::lock_guard lock(mutex);return settings;}
 namespace {std::atomic<int> activeBackend{-1};}
 const char* BackendName(Backend value) {
     switch(value) {
+        case Backend::NvidiaV557:return "NVIDIA OFA + V557 reconstruction";
         case Backend::Nvidia:return "NVIDIA OFA + FidelityFX";
         case Backend::DlssG:return "NVIDIA DLSS-G";
         default:return "FidelityFX";
@@ -103,8 +108,9 @@ void SetDepthCaptureEnabled(bool value) {depthCapture.store(value,std::memory_or
 bool MetricsEnabled() {return metrics.load(std::memory_order_relaxed);}
 void SetSettings(Settings value) {
     std::lock_guard settingsLock(settingsWriteMutex);
-    value.backend=Backend(std::clamp(int(value.backend),0,2));
+    value.backend=Backend(std::clamp(int(value.backend),0,3));
     value.quality=std::clamp(value.quality,0,2);
+    if(value.backend==Backend::NvidiaV557 && !value.flowScale)value.flowScale=50;
     // 0 = no optical flow: frame interpolation on the engine's vectors alone.
     value.flowScale=value.flowScale==100 || value.flowScale==75 || value.flowScale==0 ? value.flowScale : 50;
     value.overlayCorner=std::clamp(value.overlayCorner,0,8);
@@ -120,6 +126,7 @@ void SetSettings(Settings value) {
     const bool disabledReportChanged=metricsChanged || value.enabled!=settings.enabled || value.backend!=settings.backend || !CyberpunkVR_FramegenReport[0];
     if(metricsChanged)ClearMetricsLocked();
     if(value.historySeconds!=settings.historySeconds)nextRefresh=nextSummary=0;
+    if(value.enabled!=settings.enabled||value.backend!=settings.backend||value.quality!=settings.quality||value.flowScale!=settings.flowScale||value.autoPace!=settings.autoPace||value.steamVrOptimizations!=settings.steamVrOptimizations)flight::Count(flight::Event::SettingsChange);
     settings=value;
     enabled.store(value.enabled,std::memory_order_relaxed);
     metrics.store(value.overlay,std::memory_order_relaxed);
@@ -133,6 +140,7 @@ void SetSettings(Settings value) {
         CyberpunkVR_FramegenReportSeq.fetch_add(1,std::memory_order_release);
     }
     }
+    flight::Configure(value.flightRecorder);
     if(value.overlay)WakeHardwareTelemetry();else if(metricsChanged)StopHardwareTelemetry();
 }
 RuntimeStatus GetRuntimeStatus() {
@@ -156,7 +164,7 @@ Statistics GetStatistics() {
     result.cpuP99Ms=cpuSummary.p99;result.cpuP999Ms=cpuSummary.p999;result.gpuP99Ms=gpuSummary.p99;result.gpuP999Ms=gpuSummary.p999;
     result.cpuGraph=cpuHistory.Graph(now,settings.historySeconds);result.gpuGraph=gpuHistory.Graph(now,settings.historySeconds);
     result.hardware=GetHardwareStatistics();result.elapsedSeconds=started ? (now-started)/1000 : 0;
-    result.budgetMs=double(displayPeriod.load(std::memory_order_relaxed))*1e-6*(settings.enabled?2:1);
+    result.budgetMs=double((settings.enabled?framegenPeriod:displayPeriod).load(std::memory_order_relaxed))*1e-6*(settings.enabled?2:1);
     if(settings.enabled && settings.autoPace)result.budgetMs=std::max(result.budgetMs,pacingIntervalMs.load(std::memory_order_relaxed));
     if(result.budgetMs<=0)result.budgetMs=1000.0/90;
     const auto submissions=result.realSubmissions+result.generatedFrames+result.repeatedFrames;
@@ -183,6 +191,7 @@ void Status(const char* text,bool active) {
     std::lock_guard lock(mutex);stats.active=active;std::snprintf(stats.status,sizeof(stats.status),"%s",text);
 }
 void OnRealFrame(uint64_t serial,double now) {
+    if(serial)flight::Count(flight::Event::Capture);
     if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(!settings.overlay || !serial || serial==lastReal)return;
     if(!started)started=now;
     if(lastRealTime>0 && now>lastRealTime) {
@@ -193,6 +202,7 @@ void OnRealFrame(uint64_t serial,double now) {
     lastReal=serial;lastRealTime=now;real.Add(now);++stats.realFrames;
 }
 void OnSubmitted(uint64_t,bool synth,bool repeat,double now) {
+    flight::Count(repeat?flight::Event::AcceptedRepeat:synth?flight::Event::AcceptedSynthetic:flight::Event::AcceptedReal);
     if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(!settings.overlay)return;
     if(repeat) {repeats.Add(now);++stats.repeatedFrames;return;}
     output.Add(now);if(synth) {generated.Add(now);++stats.generatedFrames;}else ++stats.realSubmissions;
@@ -204,9 +214,11 @@ void OnGpuFrame(double ms) {
     CyberpunkVR_FrameRingGpu[n%8192]=float(ms);CyberpunkVR_FrameRingCount[1].store(n+1,std::memory_order_release);
 }
 void OnGeneration(double ms,double spanMs) {
+    flight::Time(flight::Timing::GenerationGpu,ms);flight::Time(flight::Timing::GenerationSpan,spanMs);
     if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay) {stats.generationMs=ms;stats.generationSpanMs=spanMs;}
 }
 void OnInput(unsigned eye,uint32_t w,uint32_t h) {
+    flight::Input(eye,w,h);
     if(eye>1 || !MetricsEnabled())return;std::lock_guard lock(mutex);if(!settings.overlay)return;++stats.inputFrames[eye];
     stats.renderWidth[eye]=w;stats.renderHeight[eye]=h;
     stats.inputsReady=stats.inputFrames[0] && stats.inputFrames[1];
@@ -215,6 +227,11 @@ void OnSkip() {if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settin
 void SetVram(uint64_t bytes) {if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay)stats.vramBytes=bytes;}
 void DisplayPeriod(int64_t ns) {
     if(ns<4000000 || ns>40000000)return;
+    flight::Period(double(ns)*1e-6);
+    const auto cadence=refresh::Resolve(ns);
+    if(framegenPeriod.exchange(cadence,std::memory_order_relaxed)!=cadence&&refresh::Targeted()){
+        pacingIntervalMs.store(0,std::memory_order_relaxed);resetPacing.store(true,std::memory_order_relaxed);
+    }
     displayPeriod.store(ns,std::memory_order_relaxed);displayCycleMs.store(NowMs(),std::memory_order_relaxed);
 }
 bool FpsCap() {return fpsCap.load(std::memory_order_relaxed);}
@@ -259,23 +276,27 @@ void OnPresentationCycle(bool missedAdjacentFrame) {
     static AdaptivePacing feedback;
     if(!Enabled() || !autoPace.load(std::memory_order_relaxed)) {feedback.Reset();pacingIntervalMs=0;return;}
     if(resetPacing.exchange(false,std::memory_order_relaxed))feedback.Reset();
-    pacingIntervalMs.store(feedback.Observe(NowMs(),double(displayPeriod.load(std::memory_order_relaxed))*2e-6,missedAdjacentFrame),std::memory_order_relaxed);
+    pacingIntervalMs.store(feedback.Observe(NowMs(),double(framegenPeriod.load(std::memory_order_relaxed))*2e-6,missedAdjacentFrame,refresh::Targeted() && refresh::Read().periodNs>0),std::memory_order_relaxed);
 }
 void PaceRenderedFrame() {
-    struct Timer {HANDLE handle{};double last{};~Timer(){if(handle)CloseHandle(handle);}};
+    const auto receipt=TakeProducerCapture(); // exact capture from this Present worker only
+    struct Timer {HANDLE handle{};double last{};int64_t cadence{};~Timer(){if(handle)CloseHandle(handle);}};
     // The game's Present jobs can run on different workers. A TLS deadline
     // limits each worker independently, allowing the combined stream to run
     // faster than half refresh. Serialize one schedule for that stream.
     static Timer timer;
     static std::mutex paceMutex;
     std::lock_guard paceLock(paceMutex);
-    const auto period=displayPeriod.load(std::memory_order_relaxed);
+    const auto period=framegenPeriod.load(std::memory_order_relaxed);
     // Framegen's pacing (two display periods a real frame) when it runs; the plain refresh cap otherwise.
     if(!Enabled() || !autoPace.load(std::memory_order_relaxed) || !pacingReady.load(std::memory_order_relaxed) || !period) {
-        timer.last=0;CapToDisplay(period);return;
+        flight::Pace(0,false);timer.last=0;CapToDisplay(displayPeriod.load(std::memory_order_relaxed));return;
     }
+    if(refresh::Targeted()&&timer.cadence!=period){timer.last=0;timer.cadence=period;}
     const double now=NowMs(),interval=std::max(double(period)*2e-6,pacingIntervalMs.load(std::memory_order_relaxed));
+    flight::Pace(interval,true);
     const double remaining=timer.last+interval-now;
+    const double cpuHoldStart=NowMs();
     if(remaining>.2 && remaining<=80) {
         if(!timer.handle)timer.handle=CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS);
         if(timer.handle) {
@@ -283,14 +304,43 @@ void PaceRenderedFrame() {
             if(SetWaitableTimerEx(timer.handle,&due,0,nullptr,nullptr,nullptr,0))WaitForSingleObject(timer.handle,100);
         }
     }
-    const auto done=NowMs();timer.last=timer.last && done<timer.last+interval*1.5 ? timer.last+interval : done;
+    flight::Time(flight::Timing::ProducerCpuHold,NowMs()-cpuHoldStart);
+    bool gpuHeld=false;
+    // Publication/notification and DXGI Present have finished. No XR or queue
+    // submission lock is held here. Bound additional producer lead by its own
+    // capture receipt, without waiting for interpolation or runtime consumption.
+    if(refresh::Targeted() && UsesNvidiaOFA(ActiveBackend())) {
+        const auto budget=ProducerGateBudgetMs(refresh::Read().periodNs);
+        const auto guard=GateProducer(receipt,budget,[] {return NowMs();},[&](double ms) {
+            return WaitProducerSlice(timer.handle,ms);
+        });
+        if(guard.waits){flight::Count(flight::Event::ProducerGpuWait);gpuHeld=true;}
+        flight::Time(flight::Timing::ProducerGpuHold,guard.elapsedMs);
+        using R=ProducerGateResult;
+        switch(guard.result) {
+        case R::Ready:flight::Count(flight::Event::ProducerGpuReady);break;
+        case R::Released:flight::Count(flight::Event::ProducerGpuReleased);break;
+        case R::Timeout:flight::Count(flight::Event::ProducerGpuTimeout);break;
+        case R::WaitFailed:flight::Count(flight::Event::ProducerGpuWaitFailed);break;
+        case R::DeviceLost:flight::Count(flight::Event::ProducerGpuDeviceLost);break;
+        case R::Missing:flight::Count(flight::Event::ProducerGpuMissing);break;
+        }
+    }
+    // Do not compensate a GPU-held release with an earlier next release: that
+    // would immediately refill the backlog this guard is trying to reduce.
+    const auto done=NowMs();timer.last=!gpuHeld && timer.last && done<timer.last+interval*1.5 ? timer.last+interval : done;
 }
 bool ParseSetting(const char* line,Settings& value) {
     int n{};float f{};
     if(sscanf_s(line,"xr_framegen = %d",&n)==1)value.enabled=n!=0;
+    else if(sscanf_s(line,"xr_framegen_flight_recorder = %d",&n)==1)value.flightRecorder=n!=0;
+    else if(sscanf_s(line,"xr_framegen_steamvr_optimizations = %d",&n)==1)value.steamVrOptimizations=n!=0;
+    // Retired split-control key: accept old INIs, but the complete package owns
+    // presentation isolation again. Never let this line override the main toggle.
+    else if(sscanf_s(line,"xr_framegen_steamvr_presentation_isolation = %d",&n)==1)return true;
     else if(sscanf_s(line,"xr_framegen_overlay = %d",&n)==1)value.overlay=n!=0;
     else if(sscanf_s(line,"xr_framegen_pace = %d",&n)==1)value.autoPace=n!=0;
-    else if(sscanf_s(line,"xr_framegen_backend = %d",&n)==1)value.backend=Backend(std::clamp(n,0,2));
+    else if(sscanf_s(line,"xr_framegen_backend = %d",&n)==1)value.backend=Backend(std::clamp(n,0,3));
     else if(sscanf_s(line,"xr_framegen_quality = %d",&n)==1)value.quality=n;
     else if(sscanf_s(line,"xr_framegen_flow_scale = %d",&n)==1)value.flowScale=n;
     else if(sscanf_s(line,"xr_framegen_overlay_corner = %d",&n)==1)value.overlayCorner=n;
@@ -306,6 +356,8 @@ bool ParseSetting(const char* line,Settings& value) {
     return true;
 }
 void WriteSettings(void* file,const Settings& s) {
+    std::fprintf(static_cast<FILE*>(file),"xr_framegen_flight_recorder=%d\n",s.flightRecorder);
+    std::fprintf(static_cast<FILE*>(file),"xr_framegen_steamvr_optimizations=%d\n",s.steamVrOptimizations);
     std::fprintf(static_cast<FILE*>(file),"xr_framegen=%d\nxr_framegen_overlay=%d\nxr_framegen_pace=%d\nxr_framegen_backend=%d\nxr_framegen_quality=%d\nxr_framegen_flow_scale=%d\nxr_framegen_overlay_corner=%d\n",
         s.enabled,s.overlay,s.autoPace,int(s.backend),s.quality,s.flowScale,s.overlayCorner);
     std::fprintf(static_cast<FILE*>(file),"xr_framegen_overlay_layout=%d\nxr_framegen_overlay_follow=%d\nxr_framegen_history=%d\nxr_framegen_overlay_cone=%.2f\nxr_framegen_overlay_scale=%.3f\nxr_framegen_overlay_distance=%.3f\nxr_framegen_overlay_x=%.2f\nxr_framegen_overlay_y=%.2f\n",

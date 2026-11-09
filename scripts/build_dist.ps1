@@ -197,6 +197,13 @@ Add-File (Need (Join-Path $RepoRoot "src\Shaders\stereo_probe_cull\355ba40185eea
 # of the original file is kept. See INSTALL.txt.
 Add-File (Need (Join-Path $RepoRoot "mods\config\UserSettings.json") "UserSettings.json") "red4ext\plugins\cyberpunkvrport\config\UserSettings.json"
 
+# Attributed V557 reconstruction and SteamVR telemetry support.
+foreach ($name in @('OFXR-LGPL-3.0.txt', 'OFXR-GPL-3.0.txt', 'OpenVR-LICENSE')) {
+    Add-File (Need (Join-Path $RepoRoot ("licenses\" + $name)) $name) ("red4ext\plugins\cyberpunkvrport\licenses\" + $name)
+}
+Add-File (Join-Path $RepoRoot 'externals\v557-reconstruction\provenance.json') 'red4ext\plugins\cyberpunkvrport\licenses\V557-provenance.json'
+Add-File (Join-Path $RepoRoot 'docs\FRAMEGEN-UPSTREAM.md') 'red4ext\plugins\cyberpunkvrport\licenses\FRAMEGEN-SOURCE.md'
+
 # ---- captured grip poses, read from beside the exe -------------------------------------------
 # ENUMERATED, never listed. This was a hardcoded three (both smoke grips and the lighter) while
 # mods\config\ holds fourteen: it also has RestGrip_Left -- the relaxed left hand worn

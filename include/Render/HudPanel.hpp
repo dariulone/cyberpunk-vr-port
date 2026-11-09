@@ -37,6 +37,10 @@ struct Snapshot {
 };
 struct Frame {
     Microsoft::WRL::ComPtr<ID3D12Resource> canvas;
+    // Exact producer completion, published only after a successful Signal.
+    // The consumer retains this Frame until its own GPU copy completes.
+    Microsoft::WRL::ComPtr<ID3D12Fence> readyFence;
+    uint64_t readyValue = 0;
     uint64_t stamp = 0, generation = 0, serial = 0;
     bool masked = false;
     bool lootVisible = false;

@@ -1,3 +1,4 @@
+#include "Runtimes/PresentationQueue.hpp"
 #include "Framegen/StatsOverlay.hpp"
 #include "Framegen/Framegen.hpp"
 #include <algorithm>
@@ -139,6 +140,7 @@ void Draw(Canvas c,const Settings& settings,const Statistics& stats) {
 }
 const XrCompositionLayerBaseHeader* StatsOverlay::Prepare(XrSession session,XrSpace view,ID3D12Device* device,ID3D12CommandQueue* queue,
     XrSpace local,const XrPosef* head,uint64_t origin,XrTime displayTime) {
+    if(auto* runtime=cvr::xrqueue::Queue())queue=runtime;
     const auto settings=GetSettings();
     if(!settings.overlay) {
         if(!fence || fence->GetCompletedValue()>=fenceValue)Shutdown();

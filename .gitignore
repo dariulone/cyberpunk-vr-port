@@ -248,3 +248,25 @@ tools/mirror/*
 # The packed archive: 100+ MB, over GitHub's file size limit. Its files come back out of it with WolvenKit, and the
 # release package (scripts/build_dist.ps1) takes it from mods/archive on disk.
 mods/archive/cyberpunkvrport.archive
+
+# Native framegen diagnostic sources; generated captures/builds stay local.
+!tools/flight_recorder/
+tools/flight_recorder/__pycache__/
+!tools/flight_recorder_tests/
+/build-*/
+/backups/
+/flight-run-*/
+/*-before/
+/*-rejected/
+/system-hang-*/
+/resolution-evidence/
+/validated-run/
+/*-deployment.json
+/*-provenance.json
+/*-runtime-result.json
+/*-rollback.json
+/*-signatures.json
+/deployment.json
+/*.patch
+!tools/flight_recorder/*.py
+!tools/flight_recorder_tests/build.ps1

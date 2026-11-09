@@ -18,6 +18,9 @@ struct Frame {
     XrFovf fov[2]{};
     std::shared_ptr<const Inputs> inputs[2];
     std::shared_ptr<ReadLease> lease;
+    Microsoft::WRL::ComPtr<ID3D12Fence> colorReady;
+    uint64_t colorReadyValue{};
+    std::shared_ptr<const CaptureTiming> captureTiming;
 };
 struct Selection {
     Frame frame;
@@ -28,14 +31,23 @@ struct Selection {
 };
 class Presenter {
 public:
-    Selection Select(ID3D12Device*,ID3D12CommandQueue*,Frame,bool gameplay);
+    Selection Select(ID3D12Device*,ID3D12CommandQueue*,Frame,bool gameplay,ID3D12CommandQueue* consumer=nullptr);
+    bool WantsPrepare(uint64_t serial) const {return primed && !prepared.frame.identity.serial && serial>generatedSerial;}
+    bool Prepare(ID3D12Device*,ID3D12CommandQueue*,Frame,ID3D12CommandQueue* consumer);
     void Submitted(const Selection&,ID3D12Fence*,uint64_t,bool accepted);
     void Reset();
+    void Shutdown();
     bool Pending() const {return cadence.Pending()!=0;}
 private:
     Cadence cadence;
     Generator generator;
     Frame pending;
+    Selection prepared;
+    Frame preparedEndpoint;
+    Settings preparedSettings;
+    double preparedAt{};
+    void Remember(const Frame&);
+
     Frame previous;
     bool primed{};
     uint64_t generatedSerial{},sdkFrame{};

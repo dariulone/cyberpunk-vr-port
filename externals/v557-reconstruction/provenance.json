@@ -1,0 +1,27 @@
+{
+  "repository": "https://github.com/tig3rmast3r/OFXR-Bridge",
+  "local_reference_commit": "e750741e8ea3d46dde5c57de57523df2c1ea88bf",
+  "base": "V557",
+  "original_sha256": {
+    "src/d3d12/d3d12_frame_synthesizer.cpp": "1a924cf3a05cbe54db151333740ba9bf70278b8fd2af8f353db97d130781bf39",
+    "src/d3d12/d3d12_history.cpp": "78c6de625232dc83439d21d3d2f3a6fc617e0de81c09499344217b4e7811635f",
+    "src/d3d12/frame_synthesis.hlsl": "37fe2c0c5ff3d57e79cbb0414199031aa9c4731df793db5a624eac890110a2e9",
+    "src/d3d12/guide_compose.hlsl": "56eabc72e57e73355f3e3c9d505f50060947b59dcf21f4d5eab6bef5357be3f0",
+    "src/common/dlss_motion_vectors.cpp": "68c006d2df9d7ff41e4d4edfb2ecf97d322ed7e520f32488442518f081e2cfd3",
+    "src/layer/bridge_flight_logger.cpp": "3b22389982051b9871cd190c0c6150a7520d1fa9e026376911261c6d199463e6",
+    "src/core/fps_overlay_model.cpp": "e962171028067dd90994a6b4eb232abf697e371be3938dc3761cb9168ab6235f",
+    "src/core/image.cpp": "e97763a583465a8cde1adae5308513c6ce09300bc89e394109a28b9919838b2e",
+    "src/core/optical_flow.cpp": "07d9f9e4f93dd2c83915604174ad6f3f0322ba62b247bac03f68b3895389e03b",
+    "src/core/pose.cpp": "11e0d62d44a4e22ba890bfd76ba6af2a39264192734ca5f8c92ec93eda426e70",
+    "include/xrfg/d3d12_frame_synthesizer.hpp": "c17b7f3883cba77f18f20b045e32bff067ef246c74bf4601535f9b84f4bc24cb",
+    "include/xrfg/bridge_flight_logger.hpp": "15c95ceff03fcf0943ab245ecf22a52b838ea45829c172289362dafe627c0126",
+    "include/xrfg/live_tuning.hpp": "edc03a4bff84b601cd79a5877c3b3ec3a7d967fc2b768063a7168cefa66b2057",
+    "include/xrfg/d3d12_history.hpp": "538839ea53898dff93bd86f90ba00ac14871c2e4200f02389d7c2f2453b325ef",
+    "include/xrfg/dlss_motion_vectors.hpp": "450e007aff6b4e887af02c7c00de32395c6f45f9b2e5458167db50dccfba58fd",
+    "include/xrfg/ini_file.hpp": "2b33d1c6df8646e5052f4e59f5193bc49cf2f294c4dc08b536bd60094f6e3e7b",
+    "include/xrfg/fps_overlay_model.hpp": "b9da54b2732cfa9b7ae7efba6cf8a11b5c6205ed86150ff52b186be68e4eb927",
+    "include/xrfg/image.hpp": "23a57567e77341b7a078cefdcf3b57b0909f099105d79ef2c5831935c1fc18ee",
+    "include/xrfg/optical_flow.hpp": "c7fed1c5d4ba46109abaec671e5e66af5517f5d419ffe3fdd29947c281c5a411",
+    "include/xrfg/pose.hpp": "72a4e3c83420270ea393f68f1c74781f24cb21081f217793b9e7877befbe9997"
+  }
+}

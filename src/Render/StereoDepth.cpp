@@ -78,20 +78,22 @@ bool Renderer::Idle()const{for(const auto& s:impl->slots)if(!s.Idle())return fal
 void Renderer::Poll(){for(auto& s:impl->slots)if(s.Idle())for(unsigned e=0;e<2;++e){s.inputs[e].reset();s.destination[e].Reset();}}
 bool Renderer::Record(ID3D12Device* device,ID3D12GraphicsCommandList* list,ID3D12CommandQueue* queue,
     const std::shared_ptr<const framegen::Inputs> (&inputs)[2],ID3D12Resource* const (&destinations)[2],
-    const Plan& plan,unsigned index,ID3D12Fence* fence,uint64_t value) {
+    const Plan& plan,unsigned index,ID3D12Fence* fence,uint64_t value,bool crossQueue) {
     if(!device || !list || !queue || !fence || !value || index>=impl->slots.size())return false;
     if(impl->device && impl->device.Get()!=device){if(!Idle())return false;impl=std::make_unique<Impl>();}
     auto& slot=impl->slots[index];if(!slot.Idle() || !impl->Init(device))return false;
-    // Same-queue FIFO is the readiness dependency. No wait on a game/async
-    // queue which could itself be waiting for Present is introduced here.
+    // Shared queue retains FIFO ordering. A private presentation queue may
+    // wait only on an already-submitted snapshot receipt, never future game work.
     for(unsigned e=0;e<2;++e) {
-        if(!inputs[e] || inputs[e]->queue!=queue || !inputs[e]->submitted || !inputs[e]->depth ||
+        if(!inputs[e] || (!crossQueue && inputs[e]->queue!=queue) || !inputs[e]->submitted || !inputs[e]->depth ||
             !inputs[e]->readyFence || !inputs[e]->fenceValue || !destinations[e])return false;
         const auto a=inputs[e]->depth->GetDesc(),b=destinations[e]->GetDesc();const auto& v=plan.eyes[e];
         if(!v.width || !v.height || a.Width!=v.width || a.Height!=v.height || b.Width!=v.width || b.Height!=v.height ||
             a.Format!=DXGI_FORMAT_R32_FLOAT || (b.Format!=DXGI_FORMAT_D32_FLOAT && b.Format!=DXGI_FORMAT_R32_TYPELESS) ||
             a.DepthOrArraySize!=1 || b.DepthOrArraySize!=1 || a.SampleDesc.Count!=1 || b.SampleDesc.Count!=1)return false;
     }
+    for(unsigned e=0;e<2;++e)if(inputs[e]->queue!=queue &&
+        FAILED(queue->Wait(inputs[e]->readyFence.Get(),inputs[e]->fenceValue)))return false;
     if(!slot.heap) {
         D3D12_DESCRIPTOR_HEAP_DESC desc{};desc.NumDescriptors=4;desc.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;desc.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if(FAILED(device->CreateDescriptorHeap(&desc,IID_PPV_ARGS(&slot.heap))))return false;

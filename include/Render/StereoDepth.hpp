@@ -12,7 +12,7 @@ public:
     bool Record(ID3D12Device*,ID3D12GraphicsCommandList*,ID3D12CommandQueue*,
         const std::shared_ptr<const framegen::Inputs> (&inputs)[2],
         ID3D12Resource* const (&destinations)[2],const Plan&,unsigned slot,
-        ID3D12Fence* submitFence,uint64_t submitValue);
+        ID3D12Fence* submitFence,uint64_t submitValue,bool crossQueue=false);
     bool Idle() const;
     void Poll();
 private:

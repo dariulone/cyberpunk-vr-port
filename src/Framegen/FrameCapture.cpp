@@ -1,6 +1,7 @@
 #include "Framegen/FrameCapture.hpp"
 #include "Core/Paths.hpp"
 #include <atomic>
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -10,6 +11,7 @@
 #include <vector>
 
 extern void Log(const char*,...);
+extern bool OverlayIsVisible();
 extern "C" __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_FramegenCapture{0};
 namespace cvr::framegen {
 namespace {
@@ -39,6 +41,8 @@ struct State {
     uint64_t value{};
     std::vector<Frame> frames;
     bool writing{};
+    uint64_t due{},expires{};
+    Settings settings{};
 } state;
 
 void Barrier(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES a,D3D12_RESOURCE_STATES b) {
@@ -68,16 +72,17 @@ bool Write(const Image& image,const std::filesystem::path& path) {
 void Floats(FILE* f,const char* name,const float* v,unsigned n,bool comma=true) {
     std::fprintf(f,"\"%s\":[",name);for(unsigned i=0;i<n;++i)std::fprintf(f,"%s%.9g",i?",":"",v[i]);std::fprintf(f,"]%s",comma?",":"");
 }
-void WriteAll(std::vector<Frame> frames,ComPtr<ID3D12Fence> fence,uint64_t value) {
+void WriteAll(std::vector<Frame> frames,ComPtr<ID3D12Fence> fence,uint64_t value,Settings settings) {
     HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
     if(fence->GetCompletedValue()<value && event) {fence->SetEventOnCompletion(value,event);WaitForSingleObject(event,10000);}
     if(event)CloseHandle(event);
     bool ok=fence->GetCompletedValue()>=value;
     char stamp[32];const std::time_t now=std::time(nullptr);std::tm local{};localtime_s(&local,&now);std::strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",&local);
-    const auto directory=std::filesystem::path(cvr::paths::Dir(cvr::paths::Folder::Log))/L"framegen-capture"/stamp;
+    const auto directory=std::filesystem::path(cvr::paths::Dir(cvr::paths::Folder::Log))/L"framegen-capture"/(std::string(stamp)+"-"+std::to_string(GetTickCount64()));
     std::error_code error;std::filesystem::create_directories(directory,error);ok=ok && !error;
     FILE* json=ok?_wfopen((directory/L"capture.json").c_str(),L"w"):nullptr;ok=json!=nullptr;
-    if(ok)std::fprintf(json,"{\"frames\":[\n");
+    if(ok)std::fprintf(json,"{\"schema\":2,\"backend\":%d,\"quality\":%d,\"flowScale\":%d,\"qpcFrequency\":%lld,\"frames\":[\n",
+        int(settings.backend),settings.quality,settings.flowScale,[](){LARGE_INTEGER f{};QueryPerformanceFrequency(&f);return f.QuadPart;}());
     for(size_t k=0;ok && k<frames.size();++k) {
         const auto& frame=frames[k];
         std::fprintf(json,"%s{\"frame\":%u,\"eyes\":[",k?",\n":"",frame.frameId);
@@ -101,15 +106,56 @@ void WriteAll(std::vector<Frame> frames,ComPtr<ID3D12Fence> fence,uint64_t value
     }
     if(json) {std::fprintf(json,"\n]}\n");std::fclose(json);}
     Log("[framegen] capture of %zu frames %s: %ls\n",frames.size(),ok?"written":"FAILED",directory.c_str());
-    {std::lock_guard lock(state.mutex);state.writing=false;}
-    CyberpunkVR_FramegenCapture.store(ok?2:-1);
+    {std::lock_guard lock(state.mutex);
+        // Timeout must not release allocations the GPU may still be writing.
+        if(fence->GetCompletedValue()<value)state.frames=std::move(frames);
+        state.writing=false;CyberpunkVR_FramegenCapture.store(ok?2:-1);
+    }
 }
+}
+
+
+bool ScheduleFrameCapture(unsigned delaySeconds) {
+    std::lock_guard lock(state.mutex);
+    if(state.writing || CyberpunkVR_FramegenCapture.load()==1 ||
+       (state.fence && state.fence->GetCompletedValue()<state.value))return false;
+    state.frames.clear();state.settings=GetSettings();
+    state.due=GetTickCount64()+uint64_t(std::min(delaySeconds,60u))*1000;
+    state.expires=state.due+60000;
+    CyberpunkVR_FramegenCapture.store(1);
+    Log("[framegen] image capture armed; delay=%us, close F10 and continue moving\n",delaySeconds);
+    return true;
+}
+void CancelFrameCapture() {
+    std::lock_guard lock(state.mutex);
+    if(!state.writing){CyberpunkVR_FramegenCapture.store(0);state.due=state.expires=0;}
+}
+void FrameCaptureStatus(char* text,size_t capacity,bool* busy) {
+    std::lock_guard lock(state.mutex);
+    auto status=CyberpunkVR_FramegenCapture.load();const auto now=GetTickCount64();
+    if(status==1 && !state.writing && state.expires && now>=state.expires){
+        CyberpunkVR_FramegenCapture.store(-1);status=-1;
+        Log("[framegen] image capture timed out waiting for consecutive gameplay inputs\n");
+    }
+    if(busy)*busy=status==1 || state.writing;
+    if(!text || !capacity)return;
+    if(state.writing)std::snprintf(text,capacity,"Saving images...");
+    else if(status==1 && state.due>now)std::snprintf(text,capacity,"Starts in %llu s; close F10 and ride",(state.due-now+999)/1000);
+    else if(status==1)std::snprintf(text,capacity,"Waiting for gameplay: %zu/3 consecutive frames",state.frames.size());
+    else if(status==2)std::snprintf(text,capacity,"Saved in cyberpunkvrport/log/framegen-capture");
+    else if(status<0)std::snprintf(text,capacity,"Capture failed or timed out; see cyberpunkvrport.log");
+    else std::snprintf(text,capacity,"Idle (no image recording)");
 }
 
 void CaptureFrame(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Resource* const colors[2],
     const std::shared_ptr<const Inputs> (&inputs)[2],const EyePair (&cameras)[2]) {
     if(CyberpunkVR_FramegenCapture.load(std::memory_order_relaxed)!=1)return;
     std::lock_guard lock(state.mutex);
+    // Recheck under the lock: cancellation/rearming can race this call.
+    if(CyberpunkVR_FramegenCapture.load()!=1)return;
+    const auto now=GetTickCount64();
+    if(state.expires && now>=state.expires && !state.writing){CyberpunkVR_FramegenCapture.store(-1);return;}
+    if(state.due && (now<state.due || OverlayIsVisible()))return;
     if(state.writing || !device || !queue || !colors[0] || !colors[1] || !inputs[0] || !inputs[1])return;
     // A real frame shown again (no newer one yet) is no break in the sequence.
     if(!state.frames.empty() && inputs[0]->frameId==state.frames.back().frameId)return;
@@ -126,6 +172,7 @@ void CaptureFrame(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Resource*
         state.list->Close();
     }
     if(FAILED(state.allocator->Reset()) || FAILED(state.list->Reset(state.allocator.Get(),nullptr)))return;
+    if(state.frames.empty())state.settings=GetSettings();
     Frame frame;frame.frameId=inputs[0]->frameId;bool ok=true;
     constexpr auto read=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;constexpr auto copy=D3D12_RESOURCE_STATE_COPY_SOURCE;
     for(unsigned e=0;e<2 && ok;++e) {
@@ -145,7 +192,7 @@ void CaptureFrame(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Resource*
     state.frames.push_back(std::move(frame));
     if(state.frames.size()<3)return;
     state.writing=true;
-    std::thread(WriteAll,std::move(state.frames),state.fence,state.value).detach();
+    std::thread(WriteAll,std::move(state.frames),state.fence,state.value,state.settings).detach();
     state.frames.clear();
 }
 }

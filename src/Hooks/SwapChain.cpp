@@ -1,3 +1,4 @@
+#include "Framegen/ProducerGate.hpp"
 #include <MinHook.h>
 #include "Hooks/RenderDocBridge.hpp"
 #include "Hooks/SwapChainInternal.hpp"
@@ -214,6 +215,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
             return orig ? orig(swapChain, syncInterval, flags) : DXGI_ERROR_INVALID_CALL;
         }
     }
+    cvr::framegen::BeginProducerFrame(); // this Present cannot reuse an older capture receipt
     cvr::gpu::queue_timeline::Present();
 
     {

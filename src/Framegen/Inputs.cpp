@@ -1,5 +1,6 @@
 #include "Utils/DebugGate.hpp"
 #include "Framegen/Inputs.hpp"
+#include "Framegen/SourceTimeline.hpp"
 #include "Runtimes/AsymmetricProjection.hpp"
 #include "Framegen/InputCopy.hpp"
 #include "Framegen/Framegen.hpp"
@@ -301,6 +302,8 @@ bool RecordSide(unsigned side,const cvr::camera::PoseIdentity& pose,const Camera
         if(CopyInput(list,tag,copy)) {
             CVR_DIAGNOSTIC(CyberpunkVR_FramegenInputStages[6].fetch_add(1,std::memory_order_relaxed));
             copied|=tag.type==0 ? 1 : 2;
+            source_timing::Record(list,pose.renderFrameId,pose.poseId,pose.head.originSerial,side,
+                tag.type==0?source_timing::Stage::Depth:source_timing::Stage::Motion);
         }
     }
     lock.lock();
@@ -372,6 +375,7 @@ bool InstallInputHooks() {
     return true;
 }
 void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* lists) {
+    source_timing::Submitted(queue,count,lists);
     if(!havePending.load(std::memory_order_acquire))return;
     std::lock_guard lock(mutex);
     for(UINT i=0;i<count;++i) {
@@ -395,6 +399,7 @@ void Submitted(ID3D12CommandQueue* queue,UINT count,ID3D12CommandList* const* li
     havePending.store(!pending.empty(),std::memory_order_release);
 }
 void ResetList(ID3D12GraphicsCommandList* list) {
+    source_timing::ResetList(list);
     if(!havePending.load(std::memory_order_acquire))return;
     std::lock_guard lock(mutex);const auto it=pending.find(list);if(it==pending.end())return;
     for(const auto& link:it->second)if(auto r=link.record.lock();r && r->generation==link.generation) {r->invalid=true;r->submitted|=link.mask;}

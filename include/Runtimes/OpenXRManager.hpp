@@ -3,6 +3,8 @@
 struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Runtimes/SteamFrameInput.hpp"
 #include "Framegen/Presenter.hpp"
+#include "Framegen/CaptureTiming.hpp"
+#include "Framegen/SteamVrPacer.hpp"
 #include "Framegen/StatsOverlay.hpp"
 #include "Overlay/VrPanel.hpp"
 
@@ -1167,6 +1169,8 @@ private:
         int32_t height = 0;
         std::vector<XrSwapchainImageD3D12KHR> images;
         std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> rtvs;
+        uint32_t colorPendingIndex{};
+        bool colorPending{}; // acquired but not yet safe to write/release
         XrSwapchain depthHandle = XR_NULL_HANDLE;
         uint32_t depthWidth{},depthHeight{},depthPendingIndex{};
         bool depthPending{}; // acquired but xrWaitSwapchainImage has not succeeded yet
@@ -1183,6 +1187,8 @@ private:
         bool hasView[2]{};
         uint64_t poseIds[2]{},imageGenerations[2]{};
         std::shared_ptr<const cvr::framegen::Inputs> framegenInputs[2];
+        std::shared_ptr<const cvr::framegen::CaptureTiming> framegenCaptureTiming;
+        uint64_t framegenColorReadyValue{}; // exact successful capture submission
         // WHEN this image and its poses were captured, on the QPC clock XrDiagNowMs uses.
         //
         // The one thing the frame accounting could not see. Every other counter says how MANY frames
@@ -1201,9 +1207,12 @@ private:
         // every frame (Render/Afw.hpp), and the submit routes the frame it carries, not the switch's state now.
         int8_t mainEye = 1;
     };
+    cvr::framegen::CaptureTimingPool m_framegenCaptureTimingPool;
     std::vector<EyeSwapchain> m_eyeSwapchains;
     CapturedMonoFrame m_monoCapturedFrame;
+    bool PrepareFramegenAhead();
     cvr::framegen::Presenter m_framegen;
+    cvr::framegen::SteamVrPacer m_submitPacer;
     cvr::depth::Renderer m_stereoDepth;
     cvr::framegen::StatsOverlay m_framegenOverlay;
     // [DEPTH] Game scene-depth snapshot for the XR depth layer (parallel to color).

@@ -9,7 +9,7 @@ class AdaptivePacing {
     unsigned misses{};
 public:
     void Reset() {*this={};}
-    double Observe(double now,double minimumInterval,bool missed) {
+    double Observe(double now,double minimumInterval,bool missed,bool recoverSteamVr=false) {
         if(!std::isfinite(now) || !std::isfinite(minimumInterval) || minimumInterval<=0)return interval;
         if(!interval || base!=minimumInterval || now<windowStart || now-windowStart>2000) {
             interval=base=minimumInterval;windowStart=lastMiss=now;misses=0;
@@ -19,7 +19,13 @@ public:
             // Back off on repeated missing neighbors, recover slowly after a
             // healthy interval. A single loading/camera spike must not cap FPS.
             if(misses>=2)interval=std::min(base*2,interval*1.04);
-            else if(!misses && now-lastMiss>=5000)interval=std::max(base,interval-base*.005);
+            else if(!misses && now-lastMiss>=(recoverSteamVr?2000:5000)) {
+                // SteamVR: halve the accumulated excess each healthy second,
+                // with a 2% base floor so recovery actually reaches the target.
+                // Preserve upstream recovery on every other runtime.
+                const double step=recoverSteamVr?std::max((interval-base)*.5,base*.02):base*.005;
+                interval=std::max(base,interval-step);
+            }
             windowStart=now;misses=0;
         }
         return interval;
