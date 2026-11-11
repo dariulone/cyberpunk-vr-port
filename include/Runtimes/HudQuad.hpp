@@ -8,10 +8,22 @@
 #include <memory>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include "Runtimes/HudFollow.hpp"
 #include "Render/HudPanel.hpp"
 
 namespace cvr::hud {
+// What a runtime accepts in a quad layer: a finite position, an orientation of unit length within 1% (the
+// OpenXR rule; Monado and WiVRn check it) and a finite, positive size. One layer outside it fails the whole
+// xrEndFrame (XR_ERROR_POSE_INVALID, issue #138): the world frame with it.
+inline bool Submittable(const XrCompositionLayerQuad& quad) {
+    const auto& p=quad.pose.position;const auto& q=quad.pose.orientation;
+    const float length=std::sqrt(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w);
+    return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) &&
+        std::isfinite(length) && std::fabs(length-1.0f)<=0.01f &&
+        std::isfinite(quad.size.width) && std::isfinite(quad.size.height) &&
+        quad.size.width>0.0f && quad.size.height>0.0f;
+}
 struct PoseDebug {
     uint64_t frames=0;
     int64_t displayTime=0;

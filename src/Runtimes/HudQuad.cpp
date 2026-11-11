@@ -269,6 +269,18 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
         rightLayer.pose.position.x+=lastEyeOffsets[1].x;rightLayer.pose.position.y+=lastEyeOffsets[1].y;rightLayer.pose.position.z+=lastEyeOffsets[1].z;
         secondEye=true;
     }
+    // Dropped for this frame rather than submitted: the runtime would refuse every layer with it (issue #138).
+    if(!Submittable(layer) || (secondEye && !Submittable(rightLayer))) {
+        static bool logged=false;
+        if(!logged) {
+            logged=true;
+            const auto& q=layer.pose.orientation;const auto& p=layer.pose.position;
+            Log("[hud-panel] channel %d layer not submittable, dropped: orientation (%g,%g,%g,%g) position (%g,%g,%g) "
+                "size %gx%g tracked %d\n",int(channel),q.x,q.y,q.z,q.w,p.x,p.y,p.z,layer.size.width,layer.size.height,int(tracked));
+        }
+        secondEye=false;
+        return nullptr;
+    }
     if(channel==Channel::Main && cvr::RuntimeDiagnosticsEnabled()) {
     CyberpunkVR_HudPoseDebugSeq.fetch_add(1,std::memory_order_acq_rel);
     auto& debug=CyberpunkVR_HudPoseDebug;

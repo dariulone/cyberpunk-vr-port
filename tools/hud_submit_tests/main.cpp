@@ -1,6 +1,9 @@
 #include "Runtimes/HudQuad.hpp"
 #include "Render/GpuStageProfile.hpp"
 #include "Core/LiveControls.hpp"
+#include "Runtimes/HudClearance.hpp"
+#include "Runtimes/InteractionDepth.hpp"
+#include "Runtimes/OpenXRManager.hpp"
 #include <dxgi1_6.h>
 #include <d3d12sdklayers.h>
 #include <chrono>
@@ -18,6 +21,16 @@ extern "C" cvr::hud::PoseDebug CyberpunkVR_HudPoseDebug;
 void Log(const char*,...) {}
 void Check(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
 void Hr(HRESULT value) {Check(SUCCEEDED(value),"D3D12 call failed");}
+// Prepare's placement inputs, all off: the panel at its configured distance, no clearance, no hands.
+extern "C" int CyberpunkVR_InteractionAnchor=0,CyberpunkVR_HudClearance=0,CyberpunkVR_HudClearanceHands=0;
+extern "C" float CyberpunkVR_HudClearanceGrow=0,CyberpunkVR_HudClearanceHandsScale=1;
+namespace cvr::interaction {float TargetDepth(uint64_t) {return 0;}}
+namespace cvr::hud::clearance {
+float Published(uint64_t) {return kFree;}
+float GrowFactor(float,float,float) {return 1;}
+}
+OpenXRManager& OpenXRManager::Get() {std::abort();}   // only reached with CyberpunkVR_HudClearanceHands
+bool OpenXRManager::GetHandPose(int,OpenXRHeadPose*) const {return false;}
 namespace cvr::gpu::profile {
 BatchPtr Begin(ID3D12GraphicsCommandList*) {return {};}
 Scope::Scope(const BatchPtr&,Stage) {}
@@ -125,6 +138,20 @@ int main() try {
     Check(prepare(false)==nullptr && !mock::ready,"disable did not suppress the layer");
     mock::source=frame(7);Check(prepare()!=nullptr,"re-enable failed");drain();
 
+    // The quad a runtime cannot take never reaches xrEndFrame (issue #138): it would fail every layer with it.
+    XrCompositionLayerQuad probe{XR_TYPE_COMPOSITION_LAYER_QUAD};probe.pose={{0,0,0,1},{0,1.7f,-1}};probe.size={1,1};
+    Check(Submittable(probe),"valid quad refused");
+    probe.pose.orientation={0,0,0,1.009f};Check(Submittable(probe),"orientation within 1% refused");
+    probe.pose.orientation={0,0,0,1.02f};Check(!Submittable(probe),"orientation off unit length accepted");
+    probe.pose.orientation={0,0,0,1};probe.pose.position.z=NAN;Check(!Submittable(probe),"NaN position accepted");
+    probe.pose.position.z=-1;probe.size.width=0;Check(!Submittable(probe),"zero size accepted");
+    // The head-locked prompt takes the located head orientation as it is; the one reported in #138.
+    const auto heldOrientation=head.orientation;
+    head.orientation={1.6e27f,0,0,.999995f};
+    Check(prepare()==nullptr && quad.SecondEye()==nullptr,"invalid head orientation reached the layer");
+    head.orientation=heldOrientation;
+    Check(prepare()!=nullptr,"valid pose after a dropped one not submitted");drain();
+
     // Resize with a pending acquisition must wait/release it before destruction.
     mock::source=frame(8);mock::timeout=true;Check(prepare()!=nullptr && mock::acquired,"pending resize setup");
     mock::source=frame(9,64);const auto destroyedBefore=mock::destroys;
@@ -156,6 +183,6 @@ int main() try {
         info->GetMessage(i,message,&bytes);
         if(message->Severity<=D3D12_MESSAGE_SEVERITY_ERROR){std::cerr<<message->pDescription<<'\n';throw std::runtime_error("D3D12 validation failed");}
     }
-    std::cout<<"PASS delayed GPU, three fenced slots, source lifetime, busy/stale metadata, XR timeout recovery, repeat, disable, resize and legacy switch\n";
+    std::cout<<"PASS delayed GPU, three fenced slots, source lifetime, busy/stale metadata, XR timeout recovery, repeat, disable, invalid pose, resize and legacy switch\n";
     return 0;
 } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}

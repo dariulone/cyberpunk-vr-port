@@ -2795,7 +2795,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     CVR_DIAGNOSTIC(CyberpunkVR_DebugSubmitAgeBuckets[bucket].fetch_add(1, std::memory_order_relaxed));
                                 }
                             }
-                            const XrResult endRes = xrEndFrame(m_session, &endInfo);
+                            XrResult endRes = xrEndFrame(m_session, &endInfo);
+                            // ONE REFUSED OVERLAY MUST NOT COST THE FRAME (issue #138). A runtime refuses the whole
+                            // end for one invalid layer, and a failed end drops the world image and resets frame
+                            // generation. A refused end leaves the frame open (the failure path below already ends
+                            // it again, empty), so the world layer goes in alone.
+                            const bool overlaysRefused = !XR_SUCCEEDED(endRes) && endInfo.layerCount > 1;
+                            if (overlaysRefused) {
+                                LOG_THROTTLED(5000, "OpenXRManager: xrEndFrame refused %u layers (res=%d); "
+                                    "submitting the world layer alone\n", endInfo.layerCount, endRes);
+                                endInfo.layerCount = 1;
+                                endRes = xrEndFrame(m_session, &endInfo);
+                            }
                             CVR_DIAGNOSTIC(
                                 CyberpunkVR_StereoDepthReportSeq.fetch_add(1,std::memory_order_acq_rel);
                                 std::snprintf(CyberpunkVR_StereoDepthReport,sizeof(CyberpunkVR_StereoDepthReport),
@@ -2859,7 +2870,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     static_assert(sizeof(layers) / sizeof(layers[0]) - 1 <= LastSubmission::kMaxExtra,
                                                   "the record must hold every layer after the first");
                                 }
-                                if(hudLayer && !menuRectActive)
+                                if(hudLayer && !menuRectActive && !overlaysRefused)
                                     CVR_DIAGNOSTIC(CyberpunkVR_HudSubmittedFrames.fetch_add(1,std::memory_order_relaxed));
                                 for(int eye=0;eye<2;++eye)
                                     CVR_DIAGNOSTIC(CyberpunkVR_PoseIdLastSubmit[eye].store(monoPoseIds[eye],std::memory_order_relaxed));
