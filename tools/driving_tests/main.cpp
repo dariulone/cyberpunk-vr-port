@@ -217,6 +217,74 @@ void TrackedRoundtrip() {
         Near(wheel.Angle(),0,"physical neutral was not restored after overtravel");
     }
 }
+// Motorcycle bars: hands 50 cm apart, turned about the vertical by `angle` (positive = right hand back = turn right).
+WheelTrackingFrame Bars(uint64_t sequence,float angle,XrVector3f shift={}) {
+    WheelTrackingFrame frame;
+    frame.headValid=true;frame.validHands=3;frame.sequence=sequence;frame.origin=1;frame.stampUs=1000000+sequence*11111;
+    frame.head.position={0,1.6f,0};
+    const float a=angle/57.295779513f;
+    frame.hands[0]={.25f*std::cos(a)+shift.x,-.4f+shift.y,-.4f+.25f*std::sin(a)+shift.z};
+    frame.hands[1]={-.25f*std::cos(a)+shift.x,-.4f+shift.y,-.4f-.25f*std::sin(a)+shift.z};
+    return frame;
+}
+void Handlebar() {
+    const float bars=.25f,lock=BikeBarLockDefault;
+    const auto update=[&](TrackedWheelSteering& w,uint8_t mask,const WheelTrackingFrame& f) {
+        return w.Update(mask,f,f.stampUs,bars,lock,0,0,true);
+    };
+    for(int mask:{1,2,3})for(int direction:{-1,1}) {
+        TrackedWheelSteering wheel;uint64_t sequence=0;
+        update(wheel,uint8_t(mask),Bars(++sequence,0));
+        for(int step=1;step<=25;++step) {
+            const float angle=float(direction*step);
+            const float out=update(wheel,uint8_t(mask),Bars(++sequence,angle));
+            Near(wheel.Angle(),angle,"push-pull did not turn the bars by its angle");
+            Near(out,angle/lock,"bars did not reach full lock proportionally");
+        }
+        for(int step=24;step>=0;--step)update(wheel,uint8_t(mask),Bars(++sequence,float(direction*step)));
+        Near(wheel.Angle(),0,"bars did not return to the grab position");
+    }
+    TrackedWheelSteering wheel;uint64_t sequence=0;
+    update(wheel,3,Bars(++sequence,0));
+    Near(update(wheel,3,Bars(++sequence,0,{.05f,.1f,-.1f})),0,"moving both hands together steered");
+    // Hands twisted like a car's wheel, in the right/up plane: not a handlebar movement.
+    auto twisted=Bars(++sequence,0);twisted.hands[0].y+=.1f;twisted.hands[1].y-=.1f;
+    Near(update(wheel,3,twisted),0,"a wheel-style twist steered the bars");
+    // Body lean: the head moves over stationary hands, so the bars themselves do not turn.
+    const auto leaned=[&](uint64_t s,float x,float yawDegrees) {
+        auto f=Bars(s,0);
+        const float half=yawDegrees/114.59155902f;
+        f.head.orientation={0,std::sin(half),0,std::cos(half)};
+        const XrVector3f neck{x,1.5f,.1f};
+        const auto eyes=RotateVector(f.head.orientation,XrVector3f{0,.1f,-.1f});
+        f.head.position={neck.x+eyes.x,neck.y+eyes.y,neck.z+eyes.z};
+        const XrVector3f world[2]={{.25f,1.2f,-.4f},{-.25f,1.2f,-.4f}};
+        for(int i=0;i<2;++i)f.hands[i]=RotateVector(ConjugateQuat(f.head.orientation),
+            XrVector3f{world[i].x-f.head.position.x,world[i].y-f.head.position.y,world[i].z-f.head.position.z});
+        return f;
+    };
+    const auto lean=[&](TrackedWheelSteering& w,const WheelTrackingFrame& f,float share) {
+        return w.Update(3,f,f.stampUs,bars,lock,0,0,true,share);
+    };
+    for(float direction:{-1.f,1.f}) {
+        TrackedWheelSteering body;uint64_t s=0;
+        lean(body,leaned(++s,0,0),.5f);
+        Near(lean(body,leaned(++s,direction*.02f,0),.5f),0,"body lean inside the deadzone steered");
+        Near(lean(body,leaned(++s,direction*.15f,0),.5f),direction*.5f,"15 cm lean was not the configured share");
+        Near(body.Angle(),0,"body lean turned the bars");
+        Near(lean(body,leaned(++s,direction*.5f,0),1),direction,"body lean passed full lock");
+        Near(lean(body,leaned(++s,direction*.15f,0),0),0,"body lean at share 0 steered");
+    }
+    {
+        TrackedWheelSteering body;uint64_t s=0;
+        lean(body,leaned(++s,0,0),.5f);
+        Near(lean(body,leaned(++s,0,60),.5f),0,"looking aside counted as leaning");
+    }
+    Near(WheelFullLockForVehicle(120,false),120,"legacy mount setting changed");
+    Near(BikeBarLockDegrees(0),BikeBarLockDefault,"unset bar lock did not default");
+    Near(BikeBarLockDegrees(5),BikeBarLockMin,"bar lock below its range");
+    Near(BikeBarLockDegrees(90),BikeBarLockMax,"bar lock above its range");
+}
 void TrackedLifetime() {
     TrackedWheelSteering wheel;auto frame=Tracking(1,0,0);
     wheel.Update(1,frame,frame.stampUs,radius,90,1.5f);
@@ -379,6 +447,7 @@ int main(int argc,char** argv) {
     else if(name=="rate_matrix")RateMatrix();else if(name=="deadzone")Deadzone();
     else if(name=="extended_travel")ExtendedTravel();
     else if(name=="gamepad_range")GamepadRange();else if(name=="tracked_head_motion")TrackedHeadMotion();
+    else if(name=="handlebar")Handlebar();
     else if(name=="tracked_roundtrip")TrackedRoundtrip();else if(name=="tracked_lifetime")TrackedLifetime();
     else if(name=="tracked_freeze")TrackedFreeze();
     else if(name=="prediction_constant")PredictionConstant();else if(name=="prediction_stop_reverse")PredictionStopReverse();

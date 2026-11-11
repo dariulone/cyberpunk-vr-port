@@ -59,6 +59,8 @@ std::atomic<float> g_wheelSteer{0.0f};
 std::atomic<float> g_wheelSteerDeg{0.0f};
 std::atomic<bool> g_wheelMountedCar{false};
 void WheelSetMountedCar(bool car) {g_wheelMountedCar.store(car,std::memory_order_relaxed);}
+std::atomic<bool> g_wheelMountedBike{false};
+void WheelSetMountedBike(bool bike) {g_wheelMountedBike.store(bike,std::memory_order_relaxed);}
 std::atomic<int>   g_wheelHornMask{0};
 
 namespace {
@@ -352,10 +354,13 @@ float WheelSteerInput() {
     std::lock_guard lock(g_steerMutex);
     if(g_sampledGrabEpoch!=(grab>>2)){g_steering.Reset();g_sampledGrabEpoch=grab>>2;}
     const bool car=g_wheelMountedCar.load(std::memory_order_relaxed);
+    const bool bike=g_wheelMountedBike.load(std::memory_order_relaxed);
     float out=g_steering.Update(uint8_t(state&grab&3),frame,XrDiagNowUs(),
         g_physicalRadius.load(std::memory_order_relaxed),
-        WheelFullLockForVehicle(g_liveControls.xrWheelSteerMaxDeg,car),g_liveControls.xrWheelSteerDeadDeg,
-        g_liveControls.xrWheelPrediction ? g_liveControls.xrWheelPredictionMs:0.f);
+        bike ? BikeBarLockDegrees(g_liveControls.xrBikeBarLockDeg):WheelFullLockForVehicle(g_liveControls.xrWheelSteerMaxDeg,car),
+        g_liveControls.xrWheelSteerDeadDeg,
+        g_liveControls.xrWheelPrediction ? g_liveControls.xrWheelPredictionMs:0.f,
+        bike,g_liveControls.xrBikeBodyLean);
     // A car's output is the share of its cabin wheel's full lock the hands have turned; the input that puts the
     // cabin wheel there is read off its curve, so the wheel the hands hold turns with them one to one.
     if(car)out=CarInputForCabinAngle(out*CarCabinWheelLockDeg);

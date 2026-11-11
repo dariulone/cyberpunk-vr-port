@@ -272,7 +272,7 @@ void RefreshPlayerCameraState() {
             if (playerQueried) cvr::roomscale::SetPlayer(reinterpret_cast<uintptr_t>(playerHandle.instance));
 
             g_isInVehicle=false;
-            bool mountedCar=false;
+            bool mountedCar=false,mountedBike=false;
             uintptr_t mountedIdentity=0;
             if (playerHandle && g_mountedVehicleProp) {
                 auto mountedVehicle = g_mountedVehicleProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
@@ -281,10 +281,13 @@ void RefreshPlayerCameraState() {
                 g_isInVehicle = mountedIdentity!=0;
                 if(mounted) {
                     static const auto* carClass=RED4ext::CRTTISystem::Get()->GetClass("vehicleCarBaseObject");
+                    static const auto* bikeClass=RED4ext::CRTTISystem::Get()->GetClass("vehicleBikeBaseObject");
                     mountedCar=carClass && mounted->GetType()->IsA(carClass);
+                    mountedBike=bikeClass && mounted->GetType()->IsA(bikeClass);
                 }
             }
             cvr::anim::WheelSetMountedCar(mountedCar);
+            cvr::anim::WheelSetMountedBike(mountedBike);
             s_mountedVehicleIdentity.store(mountedIdentity,std::memory_order_release);
 
             // PlayerPuppet::vehicleState mirrors PSM.Vehicle. Combat is passenger

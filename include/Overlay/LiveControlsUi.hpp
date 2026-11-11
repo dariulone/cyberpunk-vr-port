@@ -158,6 +158,8 @@ struct LiveControlsUiState {
     // a real wheel; lower = the same wrist movement steers more. The deadzone is the tilt around
     // centre that steers nothing: 1.5 (default) only swallows tremor.
     float xrWheelSteerMaxDeg;
+    float xrBikeBarLockDeg;
+    float xrBikeBodyLean;
     float xrWheelSteerDeadDeg;
     int xrWheelPrediction;
     float xrWheelPredictionMs;

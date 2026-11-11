@@ -83,6 +83,8 @@ void InitRuntimePaths() {
     g_liveControls.xrWheelRadius = 0.28f;
     // 90 deg = hands vertical is full lock, the 1:1 reading of a real wheel.
     g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDefault;
+    g_liveControls.xrBikeBarLockDeg = cvr::anim::BikeBarLockDefault;
+    g_liveControls.xrBikeBodyLean = cvr::anim::BikeBodyLeanDefault;
     // 1.5 deg of deadzone: enough to swallow tremor, small enough that the wheel does not feel dead
     // off centre. Every degree here is a degree the car ignores.
     g_liveControls.xrWheelSteerDeadDeg = 0.0f;
