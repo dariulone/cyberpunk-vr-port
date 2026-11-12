@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Držet levou páčku vpřed",
   ["Click the left stick"] = "Kliknout levou páčkou",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Držet levou páčku vpřed: páčka chvíli držená na doraz spustí sprint (výchozí).\nKliknout levou páčkou: kliknutí sprintuje, dokud páčku nepustíte.",
+  ["Bike full lock at (deg)"] = "Motorka: plný rejd při (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Řídítka motorky: jednu ruku zatlač dopředu a druhou přitáhni dozadu.\nO tolik se řídítka otočí, při pohledu shora, do plného rejdu. Méně = citlivější.\nDvě ruce používají spojnici mezi sebou; jedna ruka otáčí kolem bodu o půl šířky řídítek vedle sebe.\nPřidání nebo puštění ruky zachová aktuální rejd.",
+  ["Bike body lean"] = "Motorka: náklon těla",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Nakloň tělo do strany a řiď motorku, navíc k rukám, dokud držíš řídítka.\nHodnota je podíl plného rejdu při náklonu o 15 cm; 0 vypne.\nStřed je místo, kde bylo tvé tělo při uchopení řídítek.",
 }

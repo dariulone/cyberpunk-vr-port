@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Sol çubuğu ileri tut",
   ["Click the left stick"] = "Sol çubuğa tıkla",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Sol çubuğu ileri tut: sonuna kadar bir an tutulan çubuk koşturur (varsayılan).\nSol çubuğa tıkla: bir tıklama, çubuk bırakılana kadar koşturur.",
+  ["Bike full lock at (deg)"] = "Motosiklet: tam kilit açısı (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Motosiklet gidonu: bir elini ileri it, diğerini geri çek.\nGidonun yukarıdan bakıldığında tam kilide ulaşmak için döndüğü açı budur. Düşük = daha hassas.\nİki el aralarındaki çizgiyi kullanır; tek el, yanında yarım gidon genişliğindeki bir nokta etrafında döner.\nBir el eklemek veya bırakmak mevcut dönüşü korur.",
+  ["Bike body lean"] = "Motosiklet: gövde eğimi",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Motosikleti yönlendirmek için gövdeni yana eğ; gidonu tutarken kollarına eklenir.\nDeğer, 15 cm eğimde tam kilidin payıdır; 0 kapatır.\nMerkez, gidonu kavradığında gövdenin bulunduğu yerdir.",
 }

@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Утримувати лівий стік уперед",
   ["Click the left stick"] = "Клік лівого стіка",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Утримувати лівий стік уперед: стік, на мить затриманий до упору, вмикає спринт (за замовчуванням).\nКлік лівого стіка: клік вмикає спринт, доки стік не відпущено.",
+  ["Bike full lock at (deg)"] = "Мотоцикл: повний поворот керма при (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Кермо мотоцикла: штовхніть одну руку вперед, а другу потягніть назад.\nНа стільки градусів повертається кермо, якщо дивитися згори, до повного повороту. Менше = чутливіше.\nДві руки задають лінію між собою; одна рука обертає навколо точки на половині ширини керма збоку від неї.\nДодавання або відпускання руки зберігає поточний поворот.",
+  ["Bike body lean"] = "Мотоцикл: нахил корпусу",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Нахиляйте корпус убік, щоб кермувати мотоциклом, — на додачу до рук, поки тримаєте кермо.\nЗначення — частка повного повороту при нахилі на 15 см; 0 вимикає.\nЦентр — положення корпусу в мить, коли ви взялися за кермо.",
 }

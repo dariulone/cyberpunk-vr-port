@@ -100,9 +100,10 @@ mounts now measure the same signed turn in the physical right/forward plane inst
 - Two hands use the line between them, so its yaw does not depend on which way the room faces and moving both hands
   together does not steer. One hand uses a pivot half the animated span to its side, which assumes recenter-space
   forward roughly matches the bike's.
-- Full lock is the new `xr_bike_bar_lock_deg` (15..60, default 25), shown as the overlay's "Bike full lock at" slider.
-  The old 30..120 range could not work: 90 degrees of yaw is out of reach by pushing and pulling. 25 degrees is
-  computed from hands 50 cm apart, about 12 cm forward and 12 cm back; it has not been tuned in game yet.
+- Full lock is the new `xr_bike_bar_lock_deg` (15..60, default 40), shown as the overlay's "Bike full lock at" slider.
+  The old 30..120 range could not work: 90 degrees of yaw is out of reach by pushing and pulling. 40 degrees is
+  about 16 cm forward and 16 cm back with hands 50 cm apart. The first estimate was 25 (about 12 cm); 40 is the
+  value that felt right riding in game (2026-11-12) and became the default.
 - The grab, the arm handover and the horn are unchanged: the arm goes to the bike's animation, as before.
 - Body lean (user's request, same day): the game has no sideways-lean input, the bike's lean follows its steering, so
   leaning adds degrees to the arms' turn while the bars are held. `xr_bike_body_lean` (0..1, default 0.5, 0 off) is the

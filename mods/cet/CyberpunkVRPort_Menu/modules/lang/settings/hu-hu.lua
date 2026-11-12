@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Bal kar előre tartása",
   ["Click the left stick"] = "Bal kar kattintása",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Bal kar előre tartása: a rövid ideig ütközésig tartott kar sprintel (alapértelmezett).\nBal kar kattintása: egy kattintás sprintel, amíg el nem engedi a kart.",
+  ["Bike full lock at (deg)"] = "Motor: teljes kormányzás ennél (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Motorkormány: az egyik kezed told előre, a másikat húzd hátra.\nEnnyit fordul a kormány felülről nézve a teljes kormányzásig. Kisebb = érzékenyebb.\nKét kéznél a köztük lévő vonal számít; egy kéz a mellette fél kormányszélességre lévő pont körül fordít.\nKéz hozzáadása vagy elengedése megtartja az aktuális kormányzást.",
+  ["Bike body lean"] = "Motor: testdőlés",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Dőlj oldalra a motor kormányzásához, a karjaid mellett, amíg fogod a kormányt.\nAz érték a teljes kormányzás aránya 15 cm-es dőlésnél; 0 kikapcsolja.\nA közép az, ahol a tested a kormány megfogásakor volt.",
 }

@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Удерживать левый стик вперёд",
   ["Click the left stick"] = "Клик левого стика",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Удерживать левый стик вперёд: стик, задержанный до упора на мгновение, включает спринт (по умолчанию).\nКлик левого стика: клик включает спринт, пока стик не отпущен.",
+  ["Bike full lock at (deg)"] = "Мотоцикл: полный поворот руля при (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Руль мотоцикла: толкните одну руку вперёд, а другую потяните назад.\nНа столько градусов поворачивается руль, если смотреть сверху, до полного поворота. Меньше = чувствительнее.\nДве руки задают линию между собой; одна рука вращает вокруг точки на половине ширины руля сбоку от неё.\nДобавление или отпускание руки сохраняет текущий поворот.",
+  ["Bike body lean"] = "Мотоцикл: наклон корпуса",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Наклоняйте корпус в сторону, чтобы рулить мотоциклом, — в дополнение к рукам, пока держите руль.\nЗначение — доля полного поворота при наклоне на 15 см; 0 отключает.\nЦентр — положение корпуса в момент, когда вы взялись за руль.",
 }

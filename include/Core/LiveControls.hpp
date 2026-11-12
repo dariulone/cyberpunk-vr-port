@@ -95,7 +95,7 @@ struct LiveControls {
     volatile int xrWheelGrab;        // 1 (default) = while DRIVING, a grip squeezed with the hand on the animated wheel pose hands that arm back to the driving animation. Per hand.
     volatile float xrWheelRadius;    // how near the animated hand the controller must be for the grip to mean "grab", metres. Default 0.28.
     volatile float xrWheelSteerMaxDeg;  // non-car, non-bike mount hand travel to full lock per side (30..120, else 90); a car's is its cabin wheel's (WheelRange.hpp, 1:1)
-    volatile float xrBikeBarLockDeg;    // motorcycle: yaw of the line between the hands to full lock (15..60, default 25)
+    volatile float xrBikeBarLockDeg;    // motorcycle: yaw of the line between the hands to full lock (15..60, default 40)
     volatile float xrBikeBodyLean;      // motorcycle: share of full lock added by a 15 cm sideways body lean (0..1, 0 off, default 0.5)
     volatile float xrWheelSteerDeadDeg; // steering deadzone around centre, degrees. 0 (default): a real wheel has none; every degree here is a degree of dead wheel.
     volatile int xrWheelPrediction = 0; // optional conservative history-based steering lead

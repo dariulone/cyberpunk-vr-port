@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "إبقاء العصا اليسرى للأمام",
   ["Click the left stick"] = "النقر على العصا اليسرى",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "إبقاء العصا اليسرى للأمام: العصا المدفوعة إلى آخرها لحظة تبدأ العدو (الافتراضي).\nالنقر على العصا اليسرى: نقرة تبدأ العدو حتى تُترك العصا.",
+  ["Bike full lock at (deg)"] = "الدراجة النارية: الدوران الكامل عند (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "مقود الدراجة النارية: ادفع يدًا إلى الأمام واسحب الأخرى إلى الخلف.\nهذه هي الزاوية التي يدورها المقود، منظورًا من الأعلى، حتى الدوران الكامل. أقل = أكثر حساسية.\nاليدان تستخدمان الخط بينهما؛ واليد الواحدة تدور حول نقطة على بعد نصف عرض المقود بجانبها.\nإضافة يد أو إفلاتها يحافظ على الدوران الحالي.",
+  ["Bike body lean"] = "الدراجة النارية: ميل الجسم",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "أمِل جسمك جانبًا لتوجيه الدراجة النارية، إضافةً إلى ذراعيك أثناء الإمساك بالمقود.\nالقيمة هي نسبة الدوران الكامل عند ميل 15 سم؛ 0 يوقفها.\nالمركز هو موضع جسمك عندما أمسكت المقود.",
 }

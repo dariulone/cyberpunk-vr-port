@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Linken Stick nach vorn halten",
   ["Click the left stick"] = "Linken Stick klicken",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Linken Stick nach vorn halten: der kurz am Anschlag gehaltene Stick sprintet (Standard).\nLinken Stick klicken: ein Klick sprintet, bis der Stick losgelassen wird.",
+  ["Bike full lock at (deg)"] = "Motorrad: Volleinschlag bei (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Motorradlenker: eine Hand nach vorn drücken, die andere zurückziehen.\nSo weit dreht sich der Lenker, von oben gesehen, bis zum Volleinschlag. Kleiner = empfindlicher.\nZwei Hände nutzen die Linie zwischen ihnen; eine Hand dreht um einen Punkt eine halbe Lenkerbreite neben ihr.\nEine Hand dazunehmen oder loslassen behält den aktuellen Einschlag bei.",
+  ["Bike body lean"] = "Motorrad: Körper neigen",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Neige deinen Körper zur Seite, um ein Motorrad zu lenken – zusätzlich zu den Armen, solange du den Lenker hältst.\nDer Wert ist der Anteil am Volleinschlag bei 15 cm Neigung; 0 schaltet es aus.\nDie Mitte ist dort, wo dein Körper beim Greifen des Lenkers war.",
 }

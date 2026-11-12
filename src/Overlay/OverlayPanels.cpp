@@ -689,9 +689,7 @@ static bool DrawDrivingControls(LiveControlsUiState& state) {
                 if (UI::IsItemHovered()) {
                     UI::SetTooltip("Motorcycle handlebars: push one hand forward and pull the other back.\n"
                                       "This is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\n"
-                                      "A car's wheel turns with your hands one to one: full lock is where the cabin\n"
-                                      "wheel's is (130 degrees, twice the game's own travel); road-wheel lock is unchanged.\n"
-                                      "One hand uses a hub calibrated where you grab; two use their connecting line.\n"
+                                      "Two hands use the line between them; one hand turns about a point half the bars' width to its side.\n"
                                       "Adding or releasing a hand keeps the current turn.");
                 }
                 float lean = cvr::anim::BikeBodyLeanShare(state.xrBikeBodyLean);

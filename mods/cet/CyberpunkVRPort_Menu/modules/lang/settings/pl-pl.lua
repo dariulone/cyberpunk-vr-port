@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Przytrzymaj lewą gałkę do przodu",
   ["Click the left stick"] = "Kliknij lewą gałkę",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Przytrzymaj lewą gałkę do przodu: gałka chwilę wychylona do oporu włącza sprint (domyślnie).\nKliknij lewą gałkę: kliknięcie włącza sprint, dopóki gałka nie zostanie puszczona.",
+  ["Bike full lock at (deg)"] = "Motocykl: pełny skręt przy (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Kierownica motocykla: pchnij jedną rękę do przodu, a drugą pociągnij do tyłu.\nO tyle obraca się kierownica, patrząc z góry, do pełnego skrętu. Mniej = czulej.\nDwie ręce wyznaczają linię między sobą; jedna ręka obraca się wokół punktu oddalonego o pół szerokości kierownicy w bok.\nDodanie lub puszczenie ręki zachowuje bieżący skręt.",
+  ["Bike body lean"] = "Motocykl: przechył ciała",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Przechyl ciało w bok, aby skręcać motocyklem, dodatkowo do rąk, gdy trzymasz kierownicę.\nWartość to część pełnego skrętu przy przechyle o 15 cm; 0 wyłącza.\nŚrodek to pozycja ciała w chwili chwycenia kierownicy.",
 }

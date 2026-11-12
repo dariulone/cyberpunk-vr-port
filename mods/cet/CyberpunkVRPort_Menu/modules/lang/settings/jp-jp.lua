@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "左スティックを前に倒し続ける",
   ["Click the left stick"] = "左スティックを押し込む",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "左スティックを前に倒し続ける：スティックを端まで少し倒し続けるとダッシュします（デフォルト）。\n左スティックを押し込む：押し込むとスティックを離すまでダッシュします。",
+  ["Bike full lock at (deg)"] = "バイクのフルロック角度（°）",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "バイクのハンドル：片手を前に押し、もう片手を後ろに引きます。\n上から見て、フルロックに達するまでにハンドルが回る角度です。小さいほど敏感になります。\n両手ではその間の線を使い、片手ではハンドル幅の半分だけ横にある点を中心に回します。\n手を足したり離したりしても、現在の舵角は保たれます。",
+  ["Bike body lean"] = "バイクの体の傾き",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "ハンドルを握っている間、体を横に傾けるとバイクを操舵でき、腕の操作に加算されます。\n値は15 cm傾けたときのフルロックに対する割合です。0でオフになります。\n中心はハンドルを握ったときの体の位置です。",
 }

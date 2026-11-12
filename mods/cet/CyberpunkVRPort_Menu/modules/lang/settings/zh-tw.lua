@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "將左搖桿推到底保持",
   ["Click the left stick"] = "按下左搖桿",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "將左搖桿推到底保持：搖桿推到底片刻即衝刺（預設）。\n按下左搖桿：按下後衝刺，直到放開搖桿。",
+  ["Bike full lock at (deg)"] = "機車滿舵角度（°）",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "機車把手：一隻手向前推，另一隻手向後拉。\n這是從上方看把手轉到滿舵所需的角度。越小越靈敏。\n雙手時使用兩手之間的連線；單手時繞其側面半個把手寬度處的點轉動。\n加上或放開一隻手會保持目前的轉向。",
+  ["Bike body lean"] = "機車身體傾斜",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "握住把手時，向側面傾斜身體即可操控機車，疊加在手臂轉向之上。\n此值為傾斜 15 公分時佔滿舵的比例；0 為關閉。\n中心是你握住把手時身體所在的位置。",
 }

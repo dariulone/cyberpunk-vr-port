@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "왼쪽 스틱을 앞으로 유지",
   ["Click the left stick"] = "왼쪽 스틱 클릭",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "왼쪽 스틱을 앞으로 유지: 스틱을 끝까지 잠시 밀고 있으면 질주합니다(기본값).\n왼쪽 스틱 클릭: 클릭하면 스틱을 놓을 때까지 질주합니다.",
+  ["Bike full lock at (deg)"] = "바이크 최대 조향 각도(°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "바이크 핸들바: 한 손은 앞으로 밀고 다른 손은 뒤로 당기세요.\n위에서 볼 때 최대 조향에 도달하기까지 핸들바가 도는 각도입니다. 낮을수록 민감합니다.\n두 손은 두 손을 잇는 선을 쓰고, 한 손은 옆으로 핸들바 폭의 절반만큼 떨어진 점을 중심으로 돌립니다.\n손을 더하거나 놓아도 현재 조향은 유지됩니다.",
+  ["Bike body lean"] = "바이크 몸 기울이기",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "핸들바를 잡고 있는 동안 몸을 옆으로 기울이면 팔 조향에 더해 바이크를 조향합니다.\n값은 15cm 기울였을 때 최대 조향에 대한 비율이며, 0이면 꺼집니다.\n중심은 핸들바를 잡았을 때 몸의 위치입니다.",
 }

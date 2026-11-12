@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "ดันสติ๊กซ้ายไปข้างหน้าค้างไว้",
   ["Click the left stick"] = "กดสติ๊กซ้าย",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "ดันสติ๊กซ้ายไปข้างหน้าค้างไว้: ดันสติ๊กสุดค้างไว้ครู่หนึ่งเพื่อวิ่งเร็ว (ค่าเริ่มต้น)\nกดสติ๊กซ้าย: กดหนึ่งครั้งเพื่อวิ่งเร็วจนกว่าจะปล่อยสติ๊ก",
+  ["Bike full lock at (deg)"] = "มอเตอร์ไซค์: หมุนสุดที่ (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "แฮนด์มอเตอร์ไซค์: ดันมือข้างหนึ่งไปข้างหน้าและดึงอีกข้างกลับ\nนี่คือมุมที่แฮนด์หมุนเมื่อมองจากด้านบนจนถึงหมุนสุด ค่าน้อย = ไวขึ้น\nสองมือใช้เส้นระหว่างมือทั้งสอง มือเดียวหมุนรอบจุดที่อยู่ห่างออกไปด้านข้างครึ่งความกว้างแฮนด์\nการเพิ่มหรือปล่อยมือจะคงการเลี้ยวปัจจุบันไว้",
+  ["Bike body lean"] = "มอเตอร์ไซค์: เอียงตัว",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "เอียงตัวไปด้านข้างเพื่อบังคับมอเตอร์ไซค์ เพิ่มจากแขนขณะจับแฮนด์\nค่านี้คือสัดส่วนของการหมุนสุดเมื่อเอียง 15 ซม. ค่า 0 คือปิด\nจุดกึ่งกลางคือตำแหน่งตัวของคุณตอนจับแฮนด์",
 }

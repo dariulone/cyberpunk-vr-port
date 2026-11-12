@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Segurar o analógico esquerdo à frente",
   ["Click the left stick"] = "Clicar o analógico esquerdo",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Segurar o analógico esquerdo à frente: o analógico no limite por um instante corre (padrão).\nClicar o analógico esquerdo: um clique corre até o analógico ser solto.",
+  ["Bike full lock at (deg)"] = "Moto: esterço total em (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Guidão da moto: empurre uma mão para a frente e puxe a outra para trás.\nÉ quanto o guidão gira, visto de cima, até o esterço total. Menor = mais sensível.\nCom duas mãos vale a linha entre elas; uma só mão gira em torno de um ponto a meia largura do guidão ao seu lado.\nAdicionar ou soltar uma mão mantém o esterço atual.",
+  ["Bike body lean"] = "Moto: inclinação do corpo",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Incline o corpo para o lado para guiar a moto, somando aos braços enquanto segura o guidão.\nO valor é a parte do esterço total com 15 cm de inclinação; 0 desliga.\nO centro é onde seu corpo estava quando você segurou o guidão.",
 }

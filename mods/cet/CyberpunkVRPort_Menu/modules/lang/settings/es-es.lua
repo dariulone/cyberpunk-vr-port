@@ -589,4 +589,8 @@ return {
   ["Hold the left stick forward"] = "Mantener el stick izquierdo adelante",
   ["Click the left stick"] = "Pulsar el stick izquierdo",
   ["Hold the left stick forward: the stick held at the stop for a moment sprints (default).\nClick the left stick: a click sprints until the stick is let go."] = "Mantener el stick izquierdo adelante: el stick a fondo un momento hace esprintar (predeterminado).\nPulsar el stick izquierdo: una pulsación esprinta hasta soltar el stick.",
+  ["Bike full lock at (deg)"] = "Moto: giro completo a (°)",
+  ["Motorcycle handlebars: push one hand forward and pull the other back.\nThis is how far the bars turn, seen from above, to reach full lock. Lower = more sensitive.\nTwo hands use the line between them; one hand turns about a point half the bars' width to its side.\nAdding or releasing a hand keeps the current turn."] = "Manillar de moto: empuja una mano hacia delante y tira de la otra hacia atrás.\nEs cuánto gira el manillar, visto desde arriba, hasta el giro completo. Menos = más sensible.\nCon dos manos se usa la línea entre ellas; una sola mano gira en torno a un punto a medio manillar de distancia a su lado.\nAñadir o soltar una mano mantiene el giro actual.",
+  ["Bike body lean"] = "Moto: inclinación del cuerpo",
+  ["Lean your body sideways to steer a motorcycle, added to your arms while holding the bars.\nThe value is the share of full lock from a 15 cm lean; 0 turns it off.\nCentre is where your body was when you grabbed the bars."] = "Inclina el cuerpo hacia un lado para dirigir una moto, además de los brazos mientras sujetas el manillar.\nEl valor es la parte del giro completo con 15 cm de inclinación; 0 lo desactiva.\nEl centro es donde estaba tu cuerpo al agarrar el manillar.",
 }
