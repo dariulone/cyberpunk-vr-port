@@ -166,6 +166,8 @@ extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerExitMs  = 250;
 // latch and the port keeps LB asserted itself: squeeze at the ear to open, squeeze at the ear again
 // to close, hand free in between. 0 restores the original hold.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerToggle = 1;
+// 1 = a button bound to LB toggles the scanner as well (press opens, press closes); 0 = the game's raw hold.
+extern "C" __declspec(dllexport) int32_t CyberpunkVR_ScannerButtonToggle = 1;
 // THE HACK LIST ON THE LEFT STICK, up and down, at the threshold every other gesture in this file
 // fires at. It REPLACES the face buttons for paging -- X and Y sat under the thumb of the hand that is
 // already squeezing a grip at the ear, which is the reach the one-handed scanner exists to avoid, so X
@@ -601,10 +603,12 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // The weapon test alone was too wide and cost the brake: no weapon is equipped while driving,
     // so LT did nothing at all in a vehicle -- LT did not work, and rightly so.
     // The lighter is not in anyone's hand behind a steering wheel, so the vehicle flag we already
-    // maintain for VRIK settles it. xr_lt_needs_weapon=0 drops the gate entirely for anyone who
-    // does not use the smoking mod and would rather have vanilla LT everywhere.
+    // maintain for VRIK settles it. CyberpunkVR_LtLighterGate=0 (an export, no ini key) drops the gate.
+    // NOT WHILE A DEVICE CAMERA IS TAKEN OVER: V holds no weapon of her own in a camera or the q303
+    // SniperNest, so the gate read "empty hands" and swallowed the nest's zoom (LT), 2026-11-12.
+    const bool deviceTakeover = DeviceCamActive();
     const bool ltClaimedByLighter =
-        CyberpunkVR_LtLighterGate != 0 && !g_hasWeaponEquipped && !g_isInVehicle;
+        CyberpunkVR_LtLighterGate != 0 && !g_hasWeaponEquipped && !g_isInVehicle && !deviceTakeover;
     if (!ltClaimedByLighter && lt > pState->Gamepad.bLeftTrigger)  pState->Gamepad.bLeftTrigger  = lt;
     // ...and not while that trigger is working a pump's fore-end: grip + trigger on the fore-end is the rack, and
     // the same squeeze reaching the game would aim down the sights halfway through it. The reload mod holds the
@@ -732,6 +736,34 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         } else {
             s_latch = false;
             scannerHold = s_gesture;
+        }
+    }
+
+    // ---- SCANNER ON THE LB BUTTON, AS A TOGGLE ---------------------------------------------------
+    //
+    // The game's LB is Vision_Hold_Button, a HOLD. The ear gesture above has always been a toggle; a
+    // button bound to LB (here the Frame bumper action, which a SteamVR binding can put on an Index
+    // trackpad) went straight through as the raw hold. 2026-11-12, the user: the scanner should toggle.
+    // One press opens, the next closes. The raw LB is taken out of the merge and asserted from the latch.
+    // On foot the same request check as the gesture's releases a press the game did not take; in a
+    // device takeover (the q303 SniperNest) PlayerStateMachine.Vision is not trusted to report the
+    // device's scanner, so only a second press or leaving the takeover ends it.
+    // Not in a vehicle and not in menus/braindance (those keep the vanilla LB; the latter never reach here).
+    {
+        static bool s_lbWas = false, s_btnLatch = false, s_wasTakeover = false;
+        static cvr::input::ScannerRequest s_btnRequest;
+        const bool eligible = CyberpunkVR_ScannerButtonToggle != 0 && gameplayScreen && !uiPopupOpen &&
+            !g_isInVehicle && g_menuModeValue == 0 && !cvr::lobby::WorldShown();
+        const bool lb = (vr.buttons & 0x0100) != 0;
+        if (!eligible || deviceTakeover != s_wasTakeover) s_btnLatch = false;
+        else if (lb && !s_lbWas) s_btnLatch = !s_btnLatch;
+        s_lbWas = lb;
+        s_wasTakeover = deviceTakeover;
+        if (!deviceTakeover) s_btnRequest.Update(s_btnLatch, scannerVision, GetTickCount64());
+        else { bool none = false; s_btnRequest.Update(none, 0, 0); }
+        if (eligible) {
+            pState->Gamepad.wButtons &= static_cast<uint16_t>(~0x0100);
+            scannerHold = scannerHold || s_btnLatch;
         }
     }
 
@@ -917,11 +949,13 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // launch a vanilla melee animation/attack from the same held trigger.
     // The selected left-arm launcher uses LT to enter its native firing state.
     // Publish raw RT above for free-hand gestures; it must not fire the launcher.
-    if(physicalCyberware)pState->Gamepad.bRightTrigger=0;
-    if(cyberwareKind==4 && gameplayScreen && !g_isInVehicle) {
+    // NONE OF THE THREE WHILE A DEVICE CAMERA IS TAKEN OVER: V's own hands hold nothing there, and the
+    // q303 SniperNest fires its rifle on RT and zooms on LT (2026-11-12: RT never reached the game).
+    if(physicalCyberware && !deviceTakeover)pState->Gamepad.bRightTrigger=0;
+    if(cyberwareKind==4 && gameplayScreen && !g_isInVehicle && !deviceTakeover) {
         pState->Gamepad.bRightTrigger=FloatToBYTE(vr.leftTrigger);
         pState->Gamepad.bLeftTrigger=0;
-    } else if(g_VRBind==4 && gameplayScreen && !g_isInVehicle && !g_hasWeaponEquipped) {
+    } else if(g_VRBind==4 && gameplayScreen && !g_isInVehicle && !g_hasWeaponEquipped && !deviceTakeover) {
         // Empty-hand RT is a finger gesture, never the game's draw-weapon action.
         pState->Gamepad.bRightTrigger=0;
     }
