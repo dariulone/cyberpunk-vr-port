@@ -31,6 +31,10 @@
 -- own things).
 local M = {}
 
+local function proximityOnly()
+  return type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled()
+end
+
 local NEAR = 0.32            -- a thing whose point is this near the palm is in reach (m)
 local PULL_RANGE = 1.6       -- how far from the palm a thing pointed at can be pulled (m)
 local POINT_CONE = math.rad(7)
@@ -291,6 +295,7 @@ local function choose(H)
     end
   end
   if best ~= nil then return best, "near", bestD end
+  if proximityOnly() then return nil end
   if H.palm == nil then return nil end
   local bestA = nil
   for _, t in ipairs(S.things) do
@@ -511,6 +516,13 @@ function M.update(dt, marker)
     if other ~= nil and other.pos ~= nil and len(sub(other.pos, thing.pos)) <= BESIDE then offered = other end
   end
   T.offered = offered
+  -- The game's sticky loot prompt may name a different nearby item. It must
+  -- still be within this hand's reach; never use a finger grab as a remote pull.
+  if proximityOnly() and offered ~= nil and
+      (offered.pos == nil or H.pos == nil or len(sub(offered.pos, H.pos)) >= NEAR) then
+    offered = nil
+    T.offered = nil
+  end
   T.confirmed = offered ~= nil
   if not T.confirmed then
     if S.time - T.since > CONFIRM_WITHIN then

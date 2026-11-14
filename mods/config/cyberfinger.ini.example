@@ -1,0 +1,6 @@
+; Copy as config/cyberfinger.ini beside the plugin. Restart the game after changing.
+; Opt-in: finger-close grabs with bounded tracking-loss grace and proximity-only
+; world grabs. Requires SteamVR hand skeletons and the app binding in the guide.
+enabled=1
+; Weapon handedness is configured in vrport.ini, not this file. Merge the
+; companion cyberfinger-vrport.ini.example for the left-handed preset.

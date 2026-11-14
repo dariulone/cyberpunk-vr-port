@@ -1,5 +1,7 @@
 #include "Runtimes/FingerGrip.hpp"
 #include "Runtimes/FingerFilter.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/ProximityGrip.hpp"
 #include "Core/Paths.hpp"
 #include <Windows.h>
 #include <atomic>
@@ -18,6 +20,8 @@ PFN_xrDestroyHandTrackerEXT pDestroy = nullptr;
 PFN_xrLocateHandJointsEXT   pLocate  = nullptr;
 XrHandTrackerEXT g_tracker[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
 bool g_gripping[2] = {false, false};
+bool g_fresh[2]{};
+cvr::cyberfinger::ProximityGrip g_proximity[2];
 // Once a hand has sent finger data, a pause in it keeps the last state instead of falling back to the squeeze value.
 bool g_had[2] = {false, false};
 int Hold(int hand) { return g_had[hand] ? (g_gripping[hand] ? 1 : 0) : -1; }
@@ -129,6 +133,7 @@ int Use(int hand, float thumb, const float curl[4]) {
 }
 
 int EvaluateOpenXr(int hand, XrSpace base, XrTime time) {
+    g_fresh[hand] = false;
     if (g_tracker[hand] == XR_NULL_HANDLE || !pLocate || base == XR_NULL_HANDLE) return -1;
     XrHandJointLocationEXT joints[XR_HAND_JOINT_COUNT_EXT]{};
     XrHandJointLocationsEXT locations{XR_TYPE_HAND_JOINT_LOCATIONS_EXT};
@@ -142,7 +147,10 @@ int EvaluateOpenXr(int hand, XrSpace base, XrTime time) {
     info.time = time;
     if (XR_FAILED(pLocate(g_tracker[hand], &info, &locations)) || !locations.isActive) return Hold(hand);
     for (int j = XR_HAND_JOINT_THUMB_METACARPAL_EXT; j <= XR_HAND_JOINT_LITTLE_TIP_EXT; ++j)
-        if (!(joints[j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) return Hold(hand);
+        if (!(joints[j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
+            !std::isfinite(joints[j].pose.position.x) || !std::isfinite(joints[j].pose.position.y) ||
+            !std::isfinite(joints[j].pose.position.z)) return Hold(hand);
+    g_fresh[hand] = true;
     const float raw[4] = {Curl(joints, XR_HAND_JOINT_INDEX_METACARPAL_EXT), Curl(joints, XR_HAND_JOINT_MIDDLE_METACARPAL_EXT),
                           Curl(joints, XR_HAND_JOINT_RING_METACARPAL_EXT), Curl(joints, XR_HAND_JOINT_LITTLE_METACARPAL_EXT)};
     const ULONGLONG now = GetTickCount64();
@@ -180,7 +188,8 @@ bool TrackedSplay(int hand, float splay[4]) {
 }
 
 void ChooseExtensions(const std::vector<XrExtensionProperties>& available, std::vector<const char*>& enabled) {
-    g_enabled = ReadSetting() == 1;
+    g_handTracking = g_motionRange = false;
+    g_enabled = ReadSetting() == 1 || cvr::cyberfinger::Enabled();
     if (!g_enabled) return;
     for (const auto& p : available) {
         if (std::strcmp(p.extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) g_handTracking = true;
@@ -211,6 +220,8 @@ void OnSessionDestroying() {
     for (auto& t : g_tracker) if (t != XR_NULL_HANDLE && pDestroy) { pDestroy(t); t = XR_NULL_HANDLE; }
     g_gripping[0] = g_gripping[1] = false;
     g_had[0] = g_had[1] = false;
+    g_fresh[0] = g_fresh[1] = false;
+    g_proximity[0] = {}; g_proximity[1] = {};
     g_curl[0].store(0); g_curl[1].store(0);
     g_splay[0].store(0); g_splay[1].store(0);
 }
@@ -218,5 +229,9 @@ void OnSessionDestroying() {
 int Evaluate(int hand, XrSpace base, XrTime time) {
     if (hand < 0 || hand > 1) return -1;
     return EvaluateOpenXr(hand, base, time);
+}
+float ProximityValue(int hand, bool poseValid) {
+    if (hand < 0 || hand > 1) return 0.0f;
+    return g_proximity[hand].Update(poseValid && g_fresh[hand], g_gripping[hand], GetTickCount64()) ? 1.0f : 0.0f;
 }
 }

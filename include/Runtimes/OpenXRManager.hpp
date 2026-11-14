@@ -2,6 +2,7 @@
 #include "Runtimes/AsymmetricProjection.hpp"
 struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Runtimes/SteamFrameInput.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
 #include "Framegen/Presenter.hpp"
 #include "Framegen/StatsOverlay.hpp"
 #include "Overlay/VrPanel.hpp"
@@ -63,6 +64,7 @@ struct OpenXRHeadPose {
 // mirror XInput's XINPUT_GAMEPAD_* constants so we can OR them directly.
 struct VRControllerState {
     uint16_t buttons = 0;
+    uint16_t cyberFingerButtons = 0; // named game actions; merged after physical handedness mapping
     float    leftTrigger  = 0.0f;
     float    rightTrigger = 0.0f;
     float    leftThumbX   = 0.0f;
@@ -981,6 +983,7 @@ private:
     XrAction m_hapticAction = XR_NULL_HANDLE;            // Vibration OUTPUT, per hand
     XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};
+    cvr::cyberfinger::Actions m_cyberFingerActions{};
     XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
     XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
     // Latest controller snapshot, owned by the frame thread.

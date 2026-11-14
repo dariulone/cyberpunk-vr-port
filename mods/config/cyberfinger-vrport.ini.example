@@ -1,0 +1,16 @@
+; Merge these keys into the plugin's config/vrport.ini; do not replace the file.
+; Requires config/cyberfinger.ini with enabled=1 and the guide's SteamVR binding.
+xr_input_actions=1
+xr_xinput_hook=1
+xr_finger_bones=1
+xr_grip_from_fingers=1
+xr_vive_trackers=1
+
+; Weapon hand: 1 = LEFT (this preset), 0 = RIGHT.
+; Also configurable live under Controls > Left-handed controls.
+xr_left_handed=1
+
+; Keep movement on the left stick and the current button layout.
+; With a left weapon only triggers/grab roles swap: left fires, right aims/blocks.
+; 1 = also mirror face buttons; 2 = also mirror sticks/clicks (right stick moves).
+xr_left_handed_bindings=0

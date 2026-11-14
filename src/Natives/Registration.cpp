@@ -333,6 +333,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto handHolds=RED4ext::CGlobalFunction::Create("VRHandHolds","VRHandHolds",&VRHandHolds);
     handHolds->flags=flags;handHolds->AddParam("Int32","side");handHolds->SetReturnType("Bool");
     rtti->RegisterFunction(handHolds);
+    auto cyberFinger=RED4ext::CGlobalFunction::Create("VRCyberFingerEnabled","VRCyberFingerEnabled",&VRCyberFingerEnabled);
+    cyberFinger->flags=flags;cyberFinger->SetReturnType("Bool");rtti->RegisterFunction(cyberFinger);
     auto lobbyLooks=RED4ext::CGlobalFunction::Create("VRLobbySaveLooks","VRLobbySaveLooks",&VRLobbySaveLooks);
     lobbyLooks->flags=flags;lobbyLooks->SetReturnType("String");rtti->RegisterFunction(lobbyLooks);
     auto creationTarget=RED4ext::CGlobalFunction::Create("VRCreationTarget","VRCreationTarget",&VRCreationTarget);

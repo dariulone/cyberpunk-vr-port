@@ -1846,6 +1846,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     if (const int fingers = cvr::fingergrip::Evaluate(i, m_localSpace, frameState.predictedDisplayTime);
                         fingers >= 0 && cvr::fingergrip::GripFromFingers())
                         grip = fingers ? 1.0f : 0.0f;
+                    if (cvr::cyberfinger::Enabled()) grip = cvr::fingergrip::ProximityValue(i, poseValid);
                     float sx = 0.0f, sy = 0.0f;
                     getVec2(m_thumbstickAction, sx, sy);
                     const bool sclick = getBool(m_thumbstickClickAction);
@@ -1975,9 +1976,14 @@ DWORD OpenXRManager::FrameThreadMain() {
                     return XR_SUCCEEDED(xrGetActionStateBoolean(m_session,&gi,&st)) && st.isActive && st.currentState;
                 };
                 if(gameplayInputActive)ctrl.buttons|=m_steamFrameActions.GlobalButtons(getGlobalBool);
+                if(gameplayInputActive)ctrl.cyberFingerButtons=m_cyberFingerActions.Buttons(getGlobalBool);
                 // The extra physical Frame buttons obey the same overlay capture
                 // as Touch controls. Menu/Start retains the existing escape path.
-                {std::lock_guard<std::mutex> rawLock(m_inputMutex);m_rawControllerState=ctrl;}
+                {
+                    std::lock_guard<std::mutex> rawLock(m_inputMutex);
+                    m_rawControllerState=ctrl;
+                    m_rawControllerState.buttons|=ctrl.cyberFingerButtons;
+                }
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
                     const bool menuPressed = getGlobalBool(m_menuButtonAction);

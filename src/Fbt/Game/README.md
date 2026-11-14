@@ -3,6 +3,8 @@
 [![Full-body tracking in Cyberpunk 2077 VR: the calibration and walking around](https://img.youtube.com/vi/tEELPU7dMhs/maxresdefault.jpg)](https://www.youtube.com/watch?v=tEELPU7dMhs)
 
 Three Vive Trackers (waist, left foot, right foot) drive V's legs, hips and spine, and V's arms reach the controllers.
+Optional SlimeVR chest, knee and elbow targets are described in the
+[CyberFinger / SlimeVR patch guide](../../../docs/cyberfinger-patch.md).
 Without trackers, or before a calibration, nothing changes: the port runs as it does without this folder.
 
 The full-body IK is the [wrpuppets-fbt-ik](https://github.com/Syncher-source/wrpuppets-fbt-ik) library (MIT,

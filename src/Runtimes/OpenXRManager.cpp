@@ -692,7 +692,8 @@ bool OpenXRManager::Init() {
             }
         }
         cvr::trackers::ChooseExtensions(props, extensions);     // only with xr_vive_trackers=1
-        cvr::fingergrip::ChooseExtensions(props, extensions);   // only with xr_grip_from_fingers=1
+        cvr::cyberfinger::Configure();
+        cvr::fingergrip::ChooseExtensions(props, extensions);
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
         Log("OpenXRManager: Steam Frame controller (%s) supported=%d\n",cvr::input::SteamFrameExtension,steamFrameEnabled?1:0);
     }
@@ -843,6 +844,7 @@ bool OpenXRManager::Init() {
             // suggestions -- a second call for the haptic alone would drop every input binding.
             makeAction(m_hapticAction,          XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic",         "Haptic Feedback",      true);
             if(steamFrameEnabled)m_steamFrameActions.Create(makeAction);
+            if(cvr::cyberfinger::Enabled())m_cyberFingerActions.Create(makeAction);
         }
         cvr::trackers::CreateActions(m_instance, m_actionSet);
         Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
@@ -2503,6 +2505,7 @@ void OpenXRManager::Shutdown() {
     m_secondaryButtonAction = XR_NULL_HANDLE;
     m_menuButtonAction = XR_NULL_HANDLE;
     m_steamFrameActions = {};
+    m_cyberFingerActions = {};
 
     m_views.clear();
     m_viewConfigViews.clear();

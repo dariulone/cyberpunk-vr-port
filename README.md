@@ -9,6 +9,11 @@ configured in the VR menu (**hold L3+R3**) or the in-headset overlay (**F10**).
 
 Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 
+Experimental [CyberFinger and eight-role SlimeVR patch](docs/cyberfinger-patch.md):
+opt-in finger grabs, separate physical controls and additional body targets.
+The CyberFinger preset uses a left-handed weapon with left-stick movement;
+either weapon hand is selectable, and the left/right Menu buttons have separate bindings.
+
 > ⚠️ Experimental community mod. Not affiliated with CD PROJEKT RED. Use at your
 > own risk and keep backups of your saves.
 

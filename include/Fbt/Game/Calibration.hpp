@@ -32,7 +32,13 @@ constexpr float kCalibrationLevelDeg = 8.0f;   // step 1: the gaze within this o
 void NoteTrigger(int hand, float value);
 // The calibration captured in this session (none until then: the belt and the foot straps move between sessions,
 // so a saved one would be wrong; fbt_calibration.ini is only a record).
-bool ReadCalibration(Calibration* out);
+struct ChestCalibration {
+    bool valid = false;
+    unsigned revision = 0;
+    wrpuppets::fbt::Vec3 offset;
+    wrpuppets::fbt::Quat rotationInverse, referenceRotation;
+};
+bool ReadCalibration(Calibration* out, ChestCalibration* chest = nullptr);
 // V's skeleton (from the rig file) and the calibrator on it; false until V's rig has loaded. Render/pose threads:
 // the objects are replaced only when V's body type changes.
 bool Rig(const wrpuppets::fbt::Skeleton** skeleton, const wrpuppets::fbt::Calibrator** calibrator);

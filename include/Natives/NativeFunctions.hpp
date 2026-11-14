@@ -415,6 +415,7 @@ void VRIntroHum(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRReachAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRReachUse(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRHandHolds(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRCyberFingerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 // VRLobbySaveLooks() -> String: the looks of the player's playthroughs, newest save of each (Lobby/SaveLooks.cpp).
 void VRLobbySaveLooks(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
 // VRCreationTarget(entity) -> Bool: the character customization dresses this entity, null = its own puppet (Lobby/CreationTarget.cpp).

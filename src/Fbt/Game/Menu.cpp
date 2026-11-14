@@ -29,6 +29,9 @@ void DrawSettingsSection() {
             if (UI::IsItemHovered()) UI::SetTooltip("Stand facing the cross; the dots turn green on their marks, then the countdown runs.");
         }
         bool legs = LegsEnabled();
+        bool slimeJoints = SlimeJointsEnabled();
+        if (UI::Checkbox("SlimeVR chest, knees and elbows", &slimeJoints)) SetSlimeJointsEnabled(slimeJoints);
+        if (UI::IsItemHovered()) UI::SetTooltip("Use SlimeVR's anatomical joint trackers, assigned Chest, Left/Right Knee and Left/Right Elbow in SteamVR.\nCalibrate with the chest tracker active. Knees require legs; chest requires spine; elbows require arms.\nMissing optional trackers fall back to the normal IK. Physical Vive trackers need different joint offsets.");
         if (UI::Checkbox("V's legs follow the trackers", &legs)) SetLegsEnabled(legs);
         if (UI::IsItemHovered()) UI::SetTooltip("V's hips and legs follow your waist and foot trackers (needs a calibration).\nThe spine, head and arms stay as before.");
         UI::BeginDisabled(!legs);

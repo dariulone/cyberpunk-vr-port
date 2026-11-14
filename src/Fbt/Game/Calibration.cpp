@@ -61,6 +61,7 @@ std::atomic<float> g_trigger[2]{0.0f, 0.0f};
 bool g_armed = false;
 constexpr float kTriggerOn = 0.8f, kTriggerOff = 0.2f;
 Calibration g_calibration{};
+ChestCalibration g_chestCalibration{};
 std::mutex g_calibrationMutex;
 wrpuppets::fbt::Skeleton g_skeleton;
 wrpuppets::fbt::Calibrator g_calibrator;
@@ -391,6 +392,18 @@ void CalibrationStepTick(XrSpace view, XrSpace g_stage, XrTime time, const Pose 
         {
             std::lock_guard lock(g_calibrationMutex);
             g_calibration = c;
+            const unsigned revision = g_chestCalibration.revision + 1;
+            g_chestCalibration = {};
+            g_chestCalibration.revision = revision;
+            const int chest = g_skeleton.Role("spine3");
+            if (chest >= 0 && poses[cvr::trackers::kChest].stageValid) {
+                const auto room = ToRoomImpl(true, poses[cvr::trackers::kChest].stage);
+                const auto ref = g_skeleton.ReferencePose();
+                g_chestCalibration.valid = true;
+                g_chestCalibration.offset = ref.modelPos[chest] - g_calibrator.ToModel(c, room.pos);
+                g_chestCalibration.rotationInverse = wrpuppets::fbt::Conjugate(wrpuppets::fbt::Normalize(c.yawInverse * room.rot));
+                g_chestCalibration.referenceRotation = ref.modelRot[chest];
+            }
         }
         Log("[fbt-calib] step 2 captured: player eye height %.3f m, V's %.3f m -> scale %.4f; waist %s, feet %s/%s, hands %s/%s. "
             "Now the T-pose on the cross\n", c.playerEyeHeight, c.avatarEyeHeight, c.scale,
@@ -491,10 +504,11 @@ std::string RefusalText() {
 void NoteTrigger(int hand, float value) {
     if (hand == 0 || hand == 1) g_trigger[hand].store(value, std::memory_order_relaxed);
 }
-bool ReadCalibration(Calibration* out) {
+bool ReadCalibration(Calibration* out, ChestCalibration* chest) {
     std::lock_guard lock(g_calibrationMutex);
     if (!out || !g_calibration.done) return false;
     *out = g_calibration;
+    if (chest) *chest = g_chestCalibration;
     return true;
 }
 

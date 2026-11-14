@@ -356,7 +356,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // menu tab its grip pages toward). The support hand is the one that raises the scanner.
     VRControllerState physical = vr;
     const bool leftHanded = g_liveControls.xrLeftHanded != 0;
-    if (leftHanded) vr = cvr::input::Mirrored(vr, g_liveControls.xrLeftHandedBindings);
+    vr = cvr::cyberfinger::ForGame(vr, leftHanded, g_liveControls.xrLeftHandedBindings);
     const int supportHand = leftHanded ? 1 : 0;
     // The hand's grip on what it reaches for presses the interaction button (Natives/Reach.hpp).
     if (cvr::reach::UseHeld()) vr.buttons |= 0x4000;

@@ -42,6 +42,7 @@ tools/asym_tests/__pycache__/
 !tools/game_settings_tests/
 !tools/launcher_tests/
 !tools/steam_frame_tests/
+!tools/cyberfinger_tests/
 !tools/autograss_tests/
 releases/
 *.py

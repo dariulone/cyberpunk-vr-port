@@ -4,6 +4,7 @@
 #include "Natives/NativeFunctions.hpp"
 #include "Anim/HandGestures.hpp"
 #include "Anim/LeftHanded.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
 #include <RED4ext/Scripting/Utils.hpp>
 #include <windows.h>
 #include <algorithm>
@@ -84,4 +85,9 @@ void VRHandHolds(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, 
     ++frame->code;
     const bool holds = cvr::reach::HandHolds(side);
     if (out) *out = holds;
+}
+
+void VRCyberFingerEnabled(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
+    ++frame->code;
+    if (out) *out = cvr::cyberfinger::Enabled();
 }
