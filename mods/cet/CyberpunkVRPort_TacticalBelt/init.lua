@@ -677,11 +677,14 @@ local CFG = {
     highlight_radius_v = 0,
     -- CROUCHED, THE REACH IS WIDER. Down on the knees the belt is where the body bends rather than where the
     -- arm falls, and a hand feeling for a pouch there misses it at the standing radius; this multiplies the
-    -- reach (and so the mark, which is the same test) while the game has the player crouched.
-    crouch_reach_scale = 1.5,
-    -- Leaves at a wider radius than it enters, so a hand held on the boundary cannot make the surface
-    -- flicker between the two material sets.
-    highlight_release = 1.35,
+    -- reach (and so the mark, which is the same test) while the game has the player crouched. 1.5 until
+    -- 2026-11-11: down on a knee a hand on the floor before the knees was in the grenades' reach.
+    crouch_reach_scale = 1.2,
+    -- Leaves a little wider than it enters (m past the reach), so a hand held on the boundary cannot make the
+    -- surface flicker between the two material sets. A margin, not a factor: 1.35 times the crouched reach let
+    -- go 34 cm from a grenade holder, and a hand that lit one on its way down to a body on the floor kept it
+    -- lit there -- the grip on the body took the grenade.
+    highlight_release_m = 0.03,
     -- What an element of the belt's own wears when lit, if it has no `hl` of its own. Only used by the
     -- "appearance" style below.
     highlight_appearance = "appearance_03",
@@ -996,6 +999,12 @@ local function log(fmt, ...)
     -- ...and into the mod's own log file. print() only reaches the CET console, which cannot be read
     -- from outside the game, and that cost a round trip the first time this file ran.
     pcall(function() spdlog.info(line) end)
+end
+-- Routine chatter (every attach, every appearance step, the element list): only with the launcher's DEBUG box
+-- ticked, which the plugin publishes to shared slot [156]. Failures and one-time facts keep log().
+local function logDebug(fmt, ...)
+    if type(GetVRSharedSlot) ~= "function" or GetVRSharedSlot(156) <= 0.5 then return end
+    log(fmt, ...)
 end
 
 -- ---------------------------------------------------------------------------------------------------
@@ -1581,7 +1590,7 @@ local function beltComponents()
         local names = {}
         for nm, _ in pairs(found) do names[#names + 1] = nm end
         table.sort(names)
-        log("belt elements on the player: %d -- %s", #names, table.concat(names, ", "))
+        logDebug("belt elements on the player: %d -- %s", #names, table.concat(names, ", "))
     end
     return S.comps
 end
@@ -1696,7 +1705,7 @@ local function forceBeltAppearance(pl, ts)
     if now == want then
         if S.appSaid ~= now then
             S.appSaid = now
-            log("belt appearance is %s", now)
+            logDebug("belt appearance is %s", now)
         end
         return
     end
@@ -1714,7 +1723,7 @@ local function forceBeltAppearance(pl, ts)
     end
     S.appAsked = w
     pcall(function() o:ScheduleAppearanceChange(CName.new(w)) end)
-    log("belt appearance: было %s, прошу %s", now, w)
+    logDebug("belt appearance: было %s, прошу %s", now, w)
 end
 
 -- THE ITEM'S REAL ID, out of the player's own inventory.
@@ -2005,7 +2014,7 @@ local function ensureEquipped(now)
             -- slot here must not activate EquipmentEX and hide base clothing.
             S.attachPendingAt = now
             S.route = "attach"
-            log("queued direct attachment of %s into %s", wantedRecord(), slotName())
+            logDebug("queued direct attachment of %s into %s", wantedRecord(), slotName())
             return
         end
     end
@@ -3825,7 +3834,7 @@ local function updateHighlight(dt)
     -- EACH HAND KEEPS ITS OWN ELEMENT. The two are resolved independently and the results are unioned,
     -- so reaching for a grenade with one hand and a magazine with the other lights both.
     local enter = reachRadius()
-    local leave = enter * (CFG.highlight_release or 1.35)
+    local leave = enter + (CFG.highlight_release_m or 0.03)
     local nearest = nil
     local targets = nil
     -- WITH A WEAPON IN HAND THE GRENADES ARE NOT ON OFFER. A lit holder is what lets a grip take one
@@ -3998,28 +4007,39 @@ local function upgradeOffsetsCfg()
     log("male offsets upgraded to v%d (dian, shells)", OFFSETS_CFG_VERSION)
 end
 
--- The reach radius likewise: every belt.cfg written while the default was 0.14 carries 0.14.
-local HIGHLIGHT_RADIUS_CFG_VERSION = 1
+-- The reach radius likewise: every belt.cfg written while the default was 0.14 carries 0.14 (v1), and every one
+-- written before 2026-11-11 the crouched reach of 1.5 and the release factor (v2).
+local HIGHLIGHT_RADIUS_CFG_VERSION = 2
 
 local function upgradeHighlightRadiusCfg()
-    if CFG.highlight_radius_v == HIGHLIGHT_RADIUS_CFG_VERSION then return end
+    local v = tonumber(CFG.highlight_radius_v) or 0
+    if v >= HIGHLIGHT_RADIUS_CFG_VERSION then return end
+    if v < 1 then CFG.highlight_radius_m = 0.17 end
+    CFG.crouch_reach_scale = 1.2
+    CFG.highlight_release_m = 0.03
+    CFG.highlight_release = nil
     CFG.highlight_radius_v = HIGHLIGHT_RADIUS_CFG_VERSION
-    CFG.highlight_radius_m = 0.17
-    log("reach radius upgraded to v%d (%.2f m)", HIGHLIGHT_RADIUS_CFG_VERSION, CFG.highlight_radius_m)
+    log("reach radius upgraded to v%d (%.2f m, x%.2f crouched, let go %.2f m past it)", HIGHLIGHT_RADIUS_CFG_VERSION,
+        CFG.highlight_radius_m, CFG.crouch_reach_scale, CFG.highlight_release_m)
 end
 
 registerForEvent("onInit", function()
     loadCfg()
+    -- A migration is written back at once: belt.cfg was saved only when the overlay closed, so each one ran (and
+    -- logged, and put its defaults over the sliders) on every launch until the panel happened to be opened.
+    local versions = { CFG.grenade_throw_v, CFG.grenade_grab_plane_v, CFG.offsets_v, CFG.highlight_radius_v }
     upgradeThrowCfg()
     upgradeGrabPlaneCfg()
     upgradeOffsetsCfg()
     upgradeHighlightRadiusCfg()
+    if versions[1] ~= CFG.grenade_throw_v or versions[2] ~= CFG.grenade_grab_plane_v or versions[3] ~= CFG.offsets_v
+        or versions[4] ~= CFG.highlight_radius_v then saveCfg() end
     ensureGrenadeRecords()
     -- Player entity IDs can be reused across saves (the live player is 1ULL).
     -- Reset on the actual attach event as well as nil/player-change detection.
     Observe("PlayerPuppet", "OnGameAttached", function() memoDrop() end)
     S.ready = true
-    log("ready; item=%s slot=%s auto_equip=%s", CFG.variants[CFG.variant], CFG.slot, tostring(CFG.auto_equip))
+    logDebug("ready; item=%s slot=%s auto_equip=%s", CFG.variants[CFG.variant], CFG.slot, tostring(CFG.auto_equip))
 end)
 
 -- EVERY CACHED COMPONENT BELONGS TO ONE PLAYER ENTITY, and loading a save builds a new one.
@@ -4409,7 +4429,7 @@ registerForEvent("onDraw", function()
                 (h and h.d) and string.format("%.3f", h.d) or "-"))
         end
         CFG.highlight_radius_m = ImGui.DragFloat("radius##hl", CFG.highlight_radius_m, 0.005, 0.03, 0.40, "%.3f")
-        CFG.crouch_reach_scale = ImGui.DragFloat("x crouched##hl", CFG.crouch_reach_scale or 1.5, 0.05, 1.0, 3.0, "%.2f")
+        CFG.crouch_reach_scale = ImGui.DragFloat("x crouched##hl", CFG.crouch_reach_scale or 1.2, 0.05, 1.0, 3.0, "%.2f")
 
         ImGui.Text("точка на руке: костяшка среднего пальца + смещение в осях ладони (м)")
         local ho = CFG.highlight_hand_off

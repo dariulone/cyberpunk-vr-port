@@ -513,11 +513,20 @@ local function place(h, tr)
 end
 
 -- The screen's display stays off until the plugin reports a finished GPU write made after the canvas was
--- built (VRMenuSurfaceReady), and then only while the wheel is up.
+-- built (VRMenuSurfaceReady). Once on it STAYS on, and the wheel is hidden by its canvas instead (opacity 0:
+-- the additive screen shows nothing for black). Switched off and on, the display built a new render proxy,
+-- which starts from the material's defaults -- an opaque black plane, the whole 1.0 x 0.5 m of the screen --
+-- until the next update binds the canvas to it (Natives/MenuSurface.cpp, Rebind): the dark wide window a
+-- second opening sometimes began with.
 local function display(h, on)
   if h == nil or h.entity == nil or h.shown == on then return end
-  pcall(function() h.entity:FindComponentByName(CName.new("display")):Toggle(on) end)
+  if on and not h.displayOn then
+    pcall(function() h.entity:FindComponentByName(CName.new("display")):Toggle(true) end)
+    h.displayOn = true
+  end
+  if h.root ~= nil then pcall(function() h.root:SetOpacity(on and 1.0 or 0.0) end) end
   h.shown = on
+  h.shownAt = on and S.time or nil
 end
 
 local function showGlass(h, on, scale)
@@ -1054,6 +1063,8 @@ end
 
 -- The matte glass: one disc under the wheel, one under each choice on the open arc.
 local function placeGlass(C, R, U, h)
+  -- not before the screen has shown for a tick: dark glass with no light on it reads as a black window
+  if h.shownAt == nil or S.time <= h.shownAt then return end
   local N = cross(R, U)
   if S.glass ~= nil and resolve(S.glass, "display") then
     place(S.glass, transformFor(add(C, mul(N, -GLASS_BACK)), R, U))

@@ -355,9 +355,9 @@ static void RecoilOnShotSide(int side) {
     // ...and the round is felt: this is the one place that already knows a round left the barrel,
     // so the controller gets one envelope per round, by weapon class, in the hand holding that gun -- and
     // a weaker copy in the support hand when it is really on the gun.
-    // (Left-handed the weapon in hand is the LEFT controller's: the guns' sides are the game's, the hands are not.)
+    // Gun side is logical; the actuator hand follows the left-handed setting.
     const int hand = cvr::anim::WeaponInLeftHand() ? 1 - side : side;
-    cvr::haptics::Shot(ClassOf(side), side == 1 && CyberpunkVR_TwoHandActive != 0, hand);
+    cvr::haptics::Shot(ClassOf(side), !DualLive() && side == 1 && CyberpunkVR_TwoHandActive != 0, hand, KickOf(side), DualLive());
 }
 
 // Called from the shot bracket in src/Hooks/WeaponAim.cpp, once per round that actually leaves the

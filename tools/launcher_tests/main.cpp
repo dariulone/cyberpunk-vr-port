@@ -48,6 +48,11 @@ extern "C" int GetLauncherCustomResolution(){return savedCustom;}
 extern "C" void SetLauncherCustomResolution(int on){savedCustom=on;}
 extern "C" int GetLauncherLobby(){return savedLobby;}
 extern "C" void SetLauncherLobbyAndPersist(int on){savedLobby=on;}
+int savedInterface=1,savedPhysics=1;
+extern "C" int GetLauncherInterface(){return savedInterface;}
+extern "C" void SetLauncherInterfaceAndPersist(int on){savedInterface=on;}
+extern "C" int GetLauncherHandPhysics(){return savedPhysics;}
+extern "C" void SetLauncherHandPhysicsAndPersist(int on){savedPhysics=on;}
 // Types `text` into a size field and takes it with Enter (the field's own Enter, not the dialog's Start).
 void TypeField(HWND window,int id,const wchar_t* text){
     HWND edit=GetDlgItem(window,id);SetWindowTextW(edit,text);
@@ -184,24 +189,35 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             Check(SendMessageW(combo,CB_GETCOUNT,0,0)==ladder && FieldText(window,109)==L"2648","a ladder pick did not replace the own size");
             TypeField(window,110,L"2400");
             SendMessageW(GetDlgItem(window,112),BM_SETCHECK,BST_UNCHECKED,0);
+            RECT left{},rightColumn{};
+            GetWindowRect(GetDlgItem(window,104),&left);
+            for(int id : {112,113,114}) {
+                const HWND toggle=GetDlgItem(window,id);
+                Check(toggle!=nullptr,"feature toggle missing");
+                GetWindowRect(toggle,&rightColumn);
+                Check(rightColumn.left>left.right,"feature toggle is not in the right column");
+            }
+            SendMessageW(GetDlgItem(window,113),BM_CLICK,0,0);
+            SendMessageW(GetDlgItem(window,114),BM_CLICK,0,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
             Check(savedHmd==2 && savedWidth==2648 && savedHeight==2400 && savedCustom==1,"an own size was not saved as custom");
-            Check(savedLobby==0,"the VR lobby switch was not saved");
+            Check(savedLobby==0 && savedInterface==0 && savedPhysics==0,"feature switches were not saved");
         } else if(mode==7) {
             // the own size reloads as the Custom item; without engine stereo it lands on the ladder
             HWND combo=GetDlgItem(window,101);
             const auto count=SendMessageW(combo,CB_GETCOUNT,0,0);
             Check(ComboText(combo,int(SendMessageW(combo,CB_GETCURSEL,0,0)))==L"Custom  2648 x 2400" && count==11,"the own size did not reload");
-            Check(SendMessageW(GetDlgItem(window,112),BM_GETCHECK,0,0)==BST_UNCHECKED,"the VR lobby switch did not reload");
+            for(int id : {112,113,114})
+                Check(SendMessageW(GetDlgItem(window,id),BM_GETCHECK,0,0)==BST_UNCHECKED,"feature switch did not reload");
             engineStereo=0;
             SelectHmd(window,2);
             TypeField(window,109,L"3000");
             int w=_wtoi(FieldText(window,109).c_str()),h=_wtoi(FieldText(window,110).c_str());
             Check(SnapLauncherResolution(2,&w,&h)==0,"without engine stereo a typed size left the ladder");
             engineStereo=1;
-            SendMessageW(GetDlgItem(window,112),BM_SETCHECK,BST_CHECKED,0);
+            for(int id : {112,113,114}) SendMessageW(GetDlgItem(window,id),BM_SETCHECK,BST_CHECKED,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
-            Check(savedCustom==0 && savedLobby==1,"a ladder size was saved as custom");
+            Check(savedCustom==0 && savedLobby==1 && savedInterface==1 && savedPhysics==1,"feature re-enable was not saved");
         }
     }catch(const std::exception& e){failure=e.what();if(window)PostMessageW(window,WM_CLOSE,0,0);else PostQuitMessage(20);}
 }

@@ -74,8 +74,11 @@ local RIGHT = {
   -- "higher still and a little forward")
   -- (2 cm further out than first set: it went into the clothes, asked 2026-11-03)
   -- (the reach 3 cm shorter than 0.18: it drew when the hand only passed by, asked 2026-11-05)
+  -- Handgun hips: 3 cm down and 2 cm forward from the previous belt placement.
+  -- Shells and reach centers derive from this same pose; rotation and reach stay unchanged.
   hip_r = { at = HIPS, reach = 0.15, pull = 0.13,
-    gun = { pos = { 0.17, 0.06, 0.23 }, dir = { -1, 0.10, 0 }, face = { 0, 1, 0 } } },
+    melee = { pos = { 0.17, 0.06, 0.23 }, dir = { -1, 0.10, 0 }, face = { 0, 1, 0 } },
+    gun = { pos = { 0.14, 0.08, 0.23 }, dir = { -1, 0.10, 0 }, face = { 0, 1, 0 } } },
   -- the left hip, the side the right hand draws across to: a blade with its handle forward and up, the blade down
   -- and back; drawn out `pull` along the handle before it leaves
   -- (3.2 cm further out from the hip than the mod's pose: it went into the clothes, asked 2026-11-03, and a blade lying
@@ -116,6 +119,8 @@ local RIGHT = {
     melee = { pos = { 0.04, -0.15, 0.14 }, dir = { 0, 0, -1 }, face = { -1, 0, 0 } } },
   -- a knife low on the right thigh, blade down, flat on the thigh, the edge forward
   thigh_r = { at = HIPS, reach = 0.12,
+    -- A pistol/revolver sits 3 cm lower and 2 cm forward; the knife keeps its original pose.
+    gun = { pos = { -0.27, 0.067, 0.19 }, dir = { -1, 0, 0 }, face = { 0, 1, 0 } },
     melee = { pos = { -0.24, 0.047, 0.19 }, dir = { -1, 0, 0 }, face = { 0, 1, 0 } } },
 }
 -- the left shoulder is the right one turned over

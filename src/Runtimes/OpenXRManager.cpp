@@ -1,3 +1,7 @@
+#include "Runtimes/Haptics.hpp"
+#include "Runtimes/HapticRouting.hpp"
+#include "Runtimes/Psvr2HapticChannel.hpp"
+#include "Runtimes/OpenXRVehicleAudioHaptics.hpp"
 #include "Fbt/Game/Trackers.hpp"
 #include "Runtimes/PresenceRecenter.hpp"
 #include "Runtimes/FingerGrip.hpp"
@@ -632,6 +636,13 @@ DWORD OpenXRManager::SubmitThreadMain() {
     return 0;
 }
 
+void OpenXRManager::OrderRuntimeAfter(ID3D12CommandQueue* used) {
+    if (!m_xrQueue || !m_xrOrderFence || !used || used == m_xrQueue) return;
+    std::lock_guard<std::mutex> lock(m_xrOrderMutex);
+    const uint64_t value = ++m_xrOrderValue;
+    if (SUCCEEDED(used->Signal(m_xrOrderFence, value))) m_xrQueue->Wait(m_xrOrderFence, value);
+}
+
 OpenXRManager& OpenXRManager::Get() {
     static OpenXRManager instance;
     return instance;
@@ -651,6 +662,7 @@ void OpenXRManager::SetMonoSubmitEnabled(bool enabled) {
     m_monoCapturedFrame.serial = 0;
     m_monoCapturedFrame.hasView[0] = false;
     m_monoCapturedFrame.hasView[1] = false;
+    m_monoPreviousFrame = CapturedMonoFrame{};
     m_depthSnapshotSerial = 0;
 }
 
@@ -692,7 +704,7 @@ bool OpenXRManager::Init() {
             }
         }
         cvr::trackers::ChooseExtensions(props, extensions);     // only with xr_vive_trackers=1
-        cvr::fingergrip::ChooseExtensions(props, extensions);   // only with xr_grip_from_fingers=1
+        cvr::fingergrip::ChooseExtensions(props, extensions);   // hand tracking, whenever offered
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
         Log("OpenXRManager: Steam Frame controller (%s) supported=%d\n",cvr::input::SteamFrameExtension,steamFrameEnabled?1:0);
     }
@@ -757,7 +769,7 @@ bool OpenXRManager::Init() {
         m_runtimeIsPsvr2.store(cvr::input::IsPsvr2System(systemProps.systemName), std::memory_order_relaxed);
         if (IsRuntimePsvr2()) {
             Log("OpenXRManager[PSVR2]: Sense Triangle touch D-pad and Create SystemButton enabled. "
-                "Haptic actuator ownership remains with the external Toolkit bridge; no OpenXR vibration action.\n");
+                "Haptic output is selected separately in Controls.\n");
         }
         Log("OpenXRManager: OpenXR system vendorId=0x%X systemName=\"%s\" maxSwapchain=%ux%u maxLayerCount=%u positionTracking=%d orientationTracking=%d\n",
             systemProps.vendorId,
@@ -794,6 +806,14 @@ bool OpenXRManager::Init() {
 
     // [INPUT] Action Set Initialization -- gameplay locomotion + buttons
     const bool inputActionsEnabled = GetInputActionsEnabled() != 0;
+    const bool bridgeDetected = IsRuntimePsvr2() && cvr::haptics::DetectToolkitBridge();
+    cvr::haptics::HapticRoute().BeginSession(IsRuntimePsvr2(), bridgeDetected);
+    m_hapticBindingLogged = false;
+    m_hapticLastResult[0] = m_hapticLastResult[1] = 123456;
+    Log("OpenXRManager[Haptics]: output=%s requested=%d bridgeListenerDetected=%d; route changes require game restart.\n",
+        cvr::haptics::HapticRoute().Toolkit() ? "Toolkit exclusive" : "OpenXR",
+        cvr::haptics::HapticRoute().Requested(), bridgeDetected ? 1 : 0);
+
     {
         XrActionSetCreateInfo actionSetInfo{XR_TYPE_ACTION_SET_CREATE_INFO};
         strcpy_s(actionSetInfo.actionSetName, "gameplay");
@@ -828,6 +848,7 @@ bool OpenXRManager::Init() {
             makeAction(m_thumbstickAction,      XR_ACTION_TYPE_VECTOR2F_INPUT, "thumbstick",       "Thumbstick",           true);
             makeAction(m_triggerAction,         XR_ACTION_TYPE_FLOAT_INPUT,    "trigger",          "Trigger",              true);
             makeAction(m_gripAction,            XR_ACTION_TYPE_FLOAT_INPUT,    "grip",             "Grip",                 true);
+            makeAction(m_gripForceAction,       XR_ACTION_TYPE_FLOAT_INPUT,    "grip_force",       "Grip Force",           true);
             makeAction(m_thumbstickClickAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "thumbstick_click", "Thumbstick Click",     true);
             makeAction(m_primaryButtonAction,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "primary_button",   "Primary Button (A/X)", true);
             makeAction(m_secondaryButtonAction, XR_ACTION_TYPE_BOOLEAN_INPUT,  "secondary_button", "Secondary Button (B/Y)", true);
@@ -964,6 +985,8 @@ bool OpenXRManager::Init() {
             { m_triggerAction,         "/user/hand/right/input/trigger/value" },
             { m_gripAction,            "/user/hand/left/input/squeeze/value" },
             { m_gripAction,            "/user/hand/right/input/squeeze/value" },
+            { m_gripForceAction,       "/user/hand/left/input/squeeze/force" },
+            { m_gripForceAction,       "/user/hand/right/input/squeeze/force" },
             { m_primaryButtonAction,   "/user/hand/left/input/a/click" },
             { m_primaryButtonAction,   "/user/hand/right/input/a/click" },
             { m_secondaryButtonAction, "/user/hand/left/input/b/click" },
@@ -1023,12 +1046,43 @@ bindings_done:
     }
 
     m_initialized = true;
+    // Capture is shared; Tick routes road rumble through the selected actuator owner.
+    cvr::haptics::StartVehicleAudioCapture();
     return true;
 }
 
 int OpenXRManager::ApplyHaptic(int hand, float amplitude, float durationSec) {
+    // Explicit Toolkit mode has one actuator owner. OpenXR is the default for
+    // every headset, including PSVR2; never infer output ownership from HMD alone.
+    if (cvr::haptics::HapticRoute().Toolkit()) {
+        if (!IsSessionRunning() || hand < 0 || hand > 1 || !std::isfinite(amplitude) ||
+            !std::isfinite(durationSec) || amplitude <= 0 || durationSec <= 0) return -1;
+        cvr::psvr2::Haptics().Pulse(hand, std::min(amplitude, 1.0f),
+            std::max(1, static_cast<int>(std::min(durationSec, .5f) * 1000)));
+        return 0;
+    }
     if (m_hapticAction == XR_NULL_HANDLE || m_session == XR_NULL_HANDLE || !IsSessionRunning()) return -1;
-    if (hand < 0 || hand > 1 || !(amplitude > 0.0f)) return -1;
+    if (hand < 0 || hand > 1 || !std::isfinite(amplitude) || !std::isfinite(durationSec) ||
+        amplitude <= 0.0f || durationSec <= 0.0f) return -1;
+    // A successful xrApply can be a no-op when a saved SteamVR binding lacks
+    // the haptic action. Log the actual bound outputs once, not every frame.
+    if (!m_hapticBindingLogged) {
+        m_hapticBindingLogged = true;
+        XrBoundSourcesForActionEnumerateInfo bound{XR_TYPE_BOUND_SOURCES_FOR_ACTION_ENUMERATE_INFO};
+        bound.action = m_hapticAction;
+        uint32_t count = 0;
+        XrResult r = xrEnumerateBoundSourcesForAction(m_session, &bound, 0, &count, nullptr);
+        Log("OpenXRManager[Haptics]: bound outputs result=%d count=%u (zero means check SteamVR bindings).\n", r, count);
+        if (XR_SUCCEEDED(r) && count > 0 && count <= 16) {
+            XrPath paths[16]{};
+            r = xrEnumerateBoundSourcesForAction(m_session, &bound, 16, &count, paths);
+            if (XR_SUCCEEDED(r)) for (uint32_t i = 0; i < count; ++i) {
+                char path[XR_MAX_PATH_LENGTH]{}; uint32_t size = 0;
+                if (XR_SUCCEEDED(xrPathToString(m_instance, paths[i], sizeof(path), &size, path)))
+                    Log("OpenXRManager[Haptics]: bound output %s\n", path);
+            }
+        }
+    }
     XrHapticVibration v{XR_TYPE_HAPTIC_VIBRATION};
     v.amplitude = amplitude > 1.0f ? 1.0f : amplitude;
     v.duration  = static_cast<XrDuration>((durationSec > 0.5f ? 0.5f : durationSec) * 1.0e9);
@@ -1036,7 +1090,12 @@ int OpenXRManager::ApplyHaptic(int hand, float amplitude, float durationSec) {
     XrHapticActionInfo info{XR_TYPE_HAPTIC_ACTION_INFO};
     info.action = m_hapticAction;
     info.subactionPath = m_handPaths[hand];
-    return static_cast<int>(xrApplyHapticFeedback(m_session, &info, reinterpret_cast<const XrHapticBaseHeader*>(&v)));
+    const int result = static_cast<int>(xrApplyHapticFeedback(m_session, &info, reinterpret_cast<const XrHapticBaseHeader*>(&v)));
+    if (m_hapticLastResult[hand] != result) {
+        m_hapticLastResult[hand] = result;
+        Log("OpenXRManager[Haptics]: OpenXR hand=%d apply result=%d (accepted call is not proof of physical vibration).\n", hand, result);
+    }
+    return result;
 }
 
 bool OpenXRManager::GetRecommendedRenderTargetSize(uint32_t* width, uint32_t* height) const {
@@ -1071,6 +1130,24 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
     m_graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_D3D12_KHR;
     m_graphicsBinding.device = device;
     m_graphicsBinding.queue = queue;
+    // The runtime's own queue (OpenXRManager.hpp, m_xrQueue): high priority, so its copies cut in front of the game's
+    // long work instead of waiting behind it.
+    if (device && !m_xrQueue && !cvr::TestMarker("cvr_xr_game_queue.txt")) {
+        D3D12_COMMAND_QUEUE_DESC desc{};
+        desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
+        if (SUCCEEDED(device->CreateCommandQueue(&desc, IID_PPV_ARGS(&m_xrQueue))) &&
+            SUCCEEDED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_xrOrderFence)))) {
+            m_xrQueue->SetName(L"CVR_OpenXR_runtime_queue");
+            m_xrOrderFence->SetName(L"CVR_OpenXR_runtime_order_fence");
+            m_graphicsBinding.queue = m_xrQueue;
+            Log("OpenXRManager: the runtime works on a queue of its own (%p; the game's %p)\n", m_xrQueue, queue);
+        } else {
+            if (m_xrQueue) { m_xrQueue->Release(); m_xrQueue = nullptr; }
+            if (m_xrOrderFence) { m_xrOrderFence->Release(); m_xrOrderFence = nullptr; }
+            Log("OpenXRManager: no queue of its own for the runtime; it works on the game's\n");
+        }
+    }
 
     LogDxgiAdapterForDevice(device);
 
@@ -1083,7 +1160,7 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
         Log("OpenXRManager: Failed to create XrSession (res=%d)\n", res);
         return false;
     }
-    cvr::fingergrip::OnSessionCreated(m_instance, m_session);
+    cvr::fingergrip::OnSessionCreated(m_instance, m_systemId, m_session);
 
     m_runtimeFovLogInitialized = false;
     m_loggedRuntimeEyeFovs[0] = {};
@@ -1246,9 +1323,29 @@ void OpenXRManager::PollEvents() {
             if (m_sessionState == XR_SESSION_STATE_READY) {
                 BeginSession();
             } else if (m_sessionState == XR_SESSION_STATE_STOPPING) {
+                cvr::haptics::Clear();
                 EndSession();
             } else if (m_sessionState == XR_SESSION_STATE_EXITING || m_sessionState == XR_SESSION_STATE_LOSS_PENDING) {
                 m_stopFrameThread.store(true, std::memory_order_relaxed);
+            }
+        } else if (event.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+            // A successful binding suggestion is not proof the runtime selected
+            // that profile. Report the actual per-hand profile for input reports.
+            if (m_session != XR_NULL_HANDLE) {
+                for (int hand=0;hand<2;++hand) {
+                    XrInteractionProfileState profile{XR_TYPE_INTERACTION_PROFILE_STATE};
+                    const XrResult result=xrGetCurrentInteractionProfile(m_session,m_handPaths[hand],&profile);
+                    char path[XR_MAX_PATH_LENGTH]="unbound";
+                    if (XR_SUCCEEDED(result) && profile.interactionProfile!=XR_NULL_PATH) {
+                        uint32_t count=0;
+                        if (XR_FAILED(xrPathToString(m_instance,profile.interactionProfile,
+                                                   sizeof(path),&count,path)))
+                            strcpy_s(path,"unresolved");
+                    }
+                    Log("OpenXRManager[Input]: hand=%s profile=%s result=%d actions=%d xinput=%d disable_mouse_y=%d\n",
+                        hand==0 ? "left" : "right",path,result,GetInputActionsEnabled(),
+                        g_liveControls.xrXInputHook,g_liveControls.xrDisableMouseY);
+                }
             }
         } else if (event.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
             // Native OpenXR recenter (the player held the home / system button, or used the runtime menu) —
@@ -2391,6 +2488,8 @@ void OpenXRManager::FlushHandsToShared(const OpenXRHeadPose* frameHead, XrTime f
 
 
 void OpenXRManager::Shutdown() {
+    cvr::haptics::StopVehicleAudioCapture();
+    cvr::haptics::Clear();
     cvr::foveated::Shutdown();
     cvr::vrs::Shutdown();
     RemoveSimulatorRecenterHook();
@@ -2436,6 +2535,7 @@ void OpenXRManager::Shutdown() {
     m_basiliskQuad.Shutdown();
     m_surveillanceQuad.Shutdown();
     m_hitMarkerQuad.Shutdown();
+    m_vehicleMinimapQuad.Shutdown();
     m_introOverlay.Shutdown();
     m_loadingScreen.Shutdown();
     cvr::hud::Shutdown();
@@ -2443,6 +2543,7 @@ void OpenXRManager::Shutdown() {
     cvr::hud::Shutdown(cvr::hud::Channel::Basilisk);
     cvr::hud::Shutdown(cvr::hud::Channel::Surveillance);
     cvr::hud::Shutdown(cvr::hud::Channel::HitMarker);
+    cvr::hud::Shutdown(cvr::hud::Channel::VehicleMinimap);
     EndSession();
 
     for (auto& eye : m_eyeSwapchains) {
@@ -2498,6 +2599,7 @@ void OpenXRManager::Shutdown() {
     m_thumbstickAction = XR_NULL_HANDLE;
     m_triggerAction = XR_NULL_HANDLE;
     m_gripAction = XR_NULL_HANDLE;
+    m_gripForceAction = XR_NULL_HANDLE;
     m_thumbstickClickAction = XR_NULL_HANDLE;
     m_primaryButtonAction = XR_NULL_HANDLE;
     m_secondaryButtonAction = XR_NULL_HANDLE;
@@ -2612,6 +2714,14 @@ void OpenXRManager::Shutdown() {
     // before the blit's pipeline objects, the capture textures and the last-good eye copies -- so
     // every one of those was freed against a device this object had already let go of. Nothing else
     // in here can be freed after them, which is exactly why they belong at the end.
+    if (m_xrQueue) {
+        m_xrQueue->Release();
+        m_xrQueue = nullptr;
+    }
+    if (m_xrOrderFence) {
+        m_xrOrderFence->Release();
+        m_xrOrderFence = nullptr;
+    }
     if (m_d3dQueue) {
         m_d3dQueue->Release();
         m_d3dQueue = nullptr;
@@ -2626,6 +2736,7 @@ void OpenXRManager::Shutdown() {
     m_monoCapturedFrame.serial = 0;
     m_monoCapturedFrame.hasView[0] = false;
     m_monoCapturedFrame.hasView[1] = false;
+    m_monoPreviousFrame = CapturedMonoFrame{};
     m_depthSnapshotW = 0;
     m_depthSnapshotH = 0;
     m_depthSnapshotSerial = 0;

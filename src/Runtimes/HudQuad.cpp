@@ -1,4 +1,5 @@
 #include "Runtimes/HudQuad.hpp"
+#include "Anim/WheelGrab.hpp"
 #include "Camera/GazeCenter.hpp"
 #include "Render/GpuStageProfile.hpp"
 #include "Core/LiveControls.hpp"
@@ -18,6 +19,8 @@ extern "C" {
 __declspec(dllexport) cvr::hud::PoseDebug CyberpunkVR_HudPoseDebug{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HudPoseDebugSeq{0};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HudSubmittedFrames{0};
+// Placement selected for the current minimap layer; zero also covers native fallback.
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_VehicleMinimapProjected{0};
 // Internal A/B: 0 preserves the prior per-panel fence wait; 1 rotates fenced
 // command allocators and reuses the last published HUD when all slots are busy.
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HudSubmitRing{1};
@@ -37,7 +40,12 @@ void Quad::RetireCompleted(uint64_t completed) {
 }
 bool Quad::Ensure(XrSession session, ID3D12Device* device, uint32_t w, uint32_t h) {
     if(submissionFailed)return false;
-    if (swapchain && w==width && h==height) return true;
+    // THE SWAPCHAIN IS NOT REMADE FOR A CANVAS THAT FITS. It used to be made for each canvas size, and the minimap's
+    // canvas has two (the map alone in the HUD, 380 x 386; projected in a car with the quest band under it, 380 x 594):
+    // every switch between them destroyed and created it (2026-11-14: 85-95 ms frames while it flickered). Now it
+    // grows to the largest canvas seen, both ways at once, and a smaller canvas goes into its corner.
+    if (swapchain && w<=capacityW && h<=capacityH) return true;
+    w=std::max(w,capacityW);h=std::max(h,capacityH);
     if (fence && fence->GetCompletedValue()<fenceValue) return false;
     if (swapchain) {
         if(acquired) {
@@ -73,7 +81,15 @@ bool Quad::Ensure(XrSession session, ID3D12Device* device, uint32_t w, uint32_t 
     images.assign(count,{XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR});
     if (XR_FAILED(xrEnumerateSwapchainImages(swapchain,count,&count,
         reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())))) return false;
-    width=w; height=h; lastStamp=0;publishedTick=0;publishedMasked=publishedLootVisible=false;
+    // Transparent rows and columns round a smaller canvas, never an older, larger one's: a committed resource is
+    // created zeroed.
+    D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=w;desc.Height=h;
+    desc.DepthOrArraySize=1;desc.MipLevels=1;desc.Format=DXGI_FORMAT_R8G8B8A8_TYPELESS;desc.SampleDesc.Count=1;
+    blank.Reset();
+    if (FAILED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_COPY_SOURCE,nullptr,IID_PPV_ARGS(&blank)))) return false;
+    imageContent.assign(count,0);
+    capacityW=w; capacityH=h; width=height=0; lastStamp=0;publishedTick=0;publishedMasked=publishedLootVisible=false;
     Log("[hud-panel] XR layer ready %ux%u (%u images)\n",w,h,count);
     return true;
 }
@@ -88,6 +104,8 @@ bool Quad::UpdateImage(const std::shared_ptr<Frame>& frame,ID3D12CommandQueue* q
     }
     RetireCompleted(completed);
     if(lastStamp==frame->serial && !acquired)return true;
+    // A canvas the game's queue has not finished yet is not copied on another queue: the image shown keeps the last.
+    if(frame->fence && frame->fence->GetCompletedValue()<frame->serial)return lastStamp!=0;
     CopySlot* freeSlot=nullptr;
     for(size_t i=0;i<copies.size();++i) {
         const auto index=(copyCursor+i)%copies.size();
@@ -120,7 +138,17 @@ bool Quad::UpdateImage(const std::shared_ptr<Frame>& frame,ID3D12CommandQueue* q
         b.Transition={images[acquiredIndex].texture,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
                       D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_COPY_DEST};
         commands->ResourceBarrier(1,&b);
-        commands->CopyResource(images[acquiredIndex].texture,frame->canvas.Get());
+        const auto canvas=frame->canvas->GetDesc();
+        const uint64_t size=uint64_t(canvas.Width)|(uint64_t(canvas.Height)<<32);
+        auto* target=images[acquiredIndex].texture;
+        if(canvas.Width==capacityW && canvas.Height==capacityH) commands->CopyResource(target,frame->canvas.Get());
+        else {
+            if(imageContent[acquiredIndex]!=size) commands->CopyResource(target,blank.Get());
+            D3D12_TEXTURE_COPY_LOCATION dst{};dst.pResource=target;dst.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION src{};src.pResource=frame->canvas.Get();src.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            commands->CopyTextureRegion(&dst,0,0,0,&src,nullptr);
+        }
+        imageContent[acquiredIndex]=size;
         std::swap(b.Transition.StateBefore,b.Transition.StateAfter);commands->ResourceBarrier(1,&b);
     }
     if(FAILED(commands->Close())){release();return false;}
@@ -134,15 +162,19 @@ bool Quad::UpdateImage(const std::shared_ptr<Frame>& frame,ID3D12CommandQueue* q
     const auto released=release();
     if(!signaled || XR_FAILED(released))return false;
     lastStamp=frame->serial;publishedTick=frame->stamp;
+    {const auto shown=frame->canvas->GetDesc();width=static_cast<uint32_t>(shown.Width);height=shown.Height;}
     publishedMasked=frame->masked;publishedLootVisible=frame->lootVisible;
+    publishedHudRect=frame->hudRect;publishedWindshieldMap=frame->windshieldMap;publishedWindshieldSplit=frame->windshieldSplit;
     return true;
 }
 
 const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace space,
     ID3D12Device* device, ID3D12CommandQueue* queue, bool enabled,
     bool tracked, const XrPosef& head, uint64_t origin,
-    XrTime displayTime, const XrVector3f* eyeOffsets, float bodyYaw) {
+    XrTime displayTime, const XrVector3f* eyeOffsets, float bodyYaw,
+    const XrCompositionLayerBaseHeader* mainLayer,const XrCompositionLayerBaseHeader* mainSecondEye,bool completedSource) {
     secondEye=false;
+    if(channel==Channel::VehicleMinimap)CyberpunkVR_VehicleMinimapProjected.store(0,std::memory_order_relaxed);
     // THE SCANNER STAYS AT INFINITY with stereo depth on. Its reticle marks what is scanned, wherever that
     // is, and its quickhack list and key hints are drawn in the eye with no parallax; at the panel's
     // depth the reticle and the details sat on the target differently in each eye (17 px apart at 1.5 m on
@@ -150,9 +182,12 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
     const bool stereoDepth=g_liveControls.xrHudStereoDepth && channel!=Channel::Surveillance;
     if (!enabled || !g_liveControls.xrHudPanel || (channel==Channel::Interaction && !g_liveControls.xrInteractionPanel)) {
         if(fence && !submissionFailed)RetireCompleted(fence->GetCompletedValue());
-        SetConsumerReady(false,channel); follow.Reset(); clock.Reset(); return nullptr;
+        // Switched off: the game's slots come back. A menu over the world only pauses the channel.
+        if(!g_liveControls.xrHudPanel || (channel==Channel::Interaction && !g_liveControls.xrInteractionPanel))DropConsumer(channel);
+        else SetConsumerReady(false,channel);
+        follow.Reset(); clock.Reset(); return nullptr;
     }
-    auto frame=Latest(channel);
+    auto frame=Latest(channel,completedSource);
     if (frame && frame->empty) {
         // The channel has nothing visible: no layer, but the consumer stays ready so the native
         // slots stay masked and the next visible content appears here, not natively first.
@@ -167,10 +202,56 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
     }
     const auto desc=frame->canvas->GetDesc();
     if (!Ensure(session,device,static_cast<uint32_t>(desc.Width),desc.Height)) {
-        SetConsumerReady(false,channel); return nullptr;
+        DropConsumer(channel); return nullptr;
     }
     if(!UpdateImage(frame,queue,CyberpunkVR_HudSubmitRing.load(std::memory_order_relaxed)!=0) ||
-       !lastStamp || GetTickCount64()-publishedTick>=300) {SetConsumerReady(false,channel);return nullptr;}
+       !lastStamp || GetTickCount64()-publishedTick>=300) {
+        if(submissionFailed)DropConsumer(channel); else SetConsumerReady(false,channel);
+        return nullptr;
+    }
+    if(channel==Channel::VehicleMinimap) {
+        VehicleMinimapAnchor cabin{};
+        const bool projected=tracked && cvr::anim::WheelReadMinimapAnchor(origin,cabin);
+        const bool ordinary=mainLayer && mainLayer->type==XR_TYPE_COMPOSITION_LAYER_QUAD;
+        if(!projected && !ordinary) {DropConsumer(channel);return nullptr;} // nowhere to show it: the game's own map
+        // Do not briefly move the transparent windshield image back into the ordinary HUD on exit (or the
+        // opaque HUD image onto the glass on entry). Keep the consumer ready while the new style reaches us.
+        if(projected!=publishedWindshieldMap) {SetConsumerReady(true,channel);return nullptr;}
+        layer={XR_TYPE_COMPOSITION_LAYER_QUAD};
+        layer.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        layer.space=space;layer.eyeVisibility=XR_EYE_VISIBILITY_BOTH;
+        layer.subImage={swapchain,{{0,0},{static_cast<int32_t>(width),static_cast<int32_t>(height)}},0};
+        if(projected) {
+            // The map at its placement's size (a car: about 8 x 5 degrees at the 1.4 m image distance), the quest
+            // text under it: the image grows downward and the map stays where it was.
+            const auto place=MinimapPlacementFor(cabin.bike);
+            const float split=publishedWindshieldSplit>.05f && publishedWindshieldSplit<=1.0f ? publishedWindshieldSplit : 1.0f;
+            const float height=place.height/split;
+            const auto down=RotateVector(cabin.pose.orientation,{0,-(height-place.height)*.5f,0});
+            layer.pose=cabin.pose;
+            layer.pose.position.x+=down.x;layer.pose.position.y+=down.y;layer.pose.position.z+=down.z;
+            layer.size={place.width,height};
+        } else {
+            auto place=[&](const XrCompositionLayerBaseHeader* source,XrCompositionLayerQuad& target) {
+                const auto& main=*reinterpret_cast<const XrCompositionLayerQuad*>(source);
+                target.pose=main.pose;target.eyeVisibility=main.eyeVisibility;
+                const auto offset=RotateVector(main.pose.orientation,
+                    {(publishedHudRect.x+publishedHudRect.width*.5f-.5f)*main.size.width,
+                     (.5f-publishedHudRect.y-publishedHudRect.height*.5f)*main.size.height,0});
+                target.pose.position.x+=offset.x;target.pose.position.y+=offset.y;target.pose.position.z+=offset.z;
+                target.size={publishedHudRect.width*main.size.width,publishedHudRect.height*main.size.height};
+            };
+            place(mainLayer,layer);
+            if(mainSecondEye && mainSecondEye->type==XR_TYPE_COMPOSITION_LAYER_QUAD) {
+                rightLayer=layer;place(mainSecondEye,rightLayer);secondEye=true;
+            }
+        }
+        const bool valid=Submittable(layer) && (!secondEye || Submittable(rightLayer));
+        SetConsumerReady(valid,channel);
+        if(!valid || !publishedMasked) {secondEye=false;return nullptr;}
+        CyberpunkVR_VehicleMinimapProjected.store(projected?1u:0u,std::memory_order_relaxed);
+        return reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
+    }
     const bool eyesReady=stereoDepth || eyeOffsets || eyeOffsetsValid;
     SetConsumerReady((tracked || follow.valid) && eyesReady,channel);
     if(!eyesReady)return nullptr;
@@ -269,6 +350,22 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
         rightLayer.pose.position.x+=lastEyeOffsets[1].x;rightLayer.pose.position.y+=lastEyeOffsets[1].y;rightLayer.pose.position.z+=lastEyeOffsets[1].z;
         secondEye=true;
     }
+    // A bad optional quad must not reject the world submission. Validate after
+    // the eye offsets, including cached poses used during tracking loss.
+    const auto* invalid=!Submittable(layer)?&layer:
+        (secondEye && !Submittable(rightLayer)?&rightLayer:nullptr);
+    if(invalid) {
+        static bool logged=false;
+        if(!logged) {
+            logged=true;
+            const auto& q=invalid->pose.orientation;const auto& p=invalid->pose.position;
+            Log("[hud-panel] channel %d invalid quad dropped: eye %d orientation (%g,%g,%g,%g) "
+                "position (%g,%g,%g) size %gx%g tracked %d\n",int(channel),int(invalid->eyeVisibility),
+                q.x,q.y,q.z,q.w,p.x,p.y,p.z,invalid->size.width,invalid->size.height,int(tracked));
+        }
+        secondEye=false;
+        return nullptr;
+    }
     if(channel==Channel::Main && cvr::RuntimeDiagnosticsEnabled()) {
     CyberpunkVR_HudPoseDebugSeq.fetch_add(1,std::memory_order_acq_rel);
     auto& debug=CyberpunkVR_HudPoseDebug;
@@ -290,7 +387,8 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
 }
 
 void Quad::Shutdown() {
-    SetConsumerReady(false,channel);
+    if(channel==Channel::VehicleMinimap)CyberpunkVR_VehicleMinimapProjected.store(0,std::memory_order_relaxed);
+    DropConsumer(channel);
     if (fence && fence->GetCompletedValue()<fenceValue && event) {
         fence->SetEventOnCompletion(fenceValue,event);
         if (WaitForSingleObject(event,1000)!=WAIT_OBJECT_0) return;
@@ -303,7 +401,8 @@ void Quad::Shutdown() {
         acquired=false;
     }
     if (swapchain) xrDestroySwapchain(swapchain);
-    swapchain=XR_NULL_HANDLE; acquired=false; images.clear(); width=height=0; lastStamp=0; follow.Reset();clock.Reset();secondEye=false;
+    swapchain=XR_NULL_HANDLE; acquired=false; images.clear(); width=height=capacityW=capacityH=0; lastStamp=0;
+    imageContent.clear();blank.Reset(); follow.Reset();clock.Reset();secondEye=false;
     for(auto& slot:copies){slot.frame.reset();slot.commands.Reset();slot.allocator.Reset();slot.fenceValue=0;}
     copyCursor=0;fence.Reset();fenceValue=0;publishedTick=0;publishedMasked=publishedLootVisible=false;submissionFailed=false;
     if (event) CloseHandle(event); event=nullptr;

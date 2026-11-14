@@ -27,6 +27,7 @@
 #include "Utils/SharedSlots.hpp"   // vrshared::kLeftMuzzle* (the left gun's dot)
 #include "Stereo/EngineStereo.hpp"
 #include "Overlay/OverlayInternal.hpp"
+#include "Natives/DebugView.hpp"
 
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 extern void Log(const char* fmt, ...);
@@ -673,6 +674,78 @@ void DrawLeftBarrelDot() {
         dl->PushClipRect(ImVec2(left, 0), ImVec2(left + displaySize.x, displaySize.y), true);
         dl->AddCircleFilled(ImVec2(left + (x * 0.5f + 0.5f) * displaySize.x, (0.5f - y * 0.5f) * displaySize.y), rad,
                             green);
+        dl->PopClipRect();
+    }
+}
+
+// THE COLLISION VIEW (Natives/DebugView.cpp). Each line is projected from each eye's own position, the way the barrel dot is, so it stands in
+// the world in both eyes.
+void DrawDebugView() {
+    using namespace cvr::debugview;
+    static Segment segments[kMaxSegments];
+    const int count=Copy(segments,kMaxSegments);
+    if(count<=0)return;
+    cvr::camera::BarrelFrame bf{};
+    if(!cvr::camera::BarrelFrameRead(&bf))return;
+    const float hcx=static_cast<float>(g_lastLocatePosFP[0])/131072.0f;
+    const float hcy=static_cast<float>(g_lastLocatePosFP[1])/131072.0f;
+    const float hcz=static_cast<float>(g_lastLocatePosFP[2])/131072.0f;
+    if(hcx*hcx+hcy*hcy+hcz*hcz<=1.0f)return;
+    const bool engineStereo=cvr::engine_stereo::Enabled();
+    if(engineStereo && cvr::engine_stereo::OnePicture())return;
+    const ImVec2 backbufferSize=ImGui::GetIO().DisplaySize;
+    const ImVec2 displaySize(engineStereo?backbufferSize.x*0.5f:backbufferSize.x,backbufferSize.y);
+    if(displaySize.x<=1.0f || displaySize.y<=1.0f)return;
+    ImDrawList* dl=ImGui::GetBackgroundDrawList();
+    if(!dl)return;
+    const float cqx=bf.camQuat[0],cqy=bf.camQuat[1],cqz=bf.camQuat[2],cqw=bf.camQuat[3];
+    const float rgt[3]={1.0f-2.0f*(cqy*cqy+cqz*cqz),2.0f*(cqx*cqy+cqz*cqw),2.0f*(cqx*cqz-cqy*cqw)};
+    float halfIpd=CyberpunkVRPort_HalfIpd();
+    if(!(halfIpd>0.0001f))halfIpd=OpenXRManager::Get().GetSharedSlot(95);
+    if(!(halfIpd>0.0001f))halfIpd=0.0325f;
+    const int mainEye=CyberpunkVR_MainIsRightEye?1:0;
+    const float sMain=engineStereo?(CyberpunkVR_MainIsRightEye?1.0f:-1.0f):((CyberpunkVR_BarrelDotEyeSign>=0)?1.0f:-1.0f);
+    AsymEyeWindows asym{};
+    const bool mapped=engineStereo && cvr::projection::Active() && OpenXRManager::Get().GetAsymmetricEyeWindows(&asym);
+    static const ImU32 palette[ColorCount]={IM_COL32(255,255,255,255),IM_COL32(60,255,90,200),IM_COL32(255,60,60,230),IM_COL32(90,140,255,230),
+        IM_COL32(255,230,60,230),IM_COL32(60,240,240,200),IM_COL32(255,70,230,220),IM_COL32(255,150,40,255),IM_COL32(170,175,195,110),IM_COL32(255,215,70,220)};
+    constexpr float nearPlane=0.05f;
+    for(int eye=engineStereo?0:mainEye;eye<(engineStereo?2:mainEye+1);++eye) {
+        const float sign=eye==mainEye?sMain:-sMain;
+        const float ex=hcx+rgt[0]*halfIpd*sign,ey=hcy+rgt[1]*halfIpd*sign,ez=hcz+rgt[2]*halfIpd*sign;
+        const float left=engineStereo?float(eye)*displaySize.x:0.0f;
+        dl->PushClipRect(ImVec2(left,0),ImVec2(left+displaySize.x,displaySize.y),true);
+        const auto toScreen=[&](float lx,float ly,float lz,ImVec2* out) {
+            ImVec2 sc{};
+            if(!ProjectHeadSpacePointToScreen(lx,lz,-ly,displaySize,&sc))return false;
+            if(mapped && eye!=mainEye) {
+                float nx=(sc.x/displaySize.x)*2.0f-1.0f,ny=1.0f-(sc.y/displaySize.y)*2.0f;
+                nx=cvr::projection::MapNdcX(nx,asym.eye[mainEye],asym.eye[1-mainEye]);
+                ny=cvr::projection::MapNdcY(ny,asym.eye[mainEye],asym.eye[1-mainEye]);
+                sc.x=(nx*0.5f+0.5f)*displaySize.x;
+                sc.y=(0.5f-ny*0.5f)*displaySize.y;
+            }
+            out->x=left+sc.x;out->y=sc.y;
+            return true;
+        };
+        for(int i=0;i<count;++i) {
+            const Segment& s=segments[i];
+            float ax,ay,az,bx,by,bz;
+            RotateVectorByQuaternion(s.a[0]-ex,s.a[1]-ey,s.a[2]-ez,-cqx,-cqy,-cqz,cqw,&ax,&ay,&az);
+            RotateVectorByQuaternion(s.b[0]-ex,s.b[1]-ey,s.b[2]-ez,-cqx,-cqy,-cqz,cqw,&bx,&by,&bz);
+            // the camera's frame is X right, Y forward, Z up
+            if(ay<nearPlane && by<nearPlane)continue;
+            if(ay<nearPlane) {
+                const float t=(nearPlane-ay)/(by-ay);
+                ax+=(bx-ax)*t;az+=(bz-az)*t;ay=nearPlane;
+            } else if(by<nearPlane) {
+                const float t=(nearPlane-by)/(ay-by);
+                bx+=(ax-bx)*t;bz+=(az-bz)*t;by=nearPlane;
+            }
+            ImVec2 pa,pb;
+            if(!toScreen(ax,ay,az,&pa) || !toScreen(bx,by,bz,&pb))continue;
+            dl->AddLine(pa,pb,palette[s.color<ColorCount?s.color:0],1.2f);
+        }
         dl->PopClipRect();
     }
 }

@@ -358,7 +358,9 @@ static int ArmPlayerLocked() {
     // match, fall back to the shortest name containing the needles (so we get the
     // hand root, not a finger like "RightHandThumb1").
     auto* metaRig = animObj->metaRig;
-    if (metaRig && std::strcmp(ClassifyQword(reinterpret_cast<uint64_t>(metaRig)), "HEAP") == 0)
+    // The rig comes from the player's typed AnimatedObject; low Windows allocations are valid too.
+    // Keep the address-range heuristic for untyped scans, and check this known object's memory directly.
+    if (VRIK_IsReadable(metaRig, sizeof(*metaRig)))
     {
         const uint32_t boneCount = metaRig->boneNames.Size();
         if (boneCount > 0 && boneCount < 8192)

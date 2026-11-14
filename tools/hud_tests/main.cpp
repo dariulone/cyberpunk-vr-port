@@ -5,6 +5,20 @@ extern "C" { int CyberpunkVR_RuntimeDiagnostics=0; }
 #include "Render/ColorBlit.hpp"
 #include "Render/HudPanel.hpp"
 #include "Runtimes/HudQuad.hpp"
+#include "Anim/WheelGrab.hpp"
+#include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/HudClearance.hpp"
+namespace cvr::anim { bool WheelReadMinimapAnchor(uint64_t,cvr::hud::VehicleMinimapAnchor&) {return false;} }
+// Standalone panel tests have no game-world depth query or tracked hands.
+extern "C" int CyberpunkVR_InteractionAnchor=0,CyberpunkVR_HudClearance=0,CyberpunkVR_HudClearanceHands=0;
+extern "C" float CyberpunkVR_HudClearanceGrow=0,CyberpunkVR_HudClearanceHandsScale=1;
+namespace cvr::interaction {float TargetDepth(uint64_t) {return 0;}}
+namespace cvr::hud::clearance {
+float Published(uint64_t) {return kFree;}
+float GrowFactor(float,float,float) {return 1;}
+}
+OpenXRManager& OpenXRManager::Get() {std::abort();}
+bool OpenXRManager::GetHandPose(int,OpenXRHeadPose*) const {return false;}
 #include "Render/GpuStageProfile.hpp"
 extern "C" { extern cvr::hud::PoseDebug CyberpunkVR_HudPoseDebug; extern std::atomic<uint32_t> CyberpunkVR_HudPoseDebugSeq; }
 #include "Core/LiveControls.hpp"
@@ -121,6 +135,7 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
        quadCase=="gpu_quad_alignment" || quadCase=="gpu_quad_projection")g_liveControls.xrHudStereoDepth=0;
     Gpu gpu;
     const bool styleCase=quadCase=="gpu_style";
+    const bool windshieldCase=quadCase=="gpu_windshield";
     testHudConstants=gpu.Buffer(512,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
     testFrameConstants=gpu.Buffer(512,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
     void* constants=nullptr;Hr(testHudConstants->Map(0,nullptr,&constants));std::memset(constants,0,512);
@@ -131,6 +146,7 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
     g_liveControls.xrHudBrightness=styleCase ? 1.0f : 0.5f;
     g_liveControls.xrHudShadow=styleCase ? 1.0f : 0.0f;g_liveControls.xrHudGlow=0;
     auto snapshot=std::make_shared<cvr::hud::Snapshot>();snapshot->width=128;snapshot->height=8;snapshot->masked=true;
+    snapshot->windshieldMap=windshieldCase;
     std::vector<ComPtr<ID3D12Resource>> uploads;
     for(unsigned i=0;i<64;++i) {
         auto texture=gpu.Texture(1,1,D3D12_RESOURCE_STATE_COPY_DEST);
@@ -152,6 +168,20 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
         auto next=std::make_shared<cvr::hud::Snapshot>(*snapshot);next->stamp=GetTickCount64();next->generation=pass+1;
         cvr::hud::Publish(next);cvr::hud::Capture(gpu.device.Get(),gpu.queue.Get());gpu.Wait();
         auto frame=cvr::hud::Latest();Check(frame!=nullptr,"panel capture missing");
+        if(quadCase=="gpu_completed_source") {
+            ComPtr<ID3D12Fence> gate;Hr(gpu.device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&gate)));
+            Hr(gpu.queue->Wait(gate.Get(),1));
+            auto newer=std::make_shared<cvr::hud::Snapshot>(*next);newer->stamp=GetTickCount64();newer->generation=2;
+            cvr::hud::Publish(newer);cvr::hud::Capture(gpu.device.Get(),gpu.queue.Get());
+            const auto pending=cvr::hud::Latest();
+            const auto completed=cvr::hud::Latest(cvr::hud::Channel::Main,true);
+            // Unblock before checks so a failing assertion cannot leave the GPU waiting forever.
+            Hr(gate->Signal(1));gpu.Wait();
+            Check(pending && pending->serial>frame->serial,"test did not queue a newer HUD canvas");
+            Check(completed==frame,"inline HUD did not retain the preceding completed canvas");
+            Check(cvr::hud::Latest(cvr::hud::Channel::Main,true)==pending,"completed newer canvas was never selected");
+            cvr::hud::Shutdown();return;
+        }
         const bool lootCase=quadCase=="gpu_quad_loot";
         const bool interaction=quadCase=="gpu_quad_interaction" || lootCase;
         const bool basilisk=quadCase=="gpu_quad_basilisk";
@@ -173,7 +203,7 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
             cvr::hud::SetConsumerReady(true);cvr::hud::SetConsumerReady(false,cvr::hud::Channel::Interaction);
             Check(cvr::hud::ConsumerReady() && !cvr::hud::ConsumerReady(cvr::hud::Channel::Interaction),"consumer readiness leaked across channels");
         }
-        if (!quadCase.empty() && !styleCase) {
+        if (!quadCase.empty() && !styleCase && !windshieldCase) {
             xrtest::device=gpu.device.Get(); cvr::hud::Quad quad(channel);
             XrPosef head{};head.orientation.w=1;head.position={1,2,3};
             XrVector3f eyes[2]={{-.032f,0,0},{.032f,0,0}};
@@ -375,6 +405,20 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
         D3D12_TEXTURE_COPY_LOCATION src{};src.pResource=frame->canvas.Get();src.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         gpu.cmd->CopyTextureRegion(&dst,0,0,0,&src,nullptr);gpu.Submit();
         void* data=nullptr;Hr(readback->Map(0,nullptr,&data));auto px=static_cast<unsigned char*>(data);
+        if(windshieldCase) {
+            Check(frame->windshieldMap,"projection flag lost across GPU capture");
+            Check(px[3]==0 && px[127*4+3]==0,"projected map retained a full-width opaque backdrop");
+            const auto* bright=px+3*512+100*4;
+            Check(bright[3]>20 && bright[3]<250 && bright[1]>0 && bright[2]>0,"luminous map missing or fully opaque");
+            const auto* frost=px+64*4; // empty canvas texel inside the trapezoid
+            // The canvas view is sRGB: compare the decoded linear colour with the premultiplied expectation
+            // (frost blue 0.07 x alpha x the 0.5 test brightness).
+            const float srgbBlue=frost[2]/255.0f;
+            const float linearBlue=srgbBlue<=0.04045f ? srgbBlue/12.92f : powf((srgbBlue+0.055f)/1.055f,2.4f);
+            Check(frost[3]>=60 && frost[3]<=140 && std::abs(linearBlue-0.035f*frost[3]/255.0f)<0.004f,
+                "frosted combiner missing, opaque or not premultiplied");
+            readback->Unmap(0,nullptr);cvr::hud::Shutdown();return;
+        }
         for(unsigned i=0;i<64;++i) {
             float srgb=(32+i*3)/255.0f;
             float linear=srgb<=0.04045f ? srgb/12.92f : powf((srgb+0.055f)/1.055f,2.4f);
@@ -399,8 +443,32 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
 
 int main(int argc,char** argv) try {
     Check(argc==2,"case required");std::string name=argv[1];cvr::hud::Follow f;
+    if(name=="native_mask") {
+        // A consumer between two images keeps the game's slots masked (no flat copy first); one that cannot show
+        // the channel, or that stopped asking, gives them back.
+        using namespace cvr::hud;
+        Check(!MaskNative(Channel::Interaction),"a channel nobody showed masked the game's slots");
+        SetConsumerReady(false,Channel::Interaction);
+        Check(!MaskNative(Channel::Interaction),"a consumer that never had an image masked the game's slots");
+        SetConsumerReady(true,Channel::Interaction);SetConsumerReady(false,Channel::Interaction);
+        Check(!ConsumerReady(Channel::Interaction) && MaskNative(Channel::Interaction),
+            "the game drew the prompt flat while the panel caught up with a new image");
+        Check(!MaskNative(Channel::Main),"priming leaked to another channel");
+        Sleep(1100);
+        Check(!MaskNative(Channel::Interaction),"a consumer that stopped asking kept the game's slots masked");
+        SetConsumerReady(true,Channel::Interaction);DropConsumer(Channel::Interaction);
+        Check(!MaskNative(Channel::Interaction),"a failed consumer kept the game's slots masked");
+        SetConsumerReady(false,Channel::Interaction);
+        Check(!MaskNative(Channel::Interaction),"a dropped consumer was primed again without an image");
+        return 0;
+    }
     if(name=="channels") {
         using namespace cvr::hud;
+        Check(EntryChannel(EntryHash("minimap"))==Channel::VehicleMinimap &&
+            EntryChannel(EntryHash("minimap_q305"))==Channel::Main,"ordinary minimap routing changed story alternate");
+        Check(NeedsSeparateWindow(EntryHash("items_notification_queue")) &&
+            EntryChannel(EntryHash("items_notification_queue"))==Channel::Main &&
+            ElementIndex(EntryHash("items_notification_queue"))>=0,"money transaction queue bypasses HUD");
         Check(EntryChannel(EntryHash("interactions_root"))==Channel::Interaction,"interaction root stayed in main HUD");
         Check(EntryChannel(EntryHash("input_hint"))==Channel::Main,"button hints were mistaken for interaction choices");
         Check(EntryChannel(EntryHash("subtitles"))==Channel::Main,"subtitles did not use ordinary HUD");
@@ -510,7 +578,7 @@ int main(int argc,char** argv) try {
         FILE* file=std::tmpfile();Check(file!=nullptr,"temp file");cvr::hud::SaveLayoutSettings(file,layout);rewind(file);
         cvr::hud::LayoutSettings restored{};char line[160];while(std::fgets(line,sizeof(line),file))cvr::hud::ParseLayoutSetting(line,restored);fclose(file);
         Check(restored[index].x==12 && restored[index].opacity==.4f,"layout save/reload lost values");
-    } else if(name=="gpu_style") { GpuTest(false,name); }
+    } else if(name=="gpu_style" || name=="gpu_completed_source" || name=="gpu_windshield") { GpuTest(false,name); }
     else if(name.rfind("gpu_quad_",0)==0) { GpuTest(false,name); }
     else if(name=="gpu_sprites" || name=="gpu_leases") { GpuTest(name=="gpu_leases"); }
     else if(name=="delayed_catchup") {

@@ -29,8 +29,11 @@ public func VRHudPeopleDepth(origin: Vector4, forward: Vector4, right: Vector4, 
         let base: Vector4 = ent.GetWorldPosition();
         let k: Int32 = 0;
         while k < 5 {
-          let p: Vector4 = new Vector4(base.X, base.Y, base.Z + 0.20 + 0.35 * Cast<Float>(k), 1.00);
-          let d: Vector4 = new Vector4(p.X - origin.X, p.Y - origin.Y, p.Z - origin.Z, 0.00);
+          // Field by field: redscript 1.0 refuses `new` on a struct, 0.5 has no other constructor syntax.
+          let p: Vector4;
+          p.X = base.X; p.Y = base.Y; p.Z = base.Z + 0.20 + 0.35 * Cast<Float>(k); p.W = 1.00;
+          let d: Vector4;
+          d.X = p.X - origin.X; d.Y = p.Y - origin.Y; d.Z = p.Z - origin.Z; d.W = 0.00;
           let depth: Float = Vector4.Dot(d, forward);
           if depth > 0.05 {
             let side: Float = AbsF(Vector4.Dot(d, right)) - radius;

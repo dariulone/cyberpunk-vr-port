@@ -56,3 +56,27 @@ if(EXISTS "${CVR_DLSS_SDK_ROOT}/include/nvsdk_ngx_helpers_dlssg_d3d.h" AND
 else()
     message(WARNING "NVIDIA DLSS SDK not found: native DLSS Frame Generation is left out of this build")
 endif()
+
+# ANR FG (Apex Neural Rendering, github.com/apex-compute/ANR): a DLSS-G provider, its own nvngx_dlssg.dll, run by
+# Framegen/AnrFrameGen.cpp the way OptiScaler runs it from custom/<name>/dlssg. The release's addon package is pinned
+# by hash and its dlssg folder goes beside the plugin unchanged (anr/dlssg: the dll, its kernels, programs and nr_fg.ini).
+set(CVR_ANR_FG_VERSION V.B15)
+set(CVR_ANR_FG_SHA256 717e93b3e63cb08dbaf6240cd585bae94d498c2749d8603d800d17ad97ef9e41)
+set(CVR_ANR_FG_ROOT "${CMAKE_BINARY_DIR}/anr-fg-${CVR_ANR_FG_VERSION}")
+set(cvr_anr_dlssg "${CVR_ANR_FG_ROOT}/Apex Neural Rendering FG/dlssg")
+if(NOT EXISTS "${cvr_anr_dlssg}/nvngx_dlssg.dll")
+    set(cvr_anr_zip "${CMAKE_BINARY_DIR}/anr-fg-${CVR_ANR_FG_VERSION}-addon.zip")
+    file(DOWNLOAD "https://github.com/apex-compute/ANR/releases/download/FG-${CVR_ANR_FG_VERSION}/anr-fg-${CVR_ANR_FG_VERSION}-addon.zip"
+        "${cvr_anr_zip}" EXPECTED_HASH SHA256=${CVR_ANR_FG_SHA256} STATUS cvr_anr_status)
+    list(GET cvr_anr_status 0 cvr_anr_code)
+    if(cvr_anr_code EQUAL 0)
+        file(ARCHIVE_EXTRACT INPUT "${cvr_anr_zip}" DESTINATION "${CVR_ANR_FG_ROOT}")
+    endif()
+endif()
+if(EXISTS "${cvr_anr_dlssg}/nvngx_dlssg.dll")
+    add_custom_command(TARGET cyberpunkvrport_stereo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${cvr_anr_dlssg}" "$<TARGET_FILE_DIR:cyberpunkvrport_stereo>/anr/dlssg")
+    message(STATUS "ANR FG ${CVR_ANR_FG_VERSION}: ${cvr_anr_dlssg}")
+else()
+    message(WARNING "ANR FG package not available: the ANR FG frame generator will report it is not installed")
+endif()

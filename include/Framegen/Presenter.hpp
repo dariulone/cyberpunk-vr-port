@@ -29,9 +29,10 @@ struct Selection {
 class Presenter {
 public:
     Selection Select(ID3D12Device*,ID3D12CommandQueue*,Frame,bool gameplay);
-    void Submitted(const Selection&,ID3D12Fence*,uint64_t,bool accepted);
+    void Submitted(const Selection&,ID3D12Fence*,uint64_t,bool accepted,bool retainEndpoint=false);
     void Reset();
     bool Pending() const {return cadence.Pending()!=0;}
+    const Frame& PendingFrame() const {return pending;}
 private:
     Cadence cadence;
     Generator generator;

@@ -21,6 +21,14 @@ __declspec(dllexport) uint64_t CyberpunkVR_DebugFpsCap[2]{};
 __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_FrameRingCount[2]{};
 __declspec(dllexport) float CyberpunkVR_FrameRingCpu[8192]{};
 __declspec(dllexport) float CyberpunkVR_FrameRingGpu[8192]{};
+// Bounded diagnostic ring: timestamp, lock wait, work estimate, old/new target, XR cycle, period,
+// requested interval/hold, actual wait, release, reserved. Written only while runtime diagnostics are enabled.
+__declspec(dllexport) double CyberpunkVR_PaceTrace[8192][12]{};
+__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_PaceTraceCount{};
+// Presentation cycles whose real frame skipped a native frame of the game (diagnostics; pacing ignores them).
+__declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_FramegenPairGaps{};
+// 1 while CadenceLock holds real frames three display periods apart.
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FramegenThreePeriods{};
 }
 
 namespace cvr::framegen {
@@ -30,10 +38,12 @@ std::mutex settingsWriteMutex;
 Settings settings;
 std::atomic<bool> enabled{false},metrics{false};
 std::atomic<bool> depthCapture{false};
-std::atomic<bool> autoPace{true},pacingReady{false};
+std::atomic<bool> autoPace{true},cadenceLock{false},pacingReady{false};
 std::atomic<int64_t> displayPeriod{0};
 // When xrWaitFrame last returned (NowMs): the phase of the display cycle the frame cap aims at.
 std::atomic<double> displayCycleMs{0};
+// Whether those returns keep the predicted period (CycleClock), so framegen's pacing may lock to them.
+std::atomic<bool> cycleSteady{false};
 std::atomic<bool> fpsCap{true};
 std::atomic<double> pacingIntervalMs{0};
 std::atomic<bool> resetPacing{true};
@@ -87,6 +97,7 @@ const char* BackendName(Backend value) {
     switch(value) {
         case Backend::Nvidia:return "NVIDIA OFA + FidelityFX";
         case Backend::DlssG:return "NVIDIA DLSS-G";
+        case Backend::Anr:return "ANR FG";
         default:return "FidelityFX";
     }
 }
@@ -103,7 +114,7 @@ void SetDepthCaptureEnabled(bool value) {depthCapture.store(value,std::memory_or
 bool MetricsEnabled() {return metrics.load(std::memory_order_relaxed);}
 void SetSettings(Settings value) {
     std::lock_guard settingsLock(settingsWriteMutex);
-    value.backend=Backend(std::clamp(int(value.backend),0,2));
+    value.backend=Backend(std::clamp(int(value.backend),0,3));
     value.quality=std::clamp(value.quality,0,2);
     // 0 = no optical flow: frame interpolation on the engine's vectors alone.
     value.flowScale=value.flowScale==100 || value.flowScale==75 || value.flowScale==0 ? value.flowScale : 50;
@@ -124,6 +135,7 @@ void SetSettings(Settings value) {
     enabled.store(value.enabled,std::memory_order_relaxed);
     metrics.store(value.overlay,std::memory_order_relaxed);
     autoPace.store(value.autoPace,std::memory_order_relaxed);
+    cadenceLock.store(value.cadenceLock,std::memory_order_relaxed);
     if(!value.enabled || !value.autoPace){pacingIntervalMs=0;resetPacing=true;}
     if(!value.enabled) {pacingReady.store(false,std::memory_order_relaxed);stats.generationMs=0;}
     if(cvr::RuntimeDiagnosticsEnabled() && !value.overlay && disabledReportChanged) {
@@ -213,9 +225,16 @@ void OnInput(unsigned eye,uint32_t w,uint32_t h) {
 }
 void OnSkip() {if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay)++stats.skipped;}
 void SetVram(uint64_t bytes) {if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(settings.overlay)stats.vramBytes=bytes;}
-void DisplayPeriod(int64_t ns) {
+void DisplayPeriod(int64_t ns,bool steamVr) {
     if(ns<4000000 || ns>40000000)return;
-    displayPeriod.store(ns,std::memory_order_relaxed);displayCycleMs.store(NowMs(),std::memory_order_relaxed);
+    // One XR-loop owner writes the clock and period filter, including during a submit-owner handover.
+    static CycleClock clock;
+    static PresentationPeriod period;
+    const double now=NowMs();
+    if(steamVr)ns=period.Observe(now,ns);else period.Reset();
+    clock.Tick(now,double(ns)*1e-6);
+    displayPeriod.store(ns,std::memory_order_relaxed);displayCycleMs.store(now,std::memory_order_relaxed);
+    cycleSteady.store(clock.Steady(),std::memory_order_relaxed);
 }
 bool FpsCap() {return fpsCap.load(std::memory_order_relaxed);}
 void SetFpsCap(bool on) {fpsCap.store(on,std::memory_order_relaxed);}
@@ -256,41 +275,63 @@ void PacingReady(bool ready) {
     if(!ready){pacingIntervalMs.store(0,std::memory_order_relaxed);resetPacing.store(true,std::memory_order_relaxed);}
 }
 void OnPresentationCycle(bool missedAdjacentFrame) {
-    static AdaptivePacing feedback;
-    if(!Enabled() || !autoPace.load(std::memory_order_relaxed)) {feedback.Reset();pacingIntervalMs=0;return;}
-    if(resetPacing.exchange(false,std::memory_order_relaxed))feedback.Reset();
-    pacingIntervalMs.store(feedback.Observe(NowMs(),double(displayPeriod.load(std::memory_order_relaxed))*2e-6,missedAdjacentFrame),std::memory_order_relaxed);
+    if(missedAdjacentFrame)CyberpunkVR_FramegenPairGaps.fetch_add(1,std::memory_order_relaxed);
 }
 void PaceRenderedFrame() {
-    struct Timer {HANDLE handle{};double last{};~Timer(){if(handle)CloseHandle(handle);}};
+    struct Timer {HANDLE handle{};PhaseLockedPacing phase;CadenceLock cadence;~Timer(){if(handle)CloseHandle(handle);}};
     // The game's Present jobs can run on different workers. A TLS deadline
     // limits each worker independently, allowing the combined stream to run
     // faster than half refresh. Serialize one schedule for that stream.
     static Timer timer;
     static std::mutex paceMutex;
+    const double entered=RuntimeDiagnosticsEnabled()?NowMs():0;
     std::lock_guard paceLock(paceMutex);
     const auto period=displayPeriod.load(std::memory_order_relaxed);
     // Framegen's pacing (two display periods a real frame) when it runs; the plain refresh cap otherwise.
     if(!Enabled() || !autoPace.load(std::memory_order_relaxed) || !pacingReady.load(std::memory_order_relaxed) || !period) {
-        timer.last=0;CapToDisplay(period);return;
+        timer.phase.Reset();timer.cadence.Reset();pacingIntervalMs.store(0,std::memory_order_relaxed);
+        CyberpunkVR_FramegenThreePeriods.store(0,std::memory_order_relaxed);CapToDisplay(period);return;
     }
-    const double now=NowMs(),interval=std::max(double(period)*2e-6,pacingIntervalMs.load(std::memory_order_relaxed));
-    const double remaining=timer.last+interval-now;
-    if(remaining>.2 && remaining<=80) {
+    if(resetPacing.exchange(false,std::memory_order_relaxed))timer.cadence.Reset();
+    const double now=NowMs(),per=double(period)*1e-6;
+    // ALWAYS TWO DISPLAY PERIODS unless the cadence lock is asked for (xr_framegen_cadence_lock). The lock moved to three
+    // on one heavy second (38% of frames over the budget at an H10 sprint) and stayed there seven seconds while the
+    // game's own time was 15.6 ms at the median and 19.9 ms at p90 of a 22.2 ms budget: 30 fps for a game that
+    // makes 45. A frame over the budget now costs that frame, and the XR side keeps one finished frame in hand.
+    const bool lockCadence=cadenceLock.load(std::memory_order_relaxed);
+    if(!lockCadence)timer.cadence.Reset();
+    const double interval=lockCadence ? timer.cadence.Observe(now,per,timer.phase.Elapsed(now)) : per*2;
+    pacingIntervalMs.store(interval,std::memory_order_relaxed);
+    CyberpunkVR_FramegenThreePeriods.store(timer.cadence.Three()?1u:0u,std::memory_order_relaxed);
+    // No grid from a loop that does not keep its period (CycleClock): the plain interval then.
+    const double cycle=cycleSteady.load(std::memory_order_relaxed) ? displayCycleMs.load(std::memory_order_relaxed) : NAN;
+    const double previousTarget=timer.phase.Target();
+    const double hold=timer.phase.Hold(now,cycle,per,interval);
+    const double waitStart=entered?NowMs():0;
+    if(hold>0) {
         if(!timer.handle)timer.handle=CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS);
         if(timer.handle) {
-            LARGE_INTEGER due{};due.QuadPart=-static_cast<LONGLONG>(remaining*10000.0);
+            LARGE_INTEGER due{};due.QuadPart=-static_cast<LONGLONG>(hold*10000.0);
             if(SetWaitableTimerEx(timer.handle,&due,0,nullptr,nullptr,nullptr,0))WaitForSingleObject(timer.handle,100);
         }
     }
-    const auto done=NowMs();timer.last=timer.last && done<timer.last+interval*1.5 ? timer.last+interval : done;
+    const double released=NowMs();
+    timer.phase.Released(released);
+    if(entered) {
+        const auto n=CyberpunkVR_PaceTraceCount.load(std::memory_order_relaxed);
+        const double row[12]={now,now-entered,timer.phase.Work(),previousTarget,timer.phase.Target(),cycle,
+            per,interval,hold,released-waitStart,released,0};
+        std::memcpy(CyberpunkVR_PaceTrace[n%8192],row,sizeof(row));
+        CyberpunkVR_PaceTraceCount.store(n+1,std::memory_order_release);
+    }
 }
 bool ParseSetting(const char* line,Settings& value) {
     int n{};float f{};
     if(sscanf_s(line,"xr_framegen = %d",&n)==1)value.enabled=n!=0;
     else if(sscanf_s(line,"xr_framegen_overlay = %d",&n)==1)value.overlay=n!=0;
     else if(sscanf_s(line,"xr_framegen_pace = %d",&n)==1)value.autoPace=n!=0;
-    else if(sscanf_s(line,"xr_framegen_backend = %d",&n)==1)value.backend=Backend(std::clamp(n,0,2));
+    else if(sscanf_s(line,"xr_framegen_cadence_lock = %d",&n)==1)value.cadenceLock=n!=0;
+    else if(sscanf_s(line,"xr_framegen_backend = %d",&n)==1)value.backend=Backend(std::clamp(n,0,3));
     else if(sscanf_s(line,"xr_framegen_quality = %d",&n)==1)value.quality=n;
     else if(sscanf_s(line,"xr_framegen_flow_scale = %d",&n)==1)value.flowScale=n;
     else if(sscanf_s(line,"xr_framegen_overlay_corner = %d",&n)==1)value.overlayCorner=n;
@@ -308,6 +349,7 @@ bool ParseSetting(const char* line,Settings& value) {
 void WriteSettings(void* file,const Settings& s) {
     std::fprintf(static_cast<FILE*>(file),"xr_framegen=%d\nxr_framegen_overlay=%d\nxr_framegen_pace=%d\nxr_framegen_backend=%d\nxr_framegen_quality=%d\nxr_framegen_flow_scale=%d\nxr_framegen_overlay_corner=%d\n",
         s.enabled,s.overlay,s.autoPace,int(s.backend),s.quality,s.flowScale,s.overlayCorner);
+    std::fprintf(static_cast<FILE*>(file),"xr_framegen_cadence_lock=%d\n",s.cadenceLock ? 1 : 0);
     std::fprintf(static_cast<FILE*>(file),"xr_framegen_overlay_layout=%d\nxr_framegen_overlay_follow=%d\nxr_framegen_history=%d\nxr_framegen_overlay_cone=%.2f\nxr_framegen_overlay_scale=%.3f\nxr_framegen_overlay_distance=%.3f\nxr_framegen_overlay_x=%.2f\nxr_framegen_overlay_y=%.2f\n",
         s.overlayLayout,s.overlayFollow,s.historySeconds,s.overlayCone,s.overlayScale,s.overlayDistance,s.overlayX,s.overlayY);
 }

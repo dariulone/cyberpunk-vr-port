@@ -8,6 +8,9 @@ enum class Reject : uint32_t { None, Synthetic, Missing, Identity, Projection, C
 struct View {
     uint32_t width{},height{};
     float nearZ{},farZ{},jitter[2]{};
+    // A midpoint's depth: B's depth moved this fraction of B's motion vectors (toward A), and the vectors' scale to a
+    // fraction of the image (CameraData::motionScale). 0 for a real frame.
+    float motion{},motionScale[2]{};
 };
 struct Plan { View eyes[2]; };
 inline bool SamePose(const XrPosef& a,const XrPosef& b) {
@@ -29,9 +32,11 @@ inline bool SameProjection(const framegen::CameraData& c,const XrFovf& f) {
 inline Reject Describe(const framegen::Selection& selected,
     const XrCompositionLayerProjectionView* views,uint32_t count,float gameUnitsPerMeter,Plan& out) {
     out={};
-    // SDK interpolation returns color only. Its B inputs and internal occlusion depth
-    // are not depth at the synthetic image's interpolated camera/instant.
-    if(selected.synthetic)return Reject::Synthetic;
+    // A MIDPOINT HAS A DEPTH OF ITS OWN. The SDK returns colour only, so the midpoint takes the depth of B, the real
+    // frame it leads to, moved half of B's motion vectors back toward A (Render/StereoDepth.cpp) -- the same vectors
+    // the interpolation follows, camera motion included. XR_KHR_composition_layer_depth lets a runtime reproject
+    // with depth; with it on real frames only, every other image would be reprojected another way.
+    const bool synthetic=selected.synthetic;
     const auto& f=selected.frame;
     if(count!=2 || !views || !f.identity.stereo || !f.identity.serial || !f.inputs[0] || !f.inputs[1])return Reject::Missing;
     if(!std::isfinite(gameUnitsPerMeter) || gameUnitsPerMeter<=0)return Reject::Camera;
@@ -39,7 +44,11 @@ inline Reject Describe(const framegen::Selection& selected,
     for(unsigned eye=0;eye<2;++eye) {
         const auto& input=*f.inputs[eye];const auto& c=input.camera;
         if(!input.submitted || !input.hasDepth || !input.depth || !input.width || !input.height)return Reject::Missing;
-        if(!f.identity.origin || !f.identity.pose[eye] || input.poseId!=f.identity.pose[eye] ||
+        if(synthetic && (!input.hasMotion || !input.motion || !input.motionWidth || !input.motionHeight ||
+            !c.cameraMotion || c.motion3d || !std::isfinite(c.motionScale[0]) || !std::isfinite(c.motionScale[1])))
+            return Reject::Missing;
+        // A midpoint's pose is a blend (Presenter: identity.pose 0); its B inputs still carry B's own identity.
+        if(!f.identity.origin || (!synthetic && (!f.identity.pose[eye] || input.poseId!=f.identity.pose[eye])) ||
             input.origin!=f.identity.origin || input.frameId!=f.identity.nativeFrame || input.view<1 || input.view>2 ||
             !SamePose(f.pose[eye],views[eye].pose))return Reject::Identity;
         if(!SameProjection(c,views[eye].fov))return Reject::Projection;
@@ -52,6 +61,7 @@ inline Reject Describe(const framegen::Selection& selected,
         const float n=c.nearPlane/gameUnitsPerMeter,farClip=c.farPlane/gameUnitsPerMeter;
         v.nearZ=c.inverted?farClip:n;v.farZ=c.inverted?n:farClip;
         v.jitter[0]=c.jitter[0];v.jitter[1]=c.jitter[1];
+        v.motion=synthetic ? .5f : 0.f;v.motionScale[0]=c.motionScale[0];v.motionScale[1]=c.motionScale[1];
     }
     return Reject::None;
 }

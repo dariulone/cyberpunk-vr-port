@@ -1,4 +1,7 @@
 #include "Overlay/VrOverlay.hpp"
+#include "Core/LiveControls.hpp"
+LiveControls g_liveControls{};
+namespace cvr::fingergrip { bool GripFromFingers(){return false;} }
 #include <stdexcept>
 #include <iostream>
 #include <cstdio>
@@ -12,7 +15,28 @@ Tracking Start(){Tracking t;t.valid=true;t.origin=1;t.time=1000000000;t.head.pos
     for(auto& h:t.hands){h.valid=true;h.aim.position={0,1.7f,-.3f};}return t;}
 int main(int argc,char** argv)try{
     Check(argc==2,"test name required");const std::string name=argv[1];auto t=Start();Settings s;
-    if(name=="chord"){
+    if(name=="interface_master"){
+        g_liveControls.xrVrInterface=0;
+        t.hands[0].stickClick=t.hands[1].stickClick=true;
+        for(int i=0;i<70;++i){t.time+=11111111;UpdateTracking(t);}
+        Check(!CapturesInput() && !ConsumeMenuSummon(),"disabled SAO swallowed L3+R3");
+        g_liveControls.xrVrInterface=1;
+        for(int i=0;i<50;++i){t.time+=11111111;UpdateTracking(t);}
+        Check(CapturesInput() && ConsumeMenuSummon(),"enabled SAO chord stopped working");
+        // Disabling while still held must clear only the SAO release latch.
+        g_liveControls.xrVrInterface=0;t.hands[0].trigger=1;
+        t.time+=11111111;UpdateTracking(t);
+        Check(!CapturesInput() && !ConsumeMenuSummon(),"disabled SAO retained a pending input capture");
+        Toggle();Check(PollCommand()==1 && CapturesInput(),"SAO master disabled F10 opening");
+        BridgeUpdate(true,true,"CONTINUE\nSETTINGS");t.time+=11111111;UpdateTracking(t);
+        Check(Visible() && CapturesInput(),"SAO master released active settings panel input");
+        Close();Check(PollCommand()==2,"settings close missing");
+        t.time+=11111111;UpdateTracking(t);Check(CapturesInput(),"settings release latch was cleared by SAO master");
+        t.hands[0].trigger=0;t.time+=11111111;UpdateTracking(t);
+        Check(CapturesInput(),"settings released held stick clicks with SAO disabled");
+        t.hands[0].stickClick=t.hands[1].stickClick=false;
+        t.time+=11111111;UpdateTracking(t);Check(!CapturesInput(),"settings neutral release stuck");
+    }else if(name=="chord"){
         HoldChord c;for(int i=0;i<49;++i)Check(!c.Update(true,.01f),"chord triggered before half a second");
         bool fired=false;for(int i=0;i<3;++i)fired|=c.Update(true,.01f);Check(fired,"half-second chord did not trigger");
         for(int i=0;i<300;++i)Check(!c.Update(true,.01f),"held chord retriggered");

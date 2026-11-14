@@ -16,6 +16,7 @@
 -- PROJECTED onto it is exactly the along-barrel rack distance, because a rotation preserves length -- so the bone's
 -- own local frame never has to be reconstructed.
 local M = {}
+M.gripArc = require('reload/grip_arc')
 
 local CONFIGS = {}
 do
@@ -2661,6 +2662,7 @@ function M.frame(weapon, slotComp, holder, dt)
                 -- up meets the world's), and the better of the two counts. Detection only: once gripped, the hold is
                 -- the real, rolled slide as before -- the snap eases the hand onto it.
                 local cqi, cqj, cqk, cqr = nil, 0.0, 0.0, 1.0
+                local cantAngle = 0
                 do
                     local ux, uy, uz
                     if gWeapon then ux, uy, uz = gSx, gSy, gSz else ux, uy, uz = -gDx, -gDy, -gDz end
@@ -2671,6 +2673,7 @@ function M.frame(weapon, slotComp, holder, dt)
                         local cx, cy, cz = py * wz - pz * wy, pz * wx - px * wz, px * wy - py * wx
                         local phi = math.atan2(cx * ax + cy * ay + cz * az, px * wx + py * wy + pz * wz)
                         if math.abs(phi) > math.rad(2.0) then
+                            cantAngle = phi
                             local s = math.sin(phi * 0.5)
                             cqi, cqj, cqk, cqr = ax * s, ay * s, az * s, math.cos(phi * 0.5)
                         end
@@ -2688,17 +2691,26 @@ function M.frame(weapon, slotComp, holder, dt)
                         if g.rot then ri, rj, rk, rw = qmul(b1, b2, b3, b4, g.rot[1], g.rot[2], g.rot[3], g.rot[4]) end
                         -- no tables here: this runs every frame a gun is held, and per-frame Lua garbage is what the
                         -- GC hitches were made of
-                        for vi = 1, cqi and 2 or 1 do
+                        -- Also test the nearest point between the rolled and upright candidates. Two endpoints
+                        -- alone reject a wrist midway through a 90-degree cant while it is still on the slide.
+                        for vi = 1, cqi and 3 or 1 do
                             local vx, vy, vz, vqi, vqj, vqk, vqr = tx, ty, tz, ri, rj, rk, rw
-                            if vi == 2 then
-                                local ox, oy, oz = qrot(cqi, cqj, cqk, cqr, tx - spx, ty - spy, tz - spz)
+                            if vi > 1 then
+                                local ti, tj, tk, tr = cqi, cqj, cqk, cqr
+                                if vi == 3 then
+                                    local phi = M.gripArc.closest(ax, ay, az, cantAngle,
+                                        tx - spx, ty - spy, tz - spz, hx - spx, hy - spy, hz - spz)
+                                    local s = math.sin(phi * 0.5)
+                                    ti, tj, tk, tr = ax * s, ay * s, az * s, math.cos(phi * 0.5)
+                                end
+                                local ox, oy, oz = qrot(ti, tj, tk, tr, tx - spx, ty - spy, tz - spz)
                                 vx, vy, vz = spx + ox, spy + oy, spz + oz
-                                if ri then vqi, vqj, vqk, vqr = qmul(cqi, cqj, cqk, cqr, ri, rj, rk, rw) end
+                                if ri then vqi, vqj, vqk, vqr = qmul(ti, tj, tk, tr, ri, rj, rk, rw) end
                             end
                             local d = len3(hx - vx, hy - vy, hz - vz)
                             local a = nil
                             if dbgRaw == nil or d < dbgRaw then dbgRaw = d end
-                            if gd == nil or d < gd then gd, gTilt = d, vi == 2 end
+                            if gd == nil or d < gd then gd, gTilt = d, vi > 1 end
                             if d < bestD then
                                 local angOk = true
                                 if hq and vqi then

@@ -89,12 +89,19 @@ struct LiveControls {
     volatile float xrVehHeadOffsetX;
     volatile float xrVehHeadOffsetY;
     volatile float xrVehHeadOffsetZ;
+    // ON A MOTORCYCLE its own trio, used INSTEAD of the car's while a bike is mounted: the rider sits higher and
+    // further forward than a driver, so the car's correction is the wrong one there. 0 by default.
+    volatile float xrBikeHeadOffsetX;
+    volatile float xrBikeHeadOffsetY;
+    volatile float xrBikeHeadOffsetZ;
     // ---- DRIVING: hands on the wheel (iPowerTech, 425d4262 + 51861118) --------------------------
     // None of these is published to a shared slot: the consumers (src/Anim/WheelGrab.cpp and the
     // XInput merge) are in this DLL and read them straight from here.
     volatile int xrWheelGrab;        // 1 (default) = while DRIVING, a grip squeezed with the hand on the animated wheel pose hands that arm back to the driving animation. Per hand.
     volatile float xrWheelRadius;    // how near the animated hand the controller must be for the grip to mean "grab", metres. Default 0.28.
-    volatile float xrWheelSteerMaxDeg;  // bike/other mount hand travel to full lock per side (30..120, else 90); a car's is its cabin wheel's (WheelRange.hpp, 1:1)
+    volatile float xrWheelSteerMaxDeg;  // non-car, non-bike mount hand travel to full lock per side (30..120, else 90); a car's is its cabin wheel's (WheelRange.hpp, 1:1)
+    volatile float xrBikeBarLockDeg;    // motorcycle: yaw of the line between the hands to full lock (15..60, default 40)
+    volatile float xrBikeBodyLean;      // motorcycle: share of full lock added by a 15 cm sideways body lean (0..1, 0 off, default 0.5)
     volatile float xrWheelSteerDeadDeg; // steering deadzone around centre, degrees. 0 (default): a real wheel has none; every degree here is a degree of dead wheel.
     volatile int xrWheelPrediction = 0; // optional conservative history-based steering lead
     volatile float xrWheelPredictionMs = 8.0f; // 0..8 ms, additionally limited to half a degree
@@ -128,9 +135,26 @@ struct LiveControls {
     // 1 (default) = the right grip held and swept straight down opens or closes the VR menu (never while that
     // hand holds the steering wheel). 0 = only L3 + R3 does.
     volatile int xrMenuGesture = 1;
+    // Master switches preserve individual gesture, collision and grab preferences.
+    volatile int xrVrInterface = 1;
+    volatile int xrHandPhysics = 1;
     // 1 (default) = holding Y opens the port's weapon wheel in front of the body and the game keeps running; a
     // tap is still the game's next weapon. 0 = the game's own wheel (it slows time). Hooks/WeaponWheelHold.hpp.
     volatile int xrVrWeaponWheel = 1;
+    // 1 (default) = hands and arms stop at the body, each other and the world, in CyberpunkVRPort_HandCollision.
+    volatile int xrHandCollision = 1;
+    // 1 (default) = ...at the body and each other in a vehicle too. Only moves arm targets, so it cannot move the car.
+    volatile int xrHandCollisionVehicle = 1;
+    // 1 (default) = an empty hand clear of the body shoves loose objects, by capsules in the player's template.
+    volatile int xrHandPush = 1;
+    volatile int xrFingerContact = 0;   // unused: the fingers no longer stop at surfaces (VrMenu.cpp, bit 16)
+    volatile int xrPropGrab = 1;
+    // 1 = the collision view: capsules, PhysX shapes and rays drawn in the world. Never saved on: it costs frames.
+    volatile int xrDebugView = 0;
+    volatile int xrCarryPicture = 1;          // a carried thing is drawn on the hand, its body following
+    volatile float xrCarryLead = 0.03f;       // s a carried thing is put ahead of the hand
+    volatile float xrContactMargin = 0.01f;   // m kept from a surface, because the collision is smaller than the mesh
+    volatile int xrWheelAnywhere = 1;
 };
 
 extern LiveControls g_liveControls;

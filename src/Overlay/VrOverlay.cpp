@@ -1,4 +1,5 @@
 #include "Overlay/VrOverlay.hpp"
+#include "Core/LiveControls.hpp"
 #include "Runtimes/FingerGrip.hpp"
 #include <windows.h>
 #include <atomic>
@@ -15,6 +16,7 @@ HoldChord chord;
 cvr::hud::DisplayClock clock;
 std::atomic<bool> visible{false},capture{false};
 int command=0;bool wanted=false,buttonDown=false,triggerArmed=false,releasePending=false,gripHeld[2]{},menuSummon=false;
+bool menuReleasePending=false;
 uint64_t bridgeStamp=0,requestStamp=0;
 std::vector<std::string> items;
 std::vector<PointerEvent> events;
@@ -48,9 +50,12 @@ std::vector<PointerEvent> ConsumePointerEvents(){std::lock_guard lock(mutex);std
 View GetView(){std::lock_guard lock(mutex);return view;}
 void UpdateTracking(const Tracking& t){
     std::lock_guard lock(mutex);clock.Step(t.time);
-    const bool both=t.valid && t.hands[0].valid && t.hands[1].valid && t.hands[0].stickClick && t.hands[1].stickClick;
-    // the sticks are held back from the game until they are let go, as after a panel toggle
-    if(chord.Update(both,clock.elapsed)){menuSummon=true;releasePending=true;}
+    const bool menuEnabled=g_liveControls.xrVrInterface!=0;
+    const bool bothHeld=t.valid && t.hands[0].valid && t.hands[1].valid && t.hands[0].stickClick && t.hands[1].stickClick;
+    const bool both=menuEnabled && bothHeld;
+    // Only SAO owns this chord. F10/settings keeps its independent capture.
+    if(!menuEnabled){menuSummon=false;menuReleasePending=false;}
+    if(chord.Update(both,clock.elapsed)){menuSummon=true;menuReleasePending=true;}
     const auto now=GetTickCount64();
     // The idle Lua bridge only polls commands, so its last acknowledgement may
     // be arbitrarily old while closed. Give each new request its opening window;
@@ -61,11 +66,11 @@ void UpdateTracking(const Tracking& t){
     // first, but only for 1.5 s; sticks and triggers as before. With the grip read from the fingers a hand closed on the
     // controller reads as gripping for as long as it holds it: the grips are not waited for at all.
     static uint64_t pendingSince=0;
-    if(!releasePending)pendingSince=0;else if(!pendingSince)pendingSince=now;
+    if(!releasePending && !menuReleasePending)pendingSince=0;else if(!pendingSince)pendingSince=now;
     const bool gripsFree=cvr::fingergrip::GripFromFingers() || (t.hands[0].grip<.5f && t.hands[1].grip<.5f) ||
                          (pendingSince && now-pendingSince>1500);
-    if(releasePending && !both && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsFree)releasePending=false;
-    capture=visible || wanted || both || releasePending;
+    if(!bothHeld && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsFree){releasePending=false;menuReleasePending=false;}
+    capture=visible || wanted || both || releasePending || menuReleasePending;
     view.hold=float(chord.held);
     if(!visible){view.valid=false;return;}
     const bool wasDragging=placement.dragging>=0;

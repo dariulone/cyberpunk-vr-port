@@ -272,7 +272,7 @@ void RefreshPlayerCameraState() {
             if (playerQueried) cvr::roomscale::SetPlayer(reinterpret_cast<uintptr_t>(playerHandle.instance));
 
             g_isInVehicle=false;
-            bool mountedCar=false;
+            bool mountedCar=false,mountedBike=false;
             uintptr_t mountedIdentity=0;
             if (playerHandle && g_mountedVehicleProp) {
                 auto mountedVehicle = g_mountedVehicleProp->GetValue<RED4ext::WeakHandle<RED4ext::IScriptable>>(playerHandle.instance);
@@ -281,10 +281,13 @@ void RefreshPlayerCameraState() {
                 g_isInVehicle = mountedIdentity!=0;
                 if(mounted) {
                     static const auto* carClass=RED4ext::CRTTISystem::Get()->GetClass("vehicleCarBaseObject");
+                    static const auto* bikeClass=RED4ext::CRTTISystem::Get()->GetClass("vehicleBikeBaseObject");
                     mountedCar=carClass && mounted->GetType()->IsA(carClass);
+                    mountedBike=bikeClass && mounted->GetType()->IsA(bikeClass);
                 }
             }
             cvr::anim::WheelSetMountedCar(mountedCar);
+            cvr::anim::WheelSetMountedBike(mountedBike);
             s_mountedVehicleIdentity.store(mountedIdentity,std::memory_order_release);
 
             // PlayerPuppet::vehicleState mirrors PSM.Vehicle. Combat is passenger
@@ -1103,10 +1106,15 @@ extern "C" void __fastcall OnLocateCameraCallback(float* rbxPtr, float xmm0_val)
         // while mounted. Folded in HERE, with the bakes, so every consumer below (the three local
         // components AND the total published in [120..122] that the hand targets are kept
         // consistent with) sees one number and they cannot drift apart.
+        // On a motorcycle its own trio replaces the car's (a rider does not sit where a driver does).
         float vehOff[3] = { 0.0f, 0.0f, 0.0f };
         if (allowGameCameraTranslation && g_isInVehicle) {
+            const bool bike=cvr::anim::WheelMountedBike();
             const auto active=cvr::camera::ActiveVehicleCameraOffset(
-                {g_liveControls.xrVehHeadOffsetX,g_liveControls.xrVehHeadOffsetY,g_liveControls.xrVehHeadOffsetZ},
+                bike ? cvr::camera::AnchorVector{g_liveControls.xrBikeHeadOffsetX,g_liveControls.xrBikeHeadOffsetY,
+                                                 g_liveControls.xrBikeHeadOffsetZ}
+                     : cvr::camera::AnchorVector{g_liveControls.xrVehHeadOffsetX,g_liveControls.xrVehHeadOffsetY,
+                                                 g_liveControls.xrVehHeadOffsetZ},
                 cvr::anim::IsPassengerWindowCombat(g_vehicleState.load(std::memory_order_relaxed)));
             vehOff[0]=active.x;vehOff[1]=active.y;vehOff[2]=active.z;
         }

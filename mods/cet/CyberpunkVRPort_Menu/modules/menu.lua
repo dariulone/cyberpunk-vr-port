@@ -11,9 +11,12 @@ local Msg = require("modules/messages")
 local Gameplay = require("modules/gameplay")
 local InventoryData = require("modules/inventory_data")
 local CyberwareData = require("modules/cyberware_data")
+local Availability = require("modules/availability")
 local VendorVisit = require("modules/vendor_visit")
 local StashVisit = require("modules/stash_visit")
 local LoadData = require("modules/load_data")
+local Appearance = require("modules/appearance")
+local AppearanceView = require("modules/appearance_view")
 local PICS = require("modules/pictures")
 local L = require("modules/locale")
 local Space = require("modules/space")
@@ -993,6 +996,7 @@ local function groupOf(key)
 end
 
 local function openSection(key,keepOpen)
+  if S.section=="appearance" then return end
   if not S.open or S.menu == nil or not S.menu.built then return end
   if S.section == "contacts" then Msg.leave(kit) end
   Gameplay.leave(kit)
@@ -1400,6 +1404,7 @@ function build.summary()
 end
 
 function build.panels(anim1, anim2)
+  Appearance.beforeBuild()
   Gameplay.beforeBuild(kit)
   local L = S.layerPanel
   local revealing = S.section ~= nil and S.time < (S.panelRevealEnd or 0)
@@ -1444,7 +1449,12 @@ function build.panels(anim1, anim2)
   else
     local p1 = K.canvas(L, P1X, P1Y, P1W, CH - P1Y)
     local p2 = K.canvas(L, P2X, P1Y, Msg.THREAD_W, CH - P1Y)
-    if S.section == "load" or S.section == "stash" or S.section == "trade" or S.section == "cyberware" or S.section == "crafting" or S.section == "inventory" or S.section == "character" or S.section == "journal" or S.section == "codex" or S.section == "shards" or S.section == "tarot" or S.section == "timeskip" then
+    if S.section == "appearance" then
+      -- Beside the mirror the menu opened centred on, on the side of the dominant hand.
+      local left = type(VRLeftHanded) == "function" and VRLeftHanded() == true
+      local ax = left and CW - P2X - P1W or P2X
+      AppearanceView.draw(kit, K.canvas(L, ax, P1Y, P1W, CH - P1Y), ax)
+    elseif S.section == "load" or S.section == "stash" or S.section == "trade" or S.section == "cyberware" or S.section == "crafting" or S.section == "inventory" or S.section == "character" or S.section == "journal" or S.section == "codex" or S.section == "shards" or S.section == "tarot" or S.section == "timeskip" then
       kit.T = T
       Gameplay.build(kit, p1, p2)
     elseif S.section == "contacts" then
@@ -1492,7 +1502,12 @@ function build.all()
     K.ring(fx,48,48,22,3,K.YELLOW,.95,32);K.ring(fx,48,48,32,2,K.YELLOW,.65,36);K.ring(fx,48,48,42,1,K.YELLOW,.3,40)
     S.pressFX[i]={host=fx}
   end
-  build.column()
+  -- The mirror's appearance editor stands alone: none of the column's sections can be reached from it.
+  if S.section=="appearance" then
+    clearButtons("col");S.icons={};S.moneyWidget,S.weightWidget,S.resourceRect=nil,nil,nil
+  else
+    build.column()
+  end
   build.panels(S.section~=nil, false)
   S.openAnimAt = S.time
   S.menu.built = true
@@ -1512,7 +1527,9 @@ local function capture(on)
 end
 
 function M.open(cam,initialSection)
+  if not Availability.enabled() then return false end
   if S.waitTransition or preGame() then return false end
+  if Appearance.current() and initialSection~="appearance" then return false end
   -- Not while full-body tracking calibrates: the steps move the hands (an accidental grip swipe opened it)
   if S.fbtCalibrating then return false end
   if type(VRMenuSurfaceReady) ~= "function" then return false end
@@ -1556,6 +1573,7 @@ end
 function M.close()
   S.columnAction=nil
   if not S.open then return end
+  if S.section=="appearance" then Appearance.cancel() end
   local visit=M.shared and M.shared.ripperSession
   if visit and visit.active then VendorVisit.closeSession(visit);M.shared.ripperSession=nil end
   local stash=M.shared and M.shared.stashSession
@@ -1592,6 +1610,7 @@ function M.openTrade()
 end
 
 function M.openMap()
+  if S.section=="appearance" then return false end
   if not D.openMap(M.shared and M.shared.menuController) then toast(T.blocked);return false end
   M.close()
   return true
@@ -1990,7 +2009,7 @@ local function tick(dt)
   if S.slow > 0.25 then
     S.slow = 0
     local visit=M.shared and M.shared.ripperSession
-    if armed() or sceneTier() >= 3 or (S.anchor.vehicle == true) ~= (D.mounted() ~= nil) then
+    if (S.section~="appearance" and (armed() or sceneTier() >= 3)) or (S.anchor.vehicle == true) ~= (D.mounted() ~= nil) then
       M.close()
       return
     end
@@ -2049,6 +2068,7 @@ local function tick(dt)
       S.toastBg:SetVisible(false)
     end)
   end
+  if S.section == "appearance" then Appearance.present(kit) end
   if S.section == "settings" then Set.update(dt) end
   if S.section == "contacts" then Msg.update(kit, dt) end
   if S.section == "load" or S.section == "stash" or S.section == "trade" or S.section == "cyberware" or S.section == "crafting" or S.section == "inventory" or S.section == "character" or S.section == "journal" or S.section == "codex" or S.section == "shards" or S.section == "tarot" or S.section == "timeskip" then
@@ -2068,6 +2088,7 @@ function M.init(shared)
   VendorVisit.bind(shared)
   StashVisit.bind(shared)
   LoadData.bind(shared)
+  Appearance.bind(shared,Availability.enabled)
   kit.menuController = function() return shared.menuController end
   kit.ripperSession = function() return shared.ripperSession end
   kit.vendorSession = function() return VendorVisit.current(shared) end
@@ -2085,7 +2106,21 @@ function M.init(shared)
 end
 
 function M.update(dt)
+  if not Availability.enabled() then
+    if not S.interfaceDisabled then
+      M.release()
+      VendorVisit.cancelHandoff(M.shared)
+      M.shared.ripperSession=nil
+      M.shared.stashSession=nil
+      S.pending=nil
+      S.interfaceDisabled=true
+    end
+    return
+  end
+  S.interfaceDisabled=false
   S.time = S.time + (dt or 0)
+  if Appearance.poll(dt) and not S.open then M.openCentred("appearance") end
+  if S.open and S.section=="appearance" and not Appearance.current() then M.close() end
   -- Full-body tracking calibration started from the settings: the menu gets out of the way (VRFbtCalibrating).
   if type(VRFbtCalibrating) == "function" then
     local ok, on = pcall(VRFbtCalibrating)
@@ -2183,6 +2218,7 @@ end
 
 -- Everything this module holds in the world goes: the screen, the beams, the held-back buttons.
 function M.release()
+  Appearance.release()
   if type(VRMenuVendorPoll)=="function" then pcall(VRMenuVendorPoll,false) end
   Hud.restore()
   VendorVisit.restorePresentation(M.shared)
@@ -2209,6 +2245,7 @@ function M.state()
   }
 end
 
+function M.appearance() return Appearance.state() end
 function M.isOpen() return S.open end
 function M.section(key) openSection(key) end
 function M.debugRoot() return S.menu and S.menu.root end

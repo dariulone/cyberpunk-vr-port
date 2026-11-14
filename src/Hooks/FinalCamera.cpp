@@ -116,9 +116,9 @@ extern "C" void __fastcall OnFinalCameraCallback(float* rsiPtr) {
                 float launcherOrigin[3], launcherFwd[3];
                 const float* const muzzleFwd =
                     cvr::cyberware::LauncherLine(launcherOrigin, launcherFwd) ? launcherFwd : s_muzzleFwd;
-                if (muzzleFwd[0] * muzzleFwd[0] +
-                    muzzleFwd[1] * muzzleFwd[1] +
-                    muzzleFwd[2] * muzzleFwd[2] > 0.25f) {
+                // Whether or not a barrel has been seen: each reader checks the direction it needs, and the collision view
+                // needs only the camera.
+                {
                     cvr::camera::BarrelFrame bf{};
                     bf.camQuat[0] = camq[0]; bf.camQuat[1] = camq[1];
                     bf.camQuat[2] = camq[2]; bf.camQuat[3] = camq[3];

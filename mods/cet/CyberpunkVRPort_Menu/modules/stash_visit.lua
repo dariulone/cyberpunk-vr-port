@@ -1,7 +1,9 @@
 -- The game's storage blackboard carries the actual container (apartment, vehicle or scene stash).
 -- Intercept its menu request, after the device has applied its native stash retrofixes.
 local V={}
+local Availability=require("modules/availability")
 function V.begin(shared,data,closeNative)
+  if not Availability.enabled() then return false end
   local p=Game.GetPlayer();local object=data and data.storageObject
   if not p or not object then return false end
   local manager=VendorDataManager.new();manager:Initialize(p,object:GetEntityID())

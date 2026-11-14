@@ -55,7 +55,21 @@ local TAKE_AT, GIVE_UP = 0.8, 0.5
 -- DRAW_WITHIN s to put it in the inventory before its draw is given up.
 local ALIGN_BY, DRAW_WITHIN = 0.85, 1.0
 
-local S = { time = 0, things = {}, byId = {}, listAt = -1, hands = { {}, {} }, target = nil, snubbed = {},
+-- FOOD AND DRINK. What lies about to eat is loot like any other, an entity without a body, so no ray of the hands ever meets it. It is not taken at once: the grip holds it, on the hand's slot, and
+-- where the hand then takes it decides. At the mouth it is eaten or drunk, through the game's own take; let go anywhere else it goes back where it lay.
+-- (There was a hip that put it in the inventory; taken out, to be done another way.)
+-- It can be pulled from further than other loot, and is chosen first: the game's word on it waits for the take.
+local EDIBLE_RANGE, EDIBLE_CONE, EDIBLE_FIRST = 6.0, math.rad(16), 0.4
+-- LOOT LYING ABOUT comes the same way (t.far): the game's prompt reaches some 2 m and follows the eyes, so a thing further off was passed over as "not offered" before a hand could close on it. Its word waits for the thing to arrive, as
+-- food's does. Only what lies dropped: an item object can be in somebody's hand. Near the palm the game's word still decides.
+local LAND_ASK = 0.2         -- s after landing the button is pressed anyway, if the game has a loot prompt up on something
+-- The game's own outline, on this one entity (entRenderHighlightEvent, as its scanner does it): pointed at, held from afar. 0 is off.
+local OUTLINE_AIM, OUTLINE_LOCK = 5, 6
+local MOUTH_BELOW, MOUTH_NEAR = 0.09, 0.17   -- m under the eyes, and how near it
+local EAT_WAIT, ASK_WAIT = 1.5, 0.6          -- s the game has to put it in the inventory, and to offer it at the mouth before it is asked anyway
+local HAND_SLOTS = { "WeaponLeft", "WeaponRight" }
+
+local S = { time = 0, things = {}, byId = {}, listAt = -1, hands = { {}, {} }, target = nil, snubbed = {}, edible = {}, eating = nil, swallow = nil,
             uses = 0, pulls = 0, draws = 0, lastAim = false, flight = nil, draw = nil }
 
 ---------------------------------------------------------------- vectors
@@ -194,7 +208,7 @@ local function refresh(pl)
   local list, byId = {}, {}
   pcall(function()
     local q = TSQ_ALL()
-    q.maxDistance = PULL_RANGE + 1.0     -- from the player: the palm is up to an arm's length off
+    q.maxDistance = EDIBLE_RANGE + 1.0   -- from the player: the palm is up to an arm's length off
     q.testedSet = TargetingSet.Complete
     q.ignoreInstigator = true
     local ok, parts = Game.GetTargetingSystem():GetTargetParts(pl, q)
@@ -210,11 +224,41 @@ local function refresh(pl)
           seen[id] = true
           list[#list + 1] = { id = id, entity = e, item = e:IsA("gameItemDropObject") or e:IsA("gameItemObject") }
           byId[id] = list[#list]
+          if list[#list].item then
+            if S.edible[id] == nil then
+              local item, how = nil, nil
+              pcall(function()
+                local io = e:IsA("gameItemDropObject") and e:GetItemObject() or e
+                if io ~= nil and io:IsA("gameItemObject") then item = io:GetItemID() end
+              end)
+              if item ~= nil then
+                local okE, eat = pcall(function() return ItemActionsHelper.GetEatAction(item) end)
+                local okD, drink = pcall(function() return ItemActionsHelper.GetDrinkAction(item) end)
+                how = (okD and drink ~= nil and "drink") or (okE and eat ~= nil and "eat") or false
+                S.edible[id] = how and { item = item, how = how } or false
+              end
+            end
+            list[#list].edible = S.edible[id] or nil
+            list[#list].far = list[#list].edible ~= nil or e:IsA("gameItemDropObject")
+          end
         end
       end
     end
   end)
   S.things, S.byId = list, byId
+  do
+    local n, kinds = 0, 0
+    for _, t in ipairs(list) do
+      if t.item then kinds = kinds + 1 end
+      if t.edible then n = n + 1 end
+    end
+    if n ~= S.saidEdible or kinds ~= S.saidItems then
+      S.saidEdible, S.saidItems = n, kinds
+      if type(GetVRSharedSlot) == "function" and GetVRSharedSlot(156) > 0.5 then   -- DEBUG logging (slot 156)
+        print("[VRReach] within reach of the list: " .. #list .. " things, " .. kinds .. " items, " .. n .. " to eat or drink")
+      end
+    end
+  end
   for id, till in pairs(S.snubbed) do
     if till < S.time then S.snubbed[id] = nil end
   end
@@ -293,13 +337,29 @@ local function choose(H)
   if best ~= nil then return best, "near", bestD end
   if H.palm == nil then return nil end
   local bestA = nil
+  local pointer = H.ray
   for _, t in ipairs(S.things) do
-    if t.pos ~= nil and (S.snubbed[t.id] or -1) < S.time and len(sub(t.pos, H.pos)) <= PULL_RANGE then
+    if t.pos ~= nil and (S.snubbed[t.id] or -1) < S.time and len(sub(t.pos, H.pos)) <= (t.far and EDIBLE_RANGE or PULL_RANGE) then
       local v = sub(t.pos, H.palm.o)
       local along = dot(v, H.palm.d)
       if along > 0.1 then
         local a = math.atan2(math.max(0, len(sub(v, mul(H.palm.d, along))) - RAY_RADIUS), along)
-        if a < POINT_CONE and (bestA == nil or a < bestA) then best, bestA = t, a end
+        if a < (t.far and EDIBLE_CONE or POINT_CONE) then
+          if t.far then a = a * EDIBLE_FIRST end
+          if bestA == nil or a < bestA then best, bestA = t, a end
+        end
+      end
+      -- these are also what the fingers point at
+      if t.far and pointer ~= nil then
+        local w = sub(t.pos, pointer.o)
+        local on = dot(w, pointer.d)
+        if on > 0.1 then
+          local a = math.atan2(math.max(0, len(sub(w, mul(pointer.d, on))) - RAY_RADIUS), on)
+          if a < EDIBLE_CONE then
+            a = a * EDIBLE_FIRST
+            if bestA == nil or a < bestA then best, bestA = t, a end
+          end
+        end
       end
     end
   end
@@ -392,12 +452,14 @@ local function pull(hand, thing)
                duration = math.max(FLIGHT_MIN, math.min(FLIGHT_MAX, d / FLIGHT_SPEED)), asked = false, landed = nil,
                weapon = hand == weaponHand() and weaponIn(thing) ~= nil }
   S.pulls = S.pulls + 1
+  print(string.format("[VRReach] pulled %s from %.2f m", thing.edible and thing.edible.how or (S.flight.weapon and "a weapon" or "loot"), d))
   return true
 end
 
 -- A frame of the flight: the thing on its arc to the palm (where the palm is now), the game asked to take it near
 -- the end, and put back where it lay if it is still there GIVE_UP after landing. A weapon for the hand flies to its
 -- hold (where the hold is now) turning from how it lay to how the hand holds it, and is taken once it is there.
+local holdFood
 local function fly(pl, marker)
   local F = S.flight
   local H = S.hands[F.hand]
@@ -419,14 +481,33 @@ local function fly(pl, marker)
   local at = { p[1], p[2], p[3] + F.lift }
   aim(at)
   if s >= 1 and F.landed == nil then F.landed = S.time end
+  if F.thing.edible then
+    if s >= 1 then
+      S.flight = nil
+      if H.grip then holdFood(F.hand, F.thing, F.start, F.q) else place(e, F.start, F.q) end
+    end
+    if marker ~= nil and S.flight ~= nil then marker.mark(F.hand, { pos = at, radius = 0.05, lift = 0.06, kind = "lock", ready = true, from = H.pos }) end
+    return
+  end
   if s >= takeAt and not F.asked then
     local owner = offers()
     if owner == F.thing.id then
       take(F.hand, F.thing)
       F.asked = true
+      print("[VRReach] flying loot: the game offered it, taken")
+    end
+  end
+  -- it has arrived, the ray is on it, and the prompt stayed on something beside it
+  if F.landed ~= nil and not F.asked and S.time - F.landed > LAND_ASK then
+    local owner = offers()
+    if owner ~= nil then
+      take(F.hand, F.thing)
+      F.asked = true
+      print("[VRReach] flying loot: the prompt is on " .. owner .. ", not on it; pressed anyway")
     end
   end
   if F.landed ~= nil and S.time - F.landed > GIVE_UP then
+    print("[VRReach] flying loot: the game did not take it, back where it lay; asked " .. tostring(F.asked))
     place(e, F.start, F.q)
     S.snubbed[F.thing.id] = S.time + SNUB
     S.flight = nil
@@ -437,9 +518,88 @@ local function fly(pl, marker)
   end
 end
 
+---------------------------------------------------------------- food and drink in the hand
+
+local function placedNow(thing)
+  local ok, p, q = pcall(function() return thing.entity:GetWorldPosition(), thing.entity:GetWorldOrientation() end)
+  if ok then return { p.x, p.y, p.z }, q end
+end
+
+holdFood = function(hand, thing, start, q)
+  local from, turn = placedNow(thing)
+  -- how far where() lifts it. Not reckoned from thing.pos: after a flight that is where it lay, not where it is, and the food sat that much above the hand, as far as the table had been below it.
+  S.eating = { hand = hand, thing = thing, start = start or from, q = q or turn, since = S.time, attached = false, lift = thing.item and 0.02 or 0.0 }
+  print("[VRReach] holding " .. thing.edible.how .. " " .. thing.id)
+  if type(VRHapticEvent) == "function" then pcall(VRHapticEvent, 20, hand) end
+end
+
+local function letFoodGo(E, back)
+  if E.attached then pcall(VRDetachFromSlot, E.thing.entity) end
+  if back and alive(E.thing.entity) then place(E.thing.entity, E.start, E.q) end
+  S.snubbed[E.thing.id] = S.time + SNUB
+  S.eating = nil
+end
+
+-- What is held: on the slot once it is at the palm, and where the hand takes it.
+local function eatFrame(pl, marker)
+  local E = S.eating
+  local H = S.hands[E.hand]
+  local e = E.thing.entity
+  if not alive(e) then S.eating = nil; return end
+  if not H.grip or H.pos == nil then letFoodGo(E, true); return end
+  if not E.attached then
+    place(e, sub(H.pos, { 0, 0, E.lift }), E.q)
+    if S.time - E.since > 0.03 then
+      local ok, done = pcall(function()
+        local slots = pl:FindComponentByName(CName.new("ItemAttachmentSlots"))
+        return slots ~= nil and VRAttachToSlot(e, slots, CName.new(HAND_SLOTS[E.hand]))
+      end)
+      E.attached = ok and done == true
+      if not E.attached then E.steered = true end
+      if not E.said then
+        E.said = true
+        local now = placedNow(E.thing)
+        print(string.format("[VRReach] food on the slot: %s, %.3f m from the palm", tostring(E.attached), now and len(sub(now, H.pos)) or -1))
+      end
+    end
+  end
+  local at = where(E.thing) or H.pos
+  aim(at)
+  local eyes = marker ~= nil and marker.eyes and marker.eyes() or nil
+  local toMouth = eyes ~= nil and len(sub(H.pos, { eyes[1], eyes[2], eyes[3] - MOUTH_BELOW })) <= MOUTH_NEAR
+  if not toMouth then E.askedAt = nil; return end
+  E.askedAt = E.askedAt or S.time
+  local owner, hub = offers()
+  if owner == E.thing.id or hub or S.time - E.askedAt > ASK_WAIT then
+    if E.attached then pcall(VRDetachFromSlot, e) end
+    use()
+    S.swallow = { item = E.thing.edible.item, how = E.thing.edible.how, till = S.time + EAT_WAIT, hand = E.hand }
+    print("[VRReach] " .. E.thing.edible.how .. ": taken, the game offered " .. tostring(owner == E.thing.id or hub))
+    if type(VRHapticEvent) == "function" then pcall(VRHapticEvent, 20, E.hand) end
+    S.eating = nil
+  end
+end
+
+-- Once the game has it in the inventory: eaten or drunk, by the game's own action.
+local function swallowFrame(pl)
+  local W = S.swallow
+  local has = false
+  pcall(function() has = Game.GetTransactionSystem():HasItem(pl, W.item) end)
+  if has then
+    S.swallow = nil
+    local ok, err = pcall(function()
+      if W.how == "drink" then ItemActionsHelper.DrinkItem(pl, W.item, true) else ItemActionsHelper.EatItem(pl, W.item, true) end
+    end)
+    print("[VRReach] " .. W.how .. ": " .. (ok and "done" or tostring(err)))
+  elseif S.time > W.till then
+    S.swallow = nil
+    print("[VRReach] " .. W.how .. ": the game did not take it")
+  end
+end
+
 ---------------------------------------------------------------- the frame
 
-function M.update(dt, marker)
+local function frame(dt, marker)
   dt = dt or 0
   S.time = S.time + dt
   if S.held ~= nil then
@@ -448,6 +608,7 @@ function M.update(dt, marker)
   end
   local pl = Game.GetPlayer()
   if pl ~= nil then drawTaken(pl) end
+  if pl ~= nil and S.swallow ~= nil then swallowFrame(pl) end
   if pl == nil or type(VRPalmModelPos) ~= "function" or blocked(pl) then
     aim(nil)
     S.target = nil
@@ -459,6 +620,10 @@ function M.update(dt, marker)
   end
   for _, t in ipairs(S.things) do t.pos = where(t) end
   hands(pl, dt)
+  if S.eating ~= nil then
+    eatFrame(pl, marker)
+    return
+  end
   if S.flight ~= nil then
     fly(pl, marker)
     return
@@ -494,6 +659,10 @@ function M.update(dt, marker)
     S.target = T
   end
   T.how = how
+  if thing.edible and how == "aim" and T.said ~= true then
+    T.said = true
+    print("[VRReach] pointed at " .. thing.edible.how .. " " .. thing.id)
+  end
   aim(thing.pos)
   -- The game's word on it, a frame after the ray is on it.
   local owner, hub = offers()
@@ -510,6 +679,7 @@ function M.update(dt, marker)
     local other = S.byId[owner]
     if other ~= nil and other.pos ~= nil and len(sub(other.pos, thing.pos)) <= BESIDE then offered = other end
   end
+  if offered == nil and (thing.edible or (thing.far and how ~= "near")) then offered = thing end
   T.offered = offered
   T.confirmed = offered ~= nil
   if not T.confirmed then
@@ -521,7 +691,14 @@ function M.update(dt, marker)
   end
   if how == "near" then
     -- In reach: the grip closing on it takes it.
-    if H.grip and not H.gripPrev then take(hand, offered) end
+    if H.grip and not H.gripPrev then
+      if offered.edible then
+        holdFood(hand, offered)
+        S.target = nil
+        return
+      end
+      take(hand, offered)
+    end
   else
     -- Pointed at: the grip closing on it holds it from afar; held, the palm snatched away from it pulls loot to the
     -- hand and uses a container or a device where it stands.
@@ -535,6 +712,7 @@ function M.update(dt, marker)
       if speed >= FLICK then
         T.locked = false
         S.target = nil
+        if offered.edible then print("[VRReach] pulled " .. offered.edible.how .. " " .. offered.id) end
         if not (offered.item and pull(hand, offered)) then take(hand, offered) end
         return
       end
@@ -547,10 +725,56 @@ function M.update(dt, marker)
   end
 end
 
+---------------------------------------------------------------- the outline
+
+local function outline(thing, index)
+  local ok, err = pcall(function()
+    local function on(entity)
+      local evt = NewObject("entRenderHighlightEvent")
+      evt.fillIndex, evt.outlineIndex, evt.seeThroughWalls, evt.opacity = 0, index, false, 1.0
+      entity:QueueEvent(evt)
+    end
+    on(thing.entity)
+    -- a drop is the thing it holds: what is drawn is that
+    if thing.entity:IsA("gameItemDropObject") then
+      local io = thing.entity:GetItemObject()
+      if io ~= nil then on(io) end
+    end
+  end)
+  if not ok or not S.saidOutline then
+    S.saidOutline = true
+    print("[VRReach] outline " .. index .. " on " .. thing.id .. ": " .. (ok and "asked" or tostring(err)))
+  end
+end
+
+-- What is marked follows what is chosen: only when that changes, an outline being asked of the renderer once.
+local function outlineFrame()
+  local want, index = nil, 0
+  if S.flight ~= nil then
+    want, index = S.flight.thing, OUTLINE_LOCK
+  elseif S.target ~= nil and S.target.offered then
+    want, index = S.target.offered, S.target.locked and OUTLINE_LOCK or OUTLINE_AIM
+  end
+  local L = S.lit
+  if L ~= nil and (want == nil or L.thing.id ~= want.id or L.index ~= index) then
+    if alive(L.thing.entity) then outline(L.thing, 0) end
+    S.lit = nil
+  end
+  if want ~= nil and S.lit == nil and alive(want.entity) then
+    outline(want, index)
+    S.lit = { thing = want, index = index }
+  end
+end
+
+function M.update(dt, marker)
+  frame(dt, marker)
+  outlineFrame()
+end
+
 function M.state()
   local T = S.target
   local F = S.flight
-  return { things = #S.things, uses = S.uses, pulls = S.pulls, draws = S.draws, drawing = S.draw ~= nil,
+  return { things = #S.things, uses = S.uses, pulls = S.pulls, draws = S.draws, drawing = S.draw ~= nil, eating = S.eating and S.eating.hand or false,
            target = T and { hand = T.hand, id = T.thing.id, how = T.how, confirmed = T.confirmed, locked = T.locked,
                             offered = T.offered and T.offered.id or false, snatch = T.snatch or 0 } or false,
            flight = F and { hand = F.hand, id = F.thing.id, asked = F.asked, landed = F.landed ~= nil } or false,

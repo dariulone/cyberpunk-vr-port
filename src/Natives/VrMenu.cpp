@@ -23,14 +23,23 @@
 #include "Natives/NativeFunctions.hpp"
 #include "Audio/PortSound.hpp"
 #include "Natives/VrMenu.hpp"
+#include "Natives/FrameOrderProbe.hpp"
 #include "Natives/MenuSwipe.hpp"
+#include "Natives/PhysHands.hpp"
 #include "Camera/CameraState.hpp"   // InBraindance
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
 #include "Anim/CharacterRig.hpp"
 #include "Anim/GraspPose.hpp"
 #include "Anim/WheelGrab.hpp"
+#include "Core/VrCoreShared.hpp"
 #include "Hooks/LadderInput.hpp"
+#include "Hooks/ScannerGesture.hpp"
+#include "Hooks/SwimmingInput.hpp"
+#include "Lobby/MenuLobby.hpp"
+#include "Anim/LeftHanded.hpp"
+extern "C" int CyberpunkVR_TwoHandActive;   // Anim/TwoHandGrip.cpp
+#include "Anim/HandGestures.hpp"
 #include "Core/LiveControls.hpp"
 #include "Overlay/VrOverlay.hpp"
 #include "Overlay/UiRec.hpp"
@@ -66,7 +75,7 @@ std::atomic<int> g_wheelHold{0};
 }
 // Also while full-body tracking calibrates: each step is a pull of both triggers, which the calibration reads from
 // OpenXR itself; the game must not get them. The sticks stay the game's, as with the menu.
-bool CapturesButtons() { return g_capture.load(std::memory_order_relaxed) || cvr::fbt::game::Calibrating(); }
+bool CapturesButtons() { return (g_liveControls.xrVrInterface != 0 && g_capture.load(std::memory_order_relaxed)) || cvr::fbt::game::Calibrating(); }
 bool WheelArmed(uint64_t now) {
     const ULONGLONG beat = g_wheelBeat.load(std::memory_order_relaxed);
     return beat != 0 && now >= beat && now - beat < 500;
@@ -176,7 +185,7 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     out->Clear();
     // NOT IN A BRAINDANCE, by either way in: the grips are its LB and RB there (Hooks/XInput.cpp), and an L3 + R3
     // hold is dropped rather than kept for after it.
-    if (InBraindance()) {
+    if (InBraindance() || !g_liveControls.xrVrInterface) {
         cvr::vrui::ConsumeMenuSummon();
         g_swipe.Clear();
         return;
@@ -204,10 +213,10 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     VRIK_QuatRotateVec(headQ, local, p);
     const double t = double(stamp) * 1e-6;
     // The right hand's grip on something is not a swipe: the steering wheel (owned, or still easing onto it), a
-    // ladder's rung, a thing in its grasp.
+    // ladder's rung, a thing in its grasp, a railing or a ledge it holds on to (the pull up is the same move down).
     const bool holding = (cvr::anim::WheelControlState() & 1) != 0 ||
                          cvr::anim::g_wheelBlendRight.load(std::memory_order_relaxed) > 0.0f ||
-                         cvr::ladder::Active() || cvr::anim::GraspHolding(1);
+                         cvr::ladder::Active() || cvr::anim::GraspHolding(1) || cvr::physhands::HoldsOn(1);
     const float hand[3] = {p[0] + head.posX, p[1] + head.posY, p[2] + head.posZ};
     cvr::vrmenu::SwipeSample start{}, end{};
     if (!g_swipe.Push(t, hand, input.rightGrip > 0.70f, holding, &start, &end)) return;
@@ -287,6 +296,11 @@ void VRMenuPointer(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     }
 }
 
+void VRInterfaceEnabled(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    stack->code++;
+    if (out) *out = g_liveControls.xrVrInterface != 0;
+}
+
 // VRMenuOpenSettings(): the port's own settings panel, as F10 opens it.
 void VRMenuOpenSettings(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
     stack->code++;
@@ -322,6 +336,95 @@ void VRWeaponWheel(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* 
     const bool on = armed && g_liveControls.xrVrWeaponWheel != 0;
     cvr::vrmenu::g_wheelBeat.store(on ? GetTickCount64() : 0, std::memory_order_relaxed);
     if (out) *out = on ? cvr::vrmenu::g_wheelHold.load(std::memory_order_relaxed) : 0;
+}
+
+// VRHandCollision() -> Int32: what CyberpunkVRPort_HandCollision may stop this frame. Bit 0 the left hand, bit 1 the
+// right, bit 2 at the world, bit 3 the hands' physics may push things, bit 4 the fingers stop at surfaces, bit 5 small objects may be picked up. No hand in a menu, the lobby, on a ladder or in water, where hands are placed for other
+// reasons; none that holds what the port put in it (a cigarette has to reach the mouth), a steering wheel, or the gun
+// as its support hand: the hold puts that hand on the weapon, and anything pushing it would take it off the grip.
+void VRHandCollision(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, int32_t* out, int64_t) {
+    stack->code++;
+    cvr::frameorder::Note('L');
+    int mask = 0;
+    // The scanner slows world physics, not controller tracking. Release script contacts/grabs too;
+    // otherwise turning off the native bodies would enable the script's slow-motion push capsules.
+    if (!cvr::input::scannerHandPhysics.Active() &&
+        g_liveControls.xrHandPhysics != 0 && g_liveControls.xrHandCollision != 0 && g_menuModeValue == 0 && !cvr::lobby::WorldShown() &&
+        !cvr::ladder::Active() && !cvr::swimming::Active() &&
+        (!g_isInVehicle || g_liveControls.xrHandCollisionVehicle != 0)) {
+        const int wheel = cvr::anim::WheelControlState();
+        const int support = CyberpunkVR_TwoHandActive != 0 ? (cvr::anim::WeaponInLeftHand() ? 1 : 0) : -1;
+        for (int side = 0; side < 2; ++side)
+            if (side != support && !cvr::gestures::PortHolds(side) && !(wheel & (side == 1 ? 1 : 2))) mask |= 1 << side;
+        if (!g_isInVehicle) mask |= 4;
+        if (!g_isInVehicle && g_liveControls.xrHandPush != 0) mask |= 8;
+        // 64: the hands have bodies of their own (Natives/PhysHands.cpp), and the script's push capsules step aside. Not by
+        // taking 8 away: the carry is gated by it too, and taking it away left the hands unable to take anything.
+        if (cvr::physhands::On(0) || cvr::physhands::On(1)) mask |= 64;
+        // 16 was the fingers stopping at surfaces, rays along each finger from the script; removed 2026-11-08. A held
+        // thing's fingers come from its grasp (Anim/GraspPose.cpp). xr_finger_contact is still read, and does nothing.
+        if (!g_isInVehicle && g_liveControls.xrPropGrab != 0) mask |= 32;
+    }
+    if (out) *out = mask;
+}
+
+void VRFingerContact(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    int32_t side = 0, digit = 0;
+    float limit = 1.0f;
+    bool hold = false;
+    RED4ext::GetParameter(stack, &side);
+    RED4ext::GetParameter(stack, &digit);
+    RED4ext::GetParameter(stack, &limit);
+    RED4ext::GetParameter(stack, &hold);
+    stack->code++;
+    cvr::gestures::FingerContact(side, digit, limit, hold);
+    if (out) *out = true;
+}
+
+void VRFingerBend(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {
+    int32_t side = 0, digit = 0;
+    float angle = 0.0f;
+    RED4ext::GetParameter(stack, &side);
+    RED4ext::GetParameter(stack, &digit);
+    RED4ext::GetParameter(stack, &angle);
+    stack->code++;
+    cvr::gestures::FingerBend(side, digit, angle);
+    if (out) *out = true;
+}
+
+void VRFingerClosed(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, float* out, int64_t) {
+    int32_t side = 0, digit = 0;
+    RED4ext::GetParameter(stack, &side);
+    RED4ext::GetParameter(stack, &digit);
+    stack->code++;
+    if (out) *out = cvr::gestures::FingerClosed(side, digit);
+}
+
+void VRFingerWanted(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, float* out, int64_t) {
+    int32_t side = 0, digit = 0;
+    RED4ext::GetParameter(stack, &side);
+    RED4ext::GetParameter(stack, &digit);
+    stack->code++;
+    if (out) *out = cvr::gestures::FingerWanted(side, digit);
+}
+
+void VRCarryLead(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, float* out, int64_t) {
+    stack->code++;
+    if (out) *out = g_liveControls.xrCarryLead;
+}
+
+void VRHandContactMargin(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, float* out, int64_t) {
+    stack->code++;
+    if (out) *out = g_liveControls.xrContactMargin;
+}
+
+std::atomic<float> g_xrGripForce[2]{};
+// VRGripForce(side) -> Float: how hard a grip is squeezed past closed, 0..1, side 0 left. Only Index controllers report it.
+void VRGripForce(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, float* out, int64_t) {
+    int32_t side = 0;
+    RED4ext::GetParameter(stack, &side);
+    stack->code++;
+    if (out) *out = side >= 0 && side <= 1 ? g_xrGripForce[side].load(std::memory_order_relaxed) : 0.0f;
 }
 
 void VRMenuBlink(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, bool* out, int64_t) {

@@ -49,7 +49,12 @@ end
 function T.card(t)
   if t.fell then return end
   t.fell=true
-  if t.widget then pcall(function() t.widget:SetVisible(false) end) end
+  if t.widget then pcall(function()
+    -- Lazy native modules can finish after the fallback appears. Hidden widgets must still lay out so
+    -- T.fit can recover the complete stats tooltip instead of leaving a permanent description-only card.
+    t.widget:SetAffectsLayoutWhenHidden(true)
+    t.widget:SetVisible(false)
+  end) end
   local ui=t.ui
   local name,quality,desc=itemName(ui),"",""
   pcall(function() quality=ui:GetQualityText() end)
@@ -88,6 +93,30 @@ function T.watch(t)
   return true
 end
 
+-- Stock SpawnFromExternal only knows a controller's declared dependencies. The plugin loads our small
+-- tooltip-library set without Codeware, then preserves the stock spawn/initialize/attach path.
+function T.widget(kit,parent,path,library)
+  if type(VRMenuTooltipPrepare)=="function" and type(VRMenuTooltipSpawn)=="function" then
+    local status=VRMenuTooltipPrepare(path)
+    if status==0 then return nil,"loading" end
+    if status~=1 then return nil,"tooltip library unavailable: "..path end
+    return VRMenuTooltipSpawn(kit.menuController(),parent,path,CName.new(library))
+  end
+  return kit.menuController():SpawnFromExternal(parent,ResRef.FromString(path),CName.new(library))
+end
+
+-- Retain a pending request only as long as its visible tooltip. No callback can spawn into a closed panel.
+function T.create(spawn,ui,parent,x,y,w,h,price)
+  local ok,t,why=pcall(spawn)
+  if ok and t then return t end
+  if ok and why=="loading" then
+    return {pending=spawn,ui=ui,parent=parent,x=x,y=y,w=w,h=h,price=price,born=now(),noCard=ui==nil}
+  end
+  if ui then return T.fallback(ui,parent,x,y,w,h,price,ok and why or t) end
+  print("[VRMenu] the upgrade tooltip did not spawn: "..tostring(ok and why or t))
+  return nil
+end
+
 local function spawnGame(kit,p,ui,context,x,y,w,h,compare,price,backed)
   local data=UIInventoryItemTooltipWrapper.Make(ui,ItemDisplayContextData.Make(Game.GetPlayer(),context,false))
   if compare then data.comparisonData=UIInventoryItemComparisonManager.Make(ui,compare) end
@@ -97,8 +126,11 @@ local function spawnGame(kit,p,ui,context,x,y,w,h,compare,price,backed)
   elseif ui:GetItemData():HasTag(CName.new("Cyberdeck")) then path,library=[[base\gameplay\gui\common\tooltip\cyberdecktooltip.inkwidget]],"cyberdeckTooltip"
   elseif ui:GetItemType()==gamedataItemType.Prt_Program then path,library=[[base\gameplay\gui\common\tooltip\programtooltip.inkwidget]],"programTooltip" end
   local back=backed and K.canvas(p,0,0,10,10) or nil
-  local widget=kit.menuController():SpawnFromExternal(p,ResRef.FromString(path),CName.new(library))
-  if not widget then return nil,"no widget from "..library end
+  local widget,why=T.widget(kit,p,path,library)
+  if not widget then
+    if back then p:RemoveChild(back) end
+    return nil,why or ("no widget from "..library)
+  end
   local t={widget=widget,x=x,y=y,w=w,h=h,back=back,ui=ui,parent=p,price=price,born=now()}
   widget:SetAnchor(inkEAnchor.TopLeft);widget:SetAnchorPoint(Vector2.new({X=0,Y=0}));widget:SetRenderTransformPivot(Vector2.new({X=0,Y=0}))
   widget:SetScale(Vector2.new({X=.001,Y=.001}));widget:SetOpacity(.001)
@@ -112,29 +144,45 @@ end
 -- `backed`: a black plate behind the tooltip, sized to it once it has laid out (T.fit) -- for a tooltip over other
 -- content; a plate drawn at the full box before that stood empty around a smaller tooltip.
 function T.spawn(kit,p,ui,context,x,y,w,h,compare,price,backed)
-  local ok,t,why=pcall(spawnGame,kit,p,ui,context,x,y,w,h,compare,price,backed)
-  if ok and t then return t end
-  return T.fallback(ui,p,x,y,w,h,price,ok and why or t)
+  return T.create(function() return spawnGame(kit,p,ui,context,x,y,w,h,compare,price,backed) end,
+    ui,p,x,y,w,h,price)
 end
 -- The weapon tooltip widget given ready tooltip data (a MinimalItemTooltipData snapshot), as the upgrade screen
 -- feeds it: what it shows is read when the data is made, not when the widget draws.
 function T.spawnData(kit,p,data,x,y,w,h)
-  local ok,t=pcall(function()
-    local widget=kit.menuController():SpawnFromExternal(p,ResRef.FromString([[base\gameplay\gui\common\tooltip\new_itemtooltip.inkwidget]]),CName.new("itemTooltip"))
-    if not widget then return nil end
+  return T.create(function()
+    local widget,why=T.widget(kit,p,[[base\gameplay\gui\common\tooltip\new_itemtooltip.inkwidget]],"itemTooltip")
+    if not widget then return nil,why or "no widget from itemTooltip" end
     widget:SetAnchor(inkEAnchor.TopLeft);widget:SetAnchorPoint(Vector2.new({X=0,Y=0}));widget:SetRenderTransformPivot(Vector2.new({X=0,Y=0}))
     widget:SetScale(Vector2.new({X=.001,Y=.001}));widget:SetOpacity(.001)
     K.move(widget,x,y);widget:GetController():SetData(data)
     return {widget=widget,x=x,y=y,w=w,h=h,born=now(),laid=false,noCard=true}
-  end)
-  if not ok then print("[VRMenu] the upgrade tooltip did not spawn: "..tostring(t));return nil end
-  return t
+  end,nil,p,x,y,w,h)
 end
 function T.fit(tips)
   for _,t in ipairs(tips or {}) do
-    if not t.fell then
+    if t.pending then
+      local ok,spawned,why=pcall(t.pending)
+      if ok and spawned then
+        local card=t.card
+        t.pending=nil;t.fell=nil
+        for key,value in pairs(spawned) do t[key]=value end
+        if card then t.parent:RemoveChild(card);t.card=nil end
+      elseif not ok or why~="loading" then
+        t.pending=nil
+        if t.ui then T.report(t.ui,ok and why or spawned);T.card(t) end
+      elseif t.ui then
+        T.watch(t)
+      end
+    end
+    if t.widget then
       local ok,z=pcall(function() return t.widget:GetDesiredSize() end)
       if ok and z.X>1 and z.Y>1 then
+        if t.fell then
+          if t.card then t.card:SetVisible(false);t.parent:RemoveChild(t.card);t.card=nil end
+          t.widget:SetVisible(true)
+          t.fell=false
+        end
         t.laid=true
         local scale=math.min(t.w/z.X,t.h/(z.Y+65));t.widget:SetScale(Vector2.new({X=scale,Y=scale}));K.move(t.widget,t.x,t.y+35*scale);t.widget:SetOpacity(1)
         local bw,bh=math.floor(z.X*scale+.5),math.floor(z.Y*scale+.5)

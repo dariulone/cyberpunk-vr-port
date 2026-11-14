@@ -10,3 +10,6 @@
 [submodule "externals/wrpuppets-fbt-ik"]
 	path = externals/wrpuppets-fbt-ik
 	url = https://github.com/Syncher-source/wrpuppets-fbt-ik.git
+[submodule "externals/cp2077_debug_draw"]
+	path = externals/cp2077_debug_draw
+	url = https://github.com/jackhumbert/cp2077_debug_draw.git

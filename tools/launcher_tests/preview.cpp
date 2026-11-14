@@ -24,6 +24,11 @@ extern "C" int GetLauncherCustomResolution() { return savedCustom; }
 extern "C" void SetLauncherCustomResolution(int on) { savedCustom = on; }
 extern "C" int GetLauncherLobby() { return savedLobby; }
 extern "C" void SetLauncherLobbyAndPersist(int on) { savedLobby = on; }
+int savedInterface = 1, savedPhysics = 1;
+extern "C" int GetLauncherInterface() { return savedInterface; }
+extern "C" void SetLauncherInterfaceAndPersist(int on) { savedInterface = on; }
+extern "C" int GetLauncherHandPhysics() { return savedPhysics; }
+extern "C" void SetLauncherHandPhysicsAndPersist(int on) { savedPhysics = on; }
 
 static std::string g_out;
 

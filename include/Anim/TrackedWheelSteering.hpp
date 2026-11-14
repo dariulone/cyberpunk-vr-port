@@ -29,7 +29,9 @@ public:
         return m_fresh && now>=m_fresh && now-m_fresh<=kHoldUs ? m_last:0;
     }
     float Update(uint8_t held,const WheelTrackingFrame& frame,uint64_t now,
-                 float radius,float limit,float dead,float predictionMs=0) {
+                 float radius,float limit,float dead,float predictionMs=0,
+                 float rimRight=std::numeric_limits<float>::quiet_NaN(),float rimLeft=std::numeric_limits<float>::quiet_NaN(),
+                 bool handlebar=false,float bodyLean=0) {
         held&=3;
         if(!held) {Reset();return 0;}
         const uint8_t tracked=held&frame.validHands;
@@ -53,11 +55,21 @@ public:
             const auto world=RotateVector(rotation,local);
             // Physical recenter-space right/up, independent of the character,
             // game camera, car animation and head-relative controller offsets.
-            points[i]={frame.head.position.x+world.x,frame.head.position.y+world.y};
+            // A motorcycle's bars turn about the vertical, so the same turn is measured seen from above: right/forward
+            // (OpenXR -Z is forward). Right hand pushed forward, left pulled back is a turn left, as on a real bike.
+            points[i]={frame.head.position.x+world.x,handlebar ? -(frame.head.position.z+world.z):frame.head.position.y+world.y};
         }
         m_sequence=frame.sequence;m_stamp=frame.stampUs;m_held=tracked;
-        const float direct=m_wheel.Update(tracked,points[0],points[1],radius,limit,dead);
-        if(!m_horizon)return Keep(now,direct);
+        // THE BODY LEANING INTO A BIKE'S TURN, measured from where it was at the grab. At the neck and not the headset:
+        // the eyes swing round it, and looking 60 degrees aside moved the headset about 9 cm sideways.
+        m_leanDegrees=0;
+        if(handlebar) {
+            const auto neck=frame.head.position.x+RotateVector(rotation,XrVector3f{0,-kNeckBelowM,kNeckBehindM}).x;
+            if(!m_leanValid){m_leanNeck=neck;m_leanValid=true;}
+            m_leanDegrees=BikeLeanDegrees(neck-m_leanNeck,bodyLean,WheelFullLockDegrees(limit));
+        }
+        m_wheel.Update(tracked,points[0],points[1],radius,limit,dead,rimRight,rimLeft);
+        if(!m_horizon)return Keep(now,WheelSteering::Output(Angle()+m_leanDegrees,limit,dead));
         m_prediction.Push(Angle(),frame.stampUs);
         return Keep(now,Output(now,limit,dead));
     }
@@ -67,8 +79,11 @@ private:
     WheelSteering m_wheel;
     WheelPrediction m_prediction;
     float m_horizon{},m_last{};
+    static constexpr float kNeckBelowM=.10f,kNeckBehindM=.10f; // estimated, from between the eyes
+    float m_leanDegrees{},m_leanNeck{};
+    bool m_leanValid{};
     float Output(uint64_t now,float limit,float dead) const {
-        return WheelSteering::Output(m_prediction.Angle(Angle(),now,m_horizon,limit,dead),limit,dead);
+        return WheelSteering::Output(m_prediction.Angle(Angle(),now,m_horizon,limit,dead)+m_leanDegrees,limit,dead);
     }
     uint64_t m_sequence{},m_origin{},m_stamp{},m_fresh{};
     uint8_t m_held{};

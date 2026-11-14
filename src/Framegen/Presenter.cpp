@@ -118,11 +118,16 @@ Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame
     previous.color[0]=previous.color[1]=nullptr;primed=true;
     return result;
 }
-void Presenter::Submitted(const Selection& result,ID3D12Fence* fence,uint64_t value,bool accepted) {
+void Presenter::Submitted(const Selection& result,ID3D12Fence* fence,uint64_t value,bool accepted,bool retainEndpoint) {
     if(result.frame.lease)result.frame.lease->fence=std::max(result.frame.lease->fence,value);
     if(result.generatedFrom)result.generatedFrom->fence=std::max(result.generatedFrom->fence,value);
     generator.ConsumerFence(fence,value);
-    if(!accepted) {Reset();return;}
+    // A transient swapchain/submit failure must not discard B after its midpoint was accepted. Keep the pinned
+    // endpoint for the next cycle; a recenter, menu transition or explicit Reset still invalidates it.
+    if(!accepted) {
+        if(!retainEndpoint || result.kind!=Cadence::Next::PendingReal)Reset();
+        return;
+    }
     cadence.Accepted(result.kind,result.frame.identity.serial);
     if(MetricsEnabled())OnSubmitted(result.frame.identity.serial,result.synthetic,result.kind==Cadence::Next::Repeat,NowMs());
     if(result.kind==Cadence::Next::PendingReal)pending={};

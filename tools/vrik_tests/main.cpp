@@ -1050,7 +1050,7 @@ void HandGestures() {
     const float neutral[4]={0,0,0,1};float left[4],right[4];std::copy_n(neutral,4,left);std::copy_n(neutral,4,right);
     cvr::gestures::ApplyCalibration(0,"InHandThumb",{0,0,1,0},left);
     cvr::gestures::ApplyCalibration(1,"InHandThumb",{0,0,1,0},right);
-    QuatNear(left,neutral,"left hand has a thumbs-up calibration");
+    QuatNear(left,right,"the thumbs-up calibration differs between the hands");
     Near(2*std::acos(right[3])*57.2957795f,49.8069992f,.0001f,"right thumb differs from user export");
     std::cout<<"hand_gestures_baked_both_hands_right_only_thumb_wire_and_weapon_protection=true\n";
 }

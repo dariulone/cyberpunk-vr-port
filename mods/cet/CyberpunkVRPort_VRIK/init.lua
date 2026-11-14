@@ -527,8 +527,14 @@ local locomotionId = nil
 local takedownId, bodyCarryingId, bodyDisposalId = nil, nil, nil
 local hasPairedAnimNative = nil
 local scannerVisionId, hasScannerStateNative = nil, nil
+local hasWorldTimeNative = nil
 local locomotionDetailedId, hasLocomotionDetailedNative = nil, nil
 local function pushLocomotion(player)
+    if hasWorldTimeNative == nil then hasWorldTimeNative = type(SetVRWorldTimeScale) == 'function' end
+    if hasWorldTimeNative then
+        local ts = Game.GetTimeSystem()
+        if ts then SetVRWorldTimeScale(ts:GetActiveTimeDilation()) end
+    end
     locomotionId = locomotionId or Game.GetAllBlackboardDefs().PlayerStateMachine.Locomotion
     local bb = player:GetPlayerStateMachineBlackboard()
     if bb then
@@ -603,11 +609,11 @@ local function worldPosition(player) return player:GetWorldPosition() end
 -- port has no copy of still puts the player in its workspot: once its hub is up the player is let out of it. The
 -- double goes where the player goes: an AI teleport command (the scene owns the double, a plain teleport does not
 -- move it), out of any workspot the scene puts it in. X on the same prompt turns it off again (the hub's highlight
--- is put on its leave choice). Further than MIRROR_OFF_M from where the mirror started, the mirror turns
--- itself off by its own "leave" choice (the hub's choice marked quest-important): the scene's leave branch is the
--- only one that switches the reflection off (device ForceOFF, the mirrors area, the double despawned, the mirror
--- prefab variant). VRInteractionAction (src/Natives/InteractionAction.cpp) hands the hub its scroll and apply
--- actions directly, the way the game's own input does, and only while the mirror's hub is the active one.
+-- is put on its leave choice). Further than MIRROR_OFF_M from where the mirror started, the double is sent back there
+-- and the mirror turns itself off by its own "leave" choice (the hub's choice marked quest-important): the scene's
+-- leave branch is the only one that switches the reflection off (device ForceOFF, the mirrors area, the double
+-- despawned, the mirror prefab variant). VRInteractionAction (src/Natives/InteractionAction.cpp) hands the hub its
+-- scroll and apply actions directly, the way the game's own input does, and only while the mirror's hub is active.
 -- VRIKMirrorDoubleFlags (global, for the harness): bit 0 = identify its passes by buffer A as well.
 VRIKMirrorDoubleFlags = VRIKMirrorDoubleFlags or 0
 local MIRROR_HUB_TITLE = 'LocKey#46420'
@@ -682,8 +688,8 @@ local function updateMirrorDouble(player, dt)
         if double and VRMirrorDouble(double, VRIKMirrorDoubleFlags) == true then
             mirrorBound = true
             -- a mirror's scene (its prompt was just taken, or its hub is up): no workspot from the first frame
-            mirror = { id = double:GetEntityID(), anchor = player:GetWorldPosition(), stepT = 0.0, hubT = 0.0,
-                       freed = not inWorkspot, taken = mirrorSeenT < 3.0 }
+            mirror = { id = double:GetEntityID(), anchor = player:GetWorldPosition(), anchorYaw = player:GetWorldYaw(),
+                       stepT = 0.0, hubT = 0.0, freed = not inWorkspot, taken = mirrorSeenT < 3.0 }
         end
         return
     end
@@ -730,22 +736,26 @@ local function updateMirrorDouble(player, dt)
             end
         end
     end
-    -- the double where the player is
+    -- the double where the player is; far from the mirror, back where the mirror started: the leave despawns it
+    -- where it stands, and one despawned away from the mirror is not brought back for the next "look in the mirror"
     if ws:IsActorInWorkspot(double) then ws:SendFastExitSignal(double, Vector3.new(0, 0, 0), false, false, true, false) end
     local p = player:GetWorldPosition()
-    local yaw = player:GetWorldYaw()
+    local far = Vector4.Distance(p, mirror.anchor) > MIRROR_OFF_M
+    local at, yaw = p, player:GetWorldYaw()
+    if far then at, yaw = mirror.anchor, mirror.anchorYaw end
     local dp = double:GetWorldPosition()
-    local dx, dy, dz = p.x - dp.x, p.y - dp.y, p.z - dp.z
-    if dx * dx + dy * dy + dz * dz > 1e-4 or mirror.yaw == nil or math.abs(yaw - mirror.yaw) > 0.5 then
+    local dx, dy, dz = at.x - dp.x, at.y - dp.y, at.z - dp.z
+    local away = dx * dx + dy * dy + dz * dz
+    if away > 1e-4 or mirror.yaw == nil or math.abs(yaw - mirror.yaw) > 0.5 then
         local cmd = AITeleportCommand.new()
-        cmd.position = p
+        cmd.position = at
         cmd.rotation = yaw
         cmd.doNavTest = false
         double:GetAIControllerComponent():SendCommand(cmd)
         mirror.yaw = yaw
     end
-    -- far from the mirror: its own leave choice
-    if Vector4.Distance(p, mirror.anchor) > MIRROR_OFF_M then
+    -- far from the mirror, once the double is back at it: its own leave choice
+    if far and away < 0.09 then
         mirror.stepT = mirror.stepT - dt
         if mirror.stepT <= 0.0 then
             mirror.stepT = MIRROR_STEP

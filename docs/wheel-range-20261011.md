@@ -79,7 +79,7 @@ Thorton Mackinaw, OpenXR simulator, the cabin wheel read off the car's `steering
    at a brisk 300 deg/s turn. Step to full input: 40 degrees after 0.11 s, 95 after 0.22 s, full after ~0.4 s.
 
 Fixes. A car's full lock is the cabin wheel's own (`CarCabinWheelLockDeg` 130, whatever `xr_wheel_steer_max_deg` says:
-that setting is the bikes' now, 30..120, else 90); the hands' share of it is turned into the input that stands the
+that setting applied to bikes until 2026-11-09, see "Motorcycle handlebars"; it now only serves non-car, non-bike mounts, 30..120, else 90); the hands' share of it is turned into the input that stands the
 cabin wheel at the hands' angle (`CarInputForCabinAngle`, the inverse of the curve, WheelRange.hpp); the deadzone
 defaults to 0 (a saved 1.5, the old default, reads as 0). In `default_car_anim_graph.animgraph` both `steer_turn_rate`
 chains get smoothTime 0.01 and DampFloat 3000 (`tools/driving_tests/wheel_feel_graph.py`; the rebuilt resource differs
@@ -90,3 +90,24 @@ Verified 2026-11-05 with both hands gripping through the simulator: hands 5/10/2
 cabin wheel 5.0/10.0/20.0/30.0/45.0/65.0/90.0/110.0/130.0/-30.0/-90.0. The stick step now reads the final angle at the
 first sample (it read 2.6 degrees there before), steady with no oscillation. Road-wheel lock and the drive model are
 unchanged (hands 90 -> road wheels 30.8 degrees, full lock 50 on the Porsche).
+
+## Motorcycle handlebars (2026-11-09)
+
+User's decision: a bike is steered by pushing and pulling the bars, not by turning a wheel. `vehicleBikeBaseObject`
+mounts now measure the same signed turn in the physical right/forward plane instead of right/up
+(`TrackedWheelSteering::Update`, `handlebar`). Right hand forward with left hand back steers left.
+
+- Two hands use the line between them, so its yaw does not depend on which way the room faces and moving both hands
+  together does not steer. One hand uses a pivot half the animated span to its side, which assumes recenter-space
+  forward roughly matches the bike's.
+- Full lock is the new `xr_bike_bar_lock_deg` (15..60, default 40), shown as the overlay's "Bike full lock at" slider.
+  The old 30..120 range could not work: 90 degrees of yaw is out of reach by pushing and pulling. 40 degrees is
+  about 16 cm forward and 16 cm back with hands 50 cm apart. The first estimate was 25 (about 12 cm); 40 is the
+  value that felt right riding in game (2026-11-12) and became the default.
+- The grab, the arm handover and the horn are unchanged: the arm goes to the bike's animation, as before.
+- Body lean (user's request, same day): the game has no sideways-lean input, the bike's lean follows its steering, so
+  leaning adds degrees to the arms' turn while the bars are held. `xr_bike_body_lean` (0..1, default 0.5, 0 off) is the
+  share of full lock at a 15 cm lean, with 3 cm deadzone; centre is the body position at the grab. It is measured along
+  recenter-space right at an estimated neck point (10 cm below, 10 cm behind the eyes), because the headset itself swings
+  about 9 cm sideways when looking 60 degrees aside. These values are estimates and have not been tuned in game.
+- Unit test: `driving_handlebar` (`tools/driving_tests/main.cpp`). In-game feel is not verified by it.

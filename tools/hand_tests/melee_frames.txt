@@ -1,0 +1,4 @@
+# Two-handed blades in the right hand bone's frame, measured in game: weapon key, mesh family, position (m), rotation
+# (x y z w) of the weapon entity in the RightHand bone's frame, the hand still (12 equal samples). generate_support_points.
+# katana: Items.Preset_Katana_Default drawn at H10 in the simulator, 2026-11-14 (scratchpad katana_frame.py measure).
+katana w_katana__common -0.064730 0.032000 0.029430 -0.617781 0.375381 0.616113 0.312796

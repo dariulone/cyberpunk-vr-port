@@ -102,7 +102,10 @@ std::shared_ptr<spdlog::logger> CreateLogger(
     if (auto existingLogger = spdlog::get(acpID))
         return existingLogger;
 
-    const auto rotSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(acpPath.native(), acMaxFileSize, acMaxFileCount);
+    // ROTATED AT EVERY LAUNCH (the port's change to CET): each session starts its own file and the two before it are
+    // kept as .1 and .2. Appending made one file of a week's sessions -- a mod's log at 4.6 MB, host.log carrying the
+    // same start-up lines 745 times -- and the session in question was hard to find in it.
+    const auto rotSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(acpPath.native(), acMaxFileSize, acMaxFileCount, true);
     rotSink->set_pattern(acpPattern);
 
     auto logger = std::make_shared<spdlog::logger>(acpID, spdlog::sinks_init_list{rotSink});

@@ -1,5 +1,7 @@
+#include "Natives/FrameOrderProbe.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Anim/HandGestures.hpp"
+#include "Anim/FingerContact.hpp"
 // AnimPose -- THE HOOK. The engine's animation pose-apply, detoured.
 //
 // This is the file the pose path exists for, and it belongs in Hooks/ with the other twenty-three:
@@ -124,6 +126,7 @@ extern "C" __declspec(dllexport) extern int CyberpunkVR_VrikRateLog;
 
 
 // The trampoline this detour calls through. The hook's own state.
+#include "Anim/NpcArmGrip.hpp"
 typedef void* (*AnimPoseFunc_t)(void* a1, void* a2, void* a3, unsigned int a4);
 namespace { AnimPoseFunc_t OriginalAnimPose = nullptr; }
 
@@ -131,6 +134,7 @@ namespace { AnimPoseFunc_t OriginalAnimPose = nullptr; }
 static void* Hooked_AnimPoseApply_Inner(void* a1, void* a2, void* a3, unsigned int a4) {
     void* result = OriginalAnimPose(a1, a2, a3, a4);
     ++g_AnimPoseTotalCalls;
+    cvr::anim::NpcArmGripApply(a2);
 
     // Hot-path early-out: this hook runs on EVERY skeleton's pose apply (all NPCs,
     // every frame). Do nothing unless the player is armed AND we actually have work.
@@ -428,6 +432,13 @@ if (g_VRRecordFK) {
                 // GLOVES LAST: with finger-tracking gloves every finger is the player's own, whatever any layer
                 // above wrote (xr_finger_bones, Anim/HandGestures.cpp).
                 cvr::gestures::ApplyGloves(boneBuf);
+                // FINGERS ON THE WORLD, over every layer: a hand whose body stopped at a table bends its fingers on it
+                // (Anim/FingerContact.cpp). Not a hand whose fingers a carried body or a reload's hand-off owns.
+                {
+                    const bool busy[2]={carriedFingerWeight[1]>0.0f || g_VRReloadFingerActive[0]!=0,
+                                        carriedFingerWeight[0]>0.0f || g_VRReloadFingerActive[1]!=0};
+                    cvr::anim::FingerContact(boneBuf,busy);
+                }
                 cvr::anim::NoteFingerFlex(boneBuf, true);
 
 
@@ -1660,7 +1671,14 @@ if (g_VRRecordFK) {
                             // or held-object stops constrain the drawn hand.
                             cvr::anim::WheelStoreTarget(0, target);
                             VRIK_NoteHandAim(0, target, handRot);
-                            VRIK_ApplyHandStop(1, target, handRot);
+                            {
+                                const float unstopped[3]={target[0],target[1],target[2]};
+                                VRIK_ApplyHandStop(1, target, handRot);
+                                if (!cvr::anim::WeaponInLeftHand()) {
+                                    const float moved[3]={target[0]-unstopped[0],target[1]-unstopped[1],target[2]-unstopped[2]};
+                                    cvr::anim::TwoHandWeaponHandMoved(moved);
+                                }
+                            }
                             // WHEEL GRAB. Store the controller target FIRST: it is what the NEXT
                             // solve measures against the animated hand, and it has to keep being
                             // recorded while the arm is handed over, or letting go of the wheel could
@@ -2084,7 +2102,14 @@ if (g_VRRecordFK) {
                             lhWristValid = true;
                             cvr::anim::WheelStoreTarget(1, target);
                             VRIK_NoteHandAim(1, target, handRot);
-                            VRIK_ApplyHandStop(0, target, handRot);
+                            {
+                                const float unstopped[3]={target[0],target[1],target[2]};
+                                VRIK_ApplyHandStop(0, target, handRot);
+                                if (cvr::anim::WeaponInLeftHand()) {
+                                    const float moved[3]={target[0]-unstopped[0],target[1]-unstopped[1],target[2]-unstopped[2]};
+                                    cvr::anim::TwoHandWeaponHandMoved(moved);
+                                }
+                            }
                             cvr::anim::WheelBlendTarget(1, target, handRot);
                             cvr::anim::ReloadHandOffBlendTarget(1, target, handRot);
                             if(poseLadder && nativeHandFrame)cvr::ladder::ConstrainHand(0,target,handRot,nativeEntityPos,nativeEntityRot);
@@ -2274,6 +2299,7 @@ if (g_VRRecordFK) {
                                     g_VRFKSnapRot[i][3] = g_fkRot[i][3];
                                 }
                                 g_VRFKSnapCount = lim;
+                                cvr::frameorder::Note('K');
                             }
                         }
                     }

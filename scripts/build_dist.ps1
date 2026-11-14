@@ -6,11 +6,11 @@
 #
 # Usage:
 #   pwsh scripts\build_dist.ps1
-#   pwsh scripts\build_dist.ps1 -Version 0.2.3 -Zip
+#   pwsh scripts\build_dist.ps1 -Version 0.2.4 -Zip
 
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$')]
-    [string]$Version = "0.2.3",
+    [string]$Version = "0.2.4",
     # The game 2.5 build tree (RED4ext.SDK game-2.5); build\ is the old 2.31 tree and its DLL is stale.
     [string]$BuildDir = "build\patchday\sdk25-build",
     [switch]$Zip,
@@ -86,6 +86,13 @@ Add-File $stereoDll "red4ext\plugins\cyberpunkvrport\cyberpunkvrport.dll"
 foreach ($n in @("scc_lib.dll", "LICENSE.txt")) {
     $f = Need (Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\cyberpunkvrport\Release\redscript\$n") "redscript $n"
     Add-File $f "red4ext\plugins\cyberpunkvrport\redscript\$n"
+}
+# ANR FG (Apex Neural Rendering, github.com/apex-compute/ANR): the frame generator's dlssg folder, unchanged
+# (cmake/NativeFramegen.cmake fetches the pinned release; Framegen/AnrFrameGen.cpp loads it). Its logs stay out.
+$anrDir = Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\cyberpunkvrport\Release\anr\dlssg"
+$null = Need (Join-Path $anrDir "nvngx_dlssg.dll") "ANR FG nvngx_dlssg.dll"
+foreach ($f in (Get-ChildItem $anrDir -Recurse -File | Where-Object { $_.Name -notlike "nr_fg-*.log" })) {
+    Add-File $f.FullName ("red4ext\plugins\cyberpunkvrport\anr\dlssg\" + $f.FullName.Substring($anrDir.Length + 1))
 }
 # The TweakDB's record names (WolvenKit's, GPL-3.0, with their licence), for the Lua host's TDBID.ToStringDEBUG.
 foreach ($n in @("tweakdbstr.kark", "usedhashes.kark", "LICENSE.txt")) {

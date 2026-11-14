@@ -203,7 +203,7 @@ void DrawBindings() {
         {"LEFT TRIGGER","Aim / block in melee."},
         {"RIGHT GRIP  At a holster","Equip or holster the weapon at the reached slot."},
         {"LEFT GRIP","Grab the magazine during a reload."},
-        {"LEFT GRIP  Near left ear","Toggle the scanner. Squeeze again to close it."},
+        {"LEFT L3  Near left ear","Toggle the scanner with a fresh left-stick click. Release and click again to close. Always the physical left hand, including left-handed mode."},
         {"L3 + LEFT GRIP  Hold 0.5 seconds","Activate cyberware once. Release both to use again."},
         {"LEFT MENU BUTTON","Open the game's pause menu."}
     };

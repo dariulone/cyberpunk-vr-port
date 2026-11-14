@@ -379,7 +379,8 @@ function D.vehicles()
 end
 
 function D.summonRestricted()
-  local ok, r = pcall(function() return VehicleSystem.IsSummoningVehiclesRestricted(GetGameInstance()) end)
+  -- The host fills the GameInstance parameter itself; passing one fails the call ("requires 0 parameter(s)").
+  local ok, r = pcall(function() return VehicleSystem.IsSummoningVehiclesRestricted() end)
   return ok and r == true
 end
 

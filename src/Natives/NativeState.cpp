@@ -416,6 +416,7 @@ float              g_VRSmokeCigLRot[4]  = {0.0f, 0.0f, 0.0f, 1.0f};
 // Full-arm IK (g_VRBind == 4): bone hierarchy + chain indices (resolved in VRIK_DoArmPlayer).
 int16_t            g_VRBoneParent[VRIK_MAX_BONES] = {0};
 volatile int       g_VRBoneCount = 0;
+volatile int       g_VRBodyFemale = -1;
 volatile int       g_VRFKCount = 0;   // solver-touched bone prefix (0 = use full count)
 volatile int       g_VRRightUpperArmIdx = -1; // RightArm  (upper-arm start / shoulder joint)
 volatile int       g_VRRightForeArmIdx  = -1; // RightForeArm (elbow)

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace cvr::anim {
 struct WheelPoint { float x{},y{}; };
@@ -15,8 +16,12 @@ class WheelSteering {
 public:
     void Reset() { *this={}; }
     float Angle() const { return m_angle; }
+    // rimRight/rimLeft: where on the rim a hand has hold, in radians from 3 o'clock anticlockwise, or a NaN for the
+    // old assumption, a hand where the driving animation has it: 3 and 9 o'clock, turned with the wheel. With the hand
+    // at the top, a hub assumed beside it read a sideways pull as hardly any turn.
     float Update(uint8_t held,WheelPoint right,WheelPoint left,float radius,
-                 float maxDegrees,float deadDegrees) {
+                 float maxDegrees,float deadDegrees,float rimRight=std::numeric_limits<float>::quiet_NaN(),
+                 float rimLeft=std::numeric_limits<float>::quiet_NaN()) {
         held&=3;
         if(!held || ((held&1) && !Finite(right)) || ((held&2) && !Finite(left))) {
             Reset();return 0;
@@ -28,9 +33,9 @@ public:
             m_held=held;
             if(held!=3) {
                 const auto hand=held==1 ? right:left;
-                const float angle=-m_angle/kDegrees;
-                const float side=held==1 ? 1.f:-1.f;
-                m_pivot={hand.x-side*radius*std::cos(angle),hand.y-side*radius*std::sin(angle)};
+                const float rim=held==1 ? rimRight:rimLeft;
+                const float angle=std::isfinite(rim) ? rim:(held==1 ? 0.f:kPi)-m_angle/kDegrees;
+                m_pivot={hand.x-radius*std::cos(angle),hand.y-radius*std::sin(angle)};
             }
         }
         const WheelPoint v=held==3 ? Sub(right,left):Sub(held==1 ? right:left,m_pivot);
@@ -68,6 +73,7 @@ public:
     }
 private:
     static constexpr float kDegrees=57.295779513f;
+    static constexpr float kPi=3.14159265f;
     static bool Finite(WheelPoint p) { return std::isfinite(p.x)&&std::isfinite(p.y); }
     static WheelPoint Sub(WheelPoint a,WheelPoint b) { return {a.x-b.x,a.y-b.y}; }
     static float Length(WheelPoint p) { return std::hypot(p.x,p.y); }

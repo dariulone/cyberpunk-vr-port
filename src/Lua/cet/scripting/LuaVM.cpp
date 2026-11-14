@@ -1,4 +1,5 @@
 #include <stdafx.h>
+#include "Utils/DebugGate.hpp"
 
 #include "LuaVM.h"
 
@@ -38,7 +39,7 @@ template <typename F> void Guarded(bool& aFailed, const char* acWhat, F&& aCall)
 }
 
 // The host's cost on the game's main thread: each onUpdate tick (the mods' updates, the binds, the GC steps the
-// mods take) timed, summed up in the plugin's log every 30 s. Main thread only.
+// mods take) timed, summed up in the plugin's log every 30 s with the launcher's DEBUG box ticked (RuntimeDiagnostics). Main thread only.
 struct UpdateCost
 {
     std::vector<float> ms;
@@ -59,6 +60,7 @@ struct UpdateCost
         const auto cost = acVm.TakeUpdateCost();
         for (size_t i = 0; i < cost.size() && i < 6; ++i)
             mods += fmt::format("{}{} {:.3f}", i ? ", " : "", cost[i].first, cost[i].second / ms.size());
+        if (cvr::RuntimeDiagnosticsEnabled())
         CvrLogText(fmt::format("[lua] onUpdate over {:.0f} s: {} ticks, mean {:.3f} ms, p50 {:.3f}, p99 {:.3f}, max {:.3f}; per tick: {}\n",
                                seconds, ms.size(), sum / ms.size(), ms[ms.size() / 2], ms[ms.size() * 99 / 100], ms.back(), mods)
                        .c_str());

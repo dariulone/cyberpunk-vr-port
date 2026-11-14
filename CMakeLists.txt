@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CyberpunkVRPort VERSION 0.2.3 LANGUAGES CXX C ASM_MASM)
+project(CyberpunkVRPort VERSION 0.2.4 LANGUAGES CXX C ASM_MASM)
+
+# One compiler process per core inside every target, the fetched and bundled libraries included: `cmake --build
+# --parallel` only spreads whole projects, and a full rebuild otherwise compiles each target one file at a time.
+# /FS serialises the shared /Zi PDB writes.
+if(MSVC)
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/MP> $<$<COMPILE_LANGUAGE:C,CXX>:/FS>)
+endif()
 
 include(FetchContent)
 FetchContent_Declare(
@@ -51,9 +58,11 @@ FetchContent_MakeAvailable(yaml-cpp)
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 
 # redscript's script compiler (scc_lib.dll, MIT), built from its sources with cargo: the plugin compiles the game's
-# scripts with it when redscript itself is not installed (Core/ScriptCompiler.cpp). Only the C API library is built;
-# redscript-dotfile goes with it so the workspace's features unify as in redscript's own release build.
-set(CVR_REDSCRIPT_TAG v1.0.0-preview.22)
+# scripts with it when redscript itself is not installed (Core/ScriptCompiler.cpp). Only the C API library is built.
+# The released line (0.5.x, what redscript's mod page ships), not the 1.0 previews: 1.0.0-preview.22 put up a
+# modal "requires migration" dialog on struct `new` that held the game until the engine's watchdog, and compiled the
+# breach indicator's wrap so its breach anchor stayed zero (the diamond slid with the head).
+set(CVR_REDSCRIPT_TAG v0.5.32)
 FetchContent_Declare(
   redscript
   GIT_REPOSITORY https://github.com/jac3km4/redscript.git
@@ -64,11 +73,13 @@ if(NOT redscript_POPULATED)
   FetchContent_Populate(redscript)
 endif()
 find_program(CVR_CARGO cargo HINTS "$ENV{USERPROFILE}/.cargo/bin" REQUIRED)
-set(CVR_SCC_LIB "${CMAKE_BINARY_DIR}/redscript/release/scc_lib.dll")
+# One target directory per tag: a changed tag builds its own library instead of finding the old one up to date.
+set(CVR_SCC_LIB "${CMAKE_BINARY_DIR}/redscript/${CVR_REDSCRIPT_TAG}/release/scc_lib.dll")
 add_custom_command(
   OUTPUT ${CVR_SCC_LIB}
-  COMMAND ${CVR_CARGO} build --release --locked -p scc-lib -p redscript-dotfile
-          --manifest-path "${redscript_SOURCE_DIR}/Cargo.toml" --target-dir "${CMAKE_BINARY_DIR}/redscript"
+  COMMAND ${CVR_CARGO} build --release --locked -p scc-lib
+          --manifest-path "${redscript_SOURCE_DIR}/Cargo.toml"
+          --target-dir "${CMAKE_BINARY_DIR}/redscript/${CVR_REDSCRIPT_TAG}"
   WORKING_DIRECTORY ${redscript_SOURCE_DIR}
   COMMENT "Building redscript's scc_lib ${CVR_REDSCRIPT_TAG}"
   VERBATIM
@@ -214,6 +225,7 @@ target_link_libraries(cyberpunkvrport_stereo PRIVATE
     bcrypt
     dxgi.lib        # the SYSTEM import lib -- bare "dxgi" would resolve to our own target
     psapi
+    iphlpapi ws2_32 ole32 uuid # bridge listener detection and native vehicle audio loopback
     xaudio2.lib     # the port's own sounds (Audio/PortSound.cpp)
     d2d1.lib        # lines of text set for a hung screen (Render/Caption.cpp)
     dwrite.lib

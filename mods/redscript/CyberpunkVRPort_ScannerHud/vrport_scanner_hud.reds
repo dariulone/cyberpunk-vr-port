@@ -182,16 +182,20 @@ func VRPortScanMateAt(pp: ref<PlayerPuppet>, idx: Int32) -> ref<inkWidget> {
 //
 // BraindanceSystem answers the actual question, and the port's own ForceFPP mod already reads it exactly
 // this way. It is a scriptable system lookup on a path that runs once per scanner open, not per frame.
-func VRPortScannerBdFactor() -> Float {
+// The player's own game instance: the global GetGameInstance() is invalid on a game without the script frameworks.
+func VRPortScannerBdFactor(pp: ref<PlayerPuppet>) -> Float {
+  if !IsDefined(pp) {
+    return 1.0;
+  };
   let sys: ref<BraindanceSystem> =
-    GameInstance.GetScriptableSystemsContainer(GetGameInstance()).Get(n"BraindanceSystem") as BraindanceSystem;
+    GameInstance.GetScriptableSystemsContainer(pp.GetGame()).Get(n"BraindanceSystem") as BraindanceSystem;
   if IsDefined(sys) && sys.GetIsInBraindance() {
     return 0.5;
   };
   return 1.0;
 }
 
-func VRPortScannerApply(idx: Int32, root: ref<inkWidget>) -> Void {
+func VRPortScannerApply(pp: ref<PlayerPuppet>, idx: Int32, root: ref<inkWidget>) -> Void {
   let scale: Float;
   if !IsDefined(root) {
     return;
@@ -202,7 +206,7 @@ func VRPortScannerApply(idx: Int32, root: ref<inkWidget>) -> Void {
   if scale <= 0.01 {
     scale = 1.00;
   };
-  scale = scale * VRPortScannerBdFactor();
+  scale = scale * VRPortScannerBdFactor(pp);
   // Pivot set explicitly, so the scale is about the piece's own middle rather than about whatever its
   // resource happened to declare. Otherwise shrinking also walks the piece across the screen and the
   // two knobs fight each other.
@@ -228,8 +232,8 @@ func VRPortScannerApply(idx: Int32, root: ref<inkWidget>) -> Void {
 // Applies a piece AND its companion, which is what every caller wants -- a piece that is two widgets
 // is still one piece to the person dragging it.
 func VRPortScannerApplyPair(pp: ref<PlayerPuppet>, idx: Int32) -> Void {
-  VRPortScannerApply(idx, VRPortScanRootAt(pp, idx));
-  VRPortScannerApply(idx, VRPortScanMateAt(pp, idx));
+  VRPortScannerApply(pp, idx, VRPortScanRootAt(pp, idx));
+  VRPortScannerApply(pp, idx, VRPortScanMateAt(pp, idx));
 }
 
 func VRPortScannerRegisterMate(idx: Int32, owner: ref<GameObject>, mate: ref<inkWidget>) -> Void {
@@ -242,7 +246,7 @@ func VRPortScannerRegisterMate(idx: Int32, owner: ref<GameObject>, mate: ref<ink
     case 5: pp.vrpScanMate5 = mate; break;
     case 6: pp.vrpScanMate6 = mate; break;
   };
-  VRPortScannerApply(idx, mate);
+  VRPortScannerApply(pp, idx, mate);
 }
 
 // THE QUICKHACK PANEL'S THREE CONTAINERS, by the names its .inkwidget gives them. Direct children of
@@ -285,7 +289,7 @@ func VRPortScannerRegister(idx: Int32, owner: ref<GameObject>, root: ref<inkWidg
     case 5: pp.vrpScanRoot5 = root; break;
     case 6: pp.vrpScanRoot6 = root; break;
   };
-  VRPortScannerApply(idx, root);
+  VRPortScannerApply(pp, idx, root);
 }
 
 // ---- the four pieces register themselves ------------------------------------------------------

@@ -78,9 +78,8 @@ return {
         enabled    = true,
         slot       = 'vrp_mag_slot',
         which      = 0,
-        -- index 1 is the gun's own magazine (0 for the stretch it is out), index 2 the one in the hand -- the Crusher's
-        -- layout
-        showTrack  = 1,
+        -- Source rig track showMagazine; the old value 1 was its remapped destination, not its rig index.
+        showTrack  = 0,
         mesh       = 'base\\weapons\\firearms\\rifle_precision\\techtronika_pozhar\\entities\\meshes\\w_rifle_precision__techtronika_pozhar__mag_std_01.mesh',
         entity     = 'base\\vrport\\vrp_mag_pozhar.ent',
         holdSlot   = 'WeaponLeft', holdSlotRight = 'WeaponRight',

@@ -347,21 +347,21 @@ local function killCameraRecoil(wpn, wid)
     -- a mod reload (measured, and the reason this probe file exists at all), so anything that has to be
     -- readable after the fact goes where the kick already goes.
     VRP_lastClass, VRP_lastItemType = cls, itName
-    pcall(function()
+    if vrDebug() then pcall(function()
         local f = io.open('recoil_probe.txt', 'a')
         if f then
             f:write(string.format('class=%d type=%s key=%s', cls, tostring(itName), tostring(key)))
             f:write(string.char(10))
             f:close()
         end
-    end)
-    logAlways('recoil: itemType=%s class=%d', tostring(itName), cls)
-    logAlways('recoil: key=%s kick=%s', tostring(key), tostring(kick))
+    end) end
+    logf('recoil: itemType=%s class=%d', tostring(itName), cls)
+    logf('recoil: key=%s kick=%s', tostring(key), tostring(kick))
     -- STRAIGHT TO A FILE, because the module's spdlog log stopped accepting lines after a mod reload
     -- (the file was reopened and nothing more was appended, while the value provably reached the
     -- plugin). A diagnostic that can go quiet is worse than none: this one is opened, written, flushed
     -- and closed on the spot, so what it says is what happened.
-    pcall(function()
+    if vrDebug() then pcall(function()
         local f = io.open('recoil_probe.txt', 'a')
         if f then
             f:write(string.format('key=%s kick=%s wid=%s cls=%s type=%s', tostring(key), tostring(kick),
@@ -369,7 +369,7 @@ local function killCameraRecoil(wpn, wid)
             f:write(string.char(10))
             f:close()
         end
-    end)
+    end) end
 
     local ok2, err = zeroCameraKick(wpn, wid)
     if ok2 then recoilKilled = wid else logAlways('recoil: kill failed: %s', tostring(err)) end
@@ -447,7 +447,9 @@ local muzzlePosWarned = false
 local aimHitProbed = false
 
 -- THE WEAPON IN THE LEFT HAND. See the block above carryTick().
-local CARRY_LEFT      = true
+-- Right grip no longer transfers a supported weapon out of the weapon hand.
+-- Keep recovery for a carry already active during a live module transition.
+local CARRY_LEFT      = false
 local carryOn         = false     -- the weapon is in AttachmentSlots.WeaponLeft right now
 local carryItemID     = nil       -- what to put back, and where it came from
 local carryRGripWas   = false
@@ -809,7 +811,7 @@ local leftClean, leftCheckedAt = false, -10.0
 local slotRightID, slotLeftID = nil, nil
 
 local function carryTick(dt)
-    if not CARRY_LEFT then return end
+    if not CARRY_LEFT and not carryOn then return end
     -- LEFT-HANDED THE WEAPON IS ALREADY THE LEFT HAND'S, drawn onto its slot by the game itself: nothing to hand over.
     if not carryOn and type(VRWeaponInLeftHand) == 'function' and VRWeaponInLeftHand() then return end
     local pl = Game.GetPlayer()
@@ -999,7 +1001,7 @@ local function restoreFrame(pl, dt, left)
     restoreWatch = restoreWatch - dt
     if restoreWatch <= 0.0 then
         restoreWatch = nil
-        logAlways('handedness: nothing to restore after the load')
+        logf('handedness: nothing to restore after the load')
         return
     end
     local f = restoreFinding(pl, left)

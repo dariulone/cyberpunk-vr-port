@@ -5,6 +5,7 @@
 #include "Anim/LadderGripProfile.hpp"
 
 namespace cvr::ladder {
+inline bool GripEnabled(bool handPhysics, bool ladderGrip) { return handPhysics && ladderGrip; }
 struct Vec {
     float x{},y{},z{};
     Vec operator+(Vec b) const { return {x+b.x,y+b.y,z+b.z}; }

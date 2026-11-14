@@ -238,7 +238,8 @@ end
 -- `fade`: the mode is switching (see A SCENE GETS THE BODY BACK above), not one of the periodic passes.
 local function walk(pl, on, fade)
   local seen, want = {}, {}
-  for _, c in ipairs(pl:GetComponents()) do
+  -- The plugin's native: Entity:GetComponents() is Codeware's and is nil without it.
+  for _, c in ipairs(Game.VREntityComponents(pl) or {}) do
     local okMesh, mesh = pcall(isMesh, c)
     if okMesh and mesh then
       local name = NameToString(c:GetName())

@@ -43,6 +43,10 @@ extern "C" void SetLauncherCustomResolution(int on);
 // The VR lobby: the main menu in its own world (xr_lobby in vrport.ini).
 extern "C" int GetLauncherLobby();
 extern "C" void SetLauncherLobbyAndPersist(int on);
+extern "C" int GetLauncherInterface();
+extern "C" void SetLauncherInterfaceAndPersist(int on);
+extern "C" int GetLauncherHandPhysics();
+extern "C" void SetLauncherHandPhysicsAndPersist(int on);
 
 #define ID_COMBO_RES     101
 #define ID_BUTTON_START  102
@@ -56,6 +60,8 @@ extern "C" void SetLauncherLobbyAndPersist(int on);
 #define ID_EDIT_HEIGHT     110
 #define ID_EDIT_ASPECT     111
 #define ID_CHECK_LOBBY     112
+#define ID_CHECK_INTERFACE 113
+#define ID_CHECK_PHYSICS   114
 
 struct ResolutionPreset {
     int width;
@@ -583,8 +589,9 @@ static RECT g_rcTitle, g_rcSub, g_rcRule, g_rcLabelHmd, g_rcLabelRuntime, g_rcLa
 // the ladder's sizes, so every control lands on the ladder entry nearest in cost.
 static HWND g_hResDown = nullptr, g_hResUp = nullptr, g_hSlider = nullptr;
 static HWND g_hEditW = nullptr, g_hEditH = nullptr, g_hEditAspect = nullptr;
-static HWND g_hLobby = nullptr;
-static bool g_lobbyOn = true;
+static HWND g_hLobby = nullptr, g_hInterface = nullptr, g_hPhysics = nullptr;
+static bool g_lobbyOn = true, g_interfaceOn = true, g_physicsOn = true;
+static RECT g_rcFeatures;
 static int g_resW = 0, g_resH = 0;         // the pick the controls show
 static int g_refW = 0, g_refH = 0;         // the size asked for: the saved one, or the last one the player set
 static bool g_refCustom = false;           // ... and whether it was the player's own
@@ -784,10 +791,14 @@ static LRESULT CALLBACK ButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     case BM_GETCHECK:
         if (hwnd == g_hDebug) return g_debugOn ? BST_CHECKED : BST_UNCHECKED;
         if (hwnd == g_hLobby) return g_lobbyOn ? BST_CHECKED : BST_UNCHECKED;
+        if (hwnd == g_hInterface) return g_interfaceOn ? BST_CHECKED : BST_UNCHECKED;
+        if (hwnd == g_hPhysics) return g_physicsOn ? BST_CHECKED : BST_UNCHECKED;
         break;
     case BM_SETCHECK:
-        if (hwnd == g_hDebug || hwnd == g_hLobby) {
-            (hwnd == g_hDebug ? g_debugOn : g_lobbyOn) = wParam == BST_CHECKED;
+        if (hwnd == g_hDebug || hwnd == g_hLobby || hwnd == g_hInterface || hwnd == g_hPhysics) {
+            bool& checked = hwnd == g_hDebug ? g_debugOn : hwnd == g_hLobby ? g_lobbyOn :
+                            hwnd == g_hInterface ? g_interfaceOn : g_physicsOn;
+            checked = wParam == BST_CHECKED;
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
@@ -1277,6 +1288,7 @@ static void PaintWindow(HWND hwnd, HDC dc, const RECT& rc) {
     DeleteObject(rule);
 
     const UINT label = DT_LEFT | DT_BOTTOM | DT_SINGLELINE;
+    Text(dc, L"VR FEATURES", g_rcFeatures, g_fontLabel, kColMuted, label, Px(1));
     Text(dc, L"VR HEADSET", g_rcLabelHmd, g_fontLabel, kColMuted, label, Px(1));
     Text(dc, L"VR RUNTIME", g_rcLabelRuntime, g_fontLabel, kColMuted, label, Px(1));
     Text(dc, L"RENDER RESOLUTION", g_rcLabelRes, g_fontLabel, kColMuted, label, Px(1));
@@ -1406,6 +1418,8 @@ static void StartGame(HWND hwnd) {
     if (focus && (focus == g_hEditW || focus == g_hEditH || focus == g_hEditAspect)) CommitField(focus);
     SetLauncherDebugAndPersist(SendMessageW(g_hDebug, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     SetLauncherLobbyAndPersist(SendMessageW(g_hLobby, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    SetLauncherInterfaceAndPersist(SendMessageW(g_hInterface, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    SetLauncherHandPhysicsAndPersist(SendMessageW(g_hPhysics, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     if (const HmdPreset* hmd = SelectedHmd()) SetHmdTypeAndPersist(hmd->mhdType);
     const int rIdx = int(SendMessageW(g_hRuntime, CB_GETCURSEL, 0, 0));
     if (rIdx >= 0 && rIdx < static_cast<int>(std::size(kRuntimeOptions))) SetRuntimeModeAndPersist(kRuntimeOptions[rIdx].mode);
@@ -1436,13 +1450,14 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         g_hot = nullptr;
 
         const int margin = Px(28);
-        g_clientW = Px(420);
-        const int right = g_clientW - margin, fieldW = right - margin;
+        g_clientW = Px(820);
+        const int right = Px(392), fieldW = right - margin;
+        const int featureLeft = Px(440), featureRight = g_clientW - margin;
         int y = Px(26);
         g_rcTitle = {margin, y, right, y + Px(38)};
-        g_rcSub = {margin, y + Px(44), right, y + Px(84)};
+        g_rcSub = {margin, y + Px(44), featureRight, y + Px(84)};
         y += Px(98);
-        g_rcRule = {margin, y, right, y + 1};
+        g_rcRule = {margin, y, featureRight, y + 1};
         y += Px(22);
 
         // One field: its label, then the combo box (its closed height set by its owner-drawn field height).
@@ -1509,10 +1524,18 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         g_refCustom = GetLauncherCustomResolution() != 0;
         PopulateResolutionCombo(hmdSel);
 
-        // The VR lobby: the main menu in its own world instead of the game's flat one. On by default.
+        // Independent feature switches retain each feature's detailed preferences.
+        int fy = Px(146);
+        g_rcFeatures = {featureLeft, fy, featureRight, fy + Px(18)};
+        fy += Px(30);
         g_lobbyOn = GetLauncherLobby() != 0;
-        g_hLobby = MakeButton(hwnd, ID_CHECK_LOBBY, L"VR lobby", {margin, y, right, y + Px(42)});
-        y += Px(42) + Px(14);
+        g_interfaceOn = GetLauncherInterface() != 0;
+        g_physicsOn = GetLauncherHandPhysics() != 0;
+        g_hLobby = MakeButton(hwnd, ID_CHECK_LOBBY, L"VR Lobby", {featureLeft, fy, featureRight, fy + Px(48)});
+        fy += Px(78);
+        g_hInterface = MakeButton(hwnd, ID_CHECK_INTERFACE, L"VR Interface", {featureLeft, fy, featureRight, fy + Px(48)});
+        fy += Px(78);
+        g_hPhysics = MakeButton(hwnd, ID_CHECK_PHYSICS, L"Hand physics", {featureLeft, fy, featureRight, fy + Px(48)});
 
         // Master switch for every probe, census and dump in the mod (see debug_gate.cpp). Off is the normal way
         // to play: on, the log grows by tens of MB and the frame time with it, because probes like
@@ -1542,7 +1565,11 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         else if (d.CtlID == ID_CHECK_DEBUG)
             DrawSwitch(d, g_debugOn, L"Debug mode", L"Probes and a verbose log. Slower; for bug reports.");
         else if (d.CtlID == ID_CHECK_LOBBY)
-            DrawSwitch(d, g_lobbyOn, L"VR lobby", L"The main menu in its own VR world.");
+            DrawSwitch(d, g_lobbyOn, L"VR Lobby", L"The main menu in its own VR world.");
+        else if (d.CtlID == ID_CHECK_INTERFACE)
+            DrawSwitch(d, g_interfaceOn, L"VR Interface", L"SAO menu, shops and storage in VR.");
+        else if (d.CtlID == ID_CHECK_PHYSICS)
+            DrawSwitch(d, g_physicsOn, L"Hand physics", L"Collisions, object/NPC grabs and climbing.");
         else if (d.CtlID == ID_BUTTON_RES_DOWN || d.CtlID == ID_BUTTON_RES_UP)
             DrawStep(d, d.CtlID == ID_BUTTON_RES_UP);
         return TRUE;
@@ -1597,6 +1624,12 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         } else if (id == ID_CHECK_LOBBY && notif == BN_CLICKED) {
             g_lobbyOn = !g_lobbyOn;
             InvalidateRect(g_hLobby, nullptr, FALSE);
+        } else if (id == ID_CHECK_INTERFACE && notif == BN_CLICKED) {
+            g_interfaceOn = !g_interfaceOn;
+            InvalidateRect(g_hInterface, nullptr, FALSE);
+        } else if (id == ID_CHECK_PHYSICS && notif == BN_CLICKED) {
+            g_physicsOn = !g_physicsOn;
+            InvalidateRect(g_hPhysics, nullptr, FALSE);
         } else if (id == ID_CHECK_DEBUG && notif == BN_CLICKED) {
             g_debugOn = !g_debugOn;
             InvalidateRect(g_hDebug, nullptr, FALSE);
@@ -1617,7 +1650,7 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             if (*font) { DeleteObject(*font); *font = nullptr; }
         if (g_brushSurface) { DeleteObject(g_brushSurface); g_brushSurface = nullptr; }
         g_hHmd = g_hRuntime = g_hRes = g_hDebug = g_hStart = g_hot = nullptr;
-        g_hResDown = g_hResUp = g_hSlider = g_hEditW = g_hEditH = g_hEditAspect = g_hLobby = nullptr;
+        g_hResDown = g_hResUp = g_hSlider = g_hEditW = g_hEditH = g_hEditAspect = g_hLobby = g_hInterface = g_hPhysics = nullptr;
         g_sliderDrag = false;
         break;
     default:

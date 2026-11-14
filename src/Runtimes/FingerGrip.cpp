@@ -9,30 +9,39 @@
 #include <cstring>
 
 extern void Log(const char*, ...);
+extern "C" int CyberpunkVR_FingerBones;   // xr_finger_bones, live (Anim/HandGestures.cpp)
 
 namespace cvr::fingergrip {
 namespace {
-bool g_enabled = false, g_handTracking = false, g_motionRange = false;
+bool g_handTracking = false, g_motionRange = false, g_dataSource = false;
+// The session the trackers are made in, once xr_finger_bones is on (EnsureTrackers); one attempt per session.
+XrSession g_session = XR_NULL_HANDLE;
+bool g_tried = false;
 PFN_xrCreateHandTrackerEXT  pCreate  = nullptr;
 PFN_xrDestroyHandTrackerEXT pDestroy = nullptr;
 PFN_xrLocateHandJointsEXT   pLocate  = nullptr;
 XrHandTrackerEXT g_tracker[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
+// The tracker was created with its data sources. Only then may the locate ask which source the joints came from:
+// SteamVR fails xrLocateHandJointsEXT (XR_ERROR_VALIDATION_FAILURE) for a source state on a tracker made without them.
+bool g_sources[2] = {false, false};
 bool g_gripping[2] = {false, false};
 // Once a hand has sent finger data, a pause in it keeps the last state instead of falling back to the squeeze value.
 bool g_had[2] = {false, false};
 int Hold(int hand) { return g_had[hand] ? (g_gripping[hand] ? 1 : 0) : -1; }
 
-int ReadSetting() {
-    const std::string path = cvr::paths::FileA(cvr::paths::Folder::Config, "vrport.ini");
-    FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "r") != 0 || !f) return 0;
-    char line[256]; int value = 0;
-    while (fgets(line, sizeof(line), f)) {
-        int v = 0;
-        if (sscanf_s(line, "xr_finger_bones=%d", &v) == 1 || sscanf_s(line, "xr_finger_bones = %d", &v) == 1) { value = v; break; }
-    }
-    fclose(f);
-    return value;
+// What each hand's joints last were, for the log: one line per change, so a session shows whether the runtime ever
+// sent joints and from what. -1 nothing yet, 0 not active, 1 optical (unobstructed), 2 from the controller, 3 active
+// with the source unknown (the runtime has no XR_EXT_hand_tracking_data_source).
+int g_state[2] = {-1, -1};
+XrResult g_locateError[2] = {XR_SUCCESS, XR_SUCCESS};
+void NoteState(int hand, int state) {
+    if (g_state[hand] == state) return;
+    g_state[hand] = state;
+    static const char* const kWhat[] = {
+        "not active: the runtime sends no joints for it (a held controller with no controller source, hands not "
+        "forwarded by the streamer, or the hand out of view)",
+        "active, optical hand tracking", "active, from the controller held in it", "active"};
+    Log("[finger-grip] %s hand joints %s\n", hand == 0 ? "left" : "right", kWhat[state]);
 }
 
 float Angle(const XrVector3f& a, const XrVector3f& b) {
@@ -140,7 +149,20 @@ int EvaluateOpenXr(int hand, XrSpace base, XrTime time) {
     info.next = g_motionRange ? &range : nullptr;
     info.baseSpace = base;
     info.time = time;
-    if (XR_FAILED(pLocate(g_tracker[hand], &info, &locations)) || !locations.isActive) return Hold(hand);
+    XrHandTrackingDataSourceStateEXT source{XR_TYPE_HAND_TRACKING_DATA_SOURCE_STATE_EXT};
+    locations.next = g_sources[hand] ? &source : nullptr;
+    const XrResult located = pLocate(g_tracker[hand], &info, &locations);
+    if (XR_FAILED(located)) {
+        if (g_locateError[hand] != located)
+            Log("[finger-grip] %s hand: xrLocateHandJointsEXT failed (%d)\n", hand == 0 ? "left" : "right",
+                static_cast<int>(located));
+        g_locateError[hand] = located;
+        return Hold(hand);
+    }
+    g_locateError[hand] = XR_SUCCESS;
+    if (!locations.isActive) { NoteState(hand, 0); return Hold(hand); }
+    NoteState(hand, !g_sources[hand] || !source.isActive ? 3
+                    : source.dataSource == XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT ? 2 : 1);
     for (int j = XR_HAND_JOINT_THUMB_METACARPAL_EXT; j <= XR_HAND_JOINT_LITTLE_TIP_EXT; ++j)
         if (!(joints[j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) return Hold(hand);
     const float raw[4] = {Curl(joints, XR_HAND_JOINT_INDEX_METACARPAL_EXT), Curl(joints, XR_HAND_JOINT_MIDDLE_METACARPAL_EXT),
@@ -179,44 +201,97 @@ bool TrackedSplay(int hand, float splay[4]) {
     return true;
 }
 
+// ENABLED WHENEVER OFFERED, whatever xr_finger_bones says: an extension is only chosen when the instance is made, and
+// with it off at that moment the switch did nothing until the next game start -- a player turning it on in the menu
+// saw no fingers move and nothing say why. Enabled and unused, the extensions change nothing; the trackers are made
+// only once the switch is on (EnsureTrackers).
 void ChooseExtensions(const std::vector<XrExtensionProperties>& available, std::vector<const char*>& enabled) {
-    g_enabled = ReadSetting() == 1;
-    if (!g_enabled) return;
     for (const auto& p : available) {
         if (std::strcmp(p.extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) g_handTracking = true;
         if (std::strcmp(p.extensionName, XR_EXT_HAND_JOINTS_MOTION_RANGE_EXTENSION_NAME) == 0) g_motionRange = true;
+        if (std::strcmp(p.extensionName, XR_EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME) == 0) g_dataSource = true;
     }
+    g_motionRange = g_motionRange && g_handTracking;
+    g_dataSource = g_dataSource && g_handTracking;
     if (g_handTracking) enabled.push_back(XR_EXT_HAND_TRACKING_EXTENSION_NAME);
-    if (g_handTracking && g_motionRange) enabled.push_back(XR_EXT_HAND_JOINTS_MOTION_RANGE_EXTENSION_NAME);
-    Log("[finger-grip] xr_finger_bones=1: hand tracking %s, unobstructed motion range %s\n",
-        g_handTracking ? "available" : "NOT available (normal grip)", g_motionRange ? "available" : "not available");
+    if (g_motionRange) enabled.push_back(XR_EXT_HAND_JOINTS_MOTION_RANGE_EXTENSION_NAME);
+    if (g_dataSource) enabled.push_back(XR_EXT_HAND_TRACKING_DATA_SOURCE_EXTENSION_NAME);
+    Log("[finger-grip] hand tracking %s, unobstructed motion range %s, data sources %s\n",
+        g_handTracking ? "available" : "NOT available (normal grip)", g_motionRange ? "available" : "not available",
+        g_dataSource ? "available (optical, and the held controller)" : "not available (the runtime's default)");
 }
 
-void OnSessionCreated(XrInstance instance, XrSession session) {
-    if (!g_enabled || !g_handTracking) return;
+void OnSessionCreated(XrInstance instance, XrSystemId system, XrSession session) {
+    if (!g_handTracking) return;
     xrGetInstanceProcAddr(instance, "xrCreateHandTrackerEXT", reinterpret_cast<PFN_xrVoidFunction*>(&pCreate));
     xrGetInstanceProcAddr(instance, "xrDestroyHandTrackerEXT", reinterpret_cast<PFN_xrVoidFunction*>(&pDestroy));
     xrGetInstanceProcAddr(instance, "xrLocateHandJointsEXT", reinterpret_cast<PFN_xrVoidFunction*>(&pLocate));
     if (!pCreate || !pDestroy || !pLocate) { Log("[finger-grip] hand-tracking functions missing\n"); return; }
+    XrSystemHandTrackingPropertiesEXT handProps{XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT};
+    XrSystemProperties props{XR_TYPE_SYSTEM_PROPERTIES};
+    props.next = &handProps;
+    if (XR_SUCCEEDED(xrGetSystemProperties(instance, system, &props)))
+        Log("[finger-grip] the system reports hand tracking supported=%d\n", handProps.supportsHandTracking ? 1 : 0);
+    g_session = session;
+    g_tried = false;
+}
+
+// The trackers, the first frame finger tracking is on in a session. False while there are none.
+bool EnsureTrackers() {
+    if (g_tried) return g_tracker[0] != XR_NULL_HANDLE || g_tracker[1] != XR_NULL_HANDLE;
+    if (g_session == XR_NULL_HANDLE || !pCreate) return false;
+    g_tried = true;
+    const XrSession session = g_session;
+    // BOTH SOURCES, optical first. A runtime that offers XR_EXT_hand_tracking_data_source decides by this list where the
+    // joints come from, and without it a Quest runtime sends optical joints only: Virtual Desktop's VDXR creates the
+    // tracker optical-only by default, and Quest does not track the hands with its cameras while they hold the
+    // controllers -- so a player with controllers in hand got no joints at all. With the controller source the runtime
+    // builds the joints from the held controller (VDXR: index from the trigger, the other fingers from the grip, the
+    // thumb from the face buttons' touch), and optical joints still win when the controllers are put down. SteamVR reads
+    // the joints from the hand device's skeleton input (/input/skeleton/<hand>, the Touch profile and Steam Link's hand
+    // device both have one) and names the source by its tracking level: full = optical, partial or estimated = the
+    // controller; with sources requested it drops joints from a source not asked for, so both are asked for.
+    XrHandTrackingDataSourceEXT sources[] = {XR_HAND_TRACKING_DATA_SOURCE_UNOBSTRUCTED_EXT,
+                                             XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT};
+    XrHandTrackingDataSourceInfoEXT dataSources{XR_TYPE_HAND_TRACKING_DATA_SOURCE_INFO_EXT};
+    dataSources.requestedDataSourceCount = 2;
+    dataSources.requestedDataSources = sources;
     for (int h = 0; h < 2; ++h) {
         XrHandTrackerCreateInfoEXT ci{XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT};
+        ci.next = g_dataSource ? &dataSources : nullptr;
         ci.hand = h == 0 ? XR_HAND_LEFT_EXT : XR_HAND_RIGHT_EXT;
         ci.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
-        const XrResult r = pCreate(session, &ci, &g_tracker[h]);
+        XrResult r = pCreate(session, &ci, &g_tracker[h]);
+        g_sources[h] = XR_SUCCEEDED(r) && ci.next;
+        if (XR_FAILED(r) && ci.next) {
+            // A runtime that turns the request down: the tracker as before, with the runtime's default source.
+            Log("[finger-grip] %s hand tracker with both data sources refused (%d): the runtime's default source\n",
+                h == 0 ? "left" : "right", static_cast<int>(r));
+            ci.next = nullptr;
+            r = pCreate(session, &ci, &g_tracker[h]);
+        }
         if (XR_FAILED(r)) { Log("[finger-grip] %s hand tracker not created (%d)\n", h == 0 ? "left" : "right", static_cast<int>(r)); g_tracker[h] = XR_NULL_HANDLE; }
     }
+    Log("[finger-grip] finger tracking on: hand trackers made (%s)\n",
+        g_sources[0] || g_sources[1] ? "optical and controller sources" : "the runtime's default source");
+    return g_tracker[0] != XR_NULL_HANDLE || g_tracker[1] != XR_NULL_HANDLE;
 }
 
 void OnSessionDestroying() {
     for (auto& t : g_tracker) if (t != XR_NULL_HANDLE && pDestroy) { pDestroy(t); t = XR_NULL_HANDLE; }
     g_gripping[0] = g_gripping[1] = false;
     g_had[0] = g_had[1] = false;
+    g_state[0] = g_state[1] = -1;
+    g_sources[0] = g_sources[1] = false;
+    g_locateError[0] = g_locateError[1] = XR_SUCCESS;
+    g_session = XR_NULL_HANDLE;
+    g_tried = false;
     g_curl[0].store(0); g_curl[1].store(0);
     g_splay[0].store(0); g_splay[1].store(0);
 }
 
 int Evaluate(int hand, XrSpace base, XrTime time) {
-    if (hand < 0 || hand > 1) return -1;
+    if (hand < 0 || hand > 1 || CyberpunkVR_FingerBones == 0 || !EnsureTrackers()) return -1;
     return EvaluateOpenXr(hand, base, time);
 }
 }

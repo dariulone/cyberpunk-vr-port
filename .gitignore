@@ -23,6 +23,8 @@ tools/*
 !tools/body_rotation_tests/*.py
 tools/body_rotation_tests/__pycache__/
 !tools/vrik_tests/
+!tools/hand_tests/
+!tools/debug_draw/
 !tools/xr_probe/
 !tools/crash/
 !tools/ent/
@@ -53,6 +55,7 @@ releases/
 !tools/vrik_tests/*.py
 !tools/story_attention_tests/*.py
 !tools/asym_tests/*.py
+!tools/debug_draw/*.py
 tools/story_attention_tests/__pycache__/
 tools/vrik_tests/__pycache__/
 tools/roomscale_tests/__pycache__/
@@ -198,9 +201,21 @@ tools/vr_lobby_assets/*
 tools/grasp_tests/*
 !tools/grasp_tests/*.py
 !tools/grasp_tests/*.cpp
+!tools/grasp_tests/*.hpp
 !tools/grasp_tests/*.bat
 !tools/grasp_tests/README.txt
 !tools/grasp_tests/stub/
+# its round props' radius profiles: the packer and the generator (their packs and builds stay ignored)
+!tools/grasp_tests/profiles/
+tools/grasp_tests/profiles/*
+!tools/grasp_tests/profiles/*.py
+!tools/grasp_tests/profiles/*.cpp
+!tools/grasp_tests/profiles/*.bat
+!tools/grasp_tests/profiles/README.md
+!tools/weapon_boxes/
+tools/weapon_boxes/*
+!tools/weapon_boxes/*.cpp
+!tools/weapon_boxes/*.bat
 
 # The reload's glow: its generator builds the magazine copies the archive carries (its work files stay ignored).
 !tools/reload_glow/
@@ -248,3 +263,7 @@ tools/mirror/*
 # The packed archive: 100+ MB, over GitHub's file size limit. Its files come back out of it with WolvenKit, and the
 # release package (scripts/build_dist.ps1) takes it from mods/archive on disk.
 mods/archive/cyberpunkvrport.archive
+
+# Haptics regression fixtures; generated output stays local.
+!tools/psvr2_input_tests/stubs/
+/build-haptics-tests/

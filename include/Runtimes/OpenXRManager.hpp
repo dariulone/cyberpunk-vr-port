@@ -76,6 +76,9 @@ struct VRControllerState {
     bool     psvr2SystemPressed = false;
     bool     psvr2SystemAvailable = false;
     bool     psvr2DpadShift = false;
+    // Physical left-ear/L3 gesture, before handedness and deferred L3 routing.
+    uint64_t scannerPresses = 0;
+    bool     scannerHeld = false;
 };
 
 extern "C" int GetXrRuntimeMode();
@@ -195,10 +198,12 @@ public:
         if (!m_monoSubmitEnabled.load(std::memory_order_relaxed)) return false;
         if(cvr::framegen::Enabled())return true; // interpolation needs display-rate submission
         const int mode = CyberpunkVR_ThreadedMonoSubmit;
-        if (mode == 0) return false;   // forced inline
-        if (mode > 0) return true;     // forced threaded
-        // auto: the thread is SteamVR's requirement, not everyone's.
-        return !m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed);
+        if (mode == 0) return false;   // explicit diagnostic override
+        if (mode > 0) return true;
+        // Keep Virtual Desktop's established inline path. SteamVR submits on its own thread both with and
+        // without generation: toggling framegen must not hand compositor waits back to the game Present.
+        if (m_runtimeIsVirtualDesktop.load(std::memory_order_relaxed)) return false;
+        return true;
     }
     int GetCurrentRenderEyeIndex() const { return m_renderEyeIndex.load(std::memory_order_relaxed); }
     // Record the exact OpenXR head pose a given eye's frame was rendered with
@@ -974,10 +979,13 @@ private:
     XrAction m_thumbstickAction = XR_NULL_HANDLE;        // Vector2f, per hand
     XrAction m_triggerAction = XR_NULL_HANDLE;           // Float, per hand
     XrAction m_gripAction = XR_NULL_HANDLE;              // Float, per hand
+    XrAction m_gripForceAction = XR_NULL_HANDLE;         // Float, per hand: squeezed past closed. Index only
     XrAction m_thumbstickClickAction = XR_NULL_HANDLE;   // Bool, per hand (L3/R3)
     XrAction m_primaryButtonAction = XR_NULL_HANDLE;     // Bool, per hand (X / A)
     XrAction m_secondaryButtonAction = XR_NULL_HANDLE;   // Bool, per hand (Y / B)
     XrAction m_menuButtonAction = XR_NULL_HANDLE;        // Bool, global menu/start action
+    bool m_hapticBindingLogged = false;
+    int m_hapticLastResult[2] = {123456, 123456};
     XrAction m_hapticAction = XR_NULL_HANDLE;            // Vibration OUTPUT, per hand
     XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};
@@ -1094,6 +1102,15 @@ private:
     XrGraphicsBindingD3D12KHR m_graphicsBinding{};
     ID3D12Device* m_d3dDevice = nullptr;
     ID3D12CommandQueue* m_d3dQueue = nullptr;
+    // THE RUNTIME'S OWN QUEUE (XrGraphicsBindingD3D12KHR::queue), made in InitGraphics; null when it could not be made
+    // or the marker cvr_xr_game_queue.txt asks for the game's (then the game's queue is the runtime's, as it was).
+    // SteamVR's xrEndFrame wraps each image in D3D11On12 on this queue and waits for that work: on the game's queue it
+    // waited behind the game's whole frame. m_fence is signalled on it alone.
+    ID3D12CommandQueue* m_xrQueue = nullptr;
+    // Game queue -> runtime queue on the GPU, for a swapchain image written on the game's queue (OrderRuntimeAfter).
+    ID3D12Fence* m_xrOrderFence = nullptr;
+    uint64_t m_xrOrderValue = 0;
+    std::mutex m_xrOrderMutex;
     ID3D12CommandAllocator* m_cmdAllocators[3] = {};
     uint32_t m_cmdAllocatorIndex = 0;
     ID3D12GraphicsCommandList* m_cmdLists[3] = {};
@@ -1123,7 +1140,7 @@ private:
         const XrCompositionLayerBaseHeader* extra[kMaxExtra] = {};
         uint32_t extraCount = 0;
     } m_lastSubmission;
-    bool ResubmitLastFrame(XrTime displayTime);
+    bool ResubmitLastFrame(XrTime displayTime, bool& endAttempted);
     // THE CAPTURED FRAME ALREADY IN THE EYE SWAPCHAINS. When the game runs slower than the display, every display
     // cycle used to acquire new swapchain images and copy the SAME captured frame into them again (colour and depth,
     // ~0.25 ms of GPU a cycle at 2648x2864 on an RTX 3060). A cycle whose frame is the one copied last skips the
@@ -1192,6 +1209,8 @@ private:
         // and a warp distance that varies frame to frame is what reads as the world shifting, while
         // every rate counter stays perfect.
         double captureMs = 0.0;
+        // m_captureFence's value once the game's queue has run this capture: read on the runtime's queue only after.
+        uint64_t captureFence = 0;
         // Presented under a loading screen (Lobby/MenuLobby.hpp LoadingDark): never shown, however often submitted.
         bool dark = false;
         // The dark with the boot's notice, nothing else (Render/LoadingScreen.hpp, at the intro's heading): one picture
@@ -1203,6 +1222,10 @@ private:
     };
     std::vector<EyeSwapchain> m_eyeSwapchains;
     CapturedMonoFrame m_monoCapturedFrame;
+    // THE ONE BEFORE IT, kept on the runtime's own queue only (m_xrQueue): the newest is published as the CPU hands it to
+    // the game's queue, while the GPU is still on that frame, so for most of every game frame it is not done there and a
+    // cycle takes this one, finished, instead of none. Its pool slot is left alone while another is free.
+    CapturedMonoFrame m_monoPreviousFrame;
     cvr::framegen::Presenter m_framegen;
     cvr::depth::Renderer m_stereoDepth;
     cvr::framegen::StatsOverlay m_framegenOverlay;
@@ -1216,12 +1239,24 @@ private:
     // the capture (which starves the headset of new frames while the game itself runs fine
     // -- smooth on the monitor, freezing in the HMD). With three, the producer always writes
     // a buffer nobody is reading and neither side ever waits.
-    ID3D12Resource* m_monoPool[3] = {};
+    // FOUR on the runtime's own queue: the newest, the one kept behind it (m_monoPreviousFrame), a generation endpoint
+    // and the frame a submit is still copying can all be taken at once. With three, a capture after a late frame could
+    // find no slot (DebugCapSkipNoSlot) and that real frame never reached the headset -- the world jumped two frames
+    // ahead at once. With four, none in four 30 s SteamVR runs at the H10 sprint.
+    static constexpr int kMonoSlots = 4;
+    ID3D12Resource* m_monoPool[kMonoSlots] = {};
     uint32_t        m_monoPoolSlot = 0;
     cvr::capture::BufferLeases m_captureLeases; // m_presentMutex
     struct RetiredCaptureRead { ID3D12Resource* resource;uint64_t fence; };
     std::vector<RetiredCaptureRead> m_retiredCaptureReads;
     void ReleaseCapturedRead(ID3D12Resource* resource,uint64_t fence);
+public:
+    // The queue the runtime works on: its own, or the game's when none was made.
+    ID3D12CommandQueue* RuntimeQueue() const { return m_xrQueue ? m_xrQueue : m_d3dQueue; }
+    // A swapchain image was written on `used` (the game's queue): the runtime's queue waits for it on the GPU before
+    // anything the runtime does with the image. Nothing when they are the same queue.
+    void OrderRuntimeAfter(ID3D12CommandQueue* used);
+private:
     ID3D12Resource* AcquireCapturedVrcamLocked(uint64_t serial,uint32_t maxReuse,
         XrPosef* pose,XrFovf* fov,uint64_t* poseId,bool* reused);
 
@@ -1269,7 +1304,7 @@ private:
     //   underneath had already been replaced. A serial is not a version of the pixels.
     //
     // Per-slot serials, so the submit takes the slot belonging to ITS frame rather than the newest one.
-    static constexpr int kVrcamEyeSlots = 3;
+    static constexpr int kVrcamEyeSlots = 4; // as kMonoSlots
     ID3D12Resource* m_vrcamEyePool[kVrcamEyeSlots] = {};
     uint64_t        m_vrcamEyePoolSerial[kVrcamEyeSlots] = {};
     struct CapturedEyeLabel { XrPosef pose{};XrFovf fov{};uint64_t poseId{},imageGeneration{};bool valid{}; };
@@ -1511,6 +1546,7 @@ private:
     cvr::hud::Quad m_basiliskQuad{cvr::hud::Channel::Basilisk};
     cvr::hud::Quad m_surveillanceQuad{cvr::hud::Channel::Surveillance};
     cvr::hud::Quad m_hitMarkerQuad{cvr::hud::Channel::HitMarker};
+    cvr::hud::Quad m_vehicleMinimapQuad{cvr::hud::Channel::VehicleMinimap};
     cvr::vrui::Panel m_settingsPanel;
     cvr::hud::Follow m_menuFollow;
     cvr::hud::DisplayClock m_menuClock;

@@ -106,7 +106,7 @@ constexpr uint64_t  DLSS_EVAL_FLAG_BIT = (1ull << 6);// flag 0x46 (bit 6 of that
 constexpr uint64_t  BUILD_FLAG65_BIT   = (1ull << 1);// group 65 (bit 1 of that qword; 2.31: group 64, bit 0)
 constexpr uintptr_t DLSS_CACHE_OFF = 0x3C8;   // a1+968 .. +0x3E7 (changed-detection cache)
 
-constexpr uintptr_t DLSS_VP_OFF     = 0x498;   // viewport id inside the DLSS state (a1)
+constexpr uintptr_t DLSS_VP_OFF     = 0x4A0;   // CP2.5: handle480 + BaseStructure32; 498 is structVersion
 constexpr uintptr_t DLSS_JITTER_OFF = 0x1E0;   // jitterX @ +0x1E0, jitterY @ +0x1E4, live-verified
 
 // The COM vtable signatures the command-list hook record is written in terms of. Multi-line

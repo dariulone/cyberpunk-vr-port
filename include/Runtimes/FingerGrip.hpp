@@ -3,8 +3,8 @@
 #include <vector>
 
 // FINGER TRACKING for hand-tracked fingers: Valve Index controllers and finger-tracking gloves that present themselves
-// as Index controllers. xr_finger_bones turns it on (OpenXR XR_EXT_hand_tracking, enabled when the game starts with it
-// on): V's fingers follow the player's (Anim/HandGestures.cpp). xr_grip_from_fingers, under it, also takes the grip from
+// as Index controllers. xr_finger_bones turns it on, live (OpenXR XR_EXT_hand_tracking, enabled at start whenever the
+// runtime offers it; the trackers are made the first frame the switch is on): V's fingers follow the player's (Anim/HandGestures.cpp). xr_grip_from_fingers, under it, also takes the grip from
 // the fingers' position instead of the controller's grip sensor (live):
 //
 // The grip action is a 0..1 value that the port's gestures (holster, scanner, magazine, ladder, wheel, throw) read as
@@ -50,13 +50,17 @@ static_assert(Update(true, kLoosen), "a held grip survives a little loosening (h
 static_assert(!Update(true, kRelaxed), "a relaxed hand releases");
 }
 
-// Instance creation: append the hand-tracking extensions to `enabled` when the switch is on and the runtime offers them.
+// Instance creation: append the hand-tracking extensions to `enabled` when the switch is on and the runtime offers them
+// (XR_EXT_hand_tracking, and with it XR_EXT_hand_joints_motion_range and XR_EXT_hand_tracking_data_source).
 void ChooseExtensions(const std::vector<XrExtensionProperties>& available, std::vector<const char*>& enabled);
-// After xrCreateSession / before xrDestroySession.
-void OnSessionCreated(XrInstance instance, XrSession session);
+// After xrCreateSession / before xrDestroySession. The trackers (made by Evaluate once the switch is on) ask for optical joints and for joints built from the
+// held controller (XR_EXT_hand_tracking_data_source): a Quest runtime (VDXR, Steam Link) otherwise sends optical joints
+// only, and Quest does not see the hands with its cameras while they hold the controllers. V's arms always follow the
+// controllers' poses: without controllers in hand the fingers can move, the arms cannot.
+void OnSessionCreated(XrInstance instance, XrSystemId system, XrSession session);
 void OnSessionDestroying();
-// Per frame and hand (0 = left, 1 = right): measures the fingers; -1 = no finger data yet, else the grip from them, 0
-// or 1 (the caller uses it only with GripFromFingers()).
+// Per frame and hand (0 = left, 1 = right): measures the fingers; -1 = finger tracking off or no finger data yet, else
+// the grip from them, 0 or 1 (the caller uses it only with GripFromFingers()).
 int Evaluate(int hand, XrSpace base, XrTime time);
 // xr_grip_from_fingers: the grip input from the fingers' position instead of the grip sensor. Live; any thread.
 bool GripFromFingers();

@@ -1,3 +1,5 @@
+#include "Runtimes/HapticRouting.hpp"
+#include "Runtimes/Haptics.hpp"
 // LiveControlsPoll -- reading the forty-odd live controls, once per tick, off the game threads.
 //
 // The controls are volatile scalars that hooks read directly (see Core/LiveControls.hpp for why there
@@ -17,6 +19,7 @@
 #include "Anim/WheelRange.hpp"
 #include "Hooks/Reflex.hpp"
 #include "Hooks/ReflexOptions.hpp"
+#include "Stereo/ScopeResolution.hpp"
 #include <windows.h>
 #include <psapi.h>
 #include <xinput.h>
@@ -532,6 +535,7 @@ void PollLiveControls() {
     int      xrGbufferPartitions = CyberpunkVR_VrcamGbufferPartitionsSetting;
     int      xrScopeGbufferPartitions = CyberpunkVR_ScopeGbufferPartitionsSetting;
     int      xrScopeGraphDag = CyberpunkVR_ScopeGraphDag ? 1 : 0;
+    int xrScopeRrFullResolution = cvr::scope_dlss::fullResolution.load(std::memory_order_relaxed) ? 1 : 0;
     int      xrSubmitChain = CyberpunkVR_SubmitChainSetting;
     int      xrDeferPresent = CyberpunkVR_DeferPresentSetting;
     int      xrGtSkipRenderQueue = CyberpunkVR_GtSkipRenderQueueSetting;
@@ -609,6 +613,11 @@ void PollLiveControls() {
     float xrSniperRise = CyberpunkVR_SniperRiseMul;
     float xrSniperBack = CyberpunkVR_SniperBackMul;
     float xrRecoilScale = CyberpunkVR_RecoilScale;
+    int xrPsvr2HapticBackend = 2; // Auto: native unless a compatible bridge is running.
+    float xrOpenXrHapticGain = cvr::haptics::LegacyGain();
+    float xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
+    int xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
+    int xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
     int   xrHaptics = CyberpunkVR_Haptics;
     float xrHapticScale = CyberpunkVR_HapticScale;
     float xrPistolBack = CyberpunkVR_PistolBackMul;
@@ -671,11 +680,27 @@ void PollLiveControls() {
     float xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
     float xrVehHeadOffsetY = g_liveControls.xrVehHeadOffsetY;
     float xrVehHeadOffsetZ = g_liveControls.xrVehHeadOffsetZ;
+    float xrBikeHeadOffsetX = g_liveControls.xrBikeHeadOffsetX;
+    float xrBikeHeadOffsetY = g_liveControls.xrBikeHeadOffsetY;
+    float xrBikeHeadOffsetZ = g_liveControls.xrBikeHeadOffsetZ;
     int xrWheelGrab = g_liveControls.xrWheelGrab;
     int xrMenuGesture = g_liveControls.xrMenuGesture;
+    int xrVrInterface = g_liveControls.xrVrInterface;
+    int xrHandPhysics = g_liveControls.xrHandPhysics;
     int xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
+    int xrHandCollision = g_liveControls.xrHandCollision;
+    int xrHandCollisionVehicle = g_liveControls.xrHandCollisionVehicle;
+    int xrHandPush = g_liveControls.xrHandPush;
+    int xrFingerContact = g_liveControls.xrFingerContact;
+    int xrPropGrab = g_liveControls.xrPropGrab;
+    int xrCarryPicture = g_liveControls.xrCarryPicture;
+    float xrCarryLead = g_liveControls.xrCarryLead;
+    float xrContactMargin = g_liveControls.xrContactMargin;
+    int xrWheelAnywhere = g_liveControls.xrWheelAnywhere;
     float xrWheelRadius = g_liveControls.xrWheelRadius > 0.0f ? g_liveControls.xrWheelRadius : 0.28f;
     float xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(g_liveControls.xrWheelSteerMaxDeg);
+    float xrBikeBarLockDeg = cvr::anim::BikeBarLockDegrees(g_liveControls.xrBikeBarLockDeg);
+    float xrBikeBodyLean = cvr::anim::BikeBodyLeanShare(g_liveControls.xrBikeBodyLean);
     float xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg >= 0.0f ? g_liveControls.xrWheelSteerDeadDeg : 0.0f;
     int xrWheelPrediction = g_liveControls.xrWheelPrediction;
     float xrWheelPredictionMs = g_liveControls.xrWheelPredictionMs;
@@ -1254,6 +1279,10 @@ void PollLiveControls() {
             xrScopeGbufferPartitions = intValue != 0;
             continue;
         }
+        if(sscanf_s(line,"xr_scope_rr_full_resolution = %d",&intValue)==1) {
+            xrScopeRrFullResolution=intValue!=0;
+            continue;
+        }
         if (sscanf_s(line, "xr_scope_graph_dag=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_scope_graph_dag = %d", &intValue) == 1) {
             xrScopeGraphDag = intValue != 0;
@@ -1422,6 +1451,19 @@ void PollLiveControls() {
             sscanf_s(line, "xr_recoil_scale = %f", &value) == 1) {
             xrRecoilScale = value;
             continue;
+        }
+        if (sscanf_s(line, "xr_psvr2_haptic_backend=%f", &value) == 1 ||
+            sscanf_s(line, "xr_psvr2_haptic_backend = %f", &value) == 1) {
+            xrPsvr2HapticBackend = value == 2.0f ? 2 : (value == 1.0f ? 1 : 0);
+            continue;
+        }
+        if (sscanf_s(line, "xr_openxr_haptic_gain = %f", &value) == 1) {
+            xrOpenXrHapticGain = value; continue;
+        }
+        if (sscanf_s(line, "xr_vehicle_audio_channels = %d", &xrVehicleAudioChannels) == 1) continue;
+        if (sscanf_s(line, "xr_vehicle_audio_require_grip = %d", &xrVehicleAudioRequireGrip) == 1) continue;
+        if (sscanf_s(line, "xr_openxr_vehicle_haptic_gain = %f", &value) == 1) {
+            xrOpenXrVehicleHapticGain = value; continue;
         }
         if (sscanf_s(line, "xr_haptics=%f", &value) == 1 ||
             sscanf_s(line, "xr_haptics = %f", &value) == 1) {
@@ -1628,9 +1670,34 @@ void PollLiveControls() {
             xrVehHeadOffsetZ = value;
             continue;
         }
+        if (sscanf_s(line, "xr_bike_head_offset_x=%f", &value) == 1 ||
+            sscanf_s(line, "xr_bike_head_offset_x = %f", &value) == 1) {
+            xrBikeHeadOffsetX = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bike_head_offset_y=%f", &value) == 1 ||
+            sscanf_s(line, "xr_bike_head_offset_y = %f", &value) == 1) {
+            xrBikeHeadOffsetY = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bike_head_offset_z=%f", &value) == 1 ||
+            sscanf_s(line, "xr_bike_head_offset_z = %f", &value) == 1) {
+            xrBikeHeadOffsetZ = value;
+            continue;
+        }
         if (sscanf_s(line, "xr_wheel_grab=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_wheel_grab = %d", &intValue) == 1) {
             xrWheelGrab = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_vr_interface=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_vr_interface = %d", &intValue) == 1) {
+            xrVrInterface = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_physics=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hand_physics = %d", &intValue) == 1) {
+            xrHandPhysics = intValue;
             continue;
         }
         if (sscanf_s(line, "xr_menu_gesture=%d", &intValue) == 1 ||
@@ -1643,6 +1710,51 @@ void PollLiveControls() {
             xrVrWeaponWheel = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_hand_collision=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hand_collision = %d", &intValue) == 1) {
+            xrHandCollision = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_collision_vehicle=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hand_collision_vehicle = %d", &intValue) == 1) {
+            xrHandCollisionVehicle = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_hand_push=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hand_push = %d", &intValue) == 1) {
+            xrHandPush = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_prop_grab=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_prop_grab = %d", &intValue) == 1) {
+            xrPropGrab = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_carry_picture=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_carry_picture = %d", &intValue) == 1) {
+            xrCarryPicture = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_carry_lead=%f", &value) == 1 ||
+            sscanf_s(line, "xr_carry_lead = %f", &value) == 1) {
+            xrCarryLead = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_contact_margin=%f", &value) == 1 ||
+            sscanf_s(line, "xr_contact_margin = %f", &value) == 1) {
+            xrContactMargin = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_finger_contact=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_finger_contact = %d", &intValue) == 1) {
+            xrFingerContact = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_wheel_anywhere=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_wheel_anywhere = %d", &intValue) == 1) {
+            xrWheelAnywhere = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_wheel_radius=%f", &value) == 1 ||
             sscanf_s(line, "xr_wheel_radius = %f", &value) == 1) {
             xrWheelRadius = value;
@@ -1651,6 +1763,16 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_wheel_steer_max_deg=%f", &value) == 1 ||
             sscanf_s(line, "xr_wheel_steer_max_deg = %f", &value) == 1) {
             xrWheelSteerMaxDeg = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bike_bar_lock_deg=%f", &value) == 1 ||
+            sscanf_s(line, "xr_bike_bar_lock_deg = %f", &value) == 1) {
+            xrBikeBarLockDeg = value;
+            continue;
+        }
+        if (sscanf_s(line, "xr_bike_body_lean=%f", &value) == 1 ||
+            sscanf_s(line, "xr_bike_body_lean = %f", &value) == 1) {
+            xrBikeBodyLean = value;
             continue;
         }
         if (sscanf_s(line, "xr_wheel_steer_dead_deg=%f", &value) == 1 ||
@@ -1834,14 +1956,30 @@ void PollLiveControls() {
     g_liveControls.xrVehHeadOffsetX = clampVehOff(xrVehHeadOffsetX);
     g_liveControls.xrVehHeadOffsetY = clampVehOff(xrVehHeadOffsetY);
     g_liveControls.xrVehHeadOffsetZ = clampVehOff(xrVehHeadOffsetZ);
+    g_liveControls.xrBikeHeadOffsetX = clampVehOff(xrBikeHeadOffsetX);
+    g_liveControls.xrBikeHeadOffsetY = clampVehOff(xrBikeHeadOffsetY);
+    g_liveControls.xrBikeHeadOffsetZ = clampVehOff(xrBikeHeadOffsetZ);
     g_liveControls.xrWheelGrab = xrWheelGrab != 0 ? 1 : 0;
     g_liveControls.xrMenuGesture = xrMenuGesture != 0 ? 1 : 0;
+    g_liveControls.xrVrInterface = xrVrInterface != 0 ? 1 : 0;
+    g_liveControls.xrHandPhysics = xrHandPhysics != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = xrVrWeaponWheel != 0 ? 1 : 0;
+    g_liveControls.xrHandCollision = xrHandCollision != 0 ? 1 : 0;
+    g_liveControls.xrHandCollisionVehicle = xrHandCollisionVehicle != 0 ? 1 : 0;
+    g_liveControls.xrHandPush = xrHandPush != 0 ? 1 : 0;
+    g_liveControls.xrFingerContact = xrFingerContact != 0 ? 1 : 0;
+    g_liveControls.xrPropGrab = xrPropGrab != 0 ? 1 : 0;
+    g_liveControls.xrCarryPicture = xrCarryPicture != 0 ? 1 : 0;
+    g_liveControls.xrCarryLead = xrCarryLead < 0.0f ? 0.0f : (xrCarryLead > 0.1f ? 0.1f : xrCarryLead);
+    g_liveControls.xrContactMargin = xrContactMargin < 0.0f ? 0.0f : (xrContactMargin > 0.05f ? 0.05f : xrContactMargin);
+    g_liveControls.xrWheelAnywhere = xrWheelAnywhere != 0 ? 1 : 0;
     // Clamped, not trusted: these come from a text file. Below ~8 cm the grab is unreachable for a
     // hand you cannot see; above 60 cm every grip in a car is a grab.
     g_liveControls.xrWheelRadius = (xrWheelRadius < 0.08f) ? 0.08f
                                  : (xrWheelRadius > 0.60f ? 0.60f : xrWheelRadius);
     g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(xrWheelSteerMaxDeg);
+    g_liveControls.xrBikeBarLockDeg = cvr::anim::BikeBarLockDegrees(xrBikeBarLockDeg);
+    g_liveControls.xrBikeBodyLean = cvr::anim::BikeBodyLeanShare(xrBikeBodyLean);
     // The deadzone is capped well under the smallest full-lock angle (30 deg): one that met or passed
     // it would leave no range at all between "dead" and "full lock".
     g_liveControls.xrWheelSteerDeadDeg = (xrWheelSteerDeadDeg < 0.0f) ? 0.0f
@@ -1903,6 +2041,7 @@ void PollLiveControls() {
     CyberpunkVR_ScopeGbufferPartitionsSetting = xrScopeGbufferPartitions ? 1 : 0;
     CyberpunkVR_ScopeGbufferPartitionsConfigure(CyberpunkVR_ScopeGbufferPartitionsSetting);
     CyberpunkVR_ScopeGraphDag = xrScopeGraphDag ? 1u : 0u;
+    cvr::scope_dlss::fullResolution.store(xrScopeRrFullResolution!=0,std::memory_order_relaxed);
     if (xrSubmitChainRev < kSubmitChainRev) {
         xrSubmitChain = 1;
         xrDeferPresent = 1;
@@ -2009,6 +2148,11 @@ void PollLiveControls() {
     CyberpunkVR_SniperBackMul  = (xrSniperBack < 0.0f) ? 0.0f : ((xrSniperBack > 8.0f) ? 8.0f : xrSniperBack);
     CyberpunkVR_RecoilScale    = (xrRecoilScale < 0.0f) ? 0.0f : ((xrRecoilScale > 2.0f) ? 2.0f : xrRecoilScale);
     CyberpunkVR_Haptics        = xrHaptics;
+    cvr::haptics::HapticRoute().Request(xrPsvr2HapticBackend);
+    cvr::haptics::SetLegacyGain(xrOpenXrHapticGain);
+    cvr::haptics::SetVehicleGain(xrOpenXrVehicleHapticGain);
+    cvr::haptics::SetVehicleAudioChannels(xrVehicleAudioChannels);
+    cvr::haptics::SetVehicleAudioRequireGrip(xrVehicleAudioRequireGrip != 0);
     CyberpunkVR_HapticScale    = (xrHapticScale < 0.0f) ? 0.0f : ((xrHapticScale > 2.0f) ? 2.0f : xrHapticScale);
     CyberpunkVR_PistolBackMul  = (xrPistolBack < 0.0f) ? 0.0f : ((xrPistolBack > 4.0f) ? 4.0f : xrPistolBack);
     CyberpunkVR_RecoilClimbFrac   = (xrClimbFrac < 0.0f) ? 0.0f : ((xrClimbFrac > 2.0f) ? 2.0f : xrClimbFrac);
@@ -2164,6 +2308,11 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrPhysicalCrouchDepth = g_liveControls.xrPhysicalCrouchDepth;
     state.xrAsymProjection = CyberpunkVR_AsymProjection == 1 ? 1 : 0;
     state.xrHaptics = CyberpunkVR_Haptics != 0 ? 1 : 0;
+    state.xrPsvr2HapticBackend = cvr::haptics::HapticRoute().Requested();
+    state.xrOpenXrHapticGain = cvr::haptics::LegacyGain();
+    state.xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
+    state.xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
+    state.xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
     state.xrHapticScale = CyberpunkVR_HapticScale;
     state.xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
     state.xrLadderGripClimb = g_liveControls.xrLadderGripClimb;
@@ -2189,11 +2338,28 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
     state.xrVehHeadOffsetY = g_liveControls.xrVehHeadOffsetY;
     state.xrVehHeadOffsetZ = g_liveControls.xrVehHeadOffsetZ;
+    state.xrBikeHeadOffsetX = g_liveControls.xrBikeHeadOffsetX;
+    state.xrBikeHeadOffsetY = g_liveControls.xrBikeHeadOffsetY;
+    state.xrBikeHeadOffsetZ = g_liveControls.xrBikeHeadOffsetZ;
     state.xrWheelGrab = g_liveControls.xrWheelGrab;
     state.xrMenuGesture = g_liveControls.xrMenuGesture;
+    state.xrVrInterface = g_liveControls.xrVrInterface;
+    state.xrHandPhysics = g_liveControls.xrHandPhysics;
     state.xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
+    state.xrHandCollision = g_liveControls.xrHandCollision;
+    state.xrHandCollisionVehicle = g_liveControls.xrHandCollisionVehicle;
+    state.xrHandPush = g_liveControls.xrHandPush;
+    state.xrFingerContact = g_liveControls.xrFingerContact;
+    state.xrPropGrab = g_liveControls.xrPropGrab;
+    state.xrDebugView = g_liveControls.xrDebugView;
+    state.xrCarryPicture = g_liveControls.xrCarryPicture;
+    state.xrCarryLead = g_liveControls.xrCarryLead;
+    state.xrContactMargin = g_liveControls.xrContactMargin;
+    state.xrWheelAnywhere = g_liveControls.xrWheelAnywhere;
     state.xrWheelRadius = g_liveControls.xrWheelRadius;
     state.xrWheelSteerMaxDeg = g_liveControls.xrWheelSteerMaxDeg;
+    state.xrBikeBarLockDeg = g_liveControls.xrBikeBarLockDeg;
+    state.xrBikeBodyLean = g_liveControls.xrBikeBodyLean;
     state.xrWheelSteerDeadDeg = g_liveControls.xrWheelSteerDeadDeg;
     state.xrWheelPrediction = g_liveControls.xrWheelPrediction;
     state.xrWheelPredictionMs = g_liveControls.xrWheelPredictionMs;
@@ -2308,6 +2474,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // 1 = the camera scope's render graph runs its passes side by side like MAIN's (same image). 0 = the
     // engine's one chain for a render-to-texture view.
     fprintf(file, "xr_scope_graph_dag=%d\n", CyberpunkVR_ScopeGraphDag ? 1 : 0);
+    fprintf(file,"xr_scope_rr_full_resolution=%d\n",cvr::scope_dlss::fullResolution.load(std::memory_order_relaxed)?1:0);
     // 2 = render-graph submission points chain their Close/Submit jobs among themselves instead of
     // holding up the graph (the next Synchronize starts while the previous batch is submitted); only
     // Present waits for the chain. 1 = view jobs wait for it too. 0 = the engine's order.
@@ -2426,8 +2593,8 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_hud_clearance_hands_scale=%.2f\n", state.xrHudClearanceHandsScale);
     // 1 = recenter automatically when the headset is put back on after being taken off.
     fprintf(file, "xr_auto_recenter=%d\n", CyberpunkVR_AutoRecenter);
-    // 1 = finger tracking: V's fingers follow the player's (OpenXR hand tracking: gloves, Index controllers); turning it
-    // on applies at the next game start. 0 = finger poses from the buttons.
+    // 1 = finger tracking: V's fingers follow the player's (OpenXR hand tracking: gloves, Index controllers, Quest hands);
+    // live. 0 = finger poses from the buttons.
     fprintf(file, "xr_finger_bones=%d\n", state.xrFingerBones ? 1 : 0);
     // 1 = with finger tracking, the grip input from the fingers' position (a fist or thumbs-up) instead of the grip sensor.
     fprintf(file, "xr_grip_from_fingers=%d\n", state.xrGripFromFingers ? 1 : 0);
@@ -2479,6 +2646,11 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     // CONTROLLER VIBRATION (Runtimes/Haptics.cpp): rounds by weapon class, melee block and parry,
     // bullet block and deflect, a tick on reaching a belt element. 0 switches it all off; the scale
     // multiplies every profile, clamped to [0, 2].
+    fprintf(file, "xr_psvr2_haptic_backend=%d\n", cvr::haptics::HapticRoute().Requested());
+    fprintf(file, "xr_openxr_haptic_gain=%.3f\n", cvr::haptics::LegacyGain());
+    fprintf(file, "xr_openxr_vehicle_haptic_gain=%.3f\n", cvr::haptics::VehicleGain());
+    fprintf(file, "xr_vehicle_audio_channels=%d\n", cvr::haptics::VehicleAudioChannels());
+    fprintf(file, "xr_vehicle_audio_require_grip=%d\n", cvr::haptics::VehicleAudioRequireGrip());
     fprintf(file, "xr_haptics=%d\n", CyberpunkVR_Haptics);
     fprintf(file, "xr_haptic_scale=%.3f\n", CyberpunkVR_HapticScale);
     // A pistol's throw: the smallest of the four, because its energy goes into the flip. Its RISE has no
@@ -2562,11 +2734,27 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_veh_head_offset_x=%.4f\n", state.xrVehHeadOffsetX);
     fprintf(file, "xr_veh_head_offset_y=%.4f\n", state.xrVehHeadOffsetY);
     fprintf(file, "xr_veh_head_offset_z=%.4f\n", state.xrVehHeadOffsetZ);
+    fprintf(file, "xr_bike_head_offset_x=%.4f\n", state.xrBikeHeadOffsetX);
+    fprintf(file, "xr_bike_head_offset_y=%.4f\n", state.xrBikeHeadOffsetY);
+    fprintf(file, "xr_bike_head_offset_z=%.4f\n", state.xrBikeHeadOffsetZ);
     fprintf(file, "xr_wheel_grab=%d\n", state.xrWheelGrab != 0 ? 1 : 0);
     fprintf(file, "xr_menu_gesture=%d\n", state.xrMenuGesture != 0 ? 1 : 0);
+    fprintf(file, "xr_vr_interface=%d\n", state.xrVrInterface != 0 ? 1 : 0);
+    fprintf(file, "xr_hand_physics=%d\n", state.xrHandPhysics != 0 ? 1 : 0);
     fprintf(file, "xr_vr_weapon_wheel=%d\n", state.xrVrWeaponWheel != 0 ? 1 : 0);
+    fprintf(file, "xr_hand_collision=%d\n", state.xrHandCollision != 0 ? 1 : 0);
+    fprintf(file, "xr_hand_collision_vehicle=%d\n", state.xrHandCollisionVehicle != 0 ? 1 : 0);
+    fprintf(file, "xr_hand_push=%d\n", state.xrHandPush != 0 ? 1 : 0);
+    fprintf(file, "xr_finger_contact=%d\n", state.xrFingerContact != 0 ? 1 : 0);
+    fprintf(file, "xr_prop_grab=%d\n", state.xrPropGrab != 0 ? 1 : 0);
+    fprintf(file, "xr_carry_picture=%d\n", state.xrCarryPicture != 0 ? 1 : 0);
+    fprintf(file, "xr_carry_lead=%.3f\n", state.xrCarryLead);
+    fprintf(file, "xr_contact_margin=%.3f\n", state.xrContactMargin);
+    fprintf(file, "xr_wheel_anywhere=%d\n", state.xrWheelAnywhere != 0 ? 1 : 0);
     fprintf(file, "xr_wheel_radius=%.3f\n", state.xrWheelRadius > 0.0f ? state.xrWheelRadius : 0.28f);
     fprintf(file, "xr_wheel_steer_max_deg=%.1f\n", cvr::anim::WheelFullLockDegrees(state.xrWheelSteerMaxDeg));
+    fprintf(file, "xr_bike_bar_lock_deg=%.1f\n", cvr::anim::BikeBarLockDegrees(state.xrBikeBarLockDeg));
+    fprintf(file, "xr_bike_body_lean=%.2f\n", cvr::anim::BikeBodyLeanShare(state.xrBikeBodyLean));
     fprintf(file, "xr_wheel_steer_dead_deg=%.1f\n", state.xrWheelSteerDeadDeg >= 0.0f ? state.xrWheelSteerDeadDeg : 1.5f);
     fprintf(file, "xr_wheel_prediction=%d\n", state.xrWheelPrediction != 0 ? 1 : 0);
     fprintf(file, "xr_wheel_prediction_ms=%.1f\n", std::isfinite(state.xrWheelPredictionMs) ? std::clamp(state.xrWheelPredictionMs,0.0f,8.0f):0.0f);
@@ -2683,6 +2871,11 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     if ((state->xrAsymProjection != 0) != (CyberpunkVR_AsymProjection == 1))
         CyberpunkVR_AsymProjection = state->xrAsymProjection != 0 ? 1 : 0;
     CyberpunkVR_Haptics = state->xrHaptics != 0 ? 1 : 0;
+    cvr::haptics::HapticRoute().Request(state->xrPsvr2HapticBackend);
+    cvr::haptics::SetLegacyGain(state->xrOpenXrHapticGain);
+    cvr::haptics::SetVehicleGain(state->xrOpenXrVehicleHapticGain);
+    cvr::haptics::SetVehicleAudioChannels(state->xrVehicleAudioChannels);
+    cvr::haptics::SetVehicleAudioRequireGrip(state->xrVehicleAudioRequireGrip);
     CyberpunkVR_HapticScale = std::isfinite(state->xrHapticScale) ? std::clamp(state->xrHapticScale, 0.0f, 2.0f) : 1.0f;
     g_liveControls.xrBreaststrokeSwim = state->xrBreaststrokeSwim != 0 ? 1 : 0;
     g_liveControls.xrLadderGripClimb = state->xrLadderGripClimb != 0 ? 1 : 0;
@@ -2720,12 +2913,27 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         g_liveControls.xrVehHeadOffsetX = cl(state->xrVehHeadOffsetX);
         g_liveControls.xrVehHeadOffsetY = cl(state->xrVehHeadOffsetY);
         g_liveControls.xrVehHeadOffsetZ = cl(state->xrVehHeadOffsetZ);
+        g_liveControls.xrBikeHeadOffsetX = cl(state->xrBikeHeadOffsetX);
+        g_liveControls.xrBikeHeadOffsetY = cl(state->xrBikeHeadOffsetY);
+        g_liveControls.xrBikeHeadOffsetZ = cl(state->xrBikeHeadOffsetZ);
     }
     // DRIVING. Same clamps as the ini path -- the overlay sliders already bound these, but the two
     // entry points must not be able to disagree about what a valid value is.
     g_liveControls.xrWheelGrab = state->xrWheelGrab != 0 ? 1 : 0;
     g_liveControls.xrMenuGesture = state->xrMenuGesture != 0 ? 1 : 0;
+    g_liveControls.xrVrInterface = state->xrVrInterface != 0 ? 1 : 0;
+    g_liveControls.xrHandPhysics = state->xrHandPhysics != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = state->xrVrWeaponWheel != 0 ? 1 : 0;
+    g_liveControls.xrHandCollision = state->xrHandCollision != 0 ? 1 : 0;
+    g_liveControls.xrHandCollisionVehicle = state->xrHandCollisionVehicle != 0 ? 1 : 0;
+    g_liveControls.xrHandPush = state->xrHandPush != 0 ? 1 : 0;
+    g_liveControls.xrFingerContact = state->xrFingerContact != 0 ? 1 : 0;
+    g_liveControls.xrPropGrab = state->xrPropGrab != 0 ? 1 : 0;
+    g_liveControls.xrDebugView = state->xrDebugView != 0 ? 1 : 0;
+    g_liveControls.xrCarryPicture = state->xrCarryPicture != 0 ? 1 : 0;
+    g_liveControls.xrCarryLead = state->xrCarryLead < 0.0f ? 0.0f : (state->xrCarryLead > 0.1f ? 0.1f : state->xrCarryLead);
+    g_liveControls.xrContactMargin = state->xrContactMargin < 0.0f ? 0.0f : (state->xrContactMargin > 0.05f ? 0.05f : state->xrContactMargin);
+    g_liveControls.xrWheelAnywhere = state->xrWheelAnywhere != 0 ? 1 : 0;
     g_liveControls.xrWheelHorn = state->xrWheelHorn != 0 ? 1 : 0;
     g_liveControls.xrVehicleGunTrigger = state->xrVehicleGunTrigger != 0 ? 1 : 0;
     {
@@ -2733,6 +2941,8 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
         g_liveControls.xrWheelRadius = (r < 0.08f) ? 0.08f : (r > 0.60f ? 0.60f : r);
         const float m = state->xrWheelSteerMaxDeg;
         g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDegrees(m);
+        g_liveControls.xrBikeBarLockDeg = cvr::anim::BikeBarLockDegrees(state->xrBikeBarLockDeg);
+        g_liveControls.xrBikeBodyLean = cvr::anim::BikeBodyLeanShare(state->xrBikeBodyLean);
         const float d = state->xrWheelSteerDeadDeg;
         g_liveControls.xrWheelSteerDeadDeg = (d < 0.0f) ? 0.0f : (d > 20.0f ? 20.0f : d);
         g_liveControls.xrWheelPrediction = state->xrWheelPrediction != 0 ? 1 : 0;

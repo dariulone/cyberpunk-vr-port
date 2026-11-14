@@ -28,7 +28,9 @@ public func VRBreachGeometry() -> array<Vector4> {
 protected cb func OnBreachDataChanged(value: Variant) -> Bool {
   let result = wrappedMethod(value);
   let parameters = FromVariant<ref<BreachUIParameters>>(value);
-  let player = GetPlayer(GetGameInstance());
+  // The HUD's own player, not GetPlayer(GetGameInstance()): the global GetGameInstance() is an invalid instance on a
+  // game without the script frameworks, the player came back null and the diamond kept the game's placement.
+  let player = this.GetPlayerControlledObject() as PlayerPuppet;
   let breach: wref<BreachComponent>;
   let finder: ref<BreachFinderComponent>;
   let world: Vector4;

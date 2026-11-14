@@ -11,6 +11,11 @@
 #include <sstream>
 #include <locale>
 #include <clocale>
+#include "Natives/DebugView.hpp"
+#include "Natives/HeldBody.hpp"
+#include "Anim/GraspPose.hpp"
+#include "Natives/PhysHands.hpp"
+#include "Core/VrCoreShared.hpp"
 #include "Utils/SharedSlots.hpp"   // CyberpunkVR_Hands_Shared slot map (single source of truth)
 #include <RED4ext/Containers/StaticArray.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
@@ -22,6 +27,7 @@
 #include <RED4ext/Scripting/Natives/animRig.hpp>
 #include <RED4ext/Scripting/Natives/Generated/Vector4.hpp>
 #include <RED4ext/Scripting/Natives/Generated/Quaternion.hpp>
+#include <RED4ext/Scripting/Natives/Generated/physics/TraceResult.hpp>
 #include <RED4ext/Scripting/Natives/Generated/anim/AnimGraph.hpp>
 #include <RED4ext/Scripting/Natives/Generated/anim/AnimFeature_IK.hpp>
 #include <RED4ext/Scripting/Natives/Generated/anim/AnimFeature_MeleeIKData.hpp>
@@ -701,7 +707,18 @@ static RED4ext::CBaseFunction* VRBodyFunc(const char* aShortName) {
 // Calling a function whose descriptor says "no parameters" with a parameter is exactly the kind of
 // thing that can fault inside the engine's marshaller. Isolated so the probe reports a failure
 // instead of taking the game down. No C++ objects here -- SEH and unwinding do not mix.
+//
+// AND NEVER ON A BROKEN THING. Every call here is on an entPhysicalBodyInterface made by NewBody, whose
+// +0x40 and +0x44 are the proxy and the body. A destructible's body whose actor the game has released
+// still reaches that freed actor through this interface; a velocity written there put it back into the
+// scene's queries, and the player's controller crashed on it (DebugView.cpp, BodyGone).
+static bool VRBodyBroken(const RED4ext::IScriptable* aBody) {
+    if (!aBody) return true;
+    const auto* raw = reinterpret_cast<const uint8_t*>(aBody);
+    return cvr::debugview::BodyGone(*reinterpret_cast<const uint32_t*>(raw + 0x40), *reinterpret_cast<const uint32_t*>(raw + 0x44));
+}
 static bool VRSafeExecute(RED4ext::CBaseFunction* aFunc, RED4ext::CStack* aStack) {
+    if (VRBodyBroken(aStack->GetContext())) return false;
     __try {
         return aFunc->Execute(aStack);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -837,6 +854,637 @@ void VRBodySetKinematic(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aF
     RED4ext::CStack stack(h.instance, args, 1, nullptr);
     const bool ok = VRSafeExecute(f, &stack);
     if (aOut) *aOut = ok;
+}
+
+// Queries off hides a body from the player's movement, and from rays; it still collides. The game's native queues this for the body's proxy, by its id.
+void VRBodySetQueryable(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    RED4ext::Handle<RED4ext::IScriptable> h;
+    bool queryable = true;
+    RED4ext::GetParameter(aFrame, &h);
+    RED4ext::GetParameter(aFrame, &queryable);
+    aFrame->code++;
+    if (aOut) *aOut = false;
+    if (!h.instance || VRBodyBroken(h.instance)) return;
+    // a body with a PhysX actor of its own: switched at the PhysX step on that actor while it lives (HeldBody.cpp)
+    {
+        const auto* raw = reinterpret_cast<const uint8_t*>(h.instance);
+        if (cvr::heldbody::QueryWanted(*reinterpret_cast<const uint32_t*>(raw + 0x40), *reinterpret_cast<const uint32_t*>(raw + 0x44), queryable)) {
+            if (aOut) *aOut = true;
+            return;
+        }
+    }
+    auto* f = VRBodyFunc("SetIsQueryable");
+    if (!f) return;
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    bool v = queryable;
+    RED4ext::CStackType args[1];
+    args[0].type = rtti->GetType("Bool");
+    args[0].value = &v;
+    RED4ext::CStack stack(h.instance, args, 1, nullptr);
+    const bool ok = VRSafeExecute(f, &stack);
+    if (aOut) *aOut = ok;
+}
+
+// THE BODY A RAY HIT.
+//
+// physicsTraceResult is 0x60 bytes and script sees three fields of it. The rest, read off the game's own conversion from a
+// PhysX hit (sub_1403DDE38 in 2.5): +0x48 the proxy, +0x4C the body within it (the PxActor's userData, which is those two
+// packed), +0x50 the shape, +0x54 the distance, +0x59 the proxy's kind (byte 0x34 of the proxy, physics::ProxyType).
+// And entPhysicalBodyInterface is nothing but that pair: its natives read +0x40 as the proxy and +0x44 as the body and look
+// the rest up, validating the id. So one instance, filled in from a hit, IS the body it hit, and every VRBody* native works
+// on it. Measured in game: small props are kind 10 (aggregate), 1 (physical system) or 3 (destruction); kind 7 is the
+// world's baked collision, mass 0, and answers nothing.
+namespace {
+constexpr uint8_t kProxyPhysicalSystem = 1, kProxyDestruction = 3, kProxyAggregate = 10;
+
+bool TraceMoves(uint8_t kind) {
+    // 12 is a ragdoll: a body lying dead can be taken by the limb.
+    return kind == kProxyPhysicalSystem || kind == kProxyDestruction || kind == kProxyAggregate || kind == 12;
+}
+
+RED4ext::IScriptable* NewBody(uint32_t proxy, uint32_t body) {
+    auto* cls = RED4ext::CRTTISystem::Get()->GetClass("entPhysicalBodyInterface");
+    if (!cls) return nullptr;
+    auto* instance = static_cast<RED4ext::IScriptable*>(cls->CreateInstance(true));
+    if (!instance) return nullptr;
+    auto* raw = reinterpret_cast<uint8_t*>(instance);
+    *reinterpret_cast<uint32_t*>(raw + 0x40) = proxy;
+    *reinterpret_cast<uint32_t*>(raw + 0x44) = body;
+    return instance;
+}
+
+// Once per proxy in the log: the numbers the next test is read from.
+void TraceNote(uint32_t proxy, uint32_t body, uint32_t shape, uint8_t kind, float mass) {
+    static uint32_t s_seen[256] = {};
+    static uint32_t s_next = 0;
+    for (const auto seen : s_seen)
+        if (seen == proxy + 1) return;
+    s_seen[s_next++ % 256] = proxy + 1;
+    Log("[HandColl] touched proxy=%u body=%u shape=%u kind=%u mass=%.2f\n", proxy, body, shape, kind, mass);
+}
+
+struct TraceIds { uint32_t proxy, body, shape; uint8_t kind; };
+
+TraceIds ReadTrace(const RED4ext::physics::TraceResult& trace) {
+    const auto* raw = reinterpret_cast<const uint8_t*>(&trace);
+    return { *reinterpret_cast<const uint32_t*>(raw + 0x48), *reinterpret_cast<const uint32_t*>(raw + 0x4C),
+             *reinterpret_cast<const uint32_t*>(raw + 0x50), raw[0x59] };
+}
+}  // namespace
+
+// VRTraceInfo(trace) -> Vector4: x the kind, y the proxy, z the body, w the mass. All zero when the trace carries no proxy.
+void VRTraceInfo(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    alignas(16) RED4ext::physics::TraceResult trace{};
+    RED4ext::GetParameter(aFrame, &trace);
+    aFrame->code++;
+    if (!aOut) return;
+    *aOut = RED4ext::Vector4{};
+    const auto ids = ReadTrace(trace);
+    if (ids.proxy == 0) return;
+    float mass = 0.0f;
+    if (TraceMoves(ids.kind)) {
+        static RED4ext::IScriptable* s_scratch = nullptr;
+        if (!s_scratch) s_scratch = NewBody(ids.proxy, ids.body);
+        if (s_scratch) {
+            auto* raw = reinterpret_cast<uint8_t*>(s_scratch);
+            *reinterpret_cast<uint32_t*>(raw + 0x40) = ids.proxy;
+            *reinterpret_cast<uint32_t*>(raw + 0x44) = ids.body;
+            VRBodyCallGet(s_scratch, "GetMass", "Float", &mass, sizeof(mass));
+        }
+    }
+    TraceNote(ids.proxy, ids.body, ids.shape, ids.kind, mass);
+    aOut->X = static_cast<float>(ids.kind);
+    aOut->Y = static_cast<float>(ids.proxy);
+    aOut->Z = static_cast<float>(ids.body);
+    aOut->W = mass;
+}
+
+// VRTraceBody(trace) -> the body, for the VRBody* natives. Null for a kind that does not move.
+void VRTraceBody(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Handle<RED4ext::IScriptable>* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    alignas(16) RED4ext::physics::TraceResult trace{};
+    RED4ext::GetParameter(aFrame, &trace);
+    aFrame->code++;
+    if (!aOut) return;
+    const auto ids = ReadTrace(trace);
+    if (ids.proxy == 0 || !TraceMoves(ids.kind)) return;
+    if (auto* instance = NewBody(ids.proxy, ids.body)) *aOut = RED4ext::Handle<RED4ext::IScriptable>(instance);
+}
+
+// WHAT A BODY WEIGHS, kept: a look at what a hand points at spent up to 33 ms on the bodies it found, not on finding them, and a body's mass stays what it is.
+namespace {
+struct MassSeen { uint32_t proxy, body; float mass; uint64_t at; };
+double massMs = 0.0;
+float MassOf(RED4ext::IScriptable* scratch, uint32_t proxy, uint32_t body) {
+    static thread_local MassSeen seen[256]{};
+    MassSeen& s = seen[(proxy * 31u + body) % 256];
+    const uint64_t now = GetTickCount64();
+    if (s.at && s.proxy == proxy && s.body == body && now - s.at < 60000) return s.mass;
+    LARGE_INTEGER a, b, f;
+    QueryPerformanceCounter(&a);
+    float mass = 0.0f;
+    VRBodyCallGet(scratch, "GetMass", "Float", &mass, sizeof(mass));
+    QueryPerformanceCounter(&b);
+    QueryPerformanceFrequency(&f);
+    massMs += double(b.QuadPart - a.QuadPart) * 1000.0 / double(f.QuadPart);
+    s = MassSeen{proxy, body, mass, now};
+    return mass;
+}
+}  // namespace
+
+// VRNearBody(center, radius, most mass) -> Vector4 as VRTraceInfo: what a hand closing here can take, nearest first, from PhysX's own list. All zero if nothing is.
+void VRNearBody(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    RED4ext::Vector4 center{};
+    float radius = 0.1f, most = 30.0f;
+    RED4ext::GetParameter(aFrame, &center);
+    RED4ext::GetParameter(aFrame, &radius);
+    RED4ext::GetParameter(aFrame, &most);
+    aFrame->code++;
+    if (!aOut) return;
+    *aOut = RED4ext::Vector4{};
+    cvr::debugview::NearBody found[16];
+    const int count = cvr::debugview::FindNear(center.X, center.Y, center.Z, radius, found, 16);
+    static RED4ext::IScriptable* s_scratch = nullptr;
+    for (int i = 0; i < count; ++i) {
+        const int kind = cvr::debugview::ProxyKind(found[i].proxy);
+        if (!TraceMoves(uint8_t(kind))) continue;
+        if (!s_scratch) s_scratch = NewBody(found[i].proxy, found[i].body);
+        if (!s_scratch) return;
+        auto* raw = reinterpret_cast<uint8_t*>(s_scratch);
+        *reinterpret_cast<uint32_t*>(raw + 0x40) = found[i].proxy;
+        *reinterpret_cast<uint32_t*>(raw + 0x44) = found[i].body;
+        const float mass = MassOf(s_scratch, found[i].proxy, found[i].body);
+        if (mass <= 0.01f || mass > most || (kind == 1 && mass == 1.0f)) continue;   // exactly 1 kg of kind 1: the hand's own capsule (tools/ent/add_hand_physics.py), taken 218 times in one session   // no mass: not the simulation's to move, a character's collider for one
+        *aOut = RED4ext::Vector4{float(kind), float(found[i].proxy), float(found[i].body), mass};
+        return;
+    }
+}
+
+// VRPickCone(from, a, b, cone, range, most mass, keep proxy, keep body) -> Vector4 as VRTraceInfo: what a hand points at, along either direction. All zero if nothing.
+void VRPickCone(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    RED4ext::Vector4 from{}, a{}, b{};
+    float cone = 0.15f, range = 6.0f, most = 6.0f;
+    int32_t keepProxy = 0, keepBody = 0;
+    RED4ext::GetParameter(aFrame, &from);
+    RED4ext::GetParameter(aFrame, &a);
+    RED4ext::GetParameter(aFrame, &b);
+    RED4ext::GetParameter(aFrame, &cone);
+    RED4ext::GetParameter(aFrame, &range);
+    RED4ext::GetParameter(aFrame, &most);
+    RED4ext::GetParameter(aFrame, &keepProxy);
+    RED4ext::GetParameter(aFrame, &keepBody);
+    aFrame->code++;
+    if (!aOut) return;
+    *aOut = RED4ext::Vector4{};
+    const float f[3] = {from.X, from.Y, from.Z}, da[3] = {a.X, a.Y, a.Z}, db[3] = {b.X, b.Y, b.Z};
+    cvr::debugview::NearBody found[16];
+    // A LONG LOOK, in the log: what of it took so long. Frames of 40 to 70 ms were measured in the pointing.
+    struct Look {
+        LARGE_INTEGER start{}, walked{};
+        int count = 0;
+        Look() { QueryPerformanceCounter(&start); massMs = 0.0; }
+        ~Look() {
+            LARGE_INTEGER end, frequency;
+            QueryPerformanceCounter(&end);
+            QueryPerformanceFrequency(&frequency);
+            const double unit = 1000.0 / double(frequency.QuadPart);
+            const double whole = double(end.QuadPart - start.QuadPart) * unit;
+            static int said = 0;
+            if (whole > 8.0 && said < 60) {
+                ++said;
+                Log("[pick] a look took %.1f ms: %.1f walking the actors, %.1f on %d of them, of that %.1f asking masses\n", whole, double(walked.QuadPart - start.QuadPart) * unit, double(end.QuadPart - walked.QuadPart) * unit, count, massMs);
+            }
+        }
+    } look;
+    const int count = cvr::debugview::PickCone(f, da, db, cone, range, uint32_t(keepProxy), uint32_t(keepBody), found, 16);
+    QueryPerformanceCounter(&look.walked);
+    look.count = count;
+    static RED4ext::IScriptable* s_scratch = nullptr;
+    for (int i = 0; i < count; ++i) {
+        const int kind = cvr::debugview::ProxyKind(found[i].proxy);
+        if (!TraceMoves(uint8_t(kind)) || kind == 12) continue;
+        if (!s_scratch) s_scratch = NewBody(found[i].proxy, found[i].body);
+        if (!s_scratch) return;
+        auto* raw = reinterpret_cast<uint8_t*>(s_scratch);
+        *reinterpret_cast<uint32_t*>(raw + 0x40) = found[i].proxy;
+        *reinterpret_cast<uint32_t*>(raw + 0x44) = found[i].body;
+        const float mass = MassOf(s_scratch, found[i].proxy, found[i].body);
+        if (mass <= 0.01f || mass > most || (kind == 1 && mass == 1.0f)) continue;   // exactly 1 kg of kind 1: the hand's own capsule (tools/ent/add_hand_physics.py), taken 218 times in one session
+        *aOut = RED4ext::Vector4{float(kind), float(found[i].proxy), float(found[i].body), mass};
+        return;
+    }
+}
+
+// A BODY LYING DEAD, IN ONE CALL. Done from the script it was a call per limb and per thing asked of it: some sixty a frame through CET, and 6 ms measured. Its limbs keep their weight: the limb in the hand goes where it
+// goes and the rest hangs from it, each no further below the hand than it lay from that limb. Only what would hang lower than that is held up, gently, so a hand near the floor drags a body with all its weight and
+// a hand raised lifts it from the top down. Limbs at the same spot are one (of 44 bodies, some 20 places).
+namespace {
+constexpr int kCorpseLimbs = 64, kCorpses = 16;
+constexpr float kLimbLongest = 1.7f, kLimbLift = 14.0f, kLimbPull = 30.0f, kLimbCalm = 0.96f, kLimbRise = 1.6f;
+// Towed along the floor after a limb in the hand (VRCorpseHold, other -2): past how far it lay from it plus kTowSlack, a
+// limb is drawn toward it at kTowPull per metre past (1/s^2), at most kTowMost m/s^2 and kTowSpeed m/s that way.
+constexpr float kTowSlack = 0.05f, kTowPull = 40.0f, kTowMost = 20.0f, kTowSpeed = 2.0f;
+struct CorpseLimb { uint16_t body; float hang; };
+struct Corpse { uint32_t proxy; int bodies; int count; CorpseLimb limbs[kCorpseLimbs]; float whole; int heldWhenMeasured; };
+Corpse corpses[kCorpses];
+int corpseNext = 0;
+RED4ext::IScriptable* corpseScratch = nullptr;
+
+RED4ext::IScriptable* CorpseBody(uint32_t proxy, uint32_t body) {
+    if (!corpseScratch) corpseScratch = NewBody(proxy, body);
+    if (!corpseScratch) return nullptr;
+    auto* raw = reinterpret_cast<uint8_t*>(corpseScratch);
+    *reinterpret_cast<uint32_t*>(raw + 0x40) = proxy;
+    *reinterpret_cast<uint32_t*>(raw + 0x44) = body;
+    return corpseScratch;
+}
+Corpse* CorpseFind(uint32_t proxy) {
+    for (auto& c : corpses)
+        if (c.proxy == proxy) return &c;
+    return nullptr;
+}
+// `held` is what the distances are from.
+Corpse* CorpseMeasure(uint32_t proxy, int held) {
+    Corpse* c = CorpseFind(proxy);
+    if (!c) {
+        c = &corpses[corpseNext];
+        corpseNext = (corpseNext + 1) % kCorpses;
+    }
+    c->proxy = proxy;
+    c->count = 0;
+    c->whole = 0.0f;
+    c->heldWhenMeasured = held;
+    const int bodies = cvr::debugview::ProxyBodies(proxy);
+    c->bodies = bodies < kCorpseLimbs ? bodies : kCorpseLimbs;
+    RED4ext::Transform from{};
+    auto* b = CorpseBody(proxy, uint32_t(held));
+    if (!b || !VRBodyCallGet(b, "GetTransform", "Transform", &from, sizeof(from))) return c;
+    float seen[kCorpseLimbs + 1][3];
+    int seenCount = 0;
+    seen[seenCount][0] = from.position.X; seen[seenCount][1] = from.position.Y; seen[seenCount][2] = from.position.Z; ++seenCount;
+    float mass = 0.0f;
+    if (VRBodyCallGet(b, "GetMass", "Float", &mass, sizeof(mass))) c->whole += mass;
+    for (int i = 0; i < c->bodies; ++i) {
+        if (i == held) continue;
+        b = CorpseBody(proxy, uint32_t(i));
+        RED4ext::Transform t{};
+        if (!b || !VRBodyCallGet(b, "GetTransform", "Transform", &t, sizeof(t))) continue;
+        bool same = false;
+        for (int s = 0; s < seenCount && !same; ++s) {
+            const float dx = t.position.X - seen[s][0], dy = t.position.Y - seen[s][1], dz = t.position.Z - seen[s][2];
+            same = dx * dx + dy * dy + dz * dz < 1e-6f;
+        }
+        if (same) continue;
+        seen[seenCount][0] = t.position.X; seen[seenCount][1] = t.position.Y; seen[seenCount][2] = t.position.Z; ++seenCount;
+        const float dx = t.position.X - from.position.X, dy = t.position.Y - from.position.Y, dz = t.position.Z - from.position.Z;
+        const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        c->limbs[c->count++] = CorpseLimb{uint16_t(i), d < kLimbLongest ? d : kLimbLongest};
+        mass = 0.0f;
+        if (VRBodyCallGet(b, "GetMass", "Float", &mass, sizeof(mass))) c->whole += mass;
+    }
+    Log("[corpse] proxy %u: %d bodies, %d more places, %.0f kg\n", proxy, c->bodies, c->count, c->whole);
+    return c;
+}
+}  // namespace
+
+// VRBodySurface(proxy, body, point) -> the point of the body's own shapes nearest `point` (the game's world), w how far
+// (0 inside); w -1 when the body has no actor or no shape that is measured.
+void VRBodySurface(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t proxy = 0, body = 0;
+    RED4ext::Vector4 point{};
+    RED4ext::GetParameter(aFrame, &proxy);
+    RED4ext::GetParameter(aFrame, &body);
+    RED4ext::GetParameter(aFrame, &point);
+    aFrame->code++;
+    if (!aOut) return;
+    *aOut = RED4ext::Vector4{0.f, 0.f, 0.f, -1.f};
+    if (proxy <= 0) return;
+    void* scene = nullptr;
+    float origin[3] = {0.f, 0.f, 0.f};
+    void* actor = cvr::debugview::RigidDynamicOf(uint32_t(proxy), uint32_t(body), &scene, origin);
+    if (!actor || cvr::debugview::BodyGone(uint32_t(proxy), uint32_t(body))) return;
+    const float p[3] = {point.X, point.Y, point.Z};
+    float c[3], d = 0.f;
+    if (cvr::physhands::BodySurface(actor, origin, p, c, &d)) *aOut = RED4ext::Vector4{c[0], c[1], c[2], d};
+}
+
+namespace {
+float g_graspSeatTurn[2][4] = {{0.f, 0.f, 0.f, 1.f}, {0.f, 0.f, 0.f, 1.f}};
+}  // namespace
+
+// VRGraspCapsule(side, style, center, axis, halfLength, radius, seat) -> the part's seat in the hand's frame; w 1 seated this call,
+// 0 held as it was, -1 refused (another grasp has the hand, or no palm model yet) or let go.
+// The grasp the fingers take on a capsule given in the hand bone's frame (its axis a unit vector there), as GraspPerson
+// gives a living person's part (src/Anim/GraspPose.cpp): the script's carry of a body lying dead asks for it each frame a
+// hand holds a part of it, and moves the place it took to the seat. Style 0 lets go. Styles as GraspPerson: 1 round it
+// like a can, 2 so with the fingers wide, 3 gently, 4 the palm on it.
+void VRGraspCapsule(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t side = 0, style = 0;
+    RED4ext::Vector4 center{}, axis{};
+    float half = 0.f, radius = 0.f, palmGap = -1.f;
+    RED4ext::GetParameter(aFrame, &side);
+    RED4ext::GetParameter(aFrame, &style);
+    RED4ext::GetParameter(aFrame, &center);
+    RED4ext::GetParameter(aFrame, &axis);
+    RED4ext::GetParameter(aFrame, &half);
+    RED4ext::GetParameter(aFrame, &radius);
+    RED4ext::GetParameter(aFrame, &palmGap);
+    aFrame->code++;
+    if (!aOut) return;
+    *aOut = RED4ext::Vector4{0.f, 0.f, 0.f, -1.f};
+    if (side < 0 || side > 1) return;
+    if (style <= 0) {
+        cvr::anim::GraspPerson(side, 0, nullptr, nullptr, 0.f, 0.f);
+        return;
+    }
+    // the capsule's axis as its local z: the shortest turn from z to the axis given
+    float a[3] = {axis.X, axis.Y, axis.Z};
+    const float n = std::sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (n < 1e-4f) return;
+    for (float& v : a) v /= n;
+    float q[4];
+    if (a[2] > 0.9999f) {
+        q[0] = q[1] = q[2] = 0.f; q[3] = 1.f;
+    } else if (a[2] < -0.9999f) {
+        q[0] = 1.f; q[1] = q[2] = q[3] = 0.f;   // a half turn about x
+    } else {
+        q[0] = -a[1]; q[1] = a[0]; q[2] = 0.f; q[3] = 1.f + a[2];   // (z x a, 1 + z.a)
+        const float m = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+        for (float& v : q) v /= m;
+    }
+    const float p[3] = {center.X, center.Y, center.Z};
+    float seatP[3] = {0.f, 0.f, 0.f}, seatQ[4] = {0.f, 0.f, 0.f, 1.f};
+    bool seated = false;
+    if (!cvr::anim::GraspPerson(side, style, p, q, std::max(0.f, half), std::max(0.005f, radius), seatP, seatQ, &seated, palmGap)) return;
+    *aOut = RED4ext::Vector4{seatP[0], seatP[1], seatP[2], seated ? 1.f : 0.f};
+    // the turn the seat gives the part, in the hand's frame (VRGraspSeatTurn): seat * capsule^-1
+    float* t = g_graspSeatTurn[side];
+    t[0] = 0.f; t[1] = 0.f; t[2] = 0.f; t[3] = 1.f;
+    if (seated) {
+        const float qi[4] = {-q[0], -q[1], -q[2], q[3]};
+        const float* a2 = seatQ;
+        t[0] = a2[3] * qi[0] + a2[0] * qi[3] + a2[1] * qi[2] - a2[2] * qi[1];
+        t[1] = a2[3] * qi[1] - a2[0] * qi[2] + a2[1] * qi[3] + a2[2] * qi[0];
+        t[2] = a2[3] * qi[2] + a2[0] * qi[1] - a2[1] * qi[0] + a2[2] * qi[3];
+        t[3] = a2[3] * qi[3] - a2[0] * qi[0] - a2[1] * qi[1] - a2[2] * qi[2];
+        const float m = std::sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2] + t[3] * t[3]);
+        if (m > 1e-6f && std::isfinite(m))
+            for (int k = 0; k < 4; ++k) t[k] /= m;
+        else
+            t[0] = t[1] = t[2] = 0.f, t[3] = 1.f;
+    }
+}
+
+// VRGraspSeatTurn(side) -> Quaternion: the turn the last VRGraspCapsule that seated the part gave it, in the hand bone's
+// frame (a limb held round lies across the palm before the knuckles): the caller turns the part by it. None (identity)
+// when that call did not seat it.
+void VRGraspSeatTurn(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Quaternion* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t side = 0;
+    RED4ext::GetParameter(aFrame, &side);
+    aFrame->code++;
+    if (!aOut) return;
+    aOut->i = 0.f; aOut->j = 0.f; aOut->k = 0.f; aOut->r = 1.f;
+    if (side != 0 && side != 1) return;
+    const float* t = g_graspSeatTurn[side];
+    aOut->i = t[0]; aOut->j = t[1]; aOut->k = t[2]; aOut->r = t[3];
+}
+
+// VRHandHoldBody(side, proxy, body, pos, rot, grip) -> Bool: the body held by the hand at a point of it, as a pistol is
+// (src/Natives/PhysHands.cpp HoldBody): pos xyz, rot its pose in the hand bone's frame, pos w the grip's torque (N m); grip
+// xyz the point held in the body's frame. At each PhysX step the point goes where the hand bone is and the body turns
+// toward the hand's turn as far as the grip holds it; the rest of its ragdoll hangs from it, and the drawn hand turns with
+// what its weight turns past that. Asked every frame it is held (unasked 0.3 s, it is let go); a proxy of 0 or less lets
+// go, the body going on as it moved. False when the body has no actor of the PhysX this plugin reads, or none in the
+// hands' scene.
+void VRHandHoldBody(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t side = 0, proxy = 0, body = 0;
+    RED4ext::Vector4 pos{}, grip{};
+    RED4ext::Quaternion rot{};
+    RED4ext::GetParameter(aFrame, &side);
+    RED4ext::GetParameter(aFrame, &proxy);
+    RED4ext::GetParameter(aFrame, &body);
+    RED4ext::GetParameter(aFrame, &pos);
+    RED4ext::GetParameter(aFrame, &rot);
+    RED4ext::GetParameter(aFrame, &grip);
+    aFrame->code++;
+    bool ok = false;
+    // THE PART'S OWN BODY. The body the script took is the one nearest the palm when the hand closed, and that is not always
+    // the bone's under it: a palm on a shin had a neighbour 25 cm off it, the shin's point pinned to that, the leg left on the
+    // floor. The body whose own shapes are nearest the point held is held instead, the script's pose carried onto it.
+    // Found once for each part taken: a look walks every scene (0.3 to 2 ms), and the script asks every frame.
+    static void* known[2] = {nullptr, nullptr};
+    static void* knownPart[2] = {nullptr, nullptr};
+    static void* knownScene[2] = {nullptr, nullptr};
+    static uint32_t knownProxy[2] = {0, 0}, knownBody[2] = {0, 0}, knownPartBody[2] = {0, 0};
+    static float knownGrip[2][3] = {};
+    if (side == 0 || side == 1) {
+        if (proxy <= 0) {
+            known[side] = knownPart[side] = nullptr;
+            ok = cvr::physhands::HoldBody(side, nullptr, nullptr, 0, 0, nullptr, nullptr, nullptr);
+        } else {
+            if (!known[side] || knownProxy[side] != uint32_t(proxy) || knownBody[side] != uint32_t(body) || knownGrip[side][0] != grip.X ||
+                knownGrip[side][1] != grip.Y || knownGrip[side][2] != grip.Z || cvr::debugview::BodyGone(uint32_t(proxy), uint32_t(body)) ||
+                cvr::debugview::BodyGone(uint32_t(proxy), knownPartBody[side])) {
+                void* scene = nullptr;
+                float origin[3] = {0.f, 0.f, 0.f};
+                known[side] = cvr::debugview::RigidDynamicOf(uint32_t(proxy), uint32_t(body), &scene, origin);
+                knownPart[side] = known[side];
+                knownScene[side] = scene;
+                knownPartBody[side] = uint32_t(body);
+                knownProxy[side] = uint32_t(proxy);
+                knownBody[side] = uint32_t(body);
+                knownGrip[side][0] = grip.X; knownGrip[side][1] = grip.Y; knownGrip[side][2] = grip.Z;
+                if (known[side]) {
+                    cvr::debugview::NoteActor(uint32_t(proxy), uint32_t(body), known[side]);
+                    const float local[3] = {grip.X, grip.Y, grip.Z};
+                    float world[3], partOrigin[3], d = 0.f;
+                    uint32_t partBody = 0;
+                    void* partActor = nullptr;
+                    void* partScene = nullptr;
+                    if (cvr::physhands::ActorPoint(known[side], origin, local, world) &&
+                        cvr::debugview::NearestBodyOf(uint32_t(proxy), world, 0.25f, &partBody, &partActor, &partScene, partOrigin, &d) &&
+                        partActor && partBody != uint32_t(body) && partScene == scene) {
+                        Log("[corpse] proxy %u: the point held is %.3f m off body %u's shapes, body %u's own; that one held\n", uint32_t(proxy), d, partBody,
+                            uint32_t(body));
+                        knownPart[side] = partActor;
+                        knownPartBody[side] = partBody;
+                        cvr::debugview::NoteActor(uint32_t(proxy), partBody, partActor);
+                    }
+                }
+            }
+            if (known[side] && knownPart[side]) {
+                const float p[4] = {pos.X, pos.Y, pos.Z, pos.W};
+                const float q[4] = {rot.i, rot.j, rot.k, rot.r};
+                const float g[4] = {grip.X, grip.Y, grip.Z, grip.W};
+                ok = cvr::physhands::HoldBody(side, knownPart[side], knownScene[side], uint32_t(proxy), knownPartBody[side], p, q, g,
+                                              known[side], uint32_t(body));
+            }
+        }
+    }
+    if (aOut) *aOut = ok;
+}
+
+// VRCorpseHold(proxy, the limb in a hand, the limb in the other or -1, how high the first is, dt) -> the whole body's mass. Measured anew each time a limb is taken (held changed).
+// The other as -2: the hand has an arm, a leg or the head, and the body hangs from it by its own weight -- nothing is held
+// up. It is towed along the floor instead: a limb farther along the floor from the one in the hand than it lay from it
+// (plus kTowSlack) is drawn toward it along the floor. Pulled at the foot alone, the ragdoll's chain of joints gave and the
+// trunk stayed where it lay however hard the foot was drawn (800 N: the hips 1 cm in 60 cm).
+void VRCorpseHold(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t proxy = 0, held = 0, other = -1;
+    float z = 0.0f, dt = 0.016f;
+    RED4ext::GetParameter(aFrame, &proxy);
+    RED4ext::GetParameter(aFrame, &held);
+    RED4ext::GetParameter(aFrame, &other);
+    RED4ext::GetParameter(aFrame, &z);
+    RED4ext::GetParameter(aFrame, &dt);
+    aFrame->code++;
+    if (aOut) *aOut = 0.0f;
+    Corpse* c = CorpseFind(uint32_t(proxy));
+    if (other <= -2) {
+        if (!c || c->heldWhenMeasured != held) c = CorpseMeasure(uint32_t(proxy), held);
+        if (aOut) *aOut = c->whole;
+        RED4ext::Transform h{};
+        auto* hb = CorpseBody(uint32_t(proxy), uint32_t(held));
+        if (!hb || !VRBodyCallGet(hb, "GetTransform", "Transform", &h, sizeof(h))) return;
+        const float hx = h.position.X, hy = h.position.Y;
+        for (int i = 0; i < c->count; ++i) {
+            const CorpseLimb& limb = c->limbs[i];
+            if (limb.body == held) continue;
+            auto* b = CorpseBody(uint32_t(proxy), limb.body);
+            RED4ext::Transform t{};
+            if (!b || !VRBodyCallGet(b, "GetTransform", "Transform", &t, sizeof(t))) continue;
+            const float dx = hx - t.position.X, dy = hy - t.position.Y;
+            const float along = std::sqrt(dx * dx + dy * dy);
+            const float past = along - limb.hang - kTowSlack;
+            if (past <= 0.0f || along < 1e-3f) continue;
+            RED4ext::Vector4 v{};
+            if (!VRBodyCallGet(b, "GetLinearVelocity", "Vector4", &v, sizeof(v))) continue;
+            const float ux = dx / along, uy = dy / along;
+            const float a = past * kTowPull < kTowMost ? past * kTowPull : kTowMost;
+            const float toward = v.X * ux + v.Y * uy;
+            if (toward >= kTowSpeed) continue;
+            const float add = std::min(a * dt, kTowSpeed - toward);
+            VRBodyCallSetVec(b, "SetLinearVelocity", RED4ext::Vector4{v.X + ux * add, v.Y + uy * add, v.Z, 0.0f});
+        }
+        return;
+    }
+    if (!c || c->heldWhenMeasured != held) c = CorpseMeasure(uint32_t(proxy), held);
+    if (aOut) *aOut = c->whole;
+    for (int i = 0; i < c->count; ++i) {
+        const CorpseLimb& limb = c->limbs[i];
+        if (limb.body == held || limb.body == other) continue;
+        auto* b = CorpseBody(uint32_t(proxy), limb.body);
+        RED4ext::Transform t{};
+        if (!b || !VRBodyCallGet(b, "GetTransform", "Transform", &t, sizeof(t))) continue;
+        const float low = z - limb.hang - t.position.Z;
+        if (low <= 0.0f) continue;
+        RED4ext::Vector4 v{};
+        if (!VRBodyCallGet(b, "GetLinearVelocity", "Vector4", &v, sizeof(v))) continue;
+        const float pull = low * kLimbPull;
+        const float up = pull < kLimbLift ? pull : kLimbLift;
+        const float vz = v.Z + 9.81f * dt + up * dt;
+        VRBodyCallSetVec(b, "SetLinearVelocity", RED4ext::Vector4{v.X * kLimbCalm, v.Y * kLimbCalm, vz < kLimbRise ? vz : kLimbRise, 0.0f});
+    }
+}
+
+// VRCorpseSpeed(proxy) -> the fastest of its limbs, m/s; below 0 when it is no ragdoll any more.
+void VRCorpseSpeed(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, float* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t proxy = 0;
+    RED4ext::GetParameter(aFrame, &proxy);
+    aFrame->code++;
+    if (aOut) *aOut = -1.0f;
+    if (cvr::debugview::ProxyKind(uint32_t(proxy)) != 12) return;
+    Corpse* c = CorpseFind(uint32_t(proxy));
+    if (!c) c = CorpseMeasure(uint32_t(proxy), 0);
+    float most = 0.0f;
+    for (int i = 0; i < c->count; ++i) {
+        auto* b = CorpseBody(uint32_t(proxy), c->limbs[i].body);
+        RED4ext::Vector4 v{};
+        if (!b || !VRBodyCallGet(b, "GetLinearVelocity", "Vector4", &v, sizeof(v))) continue;
+        const float s = v.X * v.X + v.Y * v.Y + v.Z * v.Z;
+        if (s > most) most = s;
+    }
+    if (aOut) *aOut = std::sqrt(most);
+}
+
+// VRCorpseFreeze(proxy, frozen): every body of it kinematic where it lies, or back in the simulation.
+void VRCorpseFreeze(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t proxy = 0;
+    bool frozen = true;
+    RED4ext::GetParameter(aFrame, &proxy);
+    RED4ext::GetParameter(aFrame, &frozen);
+    aFrame->code++;
+    if (aOut) *aOut = false;
+    Corpse* c = CorpseFind(uint32_t(proxy));
+    auto* f = VRBodyFunc("SetIsKinematic");
+    if (!c || !f) return;
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    for (int i = 0; i < c->bodies; ++i) {
+        auto* b = CorpseBody(uint32_t(proxy), uint32_t(i));
+        if (!b) return;
+        bool v = frozen;
+        RED4ext::CStackType args[1];
+        args[0].type = rtti->GetType("Bool");
+        args[0].value = &v;
+        RED4ext::CStack stack(b, args, 1, nullptr);
+        VRSafeExecute(f, &stack);
+    }
+    if (aOut) *aOut = true;
+}
+
+// VRBodyInfo(proxy, body) -> Vector4 as VRTraceInfo: its kind, ids and mass. All zero if it is no thing that moves.
+void VRBodyInfo(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t proxy = 0, body = 0;
+    RED4ext::GetParameter(aFrame, &proxy);
+    RED4ext::GetParameter(aFrame, &body);
+    aFrame->code++;
+    if (!aOut) return;
+    *aOut = RED4ext::Vector4{};
+    const int kind = cvr::debugview::ProxyKind(uint32_t(proxy));
+    if (!TraceMoves(uint8_t(kind))) return;
+    static RED4ext::IScriptable* s_scratch = nullptr;
+    if (!s_scratch) s_scratch = NewBody(uint32_t(proxy), uint32_t(body));
+    if (!s_scratch) return;
+    auto* raw = reinterpret_cast<uint8_t*>(s_scratch);
+    *reinterpret_cast<uint32_t*>(raw + 0x40) = uint32_t(proxy);
+    *reinterpret_cast<uint32_t*>(raw + 0x44) = uint32_t(body);
+    const float mass = MassOf(s_scratch, uint32_t(proxy), uint32_t(body));
+    *aOut = RED4ext::Vector4{float(kind), float(proxy), float(body), mass};
+}
+
+// VRBodyOf(proxy, body) -> the body, for the VRBody* natives.
+void VRBodyOf(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Handle<RED4ext::IScriptable>* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    int32_t proxy = 0, body = 0;
+    RED4ext::GetParameter(aFrame, &proxy);
+    RED4ext::GetParameter(aFrame, &body);
+    aFrame->code++;
+    if (!aOut) return;
+    if (auto* instance = NewBody(uint32_t(proxy), uint32_t(body))) *aOut = RED4ext::Handle<RED4ext::IScriptable>(instance);
+}
+
+// The body's orientation, beside VRBodyGetPos.
+void VRBodyGetRot(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Quaternion* aOut, int64_t a4) {
+    RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
+    RED4ext::Handle<RED4ext::IScriptable> h;
+    RED4ext::GetParameter(aFrame, &h);
+    aFrame->code++;
+    if (!aOut) return;
+    aOut->i = 0.0f; aOut->j = 0.0f; aOut->k = 0.0f; aOut->r = 1.0f;
+    RED4ext::Transform t{};
+    if (VRBodyCallGet(h.instance, "GetTransform", "Transform", &t, sizeof(t))) *aOut = t.orientation;
 }
 
 // Is the body currently solver-owned? Read back rather than assumed, because SetIsKinematic can silently

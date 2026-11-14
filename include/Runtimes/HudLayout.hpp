@@ -35,7 +35,8 @@ inline constexpr ElementDefinition Elements[] = {
     {"briefing_sequence_player","Story briefings / imprint","briefing_sequence"},
     {"scanner_details","Scanner data","scanner_data"},
     {"camera_hud","Surveillance camera HUD","surveillance"},
-    {"scanner","Scanner reticle / progress","scanner_reticle"}
+    {"scanner","Scanner reticle / progress","scanner_reticle"},
+    {"items_notification_queue","Money / item notifications","item_notifications"}
 };
 inline constexpr size_t ElementCount=std::size(Elements);
 constexpr uint64_t NameHash(std::string_view name) {

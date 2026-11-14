@@ -12,15 +12,19 @@ namespace cvr::framegen::dlssg {
 //
 // Built only when the NVIDIA DLSS SDK was found at configure time (CVR_NATIVE_DLSSG); otherwise
 // Available() reports why and the generator falls back to engine vectors.
-bool Available(ID3D12Device*);
-const char* Reason();
+//
+// The provider is whose DLSS-G runs the feature: NVIDIA's through NGX's core, or ANR FG's dll (AnrFrameGen.hpp),
+// fed the same parameters.
+enum class Provider { Nvidia, Anr };
+bool Available(ID3D12Device*,Provider=Provider::Nvidia);
+const char* Reason(Provider=Provider::Nvidia);
 
 struct Feature;
 struct FeatureDeleter {void operator()(Feature*) const;};
 using FeaturePtr=std::unique_ptr<Feature,FeatureDeleter>;
 // Records NGX's creation work into the list; the feature is usable once that list has executed.
 FeaturePtr Create(ID3D12GraphicsCommandList*,uint32_t width,uint32_t height,uint32_t renderWidth,uint32_t renderHeight,
-    DXGI_FORMAT backbuffer,DXGI_FORMAT motion,DXGI_FORMAT depth);
+    DXGI_FORMAT backbuffer,DXGI_FORMAT motion,DXGI_FORMAT depth,Provider=Provider::Nvidia);
 uint64_t Bytes(const Feature&);
 
 struct Evaluation {

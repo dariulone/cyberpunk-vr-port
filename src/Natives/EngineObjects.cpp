@@ -3,8 +3,8 @@
 // Codeware added script methods to engine classes the port's scripts and Lua mods call: an entity's components and
 // world transform, a mesh component's resource and appearance, the ink system's layers, the weather. These are the
 // same operations as natives of the plugin under the port's own names (VR*), so nothing collides with Codeware when
-// it is installed for other mods. What 2.5 already has natively (inkLayerWrapper, SpawnFromExternal, CallbackSystem,
-// ScriptableService) is used as the game has it: the layer natives hand out the game's own inkLayerWrapper.
+// it is installed for other mods. The layer natives hand out the game's own inkLayerWrapper. Native
+// SpawnFromExternal only searches declared dependencies; MenuTooltip.cpp supplies the menu's tooltip libraries.
 //
 // The lobby's exposure (mods/redscript/CyberpunkVRPort_EngineStereo/vrport_lobby_exposure.reds) is here too: the
 // script registers for the environment resources as they load and hands them over; the settings themselves are

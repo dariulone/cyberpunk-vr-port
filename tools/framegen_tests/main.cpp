@@ -10,6 +10,7 @@ extern "C" { extern char CyberpunkVR_FramegenReport[2048]; extern std::atomic<ui
 #include <dxgi1_6.h>
 #include <d3d12sdklayers.h>
 #include <DirectXPackedVector.h>
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <functional>
@@ -25,6 +26,8 @@ extern "C" { extern char CyberpunkVR_FramegenReport[2048]; extern std::atomic<ui
 
 using Microsoft::WRL::ComPtr;
 using namespace cvr::framegen;
+// The AFW launch mode is the plugin's (Render/Afw.cpp, with its plugin and OSR); these tests never start in it.
+namespace cvr::afw {bool Launch() {return false;}}
 void Log(const char* format,...) {va_list args;va_start(args,format);vprintf(format,args);va_end(args);fflush(stdout);}
 LONG WINAPI Crash(EXCEPTION_POINTERS* exception) {
     static volatile LONG dumping=0;if(InterlockedExchange(&dumping,1))return EXCEPTION_EXECUTE_HANDLER;
@@ -146,10 +149,12 @@ struct ReplayGpu {
 int Replay(ReplayGpu&,const std::filesystem::path&,const std::filesystem::path&);
 void GpuGeneration(bool nvidia,bool engineMotion=true,bool rgbaMotion=false,bool halfMotion=false,Backend backend=Backend::FidelityFX,int flowScale=50) {
     Gpu gpu(nvidia);Generator generator;Settings settings;settings.backend=nvidia?Backend::Nvidia:Backend::FidelityFX;settings.flowScale=flowScale;
-    if(backend==Backend::DlssG)settings.backend=backend;
-    const bool dlss=backend==Backend::DlssG;
+    if(NgxBackend(backend))settings.backend=backend;
+    // DLSS-G and ANR FG (a DLSS-G provider) take the same NGX path and the same tolerances.
+    const bool dlss=NgxBackend(backend);
     // NGX's frame generation feature has a minimum size; the moving box keeps the same pixels.
-    const unsigned width=dlss?512:128,height=dlss?384:96;
+    // ANR FG's programs cover 640x360 and up (its nr_fg log).
+    const unsigned width=backend==Backend::Anr?768:(dlss?512:128),height=backend==Backend::Anr?432:(dlss?384:96);
     EyePair cameras[2];
     for(auto& eye:cameras)for(auto* camera:{&eye.previous,&eye.current}) {camera->fov[0]=-.8f;camera->fov[1]=.8f;camera->fov[2]=.7f;camera->fov[3]=-.7f;}
     for(unsigned frame=0;frame<8;++frame) {
@@ -172,6 +177,7 @@ void GpuGeneration(bool nvidia,bool engineMotion=true,bool rgbaMotion=false,bool
             color[eye]=gpu.Texture(width,height,DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_STATE_COPY_DEST);
             in->depth=gpu.Texture(width,height,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
             auto nativeMotion=gpu.Texture(motionWidth,motionHeight,rgbaMotion?DXGI_FORMAT_R16G16B16A16_FLOAT:DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+            color[eye]->SetName(L"Test_Color");in->depth->SetName(L"Test_Depth");nativeMotion->SetName(L"Test_NativeMotion");
             gpu.Upload(color[eye].Get(),pixels.data(),4,D3D12_RESOURCE_STATE_COPY_SOURCE);
             gpu.Upload(in->depth.Get(),depth.data(),4,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             if(rgbaMotion) {
@@ -279,7 +285,7 @@ void StereoDepth() {
     Check(describe()==Reject::None,"asymmetric per-eye depth rejected");
     Check(plan.eyes[0].nearZ==100 && plan.eyes[0].farZ==.1f,"reverse-Z planes");
     Check(cvr::depth::Describe(selected,views,2,2,plan)==Reject::None && plan.eyes[0].nearZ==50 && plan.eyes[0].farZ==.05f,"world scale not converted to XR metres");
-    selected.synthetic=true;Check(describe()==Reject::Synthetic,"synthetic color inherited endpoint depth");selected.synthetic=false;
+    selected.synthetic=true;Check(describe()==Reject::Missing,"midpoint depth without B's motion vectors");selected.synthetic=false;
     ++in[0]->frameId;Check(describe()==Reject::Identity,"stale native frame accepted");--in[0]->frameId;
     ++in[0]->poseId;Check(describe()==Reject::Identity,"wrong camera pose accepted");--in[0]->poseId;
     ++in[0]->origin;Check(describe()==Reject::Identity,"recenter crossed depth identity");--in[0]->origin;
@@ -292,7 +298,10 @@ void StereoDepth() {
     ID3D12Resource* targets[]={dst[0].Get(),dst[1].Get()};
     ComPtr<ID3D12CommandQueue> other;D3D12_COMMAND_QUEUE_DESC q{};Hr(gpu.device->CreateCommandQueue(&q,IID_PPV_ARGS(&other)));
     gpu.Begin();
-    Check(!renderer.Record(gpu.device.Get(),gpu.list.Get(),other.Get(),frame.inputs,targets,plan,0,gpu.fence.Get(),gpu.value+1),"foreign producer queue accepted");
+    // Another queue reads a capture only once the producer's queue has finished it (the runtime's own queue).
+    in[0]->fenceValue=gpu.fence->GetCompletedValue()+1000;
+    Check(!renderer.Record(gpu.device.Get(),gpu.list.Get(),other.Get(),frame.inputs,targets,plan,0,gpu.fence.Get(),gpu.value+1),"unfinished capture read from another queue");
+    in[0]->fenceValue=gpu.value;
     Check(renderer.Record(gpu.device.Get(),gpu.list.Get(),gpu.queue.Get(),frame.inputs,targets,plan,0,gpu.fence.Get(),gpu.value+1),"depth resolve failed");
     Check(!renderer.Record(gpu.device.Get(),gpu.list.Get(),gpu.queue.Get(),frame.inputs,targets,plan,0,gpu.fence.Get(),gpu.value+1),"in-flight descriptors overwritten");
     std::weak_ptr<const Inputs> weak=frame.inputs[0];
@@ -310,7 +319,43 @@ void StereoDepth() {
             Check(std::abs(actual-expected)<2e-6f,"eye-specific depth or jitter direction corrupted");
         }
     }
-    std::puts("PASS: stereo depth identity/FOV/planes, per-eye GPU output, jitter and submit-fence lifetime");
+    // A MIDPOINT: B's depth moved half of B's motion vectors. A constant vector of 8 pixels (toward A) puts what B
+    // has at x at x+4 in the midpoint, so the midpoint's pixel x reads B's x-4.
+    {
+        gpu.Begin();
+        for(auto& d:dst){D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={d.Get(),0,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_DEPTH_WRITE};gpu.list->ResourceBarrier(1,&b);}
+        gpu.Execute();
+        std::shared_ptr<const Inputs> mid[2];cvr::depth::Plan warp{};
+        for(unsigned e=0;e<2;++e) {
+            auto i=std::make_shared<Inputs>();
+            i->view=e+1;i->hasDepth=i->hasMotion=i->submitted=true;i->width=i->motionWidth=w;i->height=i->motionHeight=h;
+            i->queue=gpu.queue.Get();i->camera.nearPlane=.1f;i->camera.farPlane=100;i->camera.inverted=true;
+            i->depth=gpu.Texture(w,h,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+            i->motion=gpu.Texture(w,h,DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+            std::vector<float> pixels(w*h),vectors(w*h*2);
+            for(uint32_t y=0;y<h;++y)for(uint32_t x=0;x<w;++x){pixels[y*w+x]=(e?.8f:.4f)+.001f*x+.002f*y;vectors[2*(y*w+x)]=8.f/w;}
+            gpu.Upload(i->depth.Get(),pixels.data(),4,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            gpu.Upload(i->motion.Get(),vectors.data(),8,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            i->readyFence=gpu.fence;i->fenceValue=gpu.value;
+            auto& v=warp.eyes[e];v.width=w;v.height=h;v.nearZ=100;v.farZ=.1f;v.motion=.5f;v.motionScale[0]=v.motionScale[1]=1;
+            mid[e]=i;
+        }
+        gpu.Begin();
+        Check(renderer.Record(gpu.device.Get(),gpu.list.Get(),gpu.queue.Get(),mid,targets,warp,1,gpu.fence.Get(),gpu.value+1),"midpoint depth resolve failed");
+        gpu.Execute();
+        gpu.Begin();
+        for(auto& d:dst){D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={d.Get(),0,D3D12_RESOURCE_STATE_DEPTH_WRITE,D3D12_RESOURCE_STATE_COPY_SOURCE};gpu.list->ResourceBarrier(1,&b);}
+        gpu.Execute();
+        for(unsigned e=0;e<2;++e) {
+            auto bytes=gpu.Read(dst[e].Get());
+            for(uint32_t y=1;y<h-1;++y)for(uint32_t x=6;x<w-1;++x) {
+                float actual;std::memcpy(&actual,bytes.data()+4*(y*w+x),4);
+                const float expected=(e?.8f:.4f)+.001f*(float(x)-4)+.002f*y;
+                Check(std::abs(actual-expected)<2e-6f,"midpoint depth not moved half of B's motion vectors");
+            }
+        }
+    }
+    std::puts("PASS: stereo depth identity/FOV/planes, per-eye GPU output, jitter, midpoint warp and submit-fence lifetime");
 }
 void PresenterTimeline() {
     Gpu gpu;Presenter presenter;Settings settings;settings.enabled=true;settings.backend=Backend::FidelityFX;
@@ -362,8 +407,27 @@ void PresenterTimeline() {
     for(unsigned eye=0;eye<2;++eye){pendingViews[eye].pose=pending.frame.pose[eye];pendingViews[eye].fov=pending.frame.fov[eye];}
     Check(pending.frame.inputs[0]->frameId==2 && pending.frame.inputs[1]->frameId==2 &&
         cvr::depth::Describe(pending,pendingViews,2,1,depthPlan)==cvr::depth::Reject::None,"pending B lost its own depth to newer C");
-    Check(cvr::depth::Describe(b,pendingViews,2,1,depthPlan)==cvr::depth::Reject::Synthetic,"midpoint inherited real B depth");
-    Check(std::abs(pending.frame.pose[0].orientation.y-std::sin(.05f))<1e-6f,"pending image acquired C pose");submit(pending);
+    Check(cvr::depth::Describe(b,pendingViews,2,1,depthPlan)==cvr::depth::Reject::Identity,"midpoint depth labelled with B's pose");
+    XrCompositionLayerProjectionView midViews[2]{};
+    for(unsigned eye=0;eye<2;++eye){midViews[eye].pose=b.frame.pose[eye];midViews[eye].fov=b.frame.fov[eye];}
+    Check(cvr::depth::Describe(b,midViews,2,1,depthPlan)==cvr::depth::Reject::None && depthPlan.eyes[0].motion==.5f &&
+        depthPlan.eyes[1].motion==.5f,"midpoint has no depth of its own");
+    Check(cvr::depth::Describe(pending,pendingViews,2,1,depthPlan)==cvr::depth::Reject::None && depthPlan.eyes[0].motion==0,
+        "real B depth moved");
+    Check(std::abs(pending.frame.pose[0].orientation.y-std::sin(.05f))<1e-6f,"pending image acquired C pose");
+    gpu.Wait();presenter.Submitted(pending,gpu.fence.Get(),gpu.value,false,true);
+    Check(presenter.Pending(),"temporary submission failure discarded an owed real endpoint");
+    settings.enabled=false;SetSettings(settings);
+    auto retry=presenter.Select(gpu.device.Get(),gpu.queue.Get(),frame(4,166,.3f),true);
+    Check(retry.kind==Cadence::Next::PendingReal && retry.frame.identity.serial==2 &&
+          retry.frame.identity.capturedMs==122,"failed endpoint was replaced after framegen OFF");
+    submit(retry);Check(!presenter.Pending(),"accepted retry retained endpoint");
+    settings.enabled=true;SetSettings(settings);
+    auto next=presenter.Select(gpu.device.Get(),gpu.queue.Get(),frame(3,144,.2f),true);submit(next);
+    Check(presenter.Pending(),"next midpoint not created");
+    auto rejected=presenter.Select(gpu.device.Get(),gpu.queue.Get(),frame(4,166,.3f),true);
+    gpu.Wait();presenter.Submitted(rejected,gpu.fence.Get(),gpu.value,false);
+    Check(!presenter.Pending(),"non-SteamVR failure behavior changed");
     presenter.Reset();settings.enabled=false;SetSettings(settings);
 }
 void GpuInputCopy() {
@@ -412,6 +476,105 @@ void GpuInputCopy() {
     const auto copied=gpu.Read(input.depth.Get());
     Check(copied.size()==values.size()*4 && !std::memcmp(copied.data(),values.data(),copied.size()),"depth values changed");
 }
+// Real-frame release against the display: the XR thread takes the newest real frame at each cycle start and shows
+// midpoint, endpoint, then needs the next real frame (Cadence). A cycle with nothing new is a repeat (reprojected).
+struct PacingRun {double repeats{},realStep{},spread{};};
+PacingRun SimulatePacing(bool phaseLocked,double actualPeriod,double reportedPeriod,double startPhase,double work,
+                         double workJitter,double interval,unsigned cycles=4000,bool gate=true) {
+    uint64_t seed=0x9E3779B97F4A7C15ull^uint64_t(startPhase*1000+work*77+workJitter*13);
+    auto random=[&] {seed=seed*6364136223846793005ull+1442695040888963407ull;return double(seed>>11)*(1.0/9007199254740992.0);};
+    std::vector<double> select(cycles);
+    for(unsigned n=0;n<cycles;++n)select[n]=startPhase+n*actualPeriod+(random()-.5)*.3;
+    std::vector<double> published;
+    PhaseLockedPacing phase;CycleClock clock;size_t ticked=0;double oldLast=0,release=0;
+    while(release<select.back()) {
+        const double now=release+work+(random()-.5)*2*workJitter;
+        published.push_back(now);
+        const auto at=std::upper_bound(select.begin(),select.end(),now);
+        for(;ticked<size_t(at-select.begin());++ticked)clock.Tick(select[ticked],reportedPeriod); // the XR thread
+        double cycle=at==select.begin() ? select.front()-actualPeriod : *(at-1);
+        if(gate && !clock.Steady())cycle=std::nan("");
+        double hold=0;
+        if(phaseLocked)hold=phase.Hold(now,cycle,reportedPeriod,interval);
+        else {const double remaining=oldLast+interval-now;hold=remaining>.2 && remaining<=80 ? remaining : 0;}
+        release=now+hold+random()*.3; // timer overshoot
+        if(phaseLocked)phase.Released(release);
+        else oldLast=oldLast && release<oldLast+interval*1.5 ? oldLast+interval : release;
+    }
+    Cadence cadence;unsigned repeats=0,counted=0;size_t newest=0;double firstReal=0,lastReal=0;unsigned reals=0;
+    for(unsigned n=0;n<cycles;++n) {
+        while(newest<published.size() && published[newest]<=select[n])++newest;
+        const auto kind=cadence.Select(newest,newest>1,true);cadence.Accepted(kind,newest);
+        if(n<400)continue;
+        ++counted;repeats+=kind==Cadence::Next::Repeat;
+        if(kind==Cadence::Next::Midpoint) {if(!reals)firstReal=select[n];lastReal=select[n];++reals;}
+    }
+    // How evenly the real frames come: the spread of their Present intervals past the warm-up.
+    double sum=0,squares=0;unsigned n=0;
+    for(size_t i=published.size()/10+1;i<published.size();++i) {const double d=published[i]-published[i-1];sum+=d;squares+=d*d;++n;}
+    const double mean=n ? sum/n : 0,spread=n ? std::sqrt(std::max(0.0,squares/n-mean*mean)) : 0;
+    return {double(repeats)/counted,reals>1 ? (lastReal-firstReal)/(reals-1)/actualPeriod : 0,spread};
+}
+void PhasePacing() {
+    const double period=1000.0/75;
+    double oldWorst=0,newWorst=0;unsigned oldBad=0;
+    // Every start phase of the display against the game, small frame-time jitter: the lottery of the report.
+    for(unsigned i=0;i<24;++i) {
+        const double startPhase=period*i/24;
+        const auto old=SimulatePacing(false,period,period,startPhase,9,1.5,2*period);
+        const auto locked=SimulatePacing(true,period,period,startPhase,9,1.5,2*period);
+        oldWorst=std::max(oldWorst,old.repeats);newWorst=std::max(newWorst,locked.repeats);oldBad+=old.repeats>.05;
+        Check(std::abs(locked.realStep-2)<.01,"locked real frames are not two display periods apart");
+    }
+    std::printf("free-running: worst %.1f%% repeats, %u/24 start phases over 5%%; phase-locked: worst %.2f%%\n",
+                oldWorst*100,oldBad,newWorst*100);
+    Check(oldBad>0,"test premise: the free-running release never lost its phase");
+    Check(newWorst<.005,"phase-locked release still repeats display frames");
+    // Adaptive pacing stretched the interval by fractions of a period after the misses: the free-running phase then
+    // drifts through the boundary on its own. Locked, a 4 % stretch stays two periods.
+    double oldStretch=0,lockedStretch=0;
+    for(unsigned i=0;i<8;++i) {
+        oldStretch=std::max(oldStretch,SimulatePacing(false,period,period,period*i/8,9,.5,2.08*period).repeats);
+        lockedStretch=std::max(lockedStretch,SimulatePacing(true,period,period,period*i/8,9,.5,2.08*period).repeats);
+    }
+    std::printf("interval stretched 4%%: free-running worst %.1f%% repeats, phase-locked %.2f%%\n",oldStretch*100,lockedStretch*100);
+    Check(oldStretch>.02 && lockedStretch<.005,"stretched interval: free-running premise or lock failed");
+    // The runtime's period a little off the real one: the grid comes from the measured cycle start, not the period.
+    const auto lockedDrift=SimulatePacing(true,period,period*1.0015,period*.5,9,.5,2*period,20000);
+    Check(lockedDrift.repeats<.005,"phase lock did not follow the measured cycle");
+    // Adaptive pacing a little above half refresh keeps two periods; past a quarter period it is three, still locked.
+    Check(std::abs(SimulatePacing(true,period,period,3,9,1.5,2.1*period).realStep-2)<.01,"small stretch broke the pair cadence");
+    const auto three=SimulatePacing(true,period,period,3,9,1.5,2.3*period);
+    Check(std::abs(three.realStep-3)<.01 && std::abs(three.repeats-1.0/3)<.01,"larger stretch is not a steady three-period step");
+    // A game slower than two periods (GPU-bound) is never held long and lands on the grid.
+    const auto slow=SimulatePacing(true,period,period,3,2.4*period,1,2*period);
+    Check(std::abs(slow.realStep-3)<.02,"slow game not stepped to whole display periods");
+    // No XR cycle for over half a second: no grid to lock to, the plain interval.
+    PhaseLockedPacing p;double t=1000;
+    for(unsigned i=0;i<5;++i) {const double hold=p.Hold(t,0,period,2*period);p.Released(t+hold);t+=hold+5;}
+    Check(std::abs(p.Target()-(1000+4*2*period))<.01,"stale cycle did not fall back to the interval");
+    Check(p.Hold(std::nan(""),0,period,2*period)==0 && p.Target()==0,"invalid time kept a schedule");
+    // xrWaitFrame returning faster than its predicted period (SteamVR null driver: 136/s against 90 Hz). Locked to
+    // each return, the real frames spread; the clock check falls back to the even interval.
+    const double ninety=1000.0/90,fast=1000.0/136.6;
+    const auto raw=SimulatePacing(true,fast,ninety,1,9,1.5,2*ninety,6000,false);
+    const auto gated=SimulatePacing(true,fast,ninety,1,9,1.5,2*ninety,6000,true);
+    const auto plain=SimulatePacing(false,fast,ninety,1,9,1.5,2*ninety,6000);
+    std::printf("fast XR clock: real-frame interval spread locked %.2f ms, checked %.2f ms, free-running %.2f ms\n",
+                raw.spread,gated.spread,plain.spread);
+    Check(raw.spread>1.5,"test premise: locking to a fast clock did not spread the frames");
+    Check(gated.spread<plain.spread+.2,"clock check did not fall back to the even interval");
+    // The clock itself: an even 90 Hz with jitter and skipped cycles keeps its grid; a fast or uneven loop does not.
+    uint64_t seed=7;auto jitter=[&] {seed=seed*6364136223846793005ull+1442695040888963407ull;return (double(seed>>11)/9007199254740992.0-.5)*1.0;};
+    CycleClock even;double t2=0;
+    for(unsigned i=0;i<300;++i) {t2+=ninety*(i%17==0 ? 2 : 1)+jitter();even.Tick(t2,ninety);}
+    Check(even.Steady(),"an even display clock with skipped cycles was not trusted");
+    CycleClock quick;t2=0;for(unsigned i=0;i<300;++i) {t2+=fast+jitter();quick.Tick(t2,ninety);}
+    Check(!quick.Steady(),"a loop faster than its period was trusted");
+    CycleClock uneven;t2=0;for(unsigned i=0;i<300;++i) {t2+=ninety*(i%2 ? .6 : 1.4);uneven.Tick(t2,ninety);}
+    Check(!uneven.Steady(),"an uneven loop was trusted");
+    even.Tick(t2+1000,ninety);Check(!even.Steady(),"a stalled loop kept its trust");
+}
 int main(int argc,char** argv) try {
     setvbuf(stdout,nullptr,_IONBF,0);SetUnhandledExceptionFilter(Crash);
     Check(argc>=2,"case required");const std::string test=argv[1];
@@ -444,31 +607,64 @@ int main(int argc,char** argv) try {
         Settings s;Check(s.backend==Backend::Nvidia && s.flowScale==50,"defaults are not NVIDIA OFA + FidelityFX at half-resolution flow");
         Check(ParseSetting("xr_framegen_flow_scale=0",s) && s.flowScale==0,"optical flow off parse");
         Check(ParseSetting("xr_framegen_backend=2",s) && s.backend==Backend::DlssG,"DLSS-G parse");
+        Check(ParseSetting("xr_framegen_backend=3",s) && s.backend==Backend::Anr,"ANR FG parse");
+        {Settings anrFg;anrFg.backend=Backend::Anr;SetSettings(anrFg);Check(GetSettings().backend==Backend::Anr,"ANR FG clamped away by SetSettings");SetSettings(Settings{});}
         Check(ParseSetting("xr_framegen=1",s) && s.enabled,"enable parse");
         Check(ParseSetting("xr_framegen_backend=0",s) && s.backend==Backend::FidelityFX,"backend parse");
         Check(ParseSetting("xr_framegen_flow_scale=75",s) && s.flowScale==75,"scale parse");
+        Check(!Settings{}.cadenceLock,"cadence lock on by default: the refresh the headset was set to is the rate");
+        Check(ParseSetting("xr_framegen_cadence_lock=1",s) && s.cadenceLock,"cadence lock parse");
         s.overlay=true;s.quality=1;s.overlayCorner=7;s.autoPace=false;s.overlayLayout=1;s.overlayFollow=1;
         s.historySeconds=60;s.overlayCone=35;s.overlayScale=1.2f;s.overlayDistance=2;s.overlayX=-3;s.overlayY=4;
         FILE* file=nullptr;Check(tmpfile_s(&file)==0,"temp file");WriteSettings(file,s);rewind(file);Settings restored;char line[256];
         while(fgets(line,sizeof(line),file))Check(ParseSetting(line,restored),"saved key did not parse");fclose(file);
         Check(restored.enabled && restored.overlay && !restored.autoPace && restored.backend==s.backend && restored.flowScale==75 && restored.quality==1 && restored.overlayCorner==7,"settings roundtrip");
+        Check(restored.cadenceLock,"cadence lock roundtrip");
         Check(restored.overlayLayout==1 && restored.overlayFollow==1 && restored.historySeconds==60 && restored.overlayCone==35 &&
             std::abs(restored.overlayScale-1.2f)<.0001f && restored.overlayDistance==2 && restored.overlayX==-3 && restored.overlayY==4,"overlay settings lost");
-    } else if(test=="adaptive_pacing") {
-        AdaptivePacing feedback;double interval=0;
-        for(unsigned t=0;t<=6000;t+=10)interval=feedback.Observe(t,20,t==500);
-        Check(interval==20,"isolated spike or healthy cadence lowered the cap");
-        for(unsigned t=6010;t<=11000;t+=10)interval=feedback.Observe(t,20,t%250==0);
-        Check(interval>24 && interval<25,"sustained missed pairs did not leave GPU headroom");
-        const auto backedOff=interval;
-        for(unsigned t=11010;t<=15000;t+=10)interval=feedback.Observe(t,20,false);
-        Check(interval==backedOff,"pacing recovers before the healthy window");
-        for(unsigned t=15010;t<=80000;t+=10)interval=feedback.Observe(t,20,false);
-        Check(interval==20,"pacing did not recover to half refresh");
-        for(unsigned t=80010;t<=150000;t+=10)interval=feedback.Observe(t,20,true);
-        Check(interval==40,"backoff escaped its bound");
-        Check(feedback.Observe(150010,15,false)==15,"refresh change retained the old deadline");
-        feedback.Reset();Check(feedback.Observe(0,20,false)==20,"reset retained a reduced cap");
+    } else if(test=="cadence_lock") {
+        constexpr double p=11.1111,two=p*2,three=p*3;
+        CadenceLock lock;double t=0,interval=0;
+        const auto run=[&](double seconds,const auto& work) {
+            for(const double end=t+seconds*1000;t<end;t+=22.2222)interval=lock.Observe(t,p,work(unsigned(t/22.2222)));
+        };
+        // The measured H10 sprint: 8-14 ms of game time, with teleport-length hitches.
+        run(5,[](unsigned i){return 8.0+(i%7);});
+        Check(interval==two,"healthy game left two-period cadence");
+        run(3,[](unsigned i){return i%40==0 ? 140.0 : i%45==0 ? 30.0 : 11.0;});
+        Check(interval==two,"a hitch or an isolated slow frame dropped the cadence to 30 fps");
+        // A game that cannot make 22.2 ms: a steady 30 instead of an alternating 22/33.
+        run(2,[](unsigned i){return i%3==0 ? 21.8 : 18.0;});
+        Check(interval==three,"sustained over-budget frames kept two periods");
+        run(2,[](unsigned i){return i%8==0 ? 20.0 : 15.0;});
+        Check(interval==three,"returned to two periods with frames still near the budget");
+        run(2.5,[](unsigned){return 14.0;});
+        Check(interval==two,"recovered headroom did not restore 45 fps within two windows");
+        // Never an interval between whole periods: that mixes 22 and 33 ms frames on the display grid.
+        for(double w=5;w<40;w+=.37) {
+            const double v=lock.Observe(t+=22.2222,p,w);
+            Check(v==two || v==three,"fractional interval");
+        }
+        Check(lock.Observe(t,13.8889,10)==13.8889*2,"refresh change retained the old cadence");
+        lock.Reset();Check(lock.Observe(0,p,NAN)==two,"reset retained three periods");
+        Check(lock.Observe(1,NAN,10)==0,"invalid period accepted");
+    } else if(test=="presentation_period") {
+        constexpr int64_t normal=11111111,doubled=22222222;
+        PresentationPeriod period;
+        Check(period.Observe(0,normal)==normal,"initial display period");
+        for(unsigned i=1;i<600;++i) {
+            const auto reported=i%88==0?doubled:normal;
+            Check(period.Observe(i*11.111,reported)==normal,"one throttled XR frame doubled the producer interval");
+        }
+        for(unsigned i=600;i<695;++i)period.Observe(i*11.111,13888889);
+        Check(period.Observe(695*11.111,13888889)==13888889,"sustained 72 Hz refresh was ignored");
+        Check(period.Observe(696*11.111,8333333)==8333333,"faster refresh did not recover immediately");
+        period.Reset();Check(period.Observe(0,doubled)==doubled,"slow startup period");
+        Check(period.Observe(11,normal)==normal,"throttled startup could not recover");
+        Check(period.Observe(NAN,normal)==normal && period.Observe(12,0)==normal,"invalid period damaged state");
+        Check(period.Observe(2000,13888889)==13888889,"resumed session retained stale period");
+    } else if(test=="phase_pacing") {
+        PhasePacing();
     } else if(test=="pacing") {
         Settings s;s.enabled=true;s.autoPace=true;SetSettings(s);DisplayPeriod(5000000);PacingReady(true);
         const auto started=NowMs();
@@ -493,12 +689,12 @@ int main(int argc,char** argv) try {
         const auto fast=GetStatistics();Check(fast.realFps>1980 && fast.realFps<2005,"bounded rate ring capped high FPS");
     } else if(test=="metrics_disabled") {
         Settings options;options.enabled=true;options.overlay=true;SetSettings(options);
-        const auto now=NowMs();OnRealFrame(1,now-20);OnRealFrame(2,now);OnGpuFrame(5);OnGeneration(2);OnInput(0,128,96);
+        const auto now=NowMs();OnRealFrame(1,now-20);OnRealFrame(2,now);OnGpuFrame(5);OnGeneration(2,2);OnInput(0,128,96);
         Check(GetStatistics().realFrames==2,"enabled metrics not collected");
         options.overlay=false;SetSettings(options);
         Check(Enabled() && !MetricsEnabled(),"overlay switch changed framegen or kept collection alive");
         const auto sequence=GetHardwareStatistics().sequence;
-        for(unsigned i=0;i<8;++i) {OnRealFrame(i+3,now+20+i);OnSubmitted(i+3,true,false,now+20+i);OnGpuFrame(6);OnGeneration(3);OnInput(1,128,96);OnSkip();SetVram(1234);}
+        for(unsigned i=0;i<8;++i) {OnRealFrame(i+3,now+20+i);OnSubmitted(i+3,true,false,now+20+i);OnGpuFrame(6);OnGeneration(3,3);OnInput(1,128,96);OnSkip();SetVram(1234);}
         const auto stopped=GetStatistics();
         Check(stopped.realFrames==0 && stopped.generatedFrames==0 && stopped.skipped==0 && stopped.vramBytes==0 &&
             stopped.historySamples==0 && !stopped.gpuValid && stopped.generationMs==0 && stopped.inputFrames[0]==0 && stopped.inputFrames[1]==0,
@@ -573,6 +769,7 @@ int main(int argc,char** argv) try {
     else if(test=="gpu_fidelityfx_flow" || test=="gpu_nvidia_flow")GpuGeneration(test=="gpu_nvidia_flow",false);
     else if(test=="gpu_fidelityfx_noflow" || test=="gpu_nvidia_noflow")GpuGeneration(test=="gpu_nvidia_noflow",true,false,false,Backend::FidelityFX,0);
     else if(test=="gpu_dlssg")GpuGeneration(true,true,false,false,Backend::DlssG);
+    else if(test=="gpu_anr")GpuGeneration(true,true,false,false,Backend::Anr);
     else if(test=="overlay" || test=="overlay_follow") {
         Gpu gpu;mock::device=gpu.device.Get();Settings settings;settings.overlay=true;SetSettings(settings);StatsOverlay overlay;
         auto prepare=[&] {return reinterpret_cast<const XrCompositionLayerQuad*>(overlay.Prepare(reinterpret_cast<XrSession>(1),reinterpret_cast<XrSpace>(1),gpu.device.Get(),gpu.queue.Get()));};
