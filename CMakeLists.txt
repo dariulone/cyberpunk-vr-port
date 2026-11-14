@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(CyberpunkVRPort VERSION 0.2.4 LANGUAGES CXX C ASM_MASM)
+project(CyberpunkVRPort VERSION 0.2.45 LANGUAGES CXX C ASM_MASM)
 
 # One compiler process per core inside every target, the fetched and bundled libraries included: `cmake --build
 # --parallel` only spreads whole projects, and a full rebuild otherwise compiles each target one file at a time.

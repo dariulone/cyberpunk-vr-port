@@ -2851,7 +2851,13 @@ DWORD OpenXRManager::FrameThreadMain() {
                               if(m_basePoseSet) {const auto& q=m_basePose.orientation;
                                   hudBodyYaw=atan2f(2*(q.w*q.y+q.x*q.z),1-2*(q.x*q.x+q.y*q.y));} }
                             hudBodyYaw+=BodyYawFollowOffset();
-                            const bool completedHud=IsRuntimeSteamVR();
+                            // HUD canvases are drawn on the game's queue; copied on the runtime's own queue they
+                            // must be finished first (HudQuad::UpdateImage keeps the old image otherwise). Without
+                            // frame generation the submit runs right after the capture, the newest canvas is nearly
+                            // always still on the GPU, the copy kept being refused, and after 300 ms the layer
+                            // went: the HUD blinked on every runtime but SteamVR. Take the newest finished canvas
+                            // whenever the runtime has a queue of its own.
+                            const bool completedHud=IsRuntimeSteamVR() || RuntimeQueue()!=m_d3dQueue;
                             endInfo.layerCount = 1;
                             const XrCompositionLayerBaseHeader* hudLayer=m_hudQuad.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
                                 !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),

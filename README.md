@@ -51,10 +51,10 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   head-locked window. World markers retain their native depth and are projected
   separately for each eye. Popups that lay one flat picture over the frame
   (phone, radio, vehicle list, messages, shards) no longer double it.
-- **Native VR frame generation** with game motion vectors and depth: NVIDIA DLSS
-  Frame Generation through the game's own `nvngx_dlssg.dll` (the default),
-  ANR FG (Apex Neural Rendering's model as a DLSS-G provider, beta, any recent NVIDIA, AMD or Intel GPU),
-  FidelityFX with or without optical flow, and NVIDIA OFA + FidelityFX, with
+- **Native VR frame generation** with game motion vectors and depth: NVIDIA OFA + FidelityFX (the default;
+  plain FidelityFX where NVIDIA's optical flow is not available), FidelityFX with or without optical flow,
+  NVIDIA DLSS Frame Generation through the game's own `nvngx_dlssg.dll`, and ANR FG (Apex Neural Rendering's
+  model as a DLSS-G provider, beta, any recent NVIDIA, AMD or Intel GPU), with
   adaptive pacing and a performance overlay. Inputs come from DLSS, DLAA, native
   TAA, FSR 2, FSR 3, FSR 4 and XeSS; on non-NVIDIA GPUs optical flow falls back to
   FidelityFX. Ray-tracing motion formats and live RT changes are supported. CAS
@@ -338,10 +338,10 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | Right stick **fully up** | **Dash** (dodge, direction from the left stick) — once per push |
 | Right stick **fully down** | **Crouch** (R3) |
 | Right thumb **click** | **Slide release** — racks the weapon (physical reload) |
-| Left hand to your **left ear** + **left grip** | **Scanner**, *toggled* — squeeze to open, squeeze again to close |
+| Left hand to your **left ear** + **left stick click (L3)** | **Scanner**, *toggled* — click to open, click again to close (always the physical left hand, also left-handed) |
 | Right trigger / Left trigger | Fire / Aim (left trigger is also melee block) |
 | Right grip | Hand-to-holster equip / unequip; melee power modifier |
-| Left grip | **Grab the magazine** during a reload (at the ear it is the scanner) |
+| Left grip | **Grab the magazine** during a reload |
 | **L3 + R3, held 0.5 s** | Open / close the VR menu |
 | **L3 + left Grip, held 0.5 s** | Activate the cyberware operating system (Sandevistan, Berserk, overclock) in gameplay |
 | Left stick **up / down, to the stop** | Page the quickhack list *while the scanner is open* |
@@ -379,7 +379,7 @@ pages the quickhack list (below the stop it still walks, so you can read and mov
 **X** applies the selected hack, the **right trigger** tags the target instead of
 firing, the **right stick click** changes the tab and **left trigger + right stick**
 zooms. The list used to sit on X and Y, which meant reaching across the face buttons
-with the hand that is already holding a grip at your ear — the very reach a one-hand
+with the hand that is already at your ear — the very reach a one-hand
 scanner exists to avoid.
 
 B is the port's only while a weapon is actually in your hand, because a magazine
