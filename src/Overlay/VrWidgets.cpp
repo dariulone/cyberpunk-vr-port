@@ -169,7 +169,7 @@ void Tabs(const char* id,int& selected,const char* const* labels,int count) {
     }
     ImGui::PopID();ImGui::Spacing();
 }
-void DrawBindings() {
+void DrawBindings(bool cyberfinger) {
     struct Binding { const char* input;const char* action; };
     const bool recording=cvr::uirec::Recording();
     auto group=[recording](const char* title,const Binding* rows,int count) {
@@ -188,6 +188,39 @@ void DrawBindings() {
         }
         ImGui::PopStyleVar();
     };
+    if(cyberfinger) {
+        UI::TextWrapped("CyberFinger default layout. Left and right refer to physical hands; firing follows your weapon hand.");
+        static const Binding foot[]{
+            {"LEFT STICK","Move. Click to start sprint; return to center to stop."},
+            {"RIGHT STICK","Left/right: turn. Full up: dash/dodge. Full down: crouch. Click: jump."},
+            {"WEAPON-HAND TRIGGER","Fire with a weapon."},
+            {"INTERACTION-HAND TRIGGER","Opposite movement: Take/interact; scanner confirm. Otherwise normal aim/fire."},
+            {"LEFT GRAB BUTTON","Toggle scanner."},
+            {"RIGHT GRAB BUTTON","Slide release / rack / melee."},
+            {"LEFT MENU","Tap: next weapon. Hold: weapon wheel."},
+            {"RIGHT MENU","Tap: inventory. Hold 0.65 seconds: operating-system cyberware."},
+            {"WEAPON-HAND BLACK WRIST","Tap: eject magazine. Hold: pause."},
+            {"OTHER-HAND BLACK WRIST","Tap: quick reload. Hold: heal."},
+            {"CLOSE FINGERS NEAR AN OBJECT","Grab; open to release. Menu gestures do not click."}
+        };
+        group("ON FOOT",foot,IM_ARRAYSIZE(foot));
+        static const Binding menus[]{
+            {"POINT + SAME-HAND TRIGGER","Select with either hand. Fingertip touch also works in the world-space VR menu."},
+            {"LEFT STICK / RIGHT STICK","Navigate highlights / switch tabs. Right up/down scrolls VR lists."},
+            {"MENU BUTTON","Back / cancel / close, on release. Hold both: toggle HUD."},
+            {"GRIP BUTTON","Context / secondary action; X in native menus. Hold on F10's title to move it."},
+            {"CONVERSATION CHOICES","Right stick up/down: previous/next. Right trigger: confirm. Left stick moves; right stick left/right turns."}
+        };
+        group("MENUS AND CONVERSATIONS",menus,IM_ARRAYSIZE(menus));
+        static const Binding shortcuts[]{
+            {"BOTH MENU BUTTONS","Hold 0.5 seconds: toggle HUD. Prompts and conversations temporarily reveal it."},
+            {"RIGHT PINK","Open/close VR menu. Left pink remains the SteamVR dashboard."},
+            {"F10 / INSERT (KEYBOARD)","Settings overlay; no CyberFinger shortcut."},
+            {"F7","Recenter."}
+        };
+        group("SHORTCUTS",shortcuts,IM_ARRAYSIZE(shortcuts));
+        return;
+    }
     UI::TextWrapped("VR shortcuts and default game actions. Button names follow the Touch / Xbox convention; game actions use your controller bindings.");
     static const Binding foot[]{
         {"LEFT STICK","Move. Hold fully forward for 0.2 seconds to sprint."},

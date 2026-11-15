@@ -35,6 +35,7 @@
 #include "Overlay/VrOverlay.hpp"
 #include "Overlay/UiRec.hpp"
 #include "Runtimes/FingerGrip.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Fbt/Game/Calibration.hpp"
 
@@ -163,6 +164,13 @@ bool cvr::vrmenu::FingerWorld(int side, float* world) {
     const float end[3] = {side ? -kTip : kTip, 0, 0};
     return ModelToWorldFrame(m2w) && BoneWorld(m2w, kIndex3[side], end, nullptr, world, nullptr);
 }
+bool cvr::vrmenu::RayWorld(int side,float* origin,float* direction) {
+    VRControllerState input{};
+    if(side<0 || side>1 || !OpenXRManager::Get().GetRawControllerState(&input) ||
+        !(side?input.rightHandValid:input.leftHandValid))return false;
+    float m2w[4];const float along[3]={side?-1.f:1.f,0,0};
+    return ModelToWorldFrame(m2w) && AimWorld(m2w,side,along,origin,direction);
+}
 
 // VRMenuGesture() -> array<Vector4>: empty, or once per swipe
 //   [0] (1, sequence, 0, 0)
@@ -191,7 +199,7 @@ void VRMenuGesture(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     auto& xr = OpenXRManager::Get();
     // With the grip read from the fingers a hand closed on the controller grips all the time, and any move down would be
     // a swipe: the menu then opens with L3 + R3 only.
-    if (!g_liveControls.xrMenuGesture || cvr::fingergrip::GripFromFingers() || !xr.GetGestureHandFrame(&head, hands, &sequence, &stamp, false) || !hands[1].valid ||
+    if (!g_liveControls.xrMenuGesture || cvr::cyberfinger::Enabled() || cvr::fingergrip::GripFromFingers() || !xr.GetGestureHandFrame(&head, hands, &sequence, &stamp, false) || !hands[1].valid ||
         !xr.GetControllerState(&input) || !input.rightHandValid) {
         g_swipe.Clear();
         return;
@@ -252,12 +260,17 @@ void VRMenuPointer(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
     VRControllerState input{};
     // Raw: the native overlay's capture must not take the menu's own trigger away.
     const bool haveInput = OpenXRManager::Get().GetRawControllerState(&input);
+    const bool cyberfinger=cvr::cyberfinger::Enabled();
+    // F10 is the foreground input surface. Do not also act on a world-menu
+    // item behind it; an empty pointer record resets Lua's held-input guards.
+    if(cyberfinger && cvr::vrui::Visible())return;
     float m2w[4];
     const bool frame = ModelToWorldFrame(m2w) && g_VRFKSnapCount > kIndex3[1];
     for (int side = 0; side < 2; ++side) {
         RED4ext::Vector4 tip{-1, -1, 0, 0}, ray{-1, -1, 0, 0}, origin{0, 0, 0, 0}, hit{0, 0, 0, 0};
         const float trigger = haveInput ? (side ? input.rightTrigger : input.leftTrigger) : 0.0f;
-        const float grip = haveInput ? (side ? input.rightGrip : input.leftGrip) : 0.0f;
+        const float grip = haveInput ? (cyberfinger ? float(side?input.rightGrabButton:input.leftGrabButton):
+            (side ? input.rightGrip : input.leftGrip)) : 0.0f;
         const float along[3] = {side ? -1.0f : 1.0f, 0.0f, 0.0f};
         const float end[3] = {along[0] * kTip, 0.0f, 0.0f};
         float p[3], d[3];
@@ -284,6 +297,13 @@ void VRMenuPointer(RED4ext::IScriptable*, RED4ext::CStackFrame* stack, RED4ext::
         out->PushBack(ray);
         out->PushBack(origin);
         out->PushBack(hit);
+    }
+    // Optional physical controls for the CF menu path; legacy callers retain
+    // the original eight pointer records and all existing gesture behavior.
+    if(cyberfinger) {
+        out->PushBack({input.leftThumbX,input.leftThumbY,input.rightThumbX,input.rightThumbY});
+        out->PushBack({float(input.leftGrabButton),float(input.rightGrabButton),float(input.leftStickButton),float(input.rightStickButton)});
+        out->PushBack({1,float(input.leftMenuButton),float(input.rightMenuButton),0});
     }
 }
 

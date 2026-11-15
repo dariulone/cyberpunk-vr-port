@@ -54,6 +54,15 @@ unset(CMAKE_POLICY_VERSION_MINIMUM)
 # scripts with it when redscript itself is not installed (Core/ScriptCompiler.cpp). Only the C API library is built;
 # redscript-dotfile goes with it so the workspace's features unify as in redscript's own release build.
 set(CVR_REDSCRIPT_TAG v1.0.0-preview.22)
+set(CVR_REDSCRIPT_COMPILER_DIR "" CACHE PATH "Matching prebuilt redscript compiler directory (scc_lib.dll and LICENSE.txt)")
+if(CVR_REDSCRIPT_COMPILER_DIR)
+  set(CVR_SCC_LIB "${CVR_REDSCRIPT_COMPILER_DIR}/scc_lib.dll")
+  set(CVR_SCC_LICENSE "${CVR_REDSCRIPT_COMPILER_DIR}/LICENSE.txt")
+  if(NOT EXISTS "${CVR_SCC_LIB}" OR NOT EXISTS "${CVR_SCC_LICENSE}")
+    message(FATAL_ERROR "CVR_REDSCRIPT_COMPILER_DIR must contain scc_lib.dll and LICENSE.txt for ${CVR_REDSCRIPT_TAG}")
+  endif()
+  add_custom_target(cvr_scc_lib)
+else()
 FetchContent_Declare(
   redscript
   GIT_REPOSITORY https://github.com/jac3km4/redscript.git
@@ -74,6 +83,8 @@ add_custom_command(
   VERBATIM
 )
 add_custom_target(cvr_scc_lib ALL DEPENDS ${CVR_SCC_LIB})
+set(CVR_SCC_LICENSE "${redscript_SOURCE_DIR}/LICENSE")
+endif()
 
 # The TweakDB's record names, for the Lua host's TDBID.ToStringDEBUG and TweakDB API (src/Lua): WolvenKit's resource
 # files (GPL-3.0, shipped beside the plugin as data with their licence, as CET ships them), at the commit that last
@@ -269,7 +280,7 @@ add_dependencies(cyberpunkvrport_stereo cvr_scc_lib)
 add_custom_command(TARGET cyberpunkvrport_stereo POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:cyberpunkvrport_stereo>/redscript"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CVR_SCC_LIB} "$<TARGET_FILE_DIR:cyberpunkvrport_stereo>/redscript/scc_lib.dll"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${redscript_SOURCE_DIR}/LICENSE"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CVR_SCC_LICENSE}"
             "$<TARGET_FILE_DIR:cyberpunkvrport_stereo>/redscript/LICENSE.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CVR_TWEAKDB_NAMES_DIR}"
             "$<TARGET_FILE_DIR:cyberpunkvrport_stereo>/config/tweakdb"
@@ -284,4 +295,6 @@ add_custom_command(TARGET cyberpunkvrport_stereo POST_BUILD
 #     cmake --build build --config Release --target xr_probe_layer
 add_subdirectory(tools/xr_probe)
 # rtti_dump_plugin -- patch-day RED4ext plugin: the running game's RTTI layouts as JSON (tools/rtti_dump).
-add_subdirectory(tools/rtti_dump)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/rtti_dump/CMakeLists.txt")
+    add_subdirectory(tools/rtti_dump)
+endif()

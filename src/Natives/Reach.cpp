@@ -5,6 +5,7 @@
 #include "Anim/HandGestures.hpp"
 #include "Anim/LeftHanded.hpp"
 #include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
 #include <RED4ext/Scripting/Utils.hpp>
 #include <windows.h>
 #include <algorithm>
@@ -90,4 +91,16 @@ void VRHandHolds(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, 
 void VRCyberFingerEnabled(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
     ++frame->code;
     if (out) *out = cvr::cyberfinger::Enabled();
+}
+void VRCyberFingerCommand(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_t* out,int64_t) {
+    ++frame->code;const auto action=cvr::cyberfinger::TakeCommand();if(out)*out=static_cast<int32_t>(action);
+}
+void VRCyberFingerConversation(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_t* out,int64_t) {
+    bool visible=false;RED4ext::GetParameter(frame,&visible);++frame->code;
+    const int action=cvr::cyberfinger::ConversationTick(visible);if(out)*out=action;
+}
+void VRCyberFingerUiState(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,void*,int64_t) {
+    int32_t context=0;bool interaction=false;
+    RED4ext::GetParameter(frame,&context);RED4ext::GetParameter(frame,&interaction);++frame->code;
+    cvr::cyberfinger::UiTick(static_cast<cvr::cyberfinger::MenuContext>(std::clamp(context,0,3)),interaction);
 }

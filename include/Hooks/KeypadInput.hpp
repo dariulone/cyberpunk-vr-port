@@ -12,6 +12,9 @@ inline float KeypadCursorAxis(float value, float deadzone) {
     return .5f * AnalogAxis(value, deadzone, 1.f);
 }
 bool KeypadInputActive();
+bool ComputerInputActive();
+bool ComputerPointerHit();
+void ComputerBack();
 void PublishKeypadStick(float x, float y, float deadzone);
 
 struct KeypadPoint { float x{}, y{}; };

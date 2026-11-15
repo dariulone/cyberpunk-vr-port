@@ -334,6 +334,12 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     handHolds->flags=flags;handHolds->AddParam("Int32","side");handHolds->SetReturnType("Bool");
     rtti->RegisterFunction(handHolds);
     auto cyberFinger=RED4ext::CGlobalFunction::Create("VRCyberFingerEnabled","VRCyberFingerEnabled",&VRCyberFingerEnabled);
+    auto cfCommand=RED4ext::CGlobalFunction::Create("VRCyberFingerCommand","VRCyberFingerCommand",&VRCyberFingerCommand);
+    cfCommand->flags=flags;cfCommand->SetReturnType("Int32");rtti->RegisterFunction(cfCommand);
+    auto cfConversation=RED4ext::CGlobalFunction::Create("VRCyberFingerConversation","VRCyberFingerConversation",&VRCyberFingerConversation);
+    cfConversation->flags=flags;cfConversation->AddParam("Bool","visible");cfConversation->SetReturnType("Int32");rtti->RegisterFunction(cfConversation);
+    auto cfUi=RED4ext::CGlobalFunction::Create("VRCyberFingerUiState","VRCyberFingerUiState",&VRCyberFingerUiState);
+    cfUi->flags=flags;cfUi->AddParam("Int32","context");cfUi->AddParam("Bool","interaction");rtti->RegisterFunction(cfUi);
     cyberFinger->flags=flags;cyberFinger->SetReturnType("Bool");rtti->RegisterFunction(cyberFinger);
     auto lobbyLooks=RED4ext::CGlobalFunction::Create("VRLobbySaveLooks","VRLobbySaveLooks",&VRLobbySaveLooks);
     lobbyLooks->flags=flags;lobbyLooks->SetReturnType("String");rtti->RegisterFunction(lobbyLooks);
@@ -1343,6 +1349,8 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto keypad = RED4ext::CGlobalFunction::Create("VRKeypadUpdate", "VRKeypadUpdate", &VRKeypadUpdate);
     keypad->flags = flags; keypad->SetReturnType("Int32");
     keypad->AddParam("handle:inkWidget", "root"); rtti->RegisterFunction(keypad);
+    auto computer=RED4ext::CGlobalFunction::Create("VRComputerUpdate","VRComputerUpdate",&VRComputerUpdate);
+    computer->flags=flags;computer->SetReturnType("Int32");computer->AddParam("handle:inkWidget","root");rtti->RegisterFunction(computer);
     auto fSlG = RED4ext::CGlobalFunction::Create("VRScannerSlotGet", "VRScannerSlotGet", &VRScannerSlotGet);
     fSlG->flags = flags; fSlG->SetReturnType("Float");
     fSlG->AddParam("Int32", "idx"); fSlG->AddParam("Int32", "comp"); rtti->RegisterFunction(fSlG);

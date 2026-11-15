@@ -26,8 +26,8 @@ inline Settings Sanitize(Settings s) {
     s.offsetX=clamp(s.offsetX,-1.5f,1.5f,0);s.offsetY=clamp(s.offsetY,-1,1,0);
     s.depthSpeed=clamp(s.depthSpeed,.1f,2,.75f);s.hand=std::clamp(s.hand,0,2);return s;
 }
-struct Hand {XrPosef aim{{0,0,0,1},{}};bool valid=false,stickClick=false;float trigger=0,grip=0,stickY=0;};
-struct Tracking {XrPosef head{{0,0,0,1},{}};Hand hands[2];bool valid=false;uint64_t origin=0;int64_t time=0;};
+struct Hand {XrPosef aim{{0,0,0,1},{}};bool valid=false,stickClick=false;float trigger=0,grip=0,stickY=0,stickX=0;};
+struct Tracking {XrPosef head{{0,0,0,1},{}};Hand hands[2];bool valid=false;uint64_t origin=0;int64_t time=0;bool cyberfinger=false,preferLeft=false,menuLeft=false,menuRight=false,menuButton=false;};
 inline XrVector3f Add(XrVector3f a,XrVector3f b){return {a.x+b.x,a.y+b.y,a.z+b.z};}
 inline XrVector3f Sub(XrVector3f a,XrVector3f b){return {a.x-b.x,a.y-b.y,a.z-b.z};}
 inline XrVector3f Mul(XrVector3f a,float s){return {a.x*s,a.y*s,a.z*s};}
@@ -91,7 +91,9 @@ struct Placement {
             const auto& hand=t.hands[dragging];
             const auto target=Add(hand.aim.position,RotateVector(hand.aim.orientation,grabLocal));
             const auto local=RotateVector(ConjugateQuat(frame),Sub(target,t.head.position));
-            const float axis=std::abs(hand.stickY)>.2f?hand.stickY:0;
+            // CF placement follows the hand in all three dimensions. It does
+            // not require a grip+stick combination on that same controller.
+            const float axis=!t.cyberfinger && std::abs(hand.stickY)>.2f?hand.stickY:0;
             s.distance=std::clamp(-local.z+axis*s.depthSpeed*std::clamp(dt,0.0f,.05f),s.minDistance,s.maxDistance);
             s.offsetX=std::clamp(local.x,-1.5f,1.5f);s.offsetY=std::clamp(local.y,-1.0f,1.0f);
             follow.ResetDelay();

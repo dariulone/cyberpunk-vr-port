@@ -87,6 +87,10 @@ local function card(kit,s,c,it,view,v,x)
     bg:SetTintColor(K.color(on and K.YELLOW or col));bg:SetOpacity((on or marked) and .13 or .045);K.tint(edge,(on or marked or s.selected==v.key) and K.YELLOW or K.CYAN,(on or marked) and 1 or .35)
     if on then s.hover=v.key;s.hoverAt=kit.S.time elseif s.hover==v.key then s.hover=nil;s.hoverAt=kit.S.time end
   end);b.key="backpackItem:"..v.key
+  b.context=function()
+    -- Do not turn a context request into a multi-selection toggle.
+    if not s.multi then b.click() end
+  end
 end
 local function materials(kit,p)
   local m=B.materials()

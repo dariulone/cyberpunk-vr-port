@@ -66,6 +66,7 @@
 #include <vector>
 #include "Anim/VrikHook.hpp"
 #include "Anim/CharacterRig.hpp"
+#include "Anim/FaceTracking.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/SkeletonPolicy.hpp"
 #include "Anim/WeaponAim.hpp"
@@ -155,6 +156,7 @@ double MirrorQpcMs(int64_t ticks) {
 }
 
 void MirrorDoubleClear() {
+    cvr::face::ClearMirror();
     s_mirrorActive.store(0,std::memory_order_release);
     AcquireSRWLockExclusive(&s_mirrorLock);
     s_mirrorTrackA.store(0,std::memory_order_relaxed);
@@ -234,7 +236,7 @@ void VRIK_MirrorDoublePass(uint8_t* boneBuf,uintptr_t trackBuf,uint32_t slots) {
         if(bones>0 && cached>0 && slots>=bones) {
             for(uint32_t i=0;i<bones;++i) {
                 const int j=s_mirrorMap[i];
-                if(j<0 || static_cast<uint32_t>(j)>=cached)continue;
+                if(j<0 || static_cast<uint32_t>(j)>=cached || cvr::face::PreserveMirrorBone(i))continue;
                 std::memcpy(boneBuf+static_cast<size_t>(i)*48,s_mirrorPose+static_cast<size_t>(j)*48,48);
             }
             written=true;
@@ -275,6 +277,7 @@ void VRMirrorDouble(RED4ext::IScriptable*,RED4ext::CStackFrame* aFrame,bool* aOu
         CyberpunkVR_DebugMirrorDouble[1].fetch_add(1,std::memory_order_relaxed);
         return;
     }
+    cvr::face::BindMirror(reinterpret_cast<RED4ext::ent::Entity*>(entity.instance));
     if(s_mirrorActive.load(std::memory_order_acquire) && s_mirrorObject==dbl.object && s_mirrorPlayerRig==player.rig &&
         s_mirrorTrackB.load(std::memory_order_relaxed)==trackB && s_mirrorTrackA.load(std::memory_order_relaxed)==trackA) {
         if(aOut)*aOut=true;

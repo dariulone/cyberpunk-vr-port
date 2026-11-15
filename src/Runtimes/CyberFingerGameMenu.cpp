@@ -1,0 +1,162 @@
+#include "Runtimes/CyberFingerGameMenu.hpp"
+#include "Runtimes/CyberFingerMenuPolicy.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
+#include "Render/DesktopMirror.hpp"
+#include <windows.h>
+#include <mutex>
+#include <algorithm>
+
+extern HWND g_gameHwnd;
+namespace cvr::cfmenu {
+namespace {
+std::mutex mutex;
+cvr::vrui::Tracking tracking;
+Snapshot snapshot;
+cvr::cyberfinger::MenuNavigation navigation;
+cvr::cyberfinger::MenuFocus focus;
+cvr::cyberfinger::NativeMenuButtons nativeButtons;
+bool active{},armed[2]{},pressed[2]{},edges[2]{};
+int hand{};uint16_t pulse{},heldButtons{};uint64_t pulseUntil{};
+bool directional{};
+cvr::cyberfinger::MenuContext context{};
+bool grabArmed[2]{},zoomArmed{},anchored{};XrPosef anchor{};uint64_t anchorOrigin{};
+bool Foreground(){return g_gameHwnd && GetForegroundWindow()==g_gameHwnd;}
+void Clear(){tracking={};snapshot={};navigation={};focus={};nativeButtons={};active=false;hand=0;pulse=heldButtons=0;pulseUntil=0;
+    for(int i=0;i<2;++i)armed[i]=pressed[i]=edges[i]=grabArmed[i]=false;
+    zoomArmed=anchored=false;context={};}
+}
+void Reset(){std::lock_guard lock(mutex);Clear();}
+void Hands(const cvr::vrui::Tracking& value,bool enabled) {
+    std::lock_guard lock(mutex);
+    if(!enabled || !value.cyberfinger || !value.valid){Clear();return;}
+    const auto now=GetTickCount64();
+    const auto wanted=cvr::cyberfinger::Context();
+    if(!active || now-snapshot.tick>250 || context!=wanted){Clear();active=true;hand=value.preferLeft?0:1;context=wanted;}
+    const bool map=context==cvr::cyberfinger::MenuContext::Map;
+    const bool journal=context==cvr::cyberfinger::MenuContext::Journal;
+    if(map || journal)hand=value.preferLeft?0:1;
+    tracking=value;snapshot.active=true;snapshot.tick=now;snapshot.head=value.head.position;
+    const auto steps=navigation.Step(true,map?0:value.hands[0].stickX,map?0:value.hands[0].stickY,value.hands[1].stickX,
+        false,false,now);
+    const auto actions=nativeButtons.Step(value.menuLeft,value.menuRight,
+        value.hands[0].grip>.5f,value.hands[1].grip>.5f);
+    for(int i=0;i<2;++i)if(value.hands[i].valid && value.hands[i].grip<.3f)grabArmed[i]=true;
+    const bool ownGrab=grabArmed[hand] && value.hands[hand].valid && value.hands[hand].grip>.5f;
+    const bool otherGrab=grabArmed[1-hand] && value.hands[1-hand].valid && value.hands[1-hand].grip>.5f;
+    heldButtons=map?(otherGrab?0x8000:0):((ownGrab || otherGrab)?0x4000:0);
+    if(context==cvr::cyberfinger::MenuContext::PictureFrame && heldButtons)heldButtons=0x8000;
+    snapshot.secondary=map && ownGrab;
+    const float zoom=value.hands[hand].stickY;
+    if(!value.hands[hand].valid)zoomArmed=false;
+    if(std::isfinite(zoom) && std::abs(zoom)<.3f)zoomArmed=true;
+    snapshot.zoom=map && zoomArmed && value.valid && value.hands[hand].valid && std::isfinite(zoom) && std::abs(zoom)>.4f?zoom:0;
+    directional=steps.direction!=0;
+    const uint16_t buttons=cvr::cyberfinger::DirectionButton(steps.direction) |
+        (steps.tab<0?0x0100:steps.tab>0?0x0200:0) | (actions&0x2000);
+    if(buttons){pulse=buttons;pulseUntil=now+70;}
+    snapshot.buttons=(now<pulseUntil?pulse:0)|heldButtons;
+    for(int i=0;i<2;++i) {
+        if(!value.valid || !value.hands[i].valid){armed[i]=pressed[i]=edges[i]=grabArmed[i]=false;continue;}
+        const auto trigger=value.hands[i].trigger;
+        if(trigger<.3f)armed[i]=true;
+        const bool down=trigger>(pressed[i]?.35f:.65f);
+        edges[i]=armed[i] && down && !pressed[i];pressed[i]=down;
+    }
+    if(!value.valid){snapshot.hit=snapshot.down=snapshot.secondary=false;heldButtons=snapshot.buttons=0;}
+}
+XrPosef PanelPose(const XrPosef& pose,uint64_t origin) {
+    std::lock_guard lock(mutex);
+    if(context!=cvr::cyberfinger::MenuContext::PictureFrame){anchored=false;return pose;}
+    if(!anchored || anchorOrigin!=origin){anchor=pose;anchored=true;anchorOrigin=origin;}
+    return anchor;
+}
+void Panel(const XrPosef& pose,float width,float height) {
+    std::lock_guard lock(mutex);
+    if(!active)return;
+    const auto now=GetTickCount64();
+    cvr::vrui::Hit hits[2];
+    for(int i=0;i<2;++i)if(tracking.valid && tracking.hands[i].valid)
+        hits[i]=cvr::vrui::Intersect(tracking.hands[i].aim,pose,width,height);
+    const bool special=context==cvr::cyberfinger::MenuContext::Map || context==cvr::cyberfinger::MenuContext::Journal;
+    if(!special && !snapshot.down && !snapshot.focus) {
+        const int other=1-hand;
+        if(hits[other].valid && (edges[other] || !tracking.hands[hand].valid))hand=other;
+    }
+    const auto& hit=hits[hand];
+    const float u=hit.valid?hit.x/cvr::vrui::CanvasWidth:snapshot.u;
+    const float v=hit.valid?hit.y/cvr::vrui::CanvasHeight:snapshot.v;
+    snapshot.focus=focus.Step(directional,hit.valid,u,v);
+    snapshot.hit=hit.valid && !snapshot.focus;
+    // Without a ray target, A still activates the game's highlighted item.
+    // With a ray target, the same trigger clicks it: never send A and a mouse
+    // click together, which could select twice or confirm the next dialog.
+    if(snapshot.focus || !snapshot.hit) {
+        snapshot.down=false;
+        if(edges[hand] || (!special && edges[1-hand])) {
+            pulse=context==cvr::cyberfinger::MenuContext::PictureFrame?0x4000:0x1000;pulseUntil=now+70;
+        }
+        snapshot.buttons=(now<pulseUntil?pulse:0)|heldButtons;
+    } else snapshot.down=snapshot.hit && armed[hand] && pressed[hand] && (snapshot.down || edges[hand]);
+    if(special && edges[1-hand]) {
+        pulse=context==cvr::cyberfinger::MenuContext::Map?0x0040:0x0080;pulseUntil=now+70;
+    }
+    snapshot.buttons=(now<pulseUntil?pulse:0)|heldButtons;
+    snapshot.secondary=snapshot.secondary && snapshot.hit;
+    snapshot.u=u;snapshot.v=v;snapshot.start=tracking.hands[hand].aim.position;snapshot.end=hit.point;
+    // An edge is consumed by this frame's panel, not replayed by a repeated image.
+    directional=false;edges[0]=edges[1]=false;
+}
+Snapshot Current() {
+    std::lock_guard lock(mutex);
+    if(!cvr::cyberfinger::Enabled() || GetTickCount64()-snapshot.tick>250)return {};
+    return snapshot;
+}
+bool Cursor(float& u,float& v) {
+    const auto state=Current();
+    if(!state.active || !state.hit || !Foreground())return false;
+    u=state.u;v=state.v;return true;
+}
+void DispatchPointer() {
+    // XInput is polled on the game thread. Serialize other callers too, so
+    // each button edge is inserted once even if a plugin polls concurrently.
+    static std::mutex delivery;
+    std::lock_guard lock(delivery);
+    static bool mouseDown=false,secondaryDown=false;
+    static float previousU=-1,previousV=-1;
+    const auto state=Current();
+    const bool owns=state.active && state.hit && Foreground();
+    bool down=owns && state.down;
+    bool positioned=owns && state.u==previousU && state.v==previousV;
+    if(owns && (state.u!=previousU || state.v!=previousV || down!=mouseDown || state.secondary!=secondaryDown)) {
+        RECT client{};POINT origin{};
+        if(GetDesktopPhysicalClientRect(g_gameHwnd,client,origin) && client.right>2 && client.bottom>2) {
+            // Keep the real cursor inside this window. Its virtual position is
+            // supplied by the game's cursor/message hooks, independent of crop.
+            const LONG x=origin.x+std::clamp(LONG(state.u*client.right),1L,client.right-2);
+            const LONG y=origin.y+std::clamp(LONG(state.v*client.bottom),1L,client.bottom-2);
+            static const auto metrics=reinterpret_cast<int(WINAPI*)(int)>(GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetSystemMetrics"));
+            const int left=metrics(SM_XVIRTUALSCREEN),top=metrics(SM_YVIRTUALSCREEN);
+            const int w=metrics(SM_CXVIRTUALSCREEN),h=metrics(SM_CYVIRTUALSCREEN);
+            if(w>1 && h>1 && Foreground()) {
+                INPUT event{};event.type=INPUT_MOUSE;
+                event.mi.dx=LONG(double(x-left)*65535/(w-1));event.mi.dy=LONG(double(y-top)*65535/(h-1));
+                event.mi.dwFlags=MOUSEEVENTF_ABSOLUTE|MOUSEEVENTF_VIRTUALDESK|MOUSEEVENTF_MOVE;
+                if(SendInput(1,&event,sizeof(event))==1){previousU=state.u;previousV=state.v;positioned=true;}
+            }
+        }
+    }
+    // Never click an old desktop location if window mapping or movement failed.
+    down=down && positioned && Foreground();
+    if(down!=mouseDown) {
+        INPUT event{};event.type=INPUT_MOUSE;event.mi.dwFlags=down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP;
+        if(SendInput(1,&event,sizeof(event))==1)mouseDown=down;
+    }
+    const bool secondary=owns && positioned && state.secondary && Foreground();
+    if(secondary!=secondaryDown) {
+        INPUT event{};event.type=INPUT_MOUSE;event.mi.dwFlags=secondary?MOUSEEVENTF_RIGHTDOWN:MOUSEEVENTF_RIGHTUP;
+        if(SendInput(1,&event,sizeof(event))==1)secondaryDown=secondary;
+    }
+    if(!owns)previousU=previousV=-1;
+}
+}

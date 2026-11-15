@@ -7,11 +7,14 @@
 #include <chrono>
 #include <thread>
 #include <cstring>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include <source_location>
 using Microsoft::WRL::ComPtr;
 using namespace cvr::vrs;
+static bool nativeStereo{},nativeRendering=true;
+namespace cvr::engine_stereo { bool Enabled(){return nativeStereo;} bool Rendering(){return nativeRendering;} }
 static ComPtr<ID3D12InfoQueue> debugInfo;
 static void Check(bool v,const char* text){if(!v)throw std::runtime_error(text);}
 static void Hr(HRESULT h,const std::source_location where=std::source_location::current()){
@@ -89,8 +92,41 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
         Rate(list5.Get(),D3D12_SHADING_RATE_1X1,nullptr);Image(list5.Get(),nullptr);ShadingRate(list.Get(),D3D12_SHADING_RATE_1X1,nullptr);ShadingImage(list.Get(),nullptr);
     };
     SetSettings({1,70,65,0,0});std::this_thread::sleep_for(std::chrono::milliseconds(1010));Tick(device.Get(),queue.Get());
-    begin();PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    begin();PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Restore(list.Get());Hr(list->Close());
     Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());Check(GetStatus().readyMaps==1,"Map did not become ready");
+    // A loaded game creates more than 512 distinct direct command lists. Keep
+    // them alive together so allocator address reuse cannot hide a registry cap.
+    {
+        const auto liveBefore=GetStatus().trackedLists;
+        std::vector<ComPtr<ID3D12GraphicsCommandList>> manyLists;
+        for(unsigned i=0;i<640;++i) {
+            ComPtr<ID3D12GraphicsCommandList> extra;
+            Hr(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),pso.Get(),IID_PPV_ARGS(&extra)));
+            Reset(extra.Get(),true,pso.Get());Viewports(extra.Get(),1,&viewport);Targets(extra.Get(),3,true);
+            const auto before=GetStatus().draws[0];
+            PrepareDraw(extra.Get(),0x33DDA4,0,Rate,Image);
+            if(GetStatus().draws[0]!=before+1) {
+                std::cerr<<"Untracked command list at index "<<i<<'\n';
+                throw std::runtime_error("VRS stopped tracking command lists after registry growth");
+            }
+            Restore(extra.Get());Hr(extra->Close());manyLists.push_back(std::move(extra));
+        }
+        Check(GetStatus().trackedLists==liveBefore+640,"VRS list ownership count did not grow with live command lists");
+        manyLists.clear();
+        Check(GetStatus().trackedLists==liveBefore,"Destroyed command lists retained VRS state");
+        // Exercise destruction/recreation with the hot-path cache still naming
+        // the previous object. The D3D allocator may recycle its address.
+        for(unsigned i=0;i<32;++i) {
+            ComPtr<ID3D12GraphicsCommandList> extra;
+            Hr(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),pso.Get(),IID_PPV_ARGS(&extra)));
+            Reset(extra.Get(),true,pso.Get());Viewports(extra.Get(),1,&viewport);Targets(extra.Get(),3,true);
+            const auto before=GetStatus().draws[0];PrepareDraw(extra.Get(),0x33DDA4,0,Rate,Image);
+            Check(GetStatus().draws[0]==before+1,"Recreated command list lost VRS tracking");
+            Restore(extra.Get());Hr(extra->Close());extra.Reset();
+            Check(GetStatus().trackedLists==liveBefore,"Cached command list state outlived its owner");
+        }
+        Check(GetStatus().stateFailures==0,"VRS state attachment failed");
+    }
     struct Result{std::vector<uint8_t> pixels;uint64_t invocations{};};
     auto render=[&](int mode,int eye,uint32_t node){
         begin();list->BeginQuery(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0);
@@ -114,7 +150,7 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
         for(UINT y=0;y<height;++y)std::memcpy(result.pixels.data()+y*width*4,static_cast<uint8_t*>(data)+fp.Offset+y*fp.Footprint.RowPitch,width*4);readback->Unmap(0,nullptr);
         Hr(counters->Map(0,nullptr,&data));result.invocations=static_cast<D3D12_QUERY_DATA_PIPELINE_STATISTICS*>(data)->PSInvocations;counters->Unmap(0,nullptr);return result;
     };
-    const auto baseline=render(0,0,0),main=render(1,0,0x23A938),vr=render(1,1,0x23A938),restored=render(2,0,0x23A938),hud=render(1,0,0x111111);
+    const auto baseline=render(0,0,0),main=render(1,0,0x33DDA4),vr=render(1,1,0x33DDA4),restored=render(2,0,0x33DDA4),hud=render(1,0,0x111111);
     Check(main.pixels==vr.pixels,"Eye policies differ");Check(restored.pixels==baseline.pixels && hud.pixels==baseline.pixels,"VRS escaped scene scope");
     Check(main.invocations<baseline.invocations*.85,"Pixel shading did not decrease");
     const auto rates=BuildRates({1,70,65,0,0},width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
@@ -131,15 +167,58 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
     const D3D12_SHADING_RATE_COMBINER nativeCombiners[]{D3D12_SHADING_RATE_COMBINER_MAX,D3D12_SHADING_RATE_COMBINER_MIN};
     Rate(list5.Get(),D3D12_SHADING_RATE_2X1,nativeCombiners);Image(list5.Get(),lastMap);
     ShadingRate(list.Get(),D3D12_SHADING_RATE_2X1,nativeCombiners);ShadingImage(list.Get(),lastMap);
-    PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());
+    PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Restore(list.Get());
     Check(observedRate==D3D12_SHADING_RATE_2X1 && observedImage==savedMap && observedCombiners[0]==nativeCombiners[0] && observedCombiners[1]==nativeCombiners[1],"Non-default native state lost");
-    Invalidate(list.Get());PrepareDraw(list.Get(),0x23A938,0,Rate,Image);
+    Invalidate(list.Get());PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);
     Check(observedRate==D3D12_SHADING_RATE_2X1,"Unknown bundle state overridden");Hr(list->Close());
     SetSettings({2,40,40,15,10});std::this_thread::sleep_for(std::chrono::milliseconds(1010));Tick(device.Get(),queue.Get());
-    begin();PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());Hr(list->Close());Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
-    const auto strong=render(1,0,0x23A938);Check(strong.invocations<main.invocations,"Second configuration not applied");
+    begin();PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Restore(list.Get());Hr(list->Close());Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
+    const auto strong=render(1,0,0x33DDA4);Check(strong.invocations<main.invocations,"Second configuration not applied");
     std::cout<<"PASS GPU native image/rate/combiners, unknown-state refusal and 4x4/settings rebuild; PS invocations "<<strong.invocations<<"\n";
-    SetSettings({});const auto off=render(1,0,0x23A938);Check(off.pixels==baseline.pixels,"Off is not pass-through");
+    Settings moving{1,30,30,0,0,true};SetSettings(moving);
+    UpdateGaze({{{.2f,.3f},{.8f,.7f}}},GetTickCount64());
+    Check(render(1,0,0x33DDA4).pixels==baseline.pixels,"Gaze toggle retained the fixed map during debounce");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1010));Tick(device.Get(),queue.Get());
+    const GazeCenters centers{{{.2f,.3f},{.8f,.7f}}};
+    auto warm=[&] {
+        UpdateGaze(centers,GetTickCount64());
+        begin();Targets(list.Get(),3,true,width,height);
+        PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);PrepareDraw(list.Get(),0x33DDA4,1,Rate,Image);
+        Restore(list.Get());Hr(list->Close());Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
+        UpdateGaze(centers,GetTickCount64());
+    };
+    warm();
+    const auto gazeLeft=render(1,0,0x33DDA4),gazeRight=render(1,1,0x33DDA4);
+    Check(gazeLeft.pixels!=gazeRight.pixels,"Per-eye gaze centers were not used");
+    Check(gazeLeft.invocations<baseline.invocations && gazeRight.invocations<baseline.invocations,"Gaze VRS did not reduce shading");
+    UpdateGaze({},0);Check(render(1,0,0x33DDA4).pixels==baseline.pixels,"Lost gaze did not restore full quality");
+    UpdateGaze(centers,GetTickCount64()-101);Check(render(1,0,0x33DDA4).pixels==baseline.pixels,"Stale gaze was used");
+    UpdateGaze({{{std::nanf(""),.5f},{.5f,.5f}}},GetTickCount64());
+    Check(render(1,0,0x33DDA4).pixels==baseline.pixels,"Nonfinite gaze was used");
+    nativeStereo=true;SetSettings(moving);warm();
+    begin();Targets(list.Get(),3,true,width,height);PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);
+    Check(observedImage!=nullptr,"Native SBS gaze map was not bound");
+    ComPtr<ID3D12Resource> stereoMap=observedImage;Restore(list.Get());
+    const auto desc=stereoMap->GetDesc();D3D12_PLACED_SUBRESOURCE_FOOTPRINT mapFp{};UINT64 mapBytes{};
+    device->GetCopyableFootprints(&desc,0,1,0,&mapFp,nullptr,nullptr,&mapBytes);auto mapReadback=buffer(mapBytes);
+    Barrier(list.Get(),stereoMap.Get(),D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=stereoMap.Get();to.pResource=mapReadback.Get();to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=mapFp;
+    list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+    Barrier(list.Get(),stereoMap.Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_SHADING_RATE_SOURCE);
+    Hr(list->Close());ID3D12CommandList* mapLists[]{list.Get()};queue->ExecuteCommandLists(1,mapLists);wait();
+    const std::array regions{GazeRegion(moving,.2f,.3f),GazeRegion(moving,.8f,.7f)};
+    const auto expected=BuildStereoRates(regions,width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    void* mapData{};Hr(mapReadback->Map(0,nullptr,&mapData));
+    for(unsigned y=0;y<desc.Height;++y)Check(std::memcmp(static_cast<char*>(mapData)+mapFp.Offset+y*mapFp.Footprint.RowPitch,expected.data()+y*desc.Width,size_t(desc.Width))==0,"GPU stereo gaze map differs from policy");
+    mapReadback->Unmap(0,nullptr);
+    begin();Targets(list.Get(),3,true,width,height);D3D12_VIEWPORT half=viewport;half.Width=width/2;
+    Viewports(list.Get(),1,&half);PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Check(observedImage==stereoMap.Get(),"Left half viewport rejected");
+    half.TopLeftX=width/2;Viewports(list.Get(),1,&half);PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Check(observedImage==stereoMap.Get(),"Right half viewport rejected");
+    nativeRendering=false;PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Check(!observedImage,"Mono/loading frame used SBS map");nativeRendering=true;
+    half.Width=100;Viewports(list.Get(),1,&half);PrepareDraw(list.Get(),0x33DDA4,0,Rate,Image);Check(!observedImage,"Unrecognized viewport used SBS map");
+    Hr(list->Close());
+    std::cout<<"PASS GPU moving gaze, distinct eyes, loss/stale/NaN fallback, native SBS map readback and half-viewports\n";
+    SetSettings({});const auto off=render(1,0,0x33DDA4);Check(off.pixels==baseline.pixels,"Off is not pass-through");
     cvr::gpu::CollectCommandResources();Shutdown();
     ComPtr<ID3D12InfoQueue> info;Hr(device.As(&info));
     for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T n=0;info->GetMessage(i,nullptr,&n);std::vector<char> storage(n);auto* m=reinterpret_cast<D3D12_MESSAGE*>(storage.data());Hr(info->GetMessage(i,m,&n));

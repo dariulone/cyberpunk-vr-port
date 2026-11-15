@@ -19,6 +19,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
+$BuildRoot = if ([IO.Path]::IsPathRooted($BuildDir)) { [IO.Path]::GetFullPath($BuildDir) }
+             else { [IO.Path]::GetFullPath((Join-Path $RepoRoot $BuildDir)) }
 $DistRoot = [IO.Path]::GetFullPath((Join-Path $RepoRoot "dist"))
 $Out      = [IO.Path]::GetFullPath((Join-Path $DistRoot "CyberpunkVRPort-$Version"))
 if ((Split-Path $Out -Parent) -ne $DistRoot) { throw "Package path must be directly inside dist" }
@@ -79,17 +81,17 @@ function Add-File($src, $rel) {
 # SetVRSprintActive, all of them) is compiled into cyberpunkvrport.dll now, out of src\Natives\.
 # Shipping both was also the recipe for the read at 0xFFFFFFFFFFFFFFFF -- two RED4ext plugins
 # detouring one address -- so a stale CyberpunkVR_Hands.dll left in red4ext\plugins is worth deleting.
-$stereoDll = Need (Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\cyberpunkvrport\Release\cyberpunkvrport.dll") "cyberpunkvrport.dll"
+$stereoDll = Need (Join-Path $BuildRoot "bin\red4ext\plugins\cyberpunkvrport\Release\cyberpunkvrport.dll") "cyberpunkvrport.dll"
 Add-File $stereoDll "red4ext\plugins\cyberpunkvrport\cyberpunkvrport.dll"
 # redscript's compiler, built with the plugin from redscript's sources: what compiles the scripts when redscript is
 # not installed (Core/ScriptCompiler.hpp). Its licence goes with it.
 foreach ($n in @("scc_lib.dll", "LICENSE.txt")) {
-    $f = Need (Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\cyberpunkvrport\Release\redscript\$n") "redscript $n"
+    $f = Need (Join-Path $BuildRoot "bin\red4ext\plugins\cyberpunkvrport\Release\redscript\$n") "redscript $n"
     Add-File $f "red4ext\plugins\cyberpunkvrport\redscript\$n"
 }
 # The TweakDB's record names (WolvenKit's, GPL-3.0, with their licence), for the Lua host's TDBID.ToStringDEBUG.
 foreach ($n in @("tweakdbstr.kark", "usedhashes.kark", "LICENSE.txt")) {
-    $f = Need (Join-Path $RepoRoot "$BuildDir\bin\red4ext\plugins\cyberpunkvrport\Release\config\tweakdb\$n") "TweakDB names $n"
+    $f = Need (Join-Path $BuildRoot "bin\red4ext\plugins\cyberpunkvrport\Release\config\tweakdb\$n") "TweakDB names $n"
     Add-File $f "red4ext\plugins\cyberpunkvrport\config\tweakdb\$n"
 }
 

@@ -7,6 +7,7 @@
 #include "Overlay/VrImGuiInput.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Render/DesktopMirror.hpp"
+#include "Runtimes/CyberFingerGameMenu.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -516,6 +517,11 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         static_cast<UINT>(winHeight), cover)) {
                     x = static_cast<int>(std::lround(cover.sourceX + x * cover.sourceWidth / winWidth));
                     y = static_cast<int>(std::lround(cover.sourceY + y * cover.sourceHeight / winHeight));
+                    float u{},v{};
+                    if(cvr::cfmenu::Cursor(u,v)) {
+                        x=static_cast<int>(std::lround(u*(virtualWidth-1)));
+                        y=static_cast<int>(std::lround(v*(virtualHeight-1)));
+                    }
 
                     lParam = MAKELPARAM(static_cast<WORD>(x), static_cast<WORD>(y));
                 }
@@ -551,7 +557,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     // 3. Feed to ImGui if visible
     if ((msg==WM_KEYUP || msg==WM_SYSKEYUP) && wParam==VK_ESCAPE && cvr::vrui::Visible()) {cvr::vrui::Close();return 0;}
     if (cvr::vrui::Visible()) {
-        if(msg==WM_MOUSEMOVE || msg==WM_LBUTTONDOWN || msg==WM_LBUTTONDBLCLK || msg==WM_LBUTTONUP || msg==WM_MOUSEWHEEL || msg==WM_MOUSEHWHEEL){
+        if(msg==WM_MOUSEMOVE || msg==WM_LBUTTONDOWN || msg==WM_LBUTTONDBLCLK || msg==WM_LBUTTONUP ||
+            msg==WM_RBUTTONDOWN || msg==WM_RBUTTONDBLCLK || msg==WM_RBUTTONUP || msg==WM_MOUSEWHEEL || msg==WM_MOUSEHWHEEL){
             const float width=g_desktopWidth.load(),height=g_desktopHeight.load();
             const auto rect=cvr::vrui::DesktopPlacement(width,height);
             // The physical client (GetClientRect is hooked to the virtual size here), and the panel as
@@ -575,6 +582,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             std::lock_guard pointerLock(g_desktopPointerMutex);
             if(msg==WM_LBUTTONDOWN || msg==WM_LBUTTONDBLCLK || msg==WM_LBUTTONUP)
                 g_pointerInput.MouseButton(x,y,msg!=WM_LBUTTONUP,now);
+            else if(msg==WM_RBUTTONDOWN || msg==WM_RBUTTONDBLCLK || msg==WM_RBUTTONUP)
+                g_pointerInput.MouseButton(x,y,msg!=WM_RBUTTONUP,now,1);
             else if(msg==WM_MOUSEWHEEL || msg==WM_MOUSEHWHEEL){
                 const float delta=float(GET_WHEEL_DELTA_WPARAM(wParam))/WHEEL_DELTA;
                 g_pointerInput.MouseWheel(x,y,msg==WM_MOUSEWHEEL?delta:0,msg==WM_MOUSEHWHEEL?-delta:0,now);
@@ -670,6 +679,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
         const auto pointer=cvr::vrui::GetView();
         std::lock_guard pointerLock(g_desktopPointerMutex);
         g_pointerInput.Submit(io,pointerEvents,pointer.hit,pointer.dragging,GetTickCount64());
+        if(g_pointerInput.ConsumeClose())cvr::vrui::Close();
     } else {
         if(!cvr::lua::OverlayOpen()){std::lock_guard pointerLock(g_desktopPointerMutex);g_pointerInput.Reset(io);}
         io.FontGlobalScale=1;cvr::vrui::ClearCanvas();

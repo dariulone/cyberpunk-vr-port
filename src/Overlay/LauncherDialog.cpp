@@ -439,10 +439,32 @@ static const ResolutionPreset kViveProResolutions[] = {
     {2880, 3200, L"2880 x 3200"},
 };
 
+// QUEST PRO: conservative near-square sizes shared with the existing Quest 2 assets.
+// These are render budgets, not the Pro's 1800 x 1920 panel resolution. The measured Pro eye
+// window is ~0.973 (https://risa2000.github.io/hmdgdb/hmd_cfgs/MetaQuestPro_Native_R72.html),
+// so these ~0.99 targets are a small overscan, not a claim that its optics match Quest 2.
+// OpenXR still supplies the actual per-eye FOV/IPD. Reusing packed VRCAM sizes also keeps this
+// preset usable with engine stereo off; intermediate steps retain their engine-only gate.
+static const ResolutionPreset kQuestProResolutions[] = {
+    {1864, 1880, L"1864 x 1880"},
+    {1712, 1728, L"1712 x 1728 (Performance)"},
+    {2080, 2104, L"2080 x 2104 (Balanced)"},
+    {2328, 2352, L"2328 x 2352", kEngineStereoOnly},
+    {2600, 2624, L"2600 x 2624"},
+    {2856, 2888, L"2856 x 2888", kEngineStereoOnly},
+    {3144, 3168, L"3144 x 3168", kEngineStereoOnly},
+    {3448, 3480, L"3448 x 3480", kEngineStereoOnly},
+    {4168, 4208, L"4168 x 4208"},
+    {5088, 5136, L"5088 x 5136"},
+    {6104, 6168, L"6104 x 6168"},
+};
+
+// IDs are saved in vrport-launcher.ini: preserve them when grouping the display order.
 static const HmdPreset kHmdPresets[] = {
     {0, L"Q2",    L"Meta Quest2",     kQuest2Resolutions,       _countof(kQuest2Resolutions)},
     {1, L"Q3S",   L"Meta Quest3s",    kQuest3SResolutions,      _countof(kQuest3SResolutions)},
     {2, L"Q3",    L"Meta Quest3",     kQuest3Resolutions,       _countof(kQuest3Resolutions)},
+    {19,L"QPRO",  L"Meta Quest Pro", kQuestProResolutions, _countof(kQuestProResolutions)},
     {3, L"P4",    L"Pico4",           kPico4Resolutions,        _countof(kPico4Resolutions)},
     {4, L"P4U",   L"Pico4 Ultra",     kPico4UltraResolutions,   _countof(kPico4UltraResolutions)},
     {5, L"CRYOG", L"Crystal OG",      kCrystalOGResolutions,    _countof(kCrystalOGResolutions)},

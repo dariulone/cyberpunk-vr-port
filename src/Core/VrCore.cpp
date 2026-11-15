@@ -1,5 +1,6 @@
 #include "Utils/DebugGate.hpp"
 #include "Core/Paths.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
 #include <windows.h>
 #include "Stereo/VrcamConfig.hpp"   // cname_hash, for the device camera name
 #include "Stereo/EngineStereo.hpp"
@@ -1505,7 +1506,7 @@ extern "C" uint32_t GetRenderedCameraSeq() {
 
 
 extern "C" int GetMenuMode() {
-    return g_menuModeValue;
+    return g_menuModeValue?g_menuModeValue:(cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::PictureFrame?1:0);
 }
 
 void NormalizeQuat(float& x, float& y, float& z, float& w) {

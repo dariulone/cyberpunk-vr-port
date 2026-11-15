@@ -8,7 +8,7 @@ namespace cvr::cyberfinger {
 // closed fingers cannot equip/use something. A brief dropout does not drop it.
 class ProximityGrip {
 public:
-    bool Update(bool valid, bool closed, uint64_t now) {
+    bool Update(bool valid, bool closed, uint64_t now, bool allowStart=true) {
         if (!valid) {
             if (!seen_ || now - lastValid_ >= kLossMs) {
                 held_ = armed_ = releasing_ = false;
@@ -19,6 +19,9 @@ public:
         if (seen_ && now - lastValid_ >= kLossMs) held_ = armed_ = releasing_ = false;
         lastValid_ = now;
         seen_ = true;
+        // Operating a controller can curl fingers. It must not begin a grab;
+        // an existing object stays held while its trigger/buttons are used.
+        if(!held_ && !allowStart){armed_=false;return false;}
         if (!closed) {
             armed_ = true;
             if (held_) {

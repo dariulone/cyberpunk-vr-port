@@ -1,9 +1,29 @@
 # CyberFinger / SlimeVR experimental patch
 
-This is a source patch for this checkout, not an installed or hardware-validated
-release. It changes the Cyberpunk port. Companion binding assets have also been
+The control specification is [README_CYBRFNGR.md](../README_CYBRFNGR.md);
+build/install and live verification are in the [session TODO](cyberfinger-session-todo.md).
+The native CF UI bridge leases map, quest-log and apartment-frame contexts from
+their visible game controllers. Menu release sends Back without leaking the
+both-Menu chord; map Grip uses a foreground-window right mouse button, and map
+zoom/Tab and journal Tab use the corresponding native gamepad actions.
+The apartment frame uses the full native menu image at 55 degrees and latches
+its pose until close or tracking-origin recenter. Prompts/loot reveal the HUD
+without claiming conversation navigation.
+
+World interactions follow the hand opposite the movement stick, computed from
+the existing handedness/bindings settings. Trigger/Grip supply Choice1/Choice2
+(X/Y) after the port's weapon-wheel/reload remaps. Their input remains claimed
+until release when the prompt closes. Computers have separate ownership of
+the zoomed world widget: the existing native world-hit hook replaces gaze with
+the hand ray through the mesh/UV picker. A miss cannot click a retained gaze
+target. The same hand scrolls; Grip returns within the computer and Menu emits
+StopDeviceControl. The keypad path is unchanged for non-CF controllers.
+
+This checkout contains an experimental patch, release packages and an installer
+for the Cyberpunk port. Companion binding assets have also been
 added to `D:\build\CyberFinger_SteamVRFusion`; its driver binary and bridge are
-unchanged. ResoFBTAutoSetup and all game files remain unchanged.
+unchanged. ResoFBTAutoSetup is a reference; mod updates are installed separately
+with backups. Features still awaiting headset verification are called out below.
 
 ## What already existed
 
@@ -17,6 +37,81 @@ unchanged. ResoFBTAutoSetup and all game files remain unchanged.
   calibration. It estimates knees, elbows and the torso from those inputs.
 
 ## What this patch changes
+
+### Eye-tracked foveated rendering
+
+In **F10 > General > Variable Rate Shading**, immediately below **Fixed Foveated
+Rendering**, enable **Eye-tracked foveated rendering**. It defaults to off;
+enabling it selects 2 x 2 peripheral shading if shading was off. The center
+width/height controls set the full-quality area. Fixed center offsets are ignored
+while gaze tracking is enabled. Switch peripheral shading to Off to disable VRS
+entirely. Turning off eye tracking restores the existing fixed VRS behavior,
+which is available only in legacy stereo.
+
+This uses D3D12 Tier 2 variable-rate shading, including on AMD, independently of
+the NVIDIA-only fixed DLSS path. It supports both legacy per-eye targets and
+native stereo targets. Only recognized opaque scene passes are affected;
+HUD, transparent materials and unrecognized passes keep their normal shading.
+It reduces material shading work, not geometry, ray-tracing or streaming costs.
+
+Quest Pro needs eye tracking enabled/calibrated and Steam Link's **Share eye
+tracking data to other apps on this PC** enabled. The mod uses
+`XR_EXT_eye_gaze_interaction`; it needs no OSC listener or additional eye-tracking
+mod. [Valve documents this OpenXR passthrough](https://store.steampowered.com/news/posts/?appgroupname=SteamVR&appids=250820&enddate=1728412551&feed=steam_community_announcements).
+The runtime's capability and current gaze status appear in the overlay. Missing
+capability, denied sharing, lost focus/tracking, stale samples or unsupported
+projection use full quality. The feature currently requires the port's default
+asymmetric projection. It projects the combined gaze direction into each rendered
+eye window; the extension supplies no per-eye convergence depth.
+
+Shading maps are immutable, cached on a 1/16-image grid, and retained through GPU
+completion. The full-quality region includes a guard for grid rounding. A newly
+requested map uses full quality until its upload completes; no old gaze map is
+substituted. The cache is bounded to 128 maps. This avoids rewriting a texture
+that recorded or in-flight command lists still reference. Gains and the best
+center size depend on the scene and require headset measurement.
+
+`config/vrport.ini`: `xr_vrs_eye_tracked=0/1`, with existing `xr_vrs=0/1/2`
+(Off/2 x 2/4 x 4), `xr_vrs_width`, and `xr_vrs_height`. No gaze coordinates are
+written to disk. Debug logs report capability/status changes, and the existing
+VRS diagnostic export includes freshness and draw counts.
+
+Validation: `tools/vrs_tests` exercises settings persistence, gaze projection,
+tracking/focus loss, stale/invalid input, extension setup/teardown, GPU shading
+reduction, full-quality fallback, stereo map readback and eye viewports. The
+Release plugin builds. SteamVR on this machine advertises the extension and has
+sharing enabled; the current Quest Pro / Steam Link game log confirms live gaze
+reception (tracking state 2). Visual quality and performance testing remain pending.
+
+Live testing exposed a 512-command-list registry cap that stopped VRS after
+loading gameplay. The fix attaches tracking state to each command list's lifetime,
+uses weak registry/cache references, and prunes expired entries. GPU regression
+testing covers 640 live lists and releasing their states. Check **increases** in
+the exported VRS draw counters over a timed interval; a nonzero cumulative total
+can belong entirely to an earlier scene. `tracked_lists` and `state_failures` in
+the diagnostic report expose the new ownership path. The on/off measurement tool
+is `tools/vrs_tests/live_ab.py`; it restores `xr_vrs` after testing and rejects an
+on sample with no new VRS draws. See the session TODO for installation/test status.
+
+### Headset, lobby and controls
+
+The startup headset list groups **Meta Quest Pro** with the other Meta headsets
+at the top (saved as `hmd_type=19`, independently of its position in the list).
+For Steam Link, select the **SteamVR** runtime and start with **2080 x 2104 (Balanced)**.
+Quest Pro uses conservative render sizes shared with the existing Quest 2 assets;
+they are not panel-resolution or exact lens-aspect presets. OpenXR supplies the
+actual view angles and IPD. Sizes without packed VRCAM assets appear only with
+engine stereo enabled. Existing headset IDs and saved selections are unchanged.
+
+The lobby composition check recognizes the shorter grading layout observed on
+game 2.5 with an RX 7900 XT. Its unused tail varies between zeros and stack data;
+checking it caused a flat SBS panel, then flickering between immersive VR and a
+flat panel as `WorldShown` expired. The shorter layout is accepted only inside
+the known DrawHUD rendering node, with the weight, target-size, and grading
+checks retained. Other nodes still require the original full grading layout.
+Captured zero and changing-tail frames are covered by
+`tools/lobby_composition_tests`. CyberFinger pointing works in the headset;
+verification of the final flicker correction is pending.
 
 `config/cyberfinger.ini` with `enabled=1` opts into the profile at startup. With it
 absent or disabled, the original input behavior is retained.
@@ -57,10 +152,33 @@ Use SteamVR as the OpenXR runtime. The CyberFinger driver checkout now ships
 **CyberFinger CyberpunkVRPort** bindings and registers the expected direct/GOG
 executable key and Steam app 1091500. See its `docs/cyberpunk-vr-port.md` for
 packaging, custom launch aliases and the optional pink-pause layout. The actual
-GOG launch key still needs a runtime check; a personal saved binding takes
-priority over a driver default. The bindings require this patch with `enabled=1`.
+GOG OpenXR launch key observed on this machine is
+`system.generated.openxr.cyberpunkvrport.cyberpunk2077.exe`; it is now registered
+in the driver sources too. Without that alias SteamVR used an automatic Index
+mapping, omitting the four dedicated CyberFinger actions. Install the updated
+binding assets and select the CyberFinger layout for this application. A personal
+saved binding takes priority over a driver default. The bindings require this
+patch with `enabled=1`.
 They preserve both grip/aim poses and haptics; finger joints come independently
 from `XR_EXT_hand_tracking`, not invented OpenVR skeleton actions.
+
+If hands move but fingers do not, check the mod log for
+`[finger-grip] left/right hand: finger data from hand tracking`. Extension
+availability alone does not prove joints are arriving. In an earlier run the
+driver log showed live 31-bone skeletons but the game logged no valid finger
+samples. After the user uninstalled Ultraleap and restarted SteamVR, the game
+logs valid finger samples for both hands; visible animation/grabs remain to test.
+An Ultraleap implicit OpenXR layer was also observed during a runtime
+probe; interference is a hypothesis, not yet a confirmed cause. After closing
+the game, `launch_cyberfinger_native_hands.cmd` starts the GOG executable with
+Ultraleap bypassed for that process only, using its
+[documented disable variable](https://docs.ultraleap.com/openxr/configuration/disabling-the-layer/index.html).
+It does not change the registry, SteamVR settings or other apps. Compare finger
+tracking with an ordinary launch before treating this as the fix.
+
+For snap turning, open **F10 > Controls > Turning (right stick)**, enable
+**Snap turn**, choose **Snap angle**, and click **Save**. The file setting is
+`xr_snap_turn=1`; the inspected configuration had it set to 0.
 
 When editing manually, edit the **CyberpunkVRPort** application's binding. The action
 labels below are those created by the port; SteamVR may display per-hand action
@@ -69,21 +187,22 @@ uses the **left-handed weapon preset**, with movement still on the left stick.
 
 | Physical control | Action to bind | Result |
 |---|---|---|
-| Left stick axes | Thumbstick, left | Move; full forward retains sprint |
+| Left stick axes | Thumbstick, left | Move; full forward does not start sprint |
 | Right stick axes | Thumbstick, right | Turn; up dash, down crouch |
-| Left stick click | Thumbstick Click, left | Existing D-pad modifier/sprint click |
+| Left stick click | Thumbstick Click, left | Click to sprint until the stick is released; hold remains a D-pad modifier |
 | Right stick click | Primary Button (A/X), right | Jump/confirm; hold supports charge jump |
 | Left trigger | Trigger, left | Fire; throttle in vehicles |
 | Right trigger | Trigger, right | Aim/block; brake in vehicles |
-| Left physical grip (`/input/grip/click`) | CyberFinger Scanner (`cf_scanner`) | Hold scanner |
+| Left physical grip (`/input/grip/click`) | CyberFinger Scanner (`cf_scanner`) | Toggle scanner; X in native menus; context action in VR menus/F10 |
 | Right physical grip (`/input/grip/click`) | Thumbstick Click, right | Existing R3: melee/slide release, context dependent |
 | Left Menu button (`/input/b`) | CyberFinger Weapon Wheel (`cf_weapon`) | Tap next weapon, hold weapon wheel |
-| Right Menu button (`/input/b`) | CyberFinger Inventory (`cf_inventory`) | Inventory/Back-Select |
-| Left black wrist (`/input/a`) | Primary Button (A/X), left | Interact/reload |
-| Right black wrist (`/input/a`) | Secondary Button (B/Y), right | Eject magazine/back, using existing context rules |
-| Left black wrist, hold (`/input/a_hold`) | Menu Button | Pause |
+| Right Menu button (`/input/b`) | CyberFinger Inventory (`cf_inventory`) | Tap inventory; hold 0.65 s for OS cyberware |
+| Left black wrist (`/input/a`) | Primary Button (A/X), left | Eject for left weapon hand; quick reload for right weapon hand |
+| Right black wrist (`/input/a`) | Secondary Button (B/Y), right | Quick reload for left weapon hand; eject for right weapon hand |
+| Left black wrist, hold (`/input/a_hold`) | Menu Button | Pause for left weapon hand; heal for right weapon hand |
+| Right black wrist, hold (`/input/a_hold`) | CyberFinger Right Black Hold (`cf_heal`) | Heal for left weapon hand; pause for right weapon hand |
 | Left pink wrist (`/input/pink`) | No game action; existing compositor binding | SteamVR dashboard |
-| Right pink wrist (`/input/pink`) | CyberFinger Quick Heal (`cf_heal`) | Use equipped healing consumable (D-pad Up; navigation in menus) |
+| Right pink wrist (`/input/pink`) | CyberFinger VR Menu (`cf_settings`) | Open/close world-space VR menu; F10 remains keyboard-only |
 | Close/open fingers near a target | No SteamVR gesture binding | Grab/release |
 
 Use the **raw** physical grip click, not `/input/grab`: the latter has CyberFinger's
@@ -91,20 +210,34 @@ tap-to-hold behavior. Remove the old source assignments when replacing them, so
 right stick click does not also emit R3 and Menu does not also emit B. Leave
 pinch/fist gestures unassigned in SteamVR; the port evaluates the joints itself.
 
-The resulting VR-settings chord is **left stick click + right physical grip**,
-held for half a second (the port still receives L3+R3). The existing cyberware
-chord remains left stick click + a left-hand fist. Physical grip and finger grip
-are intentionally distinct.
+Tap **right pink wrist** to open/close the world-space VR menu. Hold **both
+Menu buttons** for half a second to toggle the larger HUD; release both before
+repeating. Left-stick + right-Grip is retired. The old
+fist/cyberware chord is disabled for active CyberFinger controllers; use right
+Menu hold instead. In original Cyberpunk menus, including the wardrobe, either
+hand uses Trigger for A/select, Menu for B/Back on release, and physical Grab for
+X (held when requested). Ray selection uses a mouse click instead of sending a
+second A activation. Both-Menu suppresses B. The world-space VR menu and F10 use
+Menu for Back/cancel/close and Grip for context actions, with hold-Grip on F10's
+title handle still moving the panel. The raw left/right Menu state is preserved
+before gameplay tap/hold conversion and published in `VRMenuPointer`'s optional
+CyberFinger metadata. Closing fingers remains a
+nearby-object gesture, not a menu click. These context changes require the
+matching plugin; the v2 raw SteamVR bindings are unchanged. Black-wrist raw
+actions are resolved by weapon hand before merging as named game actions, so
+optional face-button/stick mirroring cannot turn eject into weapon switch or
+reload into jump. Weapon-hand hold always pauses, including in vehicles.
+See [the quick reference](../README_CYBRFNGR.md) for context-specific controls.
 
 The default leaves left pink for the SteamVR dashboard through its compositor
-binding. Optional `*_pink_pause.json` game bindings pair with the driver's
-`vrcompositor_cyberfinger_black_hold.json`: left pink then pauses and left black
-hold opens the dashboard. Select both together; changing the dashboard layout
-affects all apps. Neither optional layout is registered by default. The
+binding. Older optional `*_pink_pause.json` variants pair with the driver's
+`vrcompositor_cyberfinger_black_hold.json`, but do not implement this new wrist
+layout. Use the default v2 binding for the controls above. Neither optional
+layout is registered by default. The
 bridge's **Right pink button** option must be **SteamVR**, so it reaches the app
 instead of being consumed by mic mute/FluxAction. Black wrist short presses are
 reported on release by this driver; holding them emits the separate `a_hold`
-input, used for pause on the left in the default mapping. No firmware change or rotary dial is
+input, resolved by weapon hand by the plugin. No firmware change or rotary dial is
 needed: “dial” here means the existing Resonite Menu button. Left and right Menu
 are separate physical inputs and can be rebound independently in SteamVR.
 
@@ -137,6 +270,84 @@ change the jump/wrist mappings in the table. Dedicated `cf_weapon`,
 `cf_inventory`, `cf_scanner` and `cf_heal` actions keep their named functions.
 
 ## Configuration
+
+### Installer
+
+Run `install_cyberfinger.cmd` from this checkout. It uses Windows PowerShell 5.1,
+defaults to `C:\Program Files (x86)\GOG Galaxy\Games\Cyberpunk 2077`, enables the
+CyberFinger profile and eight-role SlimeVR, and selects the left-handed weapon
+preset. SteamVR drivers and RED4ext are installed separately.
+
+With a complete **patched** release package already extracted:
+
+```powershell
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger -WhatIf
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger
+```
+
+Without `-Package`, the installer prepares and builds this checkout automatically
+in `build\cyberfinger-release`, then assembles its package with
+`scripts/build_dist.ps1`. Git, CMake 3.24+ and the Visual Studio 2022 C++ tools
+with a Windows SDK must be installed. The first run downloads pinned dependencies
+and takes longer; later runs reuse them. RED4ext 1.31.0 or newer must already be
+installed in the game.
+
+```powershell
+# Prepare, build, package and install:
+.\install_cyberfinger.cmd
+# Prepare/build only, without changing game files:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\prepare_cyberfinger.ps1
+# A separate build directory can also be selected (inside this checkout):
+.\install_cyberfinger.cmd -BuildDir build\my-cyberfinger-release
+```
+
+Preparation downloads the original [0.2.3 release](https://github.com/dariulone/cyberpunk-vr-port/releases/tag/0.2.3)
+with its pinned SHA-256 checksum, checks its archive manifest against this
+checkout, and supplies the missing packed asset archive and matching redscript
+compiler. It builds the patched `cyberpunkvrport.dll` from source; it never uses
+the release's stock game plugin. This avoids needing Rust/Cargo for the bundled
+script compiler. Downloads are cached under `build/cyberfinger-bootstrap`.
+The preparation script uses game-2.5 SDK revision
+`a34f0ad0a9e4f37cbe1fe001e4ff68c2949d0665` from `wopss/RED4ext.SDK`, the upstream
+used by this repository's patch-day tools. It keeps that checkout in the build
+cache; the original 2.31 SDK submodule is not repointed.
+The original Rust build remains available when configuring CMake without
+`CVR_REDSCRIPT_COMPILER_DIR`.
+
+`-Build` remains accepted for existing commands; source installs always build.
+A source patch ZIP is not an installable `-Package`, and the focused test harness
+is not the game DLL. Missing C++ tools or failed builds stop before any game
+files change. The `.cmd` launcher prints a concise failure message.
+
+Optional arguments: `-GameRoot "D:\Games\Cyberpunk 2077"`, `-WeaponHand Right`,
+and `-NoSlimeVR`. The latter turns off the tracker/FBT preset. `-WhatIf` performs
+read-only validation and previews the install; it also skips building and
+packaging. Close the game before installing. Windows may require an elevated
+terminal to write to Program Files.
+
+The installer checks for the patched native action names and Reach script,
+copies the current plugin layout and OpenVR shim, and merges the three INI
+files. Existing calibration, captured grips, wrist placement and unrelated INI
+keys are preserved; the selected render resolution is carried into the new
+catalogue if still supported. First-launch game-setting behavior is left to the
+mod's existing configuration.
+
+Replaced files and conflicting loaders (`bin/x64/dxgi.dll` and the old VR plugin
+DLLs) are backed up under `build/cyberfinger-install-backups/<id>/before`, outside
+the game's DLL search paths. `install.json` lists paths and before/after hashes.
+The installer verifies all backups before writing, checks installed hashes and
+restores changed files if installation fails. Retain that backup directory for
+manual recovery; a rollback can leave empty directories. It never launches the
+game or installs a SteamVR driver. Identical reinstalls do nothing.
+
+The PowerShell filesystem tests use synthetic packages and game folders entirely
+inside this checkout:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\cyberfinger_tests\install_test.ps1
+```
+
+### Manual configuration
 
 After building the plugin, copy `mods/config/cyberfinger.ini.example` to the
 plugin's `config/cyberfinger.ini`. The companion
@@ -246,6 +457,8 @@ charged jump, scanner/menu input capture, nearby loot versus remote loot,
 holsters, magazine/support grip, throwing with the release grace, chest lean,
 knee/elbow rotation, tracker dropout, recalibration and cutscene suspension.
 The 100 ms grab-release grace can affect throwing feel and needs tuning during
-that playtest. This checkout has no complete native build tree and Cargo was
-not available on PATH during this work; the focused harness is not a linked
-game DLL or evidence of an in-game pass.
+that playtest. The preparation workflow has now produced a fully linked Release
+DLL using the game-2.5 SDK, and a complete package is available locally at
+`dist/CyberpunkVRPort-0.2.3-cyberfinger`. The installer tests cover fresh-source
+and fresh-process previews, configuration preservation, rollback and concise CLI errors.
+Neither those tests nor the native build constitute an in-game or headset pass.

@@ -13,6 +13,11 @@ Experimental [CyberFinger and eight-role SlimeVR patch](docs/cyberfinger-patch.m
 opt-in finger grabs, separate physical controls and additional body targets.
 The CyberFinger preset uses a left-handed weapon with left-stick movement;
 either weapon hand is selectable, and the left/right Menu buttons have separate bindings.
+Install this variant with `install_cyberfinger.cmd` (defaults to the GOG folder);
+see the [installer prerequisites and options](docs/cyberfinger-patch.md#installer).
+
+For launch steps, physical controls and troubleshooting, use the
+[CyberFinger quick-start guide](README_CYBRFNGR.md).
 
 > ⚠️ Experimental community mod. Not affiliated with CD PROJEKT RED. Use at your
 > own risk and keep backups of your saves.
@@ -68,6 +73,10 @@ either weapon hand is selectable, and the left/right Menu buttons have separate 
   neither eye accumulates the other's history (blur and an IPD-wide ghost).
 - **Optional GPU savers**: fixed foveated DLSS, fixed peripheral VRS, a
   hidden-area mask for the lens edges, and sun shadows rendered once for both eyes.
+- **Experimental eye-tracked foveation** for Quest Pro through OpenXR, including
+  AMD VRS and native stereo. Enable it under General, immediately below fixed
+  foveation; unavailable or stale gaze restores full quality. See
+  [setup and limitations](docs/cyberfinger-patch.md#eye-tracked-foveated-rendering).
 - **The F10 overlay in both eyes**, so a settings panel no longer costs you
   stereo the way a full-screen game menu does.
 - **The two views agree.** Sun cascade shadows, the shader clock, the foliage

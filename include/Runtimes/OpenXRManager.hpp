@@ -6,6 +6,7 @@ struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Framegen/Presenter.hpp"
 #include "Framegen/StatsOverlay.hpp"
 #include "Overlay/VrPanel.hpp"
+#include "Runtimes/CyberFingerMenuLaser.hpp"
 
 #include <windows.h>
 #include <d3d12.h>
@@ -73,6 +74,10 @@ struct VRControllerState {
     float    rightThumbY  = 0.0f;
     float    leftGrip     = 0.0f;
     float    rightGrip    = 0.0f;
+    // Physical CyberFinger buttons, independent of finger-derived world grabs.
+    bool     leftGrabButton=false,rightGrabButton=false;
+    bool     leftMenuButton=false,rightMenuButton=false; // physical, before gameplay tap/hold conversion
+    bool     leftStickButton=false,rightStickButton=false;
     bool     leftHandValid  = false;
     bool     rightHandValid = false;
     bool     psvr2SystemPressed = false;
@@ -1515,6 +1520,7 @@ private:
     cvr::hud::Quad m_surveillanceQuad{cvr::hud::Channel::Surveillance};
     cvr::hud::Quad m_hitMarkerQuad{cvr::hud::Channel::HitMarker};
     cvr::vrui::Panel m_settingsPanel;
+    cvr::cfmenu::Laser m_cfMenuLaser;
     cvr::hud::Follow m_menuFollow;
     cvr::hud::DisplayClock m_menuClock;
     bool  m_menuEyeAnchorValid = false;// projection-path per-eye anchor latched

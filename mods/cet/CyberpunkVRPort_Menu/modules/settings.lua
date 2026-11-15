@@ -639,6 +639,9 @@ function Set.build(kit, p, sx, sy, w)
   end
 
   local function current() return ST.view end
+  for i,b in ipairs(ST.tabs) do
+    b.cfTab=true;b.cfSelected=function() return ST.page==i-1 end
+  end
   ST.arrows = {
     kit.arrowBar(p, "set", kit.at(sx, sy), PAD, DOWN_Y, (w - 2 * PAD - 14) / 2, ARROW_H, true, current),
     kit.arrowBar(p, "set", kit.at(sx, sy), (w + 14) / 2, DOWN_Y, (w - 2 * PAD - 14) / 2, ARROW_H, false, current),

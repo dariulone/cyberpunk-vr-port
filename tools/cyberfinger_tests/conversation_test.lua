@@ -1,0 +1,91 @@
+local events, calls, actions = {}, {}, {}
+local enabled, nextAction, activeId = true, 0, 7
+local hubs = {choiceHubs={}}
+local prompt={choices={}}
+local uiState,uiPrompt
+function VRCyberFingerUiState(context,interaction) uiState,uiPrompt=context,interaction end
+local initialized,uninitialized={},{}
+function ObserveAfter(class,method,fn) initialized[class]=fn end
+function ObserveBefore(class,method,fn) uninitialized[class]=fn end
+function registerForEvent(name,fn) events[name]=fn end
+function VRCyberFingerEnabled() return enabled end
+function VRCyberFingerConversation(active) calls[#calls+1]=active;return nextAction end
+function VRInteractionAction(name) actions[#actions+1]=name end
+CName={new=function(s) return s end}
+local defs={ActiveChoiceHubID='id',DialogChoiceHubs='hubs',InteractionChoiceHub='prompt'}
+function GetAllBlackboardDefs() return {UIInteractions=defs} end
+function FromVariant(v) return v end
+local bb={GetInt=function() return activeId end,GetVariant=function(_,key) return key=='prompt' and prompt or hubs end}
+Game={GetBlackboardSystem=function() return {Get=function() return bb end} end}
+dofile(assert(arg[1]))
+events.onInit()
+events.onUpdate();assert(calls[#calls]==false,'ambient prompt captured controls')
+prompt.choices={1};events.onUpdate()
+assert(uiPrompt and not calls[#calls],'prompt was mistaken for conversation')
+local shown=true
+local root={IsVisible=function() return shown end,GetOpacity=function() return 1 end,GetParentWidget=function() return nil end}
+local controller={GetRootWidget=function() return root end}
+for _,row in ipairs({{'WorldMapMenuGameController',1},{'questLogV2GameController',2},{'FrameSwitcherMenuGameController',3}}) do
+  initialized[row[1]](controller);events.onUpdate();assert(uiState==row[2],'menu context not published')
+  shown=false;events.onUpdate();assert(uiState==0,'invisible controller retained context');shown=true
+  uninitialized[row[1]](controller);events.onUpdate();assert(uiState==0,'closed context retained')
+end
+prompt.choices={}
+hubs={choiceHubs={{id=7,choices={1,2}}}}
+for i,name in ipairs({'ChoiceScrollUp','ChoiceScrollDown','ChoiceApply'}) do
+  nextAction=i;events.onUpdate();assert(calls[#calls] and actions[#actions]==name,'choice action missing')
+end
+local count=#actions
+activeId=8;events.onUpdate();assert(not calls[#calls] and #actions==count,'inactive hub received input')
+activeId=7;hubs.choiceHubs[1].choices={};events.onUpdate();assert(not calls[#calls],'empty hub captured input')
+hubs.choiceHubs[1].choices={1};enabled=false;events.onUpdate()
+assert(not calls[#calls] and #actions==count,'another controller was changed')
+-- Computer ownership follows the zoomed entity, never gaze or all world UIs.
+local computerRoot,computerResult,backCalls,mainCalls=nil,1,0,0
+function VRComputerUpdate(r) computerRoot=r;return r and computerResult or 0 end
+local owner={cameraZoomActive=true}
+local computerController={IsA=function(_,n) return n=='ComputerInkGameController' end,
+  IsInteractivityBlocked=function() return false end,GetRootWidget=function() return root end,
+  GetMainLayoutController=function() return {HideWindow=function() backCalls=backCalls+1 end} end,
+  GoToMenu=function() mainCalls=mainCalls+1 end}
+function owner:GetGameController() return computerController end
+Game.GetPlayer=function() return {GetEntityID=function() return 123 end} end
+Game.FindEntityByID=function(id) assert(id==321);return owner end
+EComputerMenuType={MAIN=0}
+local zoom=true
+GetAllBlackboardDefs=function() return {UIInteractions=defs,UI_System={IsInMenu='menu'},
+  PlayerStateMachine={IsUIZoomDevice='zoom',UIZoomDeviceID='owner'}} end
+Game.GetBlackboardSystem=function() return {
+  Get=function(_,d) if d==defs then return bb end return {GetBool=function() return false end} end,
+  GetLocalInstanced=function() return {GetBool=function() return zoom end,GetEntityID=function() return 321 end} end} end
+enabled=true;events.onUpdate();assert(computerRoot==root,'zoomed computer not acquired')
+computerResult=3;events.onUpdate();assert(backCalls==1 and mainCalls==1,'Grip did not navigate within computer')
+zoom=false;events.onUpdate();assert(not computerRoot and backCalls==1,'leaving computer retained ownership')
+zoom=true;enabled=false;events.onUpdate();assert(not computerRoot,'computer changed non-CF behavior')
+-- Named commands reach the intended game function, independent of Start/Back.
+local menuCommand, inventoryCalls, pauseCalls, cyberwareCalls=0,0,0,0
+local paused,inMenu=false,false
+function VRCyberFingerCommand() local action=menuCommand;menuCommand=0;return action end
+local player={VRActivateIconicCyberware=function() cyberwareCalls=cyberwareCalls+1 end}
+Game.GetPlayer=function() return player end
+Game.GetSystemRequestsHandler=function() return {IsGamePaused=function() return paused end} end
+Game.GetBlackboardSystem=function() return {Get=function(_,d)
+  if d==defs then return bb end return {GetBool=function() return inMenu end}
+end} end
+local menuController={IsA=function(_,name) return name=='gameuiInGameMenuGameController' end,
+  OpenShortcutMenu=function(_,name) assert(name=='OpenInventoryMenu');inventoryCalls=inventoryCalls+1 end,
+  SpawnMenuInstanceEvent=function(_,name) assert(name=='OnOpenPauseMenu');pauseCalls=pauseCalls+1 end}
+Game.VRInkLayer=function() return {GetGameControllers=function() return {menuController} end} end
+spdlog={error=function(message) error(message) end}
+enabled=true
+menuCommand=1;events.onUpdate();events.onUpdate();assert(inventoryCalls==1 and pauseCalls==0,'inventory became pause or repeated')
+menuCommand=2;events.onUpdate();assert(pauseCalls==1,'black hold did not open native pause')
+menuCommand=3;events.onUpdate();assert(cyberwareCalls==1,'right Menu hold did not activate OS cyberware')
+paused=true;menuCommand=3;events.onUpdate();assert(cyberwareCalls==1,'OS action leaked through pause');paused=false
+inMenu=true;menuCommand=1;events.onUpdate();assert(inventoryCalls==1,'command replaced an active game menu');inMenu=false
+enabled=false;menuCommand=1;events.onUpdate();enabled=true;events.onUpdate();assert(inventoryCalls==1,'command leaked across controller change')
+
+enabled=true;Game.GetBlackboardSystem=function() error('game unloading') end
+events.onUpdate();assert(not calls[#calls],'unloading retained dialogue capture')
+events.onShutdown();assert(not calls[#calls],'shutdown retained dialogue capture')
+print('CyberFinger conversation bridge passed')

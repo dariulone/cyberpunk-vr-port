@@ -1,7 +1,13 @@
 #include "Fbt/Game/Calibration.hpp"
 #include "Runtimes/FingerGrip.hpp"
+#include "Runtimes/EyeTracking.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
+#include "Runtimes/CyberFingerGameMenu.hpp"
+#include "Runtimes/CyberFingerMenuPolicy.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
+#include "Hooks/KeypadInput.hpp"
+#include "Natives/VrMenu.hpp"
 #include "Runtimes/Psvr2HapticChannel.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
@@ -1290,11 +1296,13 @@ DWORD OpenXRManager::FrameThreadMain() {
         // Menu closed -> drop the latched panel anchors so the NEXT menu re-anchors in
         // front of wherever the player is looking at open time.
         if (!menuRectActive) {
+            cvr::cfmenu::Reset();
             m_menuFollow.Reset();
             m_menuClock.Reset();
             m_menuEyeAnchorValid = false;
         }
         const bool monoReady = monoEnabled && EnsureMonoSubmitResources() && !m_eyeSwapchains.empty();
+        bool gazeViewsValid=false;
         if (monoReady && !m_views.empty()) {
             XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
             viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -1304,6 +1312,9 @@ DWORD OpenXRManager::FrameThreadMain() {
             XrViewState viewState{XR_TYPE_VIEW_STATE};
             std::lock_guard<std::mutex> viewLock(m_viewMutex);
             const XrResult locateRes = xrLocateViews(m_session, &viewLocateInfo, &viewState, static_cast<uint32_t>(m_views.size()), &viewCountOutput, m_views.data());
+            gazeViewsValid=XR_SUCCEEDED(locateRes) && viewCountOutput==2 &&
+                (viewState.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT) &&
+                (viewState.viewStateFlags&XR_VIEW_STATE_ORIENTATION_TRACKED_BIT);
             if (XR_FAILED(locateRes)) {
                 Log("OpenXRManager: xrLocateViews failed (res=%d)\n", locateRes);
                 viewCountOutput = 0;
@@ -1559,6 +1570,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                 syncInfo.countActiveActionSets = 1;
                 syncInfo.activeActionSets = &activeActionSet;
                 XrResult syncRes = xrSyncActions(m_session, &syncInfo);
+                cvr::eye_tracking::Sample(m_session,m_viewSpace,locateTime,
+                    syncRes==XR_SUCCESS && m_sessionState==XR_SESSION_STATE_FOCUSED && gazeViewsValid,
+                    m_views.data(),static_cast<unsigned>(m_views.size()));
                 // Vibration queued since the last frame, played where the actions are synced.
                 if (XR_SUCCEEDED(syncRes)) cvr::haptics::Tick();
                 
@@ -1571,9 +1585,40 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // for-byte identical to the pre-Controls-tab behaviour.
                 const bool gameplayInputActive = (GetInputActionsEnabled() != 0) && (m_thumbstickAction != XR_NULL_HANDLE);
                 VRControllerState ctrl{};
+                bool cfBound=false;
+                if(gameplayInputActive && syncRes==XR_SUCCESS) {
+                    ctrl.cyberFingerButtons=m_cyberFingerActions.Buttons([&](XrAction action) {
+                        XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};gi.action=action;
+                        XrActionStateBoolean value{XR_TYPE_ACTION_STATE_BOOLEAN};
+                        if(XR_FAILED(xrGetActionStateBoolean(m_session,&gi,&value)))return false;
+                        cfBound|=value.isActive!=0;
+                        return value.isActive && value.currentState;
+                    });
+                }
+                cvr::cyberfinger::NoteBindingActivity(cfBound);
+                const bool cyberfinger=cvr::cyberfinger::Enabled();
                 cvr::vrui::Tracking uiTracking{};
                 uiTracking.time=frameState.predictedDisplayTime;uiTracking.origin=GetTrackingOriginSerial();
                 uiTracking.head=location.pose;uiTracking.valid=headPoseLocated;
+                uiTracking.cyberfinger=cyberfinger;uiTracking.preferLeft=g_liveControls.xrLeftHanded!=0;
+                uiTracking.menuLeft=(ctrl.cyberFingerButtons&0x8000)!=0;
+                uiTracking.menuRight=(ctrl.cyberFingerButtons&0x0020)!=0;
+                ctrl.leftMenuButton=uiTracking.menuLeft;ctrl.rightMenuButton=uiTracking.menuRight;
+                // v2 binding: right pink requests the gameplay VR menu, using
+                // its holster/summon path. F10 remains a keyboard shortcut.
+                uiTracking.menuButton=cyberfinger && (ctrl.cyberFingerButtons&cvr::cyberfinger::SettingsButton)!=0;
+                ctrl.cyberFingerButtons&=static_cast<uint16_t>(~cvr::cyberfinger::SettingsButton);
+                auto getGlobalBool=[&](XrAction action) -> bool {
+                    if(action==XR_NULL_HANDLE)return false;
+                    XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+                    gi.action=action;gi.subactionPath=XR_NULL_PATH;
+                    XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
+                    return XR_SUCCEEDED(xrGetActionStateBoolean(m_session,&gi,&st)) && st.isActive && st.currentState;
+                };
+                const bool menuPressed=gameplayInputActive && getGlobalBool(m_menuButtonAction);
+                const bool cfRightBlackHold=cyberfinger && (ctrl.cyberFingerButtons&0x0001)!=0;
+                if(cyberfinger)ctrl.cyberFingerButtons&=static_cast<uint16_t>(~0x0001u);
+                bool cfBlackTap[2]{};
                 // D-PAD chord state (left hand is processed first, right second):
                 // HOLD the LEFT stick click, pick the direction with the RIGHT stick.
                 bool leftStickClicked  = false;
@@ -1846,14 +1891,13 @@ DWORD OpenXRManager::FrameThreadMain() {
                     if (const int fingers = cvr::fingergrip::Evaluate(i, m_localSpace, frameState.predictedDisplayTime);
                         fingers >= 0 && cvr::fingergrip::GripFromFingers())
                         grip = fingers ? 1.0f : 0.0f;
-                    if (cvr::cyberfinger::Enabled()) grip = cvr::fingergrip::ProximityValue(i, poseValid);
                     float sx = 0.0f, sy = 0.0f;
                     getVec2(m_thumbstickAction, sx, sy);
                     const bool sclick = getBool(m_thumbstickClickAction);
                     auto& uiHand=uiTracking.hands[i];
-                    uiHand.stickClick=sclick;uiHand.trigger=trig;uiHand.grip=grip;uiHand.stickY=sy;
+                    uiHand.stickClick=sclick;uiHand.trigger=trig;uiHand.grip=grip;uiHand.stickY=sy;uiHand.stickX=sx;
                     uiHand.valid=poseValid;
-                    if((cvr::vrui::Visible() || cvr::vrui::CapturesInput() || sclick) && m_handAimSpaces[i]!=XR_NULL_HANDLE){
+                    if((cyberfinger || cvr::vrui::Visible() || cvr::vrui::CapturesInput() || sclick) && m_handAimSpaces[i]!=XR_NULL_HANDLE){
                         uiHand.valid=false;
                         XrSpaceLocation aim{XR_TYPE_SPACE_LOCATION};
                         constexpr auto need=XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
@@ -1861,6 +1905,20 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                     const bool prim   = getBool(m_primaryButtonAction);
                     const bool sec    = getBool(m_secondaryButtonAction);
+                    if(cyberfinger) {
+                        const bool busy=std::abs(sx)>.2f || std::abs(sy)>.2f || trig>.15f || prim || sec || sclick ||
+                            (i==0?menuPressed:cfRightBlackHold) ||
+                            (ctrl.cyberFingerButtons&(i==0?0x8100:0x0021))!=0;
+                        grip=cvr::fingergrip::ProximityValue(i,poseValid,!busy && !menuRectActive &&
+                            !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons());
+                        // The CF binding exposes left grip as cf_scanner, right
+                        // grip as R3, and the actual right stick click as A.
+                        const bool grab=i==0?(ctrl.cyberFingerButtons&0x0100)!=0:sclick;
+                        uiHand.grip=grab?1.f:0.f;
+                        uiHand.stickClick=i==0?sclick:prim;
+                        if(i==0){ctrl.leftGrabButton=grab;ctrl.leftStickButton=sclick;}
+                        else {ctrl.rightGrabButton=grab;ctrl.rightStickButton=prim;}
+                    }
                     const bool frameBumper=m_steamFrameActions.bumper!=XR_NULL_HANDLE && getBool(m_steamFrameActions.bumper);
 
                     // XInput-compatible button bits so the hook can OR them into
@@ -1884,7 +1942,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                         ctrl.leftGrip    = grip;
                         ctrl.leftThumbX  = sx;
                         ctrl.leftThumbY  = sy;
-                        if (prim)   ctrl.buttons |= XB_X;
+                        if(cyberfinger)cfBlackTap[0]=prim; // driver emits black-wrist tap on release
+                        else if (prim) ctrl.buttons |= XB_X;
                         if (sec)    ctrl.buttons |= XB_Y;
                         if(frameBumper)ctrl.buttons|=XB_LEFT_SHOULDER;
                         // Only Frame's separate bumper emits LB here. The grip
@@ -1908,7 +1967,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                         ctrl.rightThumbY  = sy;
                         if (sclick) ctrl.buttons |= XB_RIGHT_THUMB;
                         if (prim)   ctrl.buttons |= XB_A;
-                        if (sec)    ctrl.buttons |= XB_B;
+                        if(cyberfinger)cfBlackTap[1]=sec;
+                        else if (sec) ctrl.buttons |= XB_B;
                         if(frameBumper)ctrl.buttons|=XB_RIGHT_SHOULDER;
 
                         // D-PAD CHORD: while the LEFT stick click is held, the RIGHT
@@ -1916,7 +1976,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // the whole hold so snap-turn/camera cannot fire during selection.
                         if (triangleShift) {
                             dpadUsedThisFrame = cvr::input::TriangleDpad(true, ctrl.rightThumbX, ctrl.rightThumbY, ctrl.buttons);
-                        } else if (leftStickClicked) {
+                        } else if (leftStickClicked && !(cyberfinger && cvr::cyberfinger::ConversationActive())) {
                             float threshold = CyberpunkVR_DpadChordStick;
                             if (!(threshold > 0.05f) || threshold > 1.0f) threshold = 0.90f;
                             if (sy > threshold)  { ctrl.buttons |= XB_DPAD_UP;    dpadUsedThisFrame = true; }
@@ -1936,15 +1996,31 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                 }
 
-                // The overlay reads RAW clicks first: L3+R3 takes priority over
-                // cyberware even when the left grip is held too.
+                // Route the CF wrist menu and both-Menu HUD toggle before
+                // gameplay conversion; other controllers retain L3+R3 summon.
                 cvr::vrui::UpdateTracking(uiTracking);
+                if(cvr::vrui::ConsumeHudToggle())cvr::cyberfinger::ToggleHud();
+                cvr::cfmenu::Hands(uiTracking,menuRectActive && !cvr::vrui::CapturesInput() &&
+                    !cvr::vrmenu::CapturesButtons());
                 const bool cyberwareClaim=cvr::input::UpdateCyberwareChord(leftStickClicked,ctrl.leftGrip,
-                    uiTracking.hands[1].stickClick,gameplayInputActive);
+                    uiTracking.hands[1].stickClick,gameplayInputActive && !cyberfinger);
                 if(cyberwareClaim) {
                     ctrl.leftGrip=0.f;
                     ctrl.buttons &= static_cast<uint16_t>(~0x000f); // no D-pad from the same chord
                 }
+
+                // CF has no comfortable grip+stick chord. Tap the right Menu
+                // button for inventory; hold it for OS cyberware instead.
+                static cvr::cyberfinger::MenuTapHold cfMenuButton;
+                const auto cfNow=GetTickCount64();
+                const bool cfMenuAllowed=cyberfinger && gameplayInputActive && GetMenuMode()==0 &&
+                    !cvr::input::ComputerInputActive() && !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons();
+                const auto cfMenu=cfMenuButton.Step((ctrl.cyberFingerButtons&0x0020)!=0,cfMenuAllowed,cfNow);
+                if(cfMenu.tap)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Inventory);
+                if(cfMenu.hold)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Cyberware);
+                // Native menu actions are delivered once by the game-thread Lua
+                // bridge. Start/Back vary with the game's controller scheme.
+                if(cyberfinger)ctrl.cyberFingerButtons&=static_cast<uint16_t>(~0x0020u);
 
                 // DEFERRED L3 (sprint): the left stick click doubles as the D-Pad
                 // modifier. Emit the vanilla stick-click press only when the click is
@@ -1954,7 +2030,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                     static bool s_l3Held = false;
                     static bool s_l3UsedForDpad = false;
                     if(cyberwareClaim)s_l3UsedForDpad=true;
-                    if(uiTracking.hands[0].stickClick && uiTracking.hands[1].stickClick)s_l3UsedForDpad=true;
+                    if(cyberfinger && (!gameplayInputActive || menuRectActive ||
+                        cvr::vrui::CapturesInput() || cvr::vrmenu::CapturesButtons()))s_l3UsedForDpad=true;
+                    if(!cyberfinger && uiTracking.hands[0].stickClick && uiTracking.hands[1].stickClick)s_l3UsedForDpad=true;
                     if (leftStickClicked) {
                         if (dpadUsedThisFrame) s_l3UsedForDpad = true;
                         s_l3Held = true;
@@ -1968,15 +2046,16 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                 }
 
-                auto getGlobalBool=[&](XrAction action) -> bool {
-                    if(action==XR_NULL_HANDLE)return false;
-                    XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
-                    gi.action=action;gi.subactionPath=XR_NULL_PATH;
-                    XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
-                    return XR_SUCCEEDED(xrGetActionStateBoolean(m_session,&gi,&st)) && st.isActive && st.currentState;
-                };
+                static cvr::cyberfinger::ButtonEdge cfPauseButton;
+                if(cyberfinger) {
+                    const auto wrist=cvr::cyberfinger::WristButtons(
+                        g_liveControls.xrLeftHanded!=0,cfBlackTap[0],cfBlackTap[1],menuPressed,cfRightBlackHold);
+                    if(cfPauseButton.Step((wrist&0x0010)!=0) && gameplayInputActive && GetMenuMode()==0 &&
+                       !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons())
+                        cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Pause);
+                    ctrl.cyberFingerButtons|=wrist&static_cast<uint16_t>(~0x0010u);
+                } else cfPauseButton.Reset();
                 if(gameplayInputActive)ctrl.buttons|=m_steamFrameActions.GlobalButtons(getGlobalBool);
-                if(gameplayInputActive)ctrl.cyberFingerButtons=m_cyberFingerActions.Buttons(getGlobalBool);
                 // The extra physical Frame buttons obey the same overlay capture
                 // as Touch controls. Menu/Start retains the existing escape path.
                 {
@@ -1986,7 +2065,6 @@ DWORD OpenXRManager::FrameThreadMain() {
                 }
                 if(cvr::vrui::CapturesInput())ctrl={};
                 if (gameplayInputActive) {
-                    const bool menuPressed = getGlobalBool(m_menuButtonAction);
                     if (IsRuntimePsvr2()) {
                         // L3+R3 belongs to upstream's overlay, not our menu fallback.
                         const bool chord = triangleShift && uiTracking.hands[1].stickClick && !leftStickClicked;
@@ -1998,7 +2076,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             static bool logged = false;
                             if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Create SystemButton active (tap=Start, hold=Back).\n"); }
                         }
-                    } else if(menuPressed)ctrl.buttons|=0x0010; // Other headsets unchanged.
+                    } else if(!cyberfinger && menuPressed)ctrl.buttons|=0x0010; // CF already routes by weapon hand.
 
                     // Publish the snapshot for the XInput hook.
                     std::lock_guard<std::mutex> inLock(m_inputMutex);
@@ -2643,7 +2721,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             m_lastSubmission.valid = false;
                             XrCompositionLayerProjection layerProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
                             XrCompositionLayerQuad layerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
-                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+3] = {};
+                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+4] = {};
 
                             if (menuRectActive) {
                                 layerQuad.space = m_localSpace;
@@ -2652,9 +2730,11 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                             // LAZY-FOLLOW panel: stays put within the dead-zone, eases
                             // to the head past the threshold (see ComputeMenuQuadPose).
-                            layerQuad.pose = ComputeMenuQuadPose(headPoseLocated, location.pose, frameState.predictedDisplayTime);
+                            layerQuad.pose = cvr::cfmenu::PanelPose(
+                                ComputeMenuQuadPose(headPoseLocated, location.pose, frameState.predictedDisplayTime),GetTrackingOriginSerial());
 
-                                float quadWidth = 2.0f * 1.5f * tanf(GetMenuFov() * 3.14159f / 180.0f * 0.5f);
+                                const bool pictureFrame=cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::PictureFrame;
+                                float quadWidth = 2.0f * 1.5f * tanf((pictureFrame?55.f:GetMenuFov()) * 3.14159f / 180.0f * 0.5f);
                                 float quadHeight = quadWidth;
                                 // ENGINE STEREO: the image is the whole two-eyes-wide window squeezed into one
                                 // eye's (OpenXRCapture.cpp). Ink fits a menu's 16:9 design into that window by
@@ -2668,6 +2748,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     quadWidth *= windowW / menuW;
                                 }
                                 layerQuad.size = {quadWidth, quadHeight};
+                                cvr::cfmenu::Panel(layerQuad.pose,quadWidth,quadHeight);
                                 layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layerQuad);
                             } else {
                                 layerProj.space = m_localSpace;
@@ -2757,6 +2838,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 m_localSpace,hudTracked?&hudHead.pose:nullptr,GetTrackingOriginSerial(),frameState.predictedDisplayTime))
                                 if(!cvr::vrui::Visible())layers[endInfo.layerCount++]=metrics;
                             endInfo.layers = layers;
+                            if(const auto* laser=m_cfMenuLaser.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue))
+                                layers[endInfo.layerCount++]=laser;
                             if(const auto* panel=m_settingsPanel.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue)){
                                 layers[endInfo.layerCount++]=panel;
                                 if(const auto* ray=m_settingsPanel.Ray())layers[endInfo.layerCount++]=ray;

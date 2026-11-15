@@ -60,7 +60,7 @@ void OnSessionDestroying();
 int Evaluate(int hand, XrSpace base, XrTime time);
 // CyberFinger: bounded tracking-loss/release grace, no physical-grip fallback.
 // Evaluate must have run for this hand in the same frame.
-float ProximityValue(int hand, bool poseValid);
+float ProximityValue(int hand, bool poseValid, bool allowStart=true);
 // xr_grip_from_fingers: the grip input from the fingers' position instead of the grip sensor. Live; any thread.
 bool GripFromFingers();
 void SetGripFromFingers(bool on);

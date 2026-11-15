@@ -81,6 +81,14 @@ package.json
 !scripts/build_dist.ps1
 !scripts/deploy_full.ps1
 !scripts/deploy_plugin.ps1
+!scripts/install_cyberfinger.ps1
+!scripts/prepare_cyberfinger.ps1
+!scripts/select_cyberfinger_binding.ps1
+!scripts/generate_cyberfinger_diagram.py
+!tools/cyberfinger_tests/install_test.ps1
+!tools/cyberfinger_tests/binding_selection_test.ps1
+!tools/cyberfinger_tests/quest_face_probe.py
+!tools/cyberfinger_tests/test_quest_face_probe.py
 # and the asset generator, which authors the VRCAM components the launcher offers.
 !tools/gen_vrcam_assets.py
 # and the crash-dump reader, which is how a tester's .dmp gets turned into a stack.
@@ -155,6 +163,9 @@ tools/quickboot_tests/__pycache__/
 !tools/sharpen_tests/
 !tools/foveated_tests/
 !tools/vrs_tests/
+!tools/vrs_tests/live_ab.py
+!tools/face_tests/
+!tools/face_tests/live_probe.py
 !tools/mono_cascade_tests/
 !tools/hidden_area_tests/
 !tools/optics_tests/
@@ -186,6 +197,12 @@ tools/vr_menu_tests/*
 !tools/vr_menu_assets/
 tools/vr_menu_assets/*
 !tools/vr_menu_assets/matte_sources.py
+
+# CPU regression tests for lobby composition recognition.
+!tools/lobby_composition_tests/
+tools/lobby_composition_tests/*
+!tools/lobby_composition_tests/CMakeLists.txt
+!tools/lobby_composition_tests/main.cpp
 
 # VR lobby asset generators and Blender authoring tools (build caches stay ignored).
 !tools/vr_lobby_assets/
@@ -249,3 +266,8 @@ tools/mirror/*
 # The packed archive: 100+ MB, over GitHub's file size limit. Its files come back out of it with WolvenKit, and the
 # release package (scripts/build_dist.ps1) takes it from mods/archive on disk.
 mods/archive/cyberpunkvrport.archive
+
+# Generated Python diagnostic caches are local build products.
+__pycache__/
+*.pyc
+*.pyo

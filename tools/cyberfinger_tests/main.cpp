@@ -36,6 +36,12 @@ void Grabs() {
     Check(!grip.Update(true, false, 550), "deliberate opening does not release");
     Check(grip.Update(true, true, 560), "second grab fails");
     Check(!grip.Update(true, true, 1000), "focus gap regrabs without opening");
+    grip.Update(true,false,1010);
+    Check(!grip.Update(true,true,1020,false),"using a control started a fist grab");
+    Check(!grip.Update(true,true,1030),"releasing a control with fingers closed started a grab");
+    grip.Update(true,false,1040);
+    Check(grip.Update(true,true,1050),"fresh nearby grab after control use failed");
+    Check(grip.Update(true,true,1060,false),"firing trigger dropped held object");
     const float relaxed[4]{.45f,.55f,.60f,.62f}, fist[4]{.9f,.95f,.91f,.94f};
     Check(!cvr::fingergrip::Update(false, relaxed) && cvr::fingergrip::Update(false, fist), "fist thresholds regress");
 }
@@ -50,11 +56,11 @@ void Buttons() {
         names.emplace_back(name);
         a = reinterpret_cast<XrAction>(static_cast<uintptr_t>(names.size()));
     });
-    Check(names == std::vector<std::string>{"cf_inventory", "cf_weapon", "cf_scanner", "cf_heal"}, "binding names changed");
-    const uint16_t bits[]{0x20, 0x8000, 0x100, 0x1};
-    for (unsigned mask = 0; mask < 16; ++mask) {
+    Check(names == std::vector<std::string>{"cf_inventory", "cf_weapon", "cf_scanner", "cf_heal", "cf_settings"}, "binding names changed");
+    const uint16_t bits[]{0x20, 0x8000, 0x100, 0x1,0x0400};
+    for (unsigned mask = 0; mask < 32; ++mask) {
         uint16_t expected = 0;
-        for (int i = 0; i < 4; ++i) if (mask & (1u << i)) expected |= bits[i];
+        for (int i = 0; i < 5; ++i) if (mask & (1u << i)) expected |= bits[i];
         const auto actual = actions.Buttons([&](XrAction a) { return (mask & (1u << (reinterpret_cast<uintptr_t>(a) - 1))) != 0; });
         Check(actual == expected, "button alias or missing action");
     }
@@ -101,6 +107,27 @@ void Handedness() {
     Check(raw.buttons == (0x1000 | 0x2000 | 0x40) && raw.leftTrigger == .9f, "mapper mutated physical snapshot");
     State captured{}; captured.leftTrigger = captured.rightTrigger = 0;
     Check(cvr::cyberfinger::ForGame(captured, true, 0).buttons == 0, "cleared overlay input emits utility actions");
+    captured.cyberFingerButtons=cvr::cyberfinger::SettingsButton;
+    Check(cvr::cyberfinger::ForGame(captured,true,0).buttons==0,"private settings action leaked to gamepad");
+    // Same physical binding, both weapon hands and every optional mirror mode.
+    // Test the downstream merge too: eject must never become weapon switch,
+    // reload must never become jump, and pause must never become vehicle exit.
+    for(bool weaponLeft:{false,true})for(int mode=0;mode<=2;++mode) {
+        const uint16_t expected[]={uint16_t(weaponLeft?0x2000:0x4000),
+            uint16_t(weaponLeft?0x4000:0x2000),uint16_t(weaponLeft?0x0010:0x0001),
+            uint16_t(weaponLeft?0x0001:0x0010)};
+        for(int control=0;control<4;++control) {
+            State wrist;
+            wrist.cyberFingerButtons=cvr::cyberfinger::WristButtons(weaponLeft,
+                control==0,control==1,control==2,control==3);
+            Check(cvr::cyberfinger::ForGame(wrist,weaponLeft,mode).buttons==expected[control],
+                "black wrist role changed with mirror mode or weapon hand");
+        }
+        Check(cvr::cyberfinger::WristButtons(weaponLeft,true,true,true,true)==0x0011,
+            "black holds also ejected or reloaded");
+        Check(cvr::cyberfinger::WristButtons(weaponLeft,false,false,false,false)==0,
+            "released black wrist generated input");
+    }
 }
 
 Skeleton Rig() {
@@ -156,6 +183,14 @@ void Body() {
 }
 
 int main() try {
+    using namespace cvr::cyberfinger;
+    Check(StickActionFullTravel(-.8467f,true,.8f),"measured CF full-back travel cannot crouch");
+    Check(!StickActionFullTravel(-.3693f,true,.8f),"ordinary diagonal turn activated crouch");
+    Check(!StickActionFullTravel(-.79f,true,.8f) && StickActionFullTravel(-.8f,true,.8f),"CF threshold boundary wrong");
+    Check(!StickActionFullTravel(.98f,true,.8f) && StickActionFullTravel(.98f,false,.8f),"CF dash/crouch directions inverted");
+    Check(!StickActionFullTravel(-.85f,true,.9f),"custom CF threshold ignored");
+    Check(!StickActionFullTravel(std::numeric_limits<float>::quiet_NaN(),true,.8f),"invalid axis activated crouch");
+    Check(SanitizeStickActionThreshold(.1f)==.8f && SanitizeStickActionThreshold(1.f)==.8f,"unsafe CF threshold accepted");
     Grabs(); Buttons(); Handedness(); Body();
     std::cout << "PASS grab loss/release/rearm, optional actions, both weapon hands and mirror modes, 8 roles, 25 limb directions, chest/head targets and fallback\n";
     return 0;

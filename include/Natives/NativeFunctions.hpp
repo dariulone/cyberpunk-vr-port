@@ -228,6 +228,7 @@ void VRScannerSlotSave(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int3
 // 1 while a device screen (computer, terminal) is up; lets the right stick's Y reach the game's UI.
 void SetVRDeviceScreen(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
 void VRKeypadUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
+void VRComputerUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void SetVRMuzzlePos(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
 // The aim line's hit point and surface normal, from the weapon module's own raycast.
 void SetVRAimHit(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t);
@@ -416,6 +417,9 @@ void VRReachAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRReachUse(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRHandHolds(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRCyberFingerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRCyberFingerCommand(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+void VRCyberFingerConversation(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+void VRCyberFingerUiState(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 // VRLobbySaveLooks() -> String: the looks of the player's playthroughs, newest save of each (Lobby/SaveLooks.cpp).
 void VRLobbySaveLooks(RED4ext::IScriptable*,RED4ext::CStackFrame*,RED4ext::CString*,int64_t);
 // VRCreationTarget(entity) -> Bool: the character customization dresses this entity, null = its own puppet (Lobby/CreationTarget.cpp).

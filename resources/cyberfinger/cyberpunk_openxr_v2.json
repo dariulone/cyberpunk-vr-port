@@ -1,0 +1,171 @@
+{
+  "action_manifest_version": 0,
+  "alias_info": {},
+  "app_key": "system.generated.openxr.cyberpunkvrport.cyberpunk2077.exe",
+  "bindings": {
+    "/actions/gameplay": {
+      "sources": [
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "pull": {
+              "output": "/actions/gameplay/in/trigger"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/thumbstick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/gameplay/in/thumbstick"
+            },
+            "click": {
+              "output": "/actions/gameplay/in/thumbstick_click"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "pull": {
+              "output": "/actions/gameplay/in/trigger"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/thumbstick",
+          "mode": "joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/gameplay/in/thumbstick"
+            },
+            "click": {
+              "output": "/actions/gameplay/in/primary_button"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/cf_scanner"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/thumbstick_click"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/b",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/cf_weapon"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/b",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/cf_inventory"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/a",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/primary_button"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/a",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/secondary_button"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/pink",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/cf_settings"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/a_hold",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/cf_heal"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/a_hold",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/gameplay/in/menu"
+            }
+          }
+        }
+      ],
+      "poses": [
+        {
+          "path": "/user/hand/left/pose/grip",
+          "output": "/actions/gameplay/in/hand_pose"
+        },
+        {
+          "path": "/user/hand/left/pose/tip",
+          "output": "/actions/gameplay/in/hand_aim_pose"
+        },
+        {
+          "path": "/user/hand/right/pose/grip",
+          "output": "/actions/gameplay/in/hand_pose"
+        },
+        {
+          "path": "/user/hand/right/pose/tip",
+          "output": "/actions/gameplay/in/hand_aim_pose"
+        }
+      ],
+      "haptics": [
+        {
+          "path": "/user/hand/left/output/haptic",
+          "output": "/actions/gameplay/out/haptic"
+        },
+        {
+          "path": "/user/hand/right/output/haptic",
+          "output": "/actions/gameplay/out/haptic"
+        }
+      ]
+    }
+  },
+  "category": "openxr",
+  "controller_type": "cyberfinger",
+  "description": "Requires CyberpunkVRPort CyberFinger wrist update (enabled=1). Left Menu: weapon wheel; right Menu: inventory; both Menu hold: HUD. Right pink: VR menu; left pink: SteamVR dashboard. Black wrist on weapon hand: tap eject, hold pause. Other black: tap quick reload, hold heal. Black roles follow weapon handedness. F10 stays on the keyboard.",
+  "interaction_profile": "/interaction_profiles/valve/index_controller",
+  "name": "CyberFinger CyberpunkVRPort",
+  "options": {
+    "mirror_actions": false
+  },
+  "simulated_actions": []
+}

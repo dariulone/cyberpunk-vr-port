@@ -28,6 +28,7 @@
 
 #include <windows.h>
 #include "Core/Paths.hpp"
+#include "Anim/FaceTracking.hpp"
 #include "Core/InputConfig.hpp"
 #include "Core/TweakRecords.hpp"
 #include "Core/ArchiveExtensions.hpp"
@@ -47,6 +48,7 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Natives/VendorRoute.hpp"
+#include "Natives/HudPanelLifetime.hpp"
 #include "Hooks/PromptButtons.hpp"
 
 extern void Log(const char* fmt, ...);
@@ -191,6 +193,15 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
                 cvr::game_build::Running(), cvr::game_build::Expected());
         else
             Log("[build] game %s matches the port's build.\n", cvr::game_build::Running());
+        // HUD widget destructors use the game engine. Plugin Unload / CRT detach
+        // is too late: Alt-F4 can already have destroyed that engine by then.
+        RED4ext::v1::GameState hudRunning{nullptr,nullptr,&cvr::hud::ReleaseNativeWidgets};
+        RED4ext::v1::GameState hudShutdown{&cvr::hud::ReleaseNativeWidgets,nullptr,nullptr};
+        const bool hudRunningReady=sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&hudRunning);
+        const bool hudShutdownReady=sdk->gameStates->Add(handle,RED4ext::EGameStateType::Shutdown,&hudShutdown);
+        cvr::hud::NativeWidgetShutdownRegistered(hudRunningReady || hudShutdownReady);
+        Log("[hud-panel] early widget cleanup registered: running-exit=%d shutdown-enter=%d\n",
+            hudRunningReady,hudShutdownReady);
         // The port's input bindings, before the engine reads its input configuration (Core/InputConfig.hpp).
         cvr::input_config::Apply();
         // The port's TweakDB records, applied as the engine loads its TweakDB (Core/TweakRecords.hpp).
@@ -227,6 +238,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
     }
     case RED4ext::v1::EMainReason::Unload:
         if (g_disabled) break;
+        cvr::face::Shutdown();
         cvr::vendor_route::Reset(nullptr);
         CyberpunkVR_CloseOwnedExecution();
         // RED4ext unloads the plugin BEFORE the process finishes tearing down the graphics runtime,

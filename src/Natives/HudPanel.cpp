@@ -1,6 +1,8 @@
 // Verified against CP2077 SHA256 a7de82945c03e041... with IDA headless.
 // Only native separate-window slots are moved; direct/projected HUD widgets stay native.
 #include "Natives/NativeFunctions.hpp"
+#include "Natives/HudPanelLifetime.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
 #include "Camera/SurveillanceFollow.hpp"
 #include "Render/HudPanel.hpp"
 #include "Render/OpticsProbe.hpp"
@@ -71,6 +73,12 @@ using FrameSubmitFn = void (*)(void*, void*, char);
 FrameSubmitFn originalFrameSubmit = nullptr;
 void FlushRepaintsAtSubmit();
 std::atomic<bool> hooksReady{false};
+std::atomic<bool> widgetShutdownRegistered{false};
+std::atomic<bool> widgetsClosing{false};
+bool WidgetsAvailable() {
+    return widgetShutdownRegistered.load(std::memory_order_acquire) &&
+           !widgetsClosing.load(std::memory_order_acquire);
+}
 bool Verified() {
     static const bool ok = [] {
         if (!cvr::game_build::Supported()) return false;   // the natives stay callable on any build
@@ -117,7 +125,7 @@ void HideSlot(ink::Widget* widget) {
 // keep the handles alive while an engine UI job is inside the detour.
 uintptr_t Visible(ink::Widget* widget, bool visible) {
     const auto targets=publishedMasks.load(std::memory_order_acquire);
-    if (targets) for (const auto& mask:*targets) if (mask->widget.GetPtr()==widget) {
+    if (WidgetsAvailable() && targets) for (const auto& mask:*targets) if (mask->widget.GetPtr()==widget) {
         mask->wantedVisible.store(visible,std::memory_order_relaxed);
         const auto channel=mask->channel.load(std::memory_order_acquire);
         if (g_liveControls.xrHudPanel && !g_menuModeValue && !g_liveControls.xrMenuRect &&
@@ -131,6 +139,7 @@ uintptr_t Visible(ink::Widget* widget, bool visible) {
 
 uintptr_t CopyEntries(uintptr_t resource, DynArray<ink::HudWidgetSpawnEntry>* entries) {
     const auto result=originalCopyEntries(resource,entries);
+    if (!WidgetsAvailable()) return result;
     // These HUD entries are authored without separate windows. Move them
     // through the engine's own separate-window creation path BEFORE spawn.
     // Never convert projected widgets (crosshair, mappins, scanner borders, etc.).
@@ -142,6 +151,7 @@ uintptr_t CopyEntries(uintptr_t resource, DynArray<ink::HudWidgetSpawnEntry>* en
 }
 
 bool InstallHudPanelHooks() {
+    if (!WidgetsAvailable()) return false;
     const uint8_t visibility[]={0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x20,0x40,0x8a,0xfa,0x48,0x8b,0xd9};
     const uint8_t entries[]={0x48,0x89,0x5c,0x24,0x08,0x48,0x89,0x6c,0x24,0x10,0x48,0x89,0x74,0x24,0x18,0x57,0x48,0x83,0xec,0x20};
     const uint8_t invalidate[]={0x48,0x89,0x5c,0x24,0x18,0x55,0x48,0x8b,0xec,0x48,0x83,0xec,0x60,0x80,0x89,0xfd,0x01,0x00};
@@ -261,6 +271,7 @@ void Repaint(const Handle<ink::Widget>& widget) {
     CyberpunkVR_HudRepaintStats[0].fetch_add(1, std::memory_order_relaxed);
 }
 void FlushRepaintsAtSubmit() {
+    if (!WidgetsAvailable()) return;
     if (!repaintThread || GetCurrentThreadId() != repaintThread) return;
     FlushRepaints(1);
 }
@@ -570,6 +581,38 @@ struct HudCallTimer {
 };
 }
 
+namespace cvr::hud {
+void NativeWidgetShutdownRegistered(bool registered) {
+    widgetShutdownRegistered.store(registered,std::memory_order_release);
+}
+
+bool ReleaseNativeWidgets(RED4ext::CGameApplication*) {
+    // Running::OnExit normally gets here first; Shutdown::OnEnter also covers
+    // exits before Running. Both run on the game thread, as do the cache writers.
+    // Keep this idempotent and permanently close writers before releasing handles.
+    if (widgetsClosing.exchange(true,std::memory_order_acq_rel)) return true;
+    const size_t roots=upkeepRoots.size()+pendingRoots.size();
+    const size_t subtitles=upkeepSubtitles.size()+pendingSubtitles.size();
+    const size_t maskCount=masks.size(), repaintCount=repaints.size();
+    Restore();
+    repaints.clear(); // cancel queued invalidations; do not repaint during shutdown
+    pendingRoots.clear();
+    upkeepRoots.clear();
+    pendingSubtitles.clear();
+    upkeepSubtitles.clear();
+    pendingScan=false;
+    repaintThread=0;
+    lastRoot=nullptr;
+    lastMasked={};
+    layoutCache.clear();
+    CyberpunkVR_HudRootWidth=CyberpunkVR_HudRootHeight=0;
+    CyberpunkVR_HudLayerAddress[0]=CyberpunkVR_HudLayerAddress[1]=0;
+    Log("[hud-panel] released native widgets before engine shutdown: roots=%zu subtitles=%zu masks=%zu repaints=%zu\n",
+        roots,subtitles,maskCount,repaintCount);
+    return true;
+}
+}
+
 void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
     using namespace RED4ext;
     using cvr::hud::Channel;
@@ -578,7 +621,7 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
     bool lootVisible=false;
     GetParameter(frame, &root); GetParameter(frame, &lootVisible); ++frame->code;
     if (out) *out = 0;
-    if (!Verified() || !hooksReady.load(std::memory_order_acquire)) return;
+    if (!WidgetsAvailable() || !Verified() || !hooksReady.load(std::memory_order_acquire)) return;
     repaintThread = GetCurrentThreadId();
     FlushRepaints(2);   // still queued: no frame submit since the last update
     // Before anything below can return: the script's upkeep ran whatever the HUD panel's state.
@@ -600,8 +643,10 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
     std::array<std::shared_ptr<cvr::hud::Snapshot>,cvr::hud::ChannelCount> snapshots;
     for(auto& snapshot:snapshots){snapshot=std::make_shared<cvr::hud::Snapshot>();snapshot->stamp=GetTickCount64();}
     snapshots[cvr::hud::Index(Channel::Interaction)]->lootVisible=lootVisible;
+    cvr::cyberfinger::LootTick(lootVisible);
     auto publish=[&]{for(size_t i=0;i<snapshots.size();++i)cvr::hud::Publish(snapshots[i],static_cast<Channel>(i));};
-    if (!g_liveControls.xrHudPanel || g_menuModeValue != 0 || g_liveControls.xrMenuRect || !hudLayer) {
+    if (!g_liveControls.xrHudPanel || g_menuModeValue != 0 || g_liveControls.xrMenuRect || !hudLayer ||
+        cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::PictureFrame) {
         Restore(); lastRoot = nullptr; lastMasked = {}; ++generation;publish();return;
     }
     if (root.GetPtr() != lastRoot) { Restore(); layoutCache.clear();lastRoot = root.GetPtr(); ++generation; }
@@ -697,12 +742,13 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
 // so the script keeps doing it.
 void VRHudPanelRootsNative(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
     ++frame->code;
-    if (out) *out = Verified() && hooksReady.load(std::memory_order_acquire) && CyberpunkVR_HudRootsNative.load(std::memory_order_relaxed);
+    if (out) *out = WidgetsAvailable() && Verified() && hooksReady.load(std::memory_order_acquire) && CyberpunkVR_HudRootsNative.load(std::memory_order_relaxed);
 }
 
 // A new scan: the roots that follow replace the current ones at the next VRHudPanelUpdate.
 void VRHudPanelRootsBegin(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, int64_t) {
     ++frame->code;
+    if (!WidgetsAvailable()) return;
     pendingRoots.clear(); pendingSubtitles.clear(); pendingScan = true;
 }
 
@@ -730,6 +776,7 @@ void VRHudPanelRoot(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* ou
     RED4ext::GetParameter(frame, &flags); RED4ext::GetParameter(frame, &padding);
     ++frame->code;
     if (out) *out = false;
+    if (!WidgetsAvailable()) return;
     auto info = EntryInfo(data);
     if (!root || !window || (!info && !(flags & RootGazeDot))) { RejectedOnce("a root", bool(root), bool(window), bool(data), bool(info)); return; }
     UpkeepRoot r; r.root = root; r.window = window; r.info = std::move(info); r.flags = static_cast<uint32_t>(flags); r.padding = padding;
@@ -744,6 +791,7 @@ void VRHudPanelSubtitle(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool
     RED4ext::GetParameter(frame, &panel);
     ++frame->code;
     if (out) *out = false;
+    if (!WidgetsAvailable()) return;
     auto info = EntryInfo(data);
     if (!root || !window || !info || !panel) { RejectedOnce("a subtitle root", bool(root), bool(window), bool(data), bool(info)); return; }
     UpkeepSubtitle sub; sub.root = root; sub.window = window; sub.panel = panel;

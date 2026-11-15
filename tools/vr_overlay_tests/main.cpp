@@ -103,6 +103,78 @@ int main(int argc,char** argv)try{
             SelectMenuItem(1);Check(!Visible() && PollCommand()==101,"native menu index not dispatched");
             Check(CapturesInput(),"selection released held input to game");t.time+=11111111;UpdateTracking(t);Check(!CapturesInput(),"neutral input did not release capture");
         }
+    }else if(name=="cyberfinger_chord") {
+        t.cyberfinger=true;
+        t.hands[0].stickClick=t.hands[1].stickClick=true;
+        for(int i=0;i<65;++i){t.time+=11111111;UpdateTracking(t);}
+        Check(!ConsumeMenuSummon(),"CF joystick clicks still summoned VR menu");
+        t.hands[0].stickClick=t.hands[1].stickClick=false;
+        t.hands[0].valid=t.hands[1].valid=false; // physical Menu buttons survive optical occlusion
+        t.menuLeft=t.menuRight=true;
+        for(int i=0;i<65;++i){t.time+=11111111;UpdateTracking(t);}
+        Check(ConsumeHudToggle() && !ConsumeMenuSummon() && CapturesInput(),"both Menu hold did not toggle HUD exclusively");
+        Check(!ConsumeHudToggle(),"HUD toggle consumed twice");
+        t.menuRight=false;t.time+=11111111;UpdateTracking(t);
+        Check(CapturesInput(),"partial Menu release leaked weapon button");
+        t.menuRight=true;
+        for(int i=0;i<65;++i){t.time+=11111111;UpdateTracking(t);}
+        Check(!ConsumeHudToggle() && !ConsumeMenuSummon(),"partial release repeated HUD toggle or summoned menu");
+        t.menuRight=false;
+        t.menuLeft=false;t.time+=11111111;UpdateTracking(t);
+        Check(!CapturesInput(),"released Menu chord kept input captured");
+        t.hands[0].valid=t.hands[1].valid=true;
+        // The retired sprint + Grab shortcut must remain ordinary input.
+        t.hands[0].stickClick=true;t.hands[1].grip=1;
+        for(int i=0;i<65;++i){t.time+=11111111;UpdateTracking(t);}
+        Check(!ConsumeHudToggle() && !ConsumeMenuSummon() && !CapturesInput(),"retired HUD chord still claimed input");
+        t.hands[0].stickClick=false;t.hands[1].grip=0;
+        t.menuButton=true;t.time+=11111111;UpdateTracking(t);
+        Check(ConsumeMenuSummon() && !ConsumeHudToggle() && CapturesInput(),"right pink wrist did not summon menu exclusively");
+        for(int i=0;i<65;++i){t.time+=11111111;UpdateTracking(t);}
+        Check(!ConsumeMenuSummon(),"held pink-wrist action repeated menu summon");
+        t.menuButton=false;t.time+=11111111;UpdateTracking(t);
+        Check(!CapturesInput(),"pink wrist release kept capture");
+        t.cyberfinger=false;t.menuButton=true;t.time+=11111111;UpdateTracking(t);
+        Check(!ConsumeMenuSummon() && !ConsumeHudToggle(),"CF shortcut changed another controller");
+    }else if(name=="cyberfinger" || name=="cyberfinger_back" || name=="cyberfinger_handle") {
+        t.cyberfinger=true;t.preferLeft=true;
+        Toggle();PollCommand();BridgeUpdate(true,true,"Resume\nSettings\nExit");
+        UpdateTracking(t);ConsumePointerEvents();
+        auto frame=[&]{t.time+=11111111;UpdateTracking(t);return ConsumePointerEvents();};
+        if(name=="cyberfinger_back") {
+            t.hands[1].grip=1;auto e=frame();
+            Check(Visible() && e.back().secondary && !e.back().down,"Grip did not right-click or closed F10");
+            t.hands[1].grip=0;e=frame();Check(!e.back().secondary && Visible(),"Grip release closed F10");
+            t.menuRight=true;e=frame();Check(!e.back().back,"Menu fired before release");
+            t.menuRight=false;e=frame();Check(Visible() && e.back().back,"Menu did not request popup-aware Back");
+            t.menuLeft=t.menuRight=true;frame();
+            t.menuRight=false;frame();t.menuLeft=false;e=frame();
+            Check(!e.back().back,"both-Menu release also sent Back");
+        } else if(name=="cyberfinger_handle") {
+            const auto view=GetView();
+            // Point straight ahead through the title strip, with the left hand.
+            t.hands[0].aim.position.x=view.pose.position.x;
+            t.hands[0].aim.position.y=view.pose.position.y+view.height*(.5f-35.f/CanvasHeight);
+            frame();t.hands[0].grip=1;frame();
+            Check(Visible() && GetView().dragging,"physical grab over title failed to move F10");
+            const auto before=GetView().pose.position;
+            t.hands[0].stickY=1;frame();
+            Near(GetView().pose.position.z,before.z,"CF still requires grip+stick for distance");
+            t.hands[0].aim.position.z-=.1f;frame();
+            Near(GetView().pose.position.z,before.z-.1f,"CF hand movement did not move panel in depth");
+            t.hands[0].grip=0;frame();Check(Visible() && !GetView().dragging,"releasing title grab closed panel");
+        } else {
+            t.hands[1].trigger=1;auto e=frame();
+            Check(e.back().down,"right trigger did not claim pointer from preferred left hand");
+            t.hands[1].valid=false;e=frame();Check(!e.back().down,"tracking loss kept CF mouse down");
+            t.hands[1].valid=true;e=frame();Check(!e.back().down,"tracking recovery with trigger held clicked");
+            t.hands[1].trigger=0;frame();
+            t.hands[0].stickY=1;e=frame();Check(e.back().direction==1 && e.back().focus,"left stick did not navigate highlight");
+            t.hands[0].stickY=0;frame();t.hands[0].trigger=1;e=frame();
+            Check(e.back().activate && !e.back().down,"trigger did not activate focused item without mouse click");
+            t.hands[1].stickX=1;frame();Check(ConsumeTabStep()==1,"right stick did not change F10 tab");
+            frame();Check(ConsumeTabStep()==0,"held tab repeated");
+        }
     }else Check(false,"unknown test");
     std::cout<<"PASS "<<name<<'\n';return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

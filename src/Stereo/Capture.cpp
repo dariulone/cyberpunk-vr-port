@@ -770,7 +770,16 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
         cvr::stereo::target_handoff::Targets(self,count,handles,contiguous,depth);
         cvr::stereo::target_access::Targets(self,count,handles,contiguous,depth);return;}
     if(cvr::stereo::retained_geometry::Active())cvr::stereo::retained_geometry::BeforeTargets(self,count,handles,contiguous,depth);
-    cvr::vrs::Targets(self,handles?count:0,depth && depth->ptr);
+    unsigned vrsWidth=0,vrsHeight=0;
+    if(cvr::vrs::enabled.load(std::memory_order_relaxed) && handles && count>=3 && count<=4) {
+        if(auto* target=rtv_resource_lookup(handles[0].ptr)) {
+            const auto desc=target->GetDesc();
+            if(desc.Dimension==D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc.Width<=16384 && desc.Height<=16384) {
+                vrsWidth=unsigned(desc.Width);vrsHeight=desc.Height;
+            }
+        }
+    }
+    cvr::vrs::Targets(self,handles?count:0,depth && depth->ptr,vrsWidth,vrsHeight);
     cvr::optics::Targets(self,count,handles,contiguous,depth);
     if(handles && cvr::menu_surface::Waiting()) {
         const UINT step=g_game_device?g_game_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV):0;

@@ -189,7 +189,7 @@ bool TrackedSplay(int hand, float splay[4]) {
 
 void ChooseExtensions(const std::vector<XrExtensionProperties>& available, std::vector<const char*>& enabled) {
     g_handTracking = g_motionRange = false;
-    g_enabled = ReadSetting() == 1 || cvr::cyberfinger::Enabled();
+    g_enabled = ReadSetting() == 1 || cvr::cyberfinger::Configured();
     if (!g_enabled) return;
     for (const auto& p : available) {
         if (std::strcmp(p.extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) g_handTracking = true;
@@ -230,8 +230,8 @@ int Evaluate(int hand, XrSpace base, XrTime time) {
     if (hand < 0 || hand > 1) return -1;
     return EvaluateOpenXr(hand, base, time);
 }
-float ProximityValue(int hand, bool poseValid) {
+float ProximityValue(int hand, bool poseValid, bool allowStart) {
     if (hand < 0 || hand > 1) return 0.0f;
-    return g_proximity[hand].Update(poseValid && g_fresh[hand], g_gripping[hand], GetTickCount64()) ? 1.0f : 0.0f;
+    return g_proximity[hand].Update(poseValid && g_fresh[hand], g_gripping[hand], GetTickCount64(),allowStart) ? 1.0f : 0.0f;
 }
 }

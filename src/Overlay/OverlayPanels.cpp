@@ -10,6 +10,7 @@
 // of half-applied states, which is visible in the headset.
 
 #include "Anim/WheelGrab.hpp"
+#include "Anim/FaceTracking.hpp"
 #include "Anim/WheelRange.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
 #include "Anim/VehiclePosePolicy.hpp"
@@ -19,6 +20,8 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/EyeTracking.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
 #include "Fbt/Game/Menu.hpp"
 extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
@@ -165,6 +168,7 @@ bool DrawFovControl(LiveControlsUiState& state) {
 // shared memory (OpenXRManager::SetVRHandCalib). Defaults mirror the plugin's
 // baked calibration so the rig behaves identically before anything is touched.
 void DrawVRHandsControls() {
+    cvr::face::DrawSettings();
     // Tracking toggle (writes shared-mem slot [32]; plugin installs hooks + arms
     // and sets g_VRBind = this value). Must be 4 = full-arm IK (the mode the CET
     // "Start VR Tracking" button uses). Mode 2 is the legacy direct bone-write
@@ -908,13 +912,13 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                     UI::Text("DLSS GPU: native %.2f ms / foveated %.2f ms",status.nativeMs,status.totalMs);
                 }
             }
-            changed|=CheckboxInt("Shared sun shadows",&state.monoCascades);
-            if(UI::IsItemHovered())UI::SetTooltip("Render sun cascades once for both eyes. Shadow quality and distance remain controlled by the game.");
-            changed|=SliderIntClamped("Scope lens stabilization",&state.scopeStabilize,0,100);
-            if(UI::IsItemHovered())UI::SetTooltip("Magnifying scope lenses while the view moves: share of the stabilised image (percent). Higher: no blinking of lights and grates, softer. 0 = off. Standing still the lens is untouched.");
             if (UI::CollapsingHeader("VARIABLE RATE SHADING", ImGuiTreeNodeFlags_DefaultOpen)) {
                 UI::PushID("fixedVrs");
                 auto& v=state.vrs;
+                if(UI::Checkbox("Eye-tracked foveated rendering",&v.eyeTracked)) {
+                    changed=true;if(v.eyeTracked && !v.mode)v.mode=1;
+                }
+                if(UI::IsItemHovered())UI::SetTooltip("Move the full-quality region with your eyes. Requires eye tracking shared with OpenXR and VRS Tier 2. Missing gaze restores full quality. Uses the shading settings below, independently of DLSS.");
                 changed|=widgets::Combo("Peripheral shading",&v.mode,"Off\0 2 x 2\0 4 x 4\0");
                 if(UI::IsItemHovered())UI::SetTooltip("Opaque scene materials in both eyes. The center stays 1 x 1. Unsupported 4 x 4 falls back to 2 x 2.");
                 UI::BeginDisabled(v.mode==0);
@@ -922,18 +926,31 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 changed|=widgets::SliderFloat("Center height",&v.height,20,100,"%.1f %%");
                 v=cvr::vrs::Normalize(v);
                 const float x=(100-v.width)*.5f,y=(100-v.height)*.5f;
-                UI::BeginDisabled(x==0);changed|=widgets::SliderFloat("Center offset X",&v.offsetX,-x,x,"%.1f %%");UI::EndDisabled();
-                UI::BeginDisabled(y==0);changed|=widgets::SliderFloat("Center offset Y",&v.offsetY,-y,y,"%.1f %%");UI::EndDisabled();
+                UI::BeginDisabled(v.eyeTracked || x==0);changed|=widgets::SliderFloat("Center offset X",&v.offsetX,-x,x,"%.1f %%");UI::EndDisabled();
+                UI::BeginDisabled(v.eyeTracked || y==0);changed|=widgets::SliderFloat("Center offset Y",&v.offsetY,-y,y,"%.1f %%");UI::EndDisabled();
                 UI::EndDisabled();
                 const auto s=cvr::vrs::GetStatus();
+                if(v.eyeTracked && v.mode) {
+                    const auto tracking=cvr::eye_tracking::GetState();
+                    if(tracking==cvr::eye_tracking::State::Unavailable)UI::TextDisabled("Eye tracking unavailable from OpenXR; full quality");
+                    else if(tracking==cvr::eye_tracking::State::Error)UI::TextDisabled("Eye tracking initialization failed; full quality");
+                    else if(tracking==cvr::eye_tracking::State::ProjectionUnavailable)UI::TextDisabled("Eye tracking needs asymmetric projection; full quality");
+                    else if(!s.gazeFresh)UI::TextDisabled("Waiting for eye tracking; full quality");
+                    else UI::TextDisabled("Eye tracking active");
+                }
                 if(v.mode) {
                     if(s.failed)UI::TextDisabled("Unavailable: GPU resource error");
                     else if(s.checked && !s.supported)UI::TextDisabled("VRS Tier 2 unavailable");
-                    else if(!s.readyMaps)UI::TextDisabled("Preparing");
+                    else if(cvr::engine_stereo::Enabled() && !v.eyeTracked)UI::TextDisabled("Fixed shading needs legacy stereo; enable eye tracking for native stereo");
+                    else if(!s.readyMaps)UI::TextDisabled("Preparing shading maps; full quality until ready");
                     else UI::TextDisabled("%s | %u px tiles",v.mode==2 && s.additionalRates?"4 x 4":"2 x 2",s.tileSize);
                 }
                 UI::PopID();
             }
+            changed|=CheckboxInt("Shared sun shadows",&state.monoCascades);
+            if(UI::IsItemHovered())UI::SetTooltip("Render sun cascades once for both eyes. Shadow quality and distance remain controlled by the game.");
+            changed|=SliderIntClamped("Scope lens stabilization",&state.scopeStabilize,0,100);
+            if(UI::IsItemHovered())UI::SetTooltip("Magnifying scope lenses while the view moves: share of the stabilised image (percent). Higher: no blinking of lights and grates, softer. 0 = off. Standing still the lens is untouched.");
             if (UI::CollapsingHeader("HIDDEN AREA MASK", ImGuiTreeNodeFlags_DefaultOpen)) {
                 UI::PushID("hiddenArea");
                 auto& h=state.hiddenArea;
@@ -1088,7 +1105,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             static const char* pages[]={"GENERAL","DRIVING","BINDINGS"};
             widgets::Tabs("controls-pages",page,pages,3);
             if(page==1)changed|=DrawDrivingControls(state);
-            else if(page==2)widgets::DrawBindings();
+            else if(page==2)widgets::DrawBindings(cvr::cyberfinger::Enabled());
             else {
             UI::TextWrapped("Movement, weapon aiming and physical interaction shortcuts.");
 
@@ -1223,8 +1240,12 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             if(UI::IsItemHovered())UI::SetTooltip("Raw travel that produces full analog input and activates sprint, dash and crouch.\nThe usable travel between the deadzone and this threshold maps to 0-100%%.");
             UI::EndDisabled();
             // How the sprint starts (Hooks/XInput.cpp, the sprint gesture).
-            changed |= widgets::Combo("Sprint", &state.xrSprintMode, "Hold the left stick forward\0Click the left stick\0");
-            if (UI::IsItemHovered()) {
+            if(cvr::cyberfinger::Enabled()) {
+                UI::TextWrapped("CyberFinger sprint: click the left stick while moving. Return the stick to center to stop.");
+            } else {
+                changed |= widgets::Combo("Sprint", &state.xrSprintMode, "Hold the left stick forward\0Click the left stick\0");
+            }
+            if (!cvr::cyberfinger::Enabled() && UI::IsItemHovered()) {
                 UI::SetTooltip("Hold the left stick forward: the stick held at the stop for a moment sprints (default).\n"
                                   "Click the left stick: a click sprints until the stick is let go.");
             }
