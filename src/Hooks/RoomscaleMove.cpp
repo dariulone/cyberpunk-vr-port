@@ -32,6 +32,7 @@
 #include <shared_mutex>
 #include <cstdio>
 #include "Fbt/Game/Calibration.hpp"
+#include "Natives/PhysHands.hpp"
 #include <cstring>
 #include <initializer_list>
 #include <string>
@@ -289,7 +290,26 @@ uintptr_t __fastcall Move(void* backend, float* displacement, float dt) {
     XrVector3f swimDirection{};int swimState{};
     const bool steer=nativeOk && before.enabled && cvr::swimming::ReadSteering(&swimDirection,&swimState);
     const cvr::swimming::Vector original{native[0],native[1],native[2]};
-    const auto redirected=steer ? cvr::swimming::Redirect(original,swimDirection,yaw,swimState==2):original;
+    auto redirected=steer ? cvr::swimming::Redirect(original,swimDirection,yaw,swimState==2):original;
+    // THE HANDS PUSH THE BODY (Natives/PhysHands.hpp BodyPush): a hand held off by a wall it is pushed into sends the
+    // player away from it, as a stick's move would (not the headset's share: the ledger keeps the head where it is)
+    {
+        float push[2]{};
+        if(allowed && !waterMode && cvr::physhands::BodyPush(push) && std::isfinite(push[0]+push[1])) {
+            redirected.x+=push[0]*dt;
+            redirected.y+=push[1]*dt;
+        }
+        // ...and the hands that hold on pull it after them, up as well (Natives/PhysHands.hpp BodyPull: climbing onto a
+        // railing, up out of a crouch)
+        float pull[3]{};
+        if(allowed && !waterMode && cvr::physhands::BodyPull(pull) && std::isfinite(pull[0]+pull[1]+pull[2])) {
+            redirected.x+=pull[0]*dt;
+            redirected.y+=pull[1]*dt;
+            // holding on, the hands carry the body: the game's own fall is left out (added to it, the body sank and bobbed
+            // 6 cm while it hung, gravity against the pull)
+            redirected.z=pull[2]*dt;
+        }
+    }
     const auto added=redirected-original+cvr::swimming::Vector{step.world.x,step.world.y,0};
     float combined[3]{native[0]+added.x,native[1]+added.y,native[2]+added.z};
     if(cvr::RuntimeDiagnosticsEnabled()) {

@@ -47,9 +47,40 @@ local function apply(id)
     end
 end
 
+-- THE CABIN WHEEL FOR THE HANDS ON IT. While a hand holds the rim of a car's wheel the plugin keeps it on the wheel the
+-- car draws: its steering_wheel slot, here in the player's model space (world = player position + player turn * model).
+-- Read every frame of a hold only; a vehicle without the slot (a bike) leaves the plugin on its own estimate.
+local function qmul(ai, aj, ak, ar, bi, bj, bk, br)
+    return ar * bi + ai * br + aj * bk - ak * bj, ar * bj - ai * bk + aj * br + ak * bi,
+           ar * bk + ai * bj - aj * bi + ak * br, ar * br - ai * bi - aj * bj - ak * bk
+end
+local function qrot(qi, qj, qk, qr, x, y, z)
+    local tx, ty, tz = 2.0 * (qj * z - qk * y), 2.0 * (qk * x - qi * z), 2.0 * (qi * y - qj * x)
+    return x + qr * tx + (qj * tz - qk * ty), y + qr * ty + (qk * tx - qi * tz), z + qr * tz + (qi * ty - qj * tx)
+end
+local function sendCabin(player, vehicle)
+    if type(SetVRWheelCabin) ~= "function" or not vehicle:IsA(CName.new("vehicleCarBaseObject")) then return end
+    local slots = vehicle:FindComponentByName(CName.new("vehicle_slots"))
+    if not slots then return end
+    local found, wt = slots:GetSlotTransform(CName.new("steering_wheel"))
+    if not found or not wt then return end
+    local wp = WorldPosition.ToVector4(WorldTransform.GetWorldPosition(wt))
+    local wo = WorldTransform.GetOrientation(wt)
+    local base, pq = player:GetWorldPosition(), player:GetWorldOrientation()
+    local ii, ij, ik, ir = -pq.i, -pq.j, -pq.k, pq.r
+    local x, y, z = qrot(ii, ij, ik, ir, wp.x - base.x, wp.y - base.y, wp.z - base.z)
+    local mi, mj, mk, mr = qmul(ii, ij, ik, ir, wo.i, wo.j, wo.k, wo.r)
+    SetVRWheelCabin(Vector4.new(x, y, z, 1.0), Quaternion.new(mi, mj, mk, mr))
+end
+
 registerForEvent("onUpdate", function(dt)
     local ok, err = pcall(function()
         local state = Game.GetVRWheelControlState()
+        if state % 4 ~= 0 then
+            local p = Game.GetPlayer()
+            local v = p and p:GetMountedVehicle()
+            if v then sendCabin(p, v) end
+        end
         if state == 0 then restore(); profileTime = 0.5; return end
         profileTime = profileTime + math.max(0, dt or 0)
         if profileTime >= 0.5 then

@@ -1095,7 +1095,8 @@ public class VRBallConst {
 @addMethod(PlayerPuppet) public func VRBallDropTest(height: Float) -> Void {
   this.VRBallSpawnAt(1.5, height);
   this.m_vrBallTestPhase = 1;
-  this.m_vrBallTestStartZ = this.GetWorldPosition().Z + height;
+  let start: Vector4 = this.GetWorldPosition();
+  this.m_vrBallTestStartZ = start.Z + height;
   FTLog(s"[VRBall] drop test from \(height) m, correction=\(this.m_vrBallCorrect)");
 }
 
@@ -1109,7 +1110,8 @@ public class VRBallConst {
   if this.m_vrBallTestPhase != 2 { return; }
   let ent = this.VRBallEntity();
   if !IsDefined(ent) { return; }
-  let z = ent.GetWorldPosition().Z;
+  let at: Vector4 = ent.GetWorldPosition();
+  let z = at.Z;
   if z > this.m_vrBallTestApexZ {
     this.m_vrBallTestApexZ = z;
     return;

@@ -73,10 +73,9 @@ return {
         enabled    = true,
         slot       = 'vrp_mag_slot',
         which      = 0,
-        -- TRACK 1, not 0. This magazine rig's float tracks read 0, 1, 0, 0 with the magazine home, and in the takes
-        -- index 1 drops to 0 for exactly the stretch the gun's own magazine is out (t=0.82..1.71) while index 2 shows
-        -- the one in the hand. Writing 0 to index 1 live hid it; 0 left it in the gun after a drop.
-        showTrack  = 1,
+        -- Source rig track 0 is showMagazine; the native maps it to the pose buffer. The old measured
+        -- destination slot 1 now selects showMagazineReload instead, leaving the opaque magazine under the glow.
+        showTrack  = 0,
         mesh       = 'base\\weapons\\firearms\\revolver\\militech_crusher\\entities\\meshes\\w_revolver__militech_crusher__mag_std_01.mesh',
         entity     = 'base\\vrport\\vrp_mag_crusher.ent',
         -- the mesh's origin is on the magazine's top face (Z -159.8 .. +13.3), the family's convention: no shift

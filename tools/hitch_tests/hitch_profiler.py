@@ -48,8 +48,8 @@ if not d.SymInitializeW(process, None, True):
     raise c.WinError(c.get_last_error())
 mods = ts.modules(process)
 # LuaJIT lives in CET and, for the port's own mods, in the plugin's Lua host
-lua_mods = [(m[0], m[1]) for m in mods if m[2].lower() in ('cyber_engine_tweaks.asi', 'cyberpunkvr_stereo.dll')]
-LR = Reader(process)
+lua_mods = [(m[0], m[1]) for m in mods if m[2].lower() in ('cyber_engine_tweaks.asi', 'cyberpunkvr_stereo.dll', 'cyberpunkvrport.dll')]
+lua_readers = {start: Reader(process) for start, _ in lua_mods}
 h_stack = {t: k.OpenThread(0x0002 | 0x0008 | 0x0040, False, t) for t in [gt] + workers}
 h_cyc = {t: k.OpenThread(0x0800 | 0x0040, False, t) for t in tracked}
 start_addr = {}
@@ -89,7 +89,9 @@ def walk(h, lua=False):
                 break
             pcs.append(f.AddrPC.Offset)
         chain = None
-        if lua and any(a <= x < b for x in pcs for a, b in lua_mods):
+        lua_base = next((a for x in pcs for a, b in lua_mods if a <= x < b), None) if lua else None
+        if lua_base is not None:
+            LR = lua_readers[lua_base]
             rdx, rbx = struct.unpack_from('<Q', view, 0x88)[0], struct.unpack_from('<Q', view, 0x90)[0]
             chain = []
             if LR.func(LR.q(rdx - 16)):

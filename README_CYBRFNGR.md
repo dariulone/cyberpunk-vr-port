@@ -10,6 +10,11 @@ Controls below assume the **CyberFinger CyberpunkVRPort** SteamVR binding and
 
 [Next-session TODO and installation status](docs/cyberfinger-session-todo.md).
 
+This branch integrates upstream **0.2.45**. See the
+[merge report](docs/upstream-0.2.45-integration.md) for improvements, compatibility
+decisions, build checks and the headset test checklist. The merged package was
+installed for testing on 2026-11-15; the original `main` checkout remains unchanged.
+
 ### CyberFinger controls
 
 These changes apply only when this profile is configured **and CyberFinger's
@@ -650,14 +655,19 @@ Close Cyberpunk before installation. From this repository's root in PowerShell,
 use the prepared patched package:
 
 ```powershell
-.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4 -WhatIf
-.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.45-cyberfinger-upstream -WhatIf
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.45-cyberfinger-upstream
 ```
 
 Without `-Package`, `install_cyberfinger.cmd` prepares/builds/packages the source;
 that needs Git, CMake and Visual Studio C++ build tools. Optional arguments:
 `-WeaponHand Right`, `-NoSlimeVR`, and `-GameRoot "D:\Games\Cyberpunk 2077"`.
 The default installer selects the left-handed/eight-role preset.
+For this upstream upgrade, install the complete matching package: the physics
+hands assets, Lua/redscript files and bundled redscript 0.5.32 compiler changed
+alongside the DLL. The source preparation script downloads the pinned 0.2.45
+assets and backs up an older packed archive before replacing it. Other mods'
+standalone redscript installations remain separate.
 The installer seeds missing HUD keys from the captured preset; use
 `-ResetHudDefaults` only when you want to replace existing HUD tuning too.
 SteamVR driver updates and their bindings are installed separately; restart SteamVR afterwards.

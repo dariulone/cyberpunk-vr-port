@@ -920,6 +920,12 @@ void SetVRLocomotionDetailed(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame
     if (aOut) *aOut = 1;
 }
 
+void SetVRWorldTimeScale(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
+    float scale=1;RED4ext::GetParameter(frame,&scale);++frame->code;
+    cvr::input::scannerHandPhysics.TimeScale(scale);
+    if(out)*out=1;
+}
+
 void SetVRScannerState(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
     int32_t state=0;RED4ext::GetParameter(frame,&state);++frame->code;
     cvr::input::PublishScannerVision(state);

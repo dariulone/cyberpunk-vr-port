@@ -261,7 +261,7 @@ static void LogVideoMemory(ID3D12Device* device,const char* when,uint64_t count)
     CyberpunkVR_VideoMemoryMB[0]=local.CurrentUsage>>20;
     for(auto peak=CyberpunkVR_VideoMemoryMB[1].load();(local.CurrentUsage>>20)>peak &&
         !CyberpunkVR_VideoMemoryMB[1].compare_exchange_weak(peak,local.CurrentUsage>>20);){}
-    log("[creation] video memory after %llu %s: local %llu / %llu MB budget, non-local %llu / %llu MB; "
+    if(cvr::RuntimeDiagnosticsEnabled())log("[creation] video memory after %llu %s: local %llu / %llu MB budget, non-local %llu / %llu MB; "
         "since launch %llu graphics pipelines, %llu with a mesh shader",
         static_cast<unsigned long long>(count),when,static_cast<unsigned long long>(local.CurrentUsage>>20),
         static_cast<unsigned long long>(local.Budget>>20),static_cast<unsigned long long>(shared.CurrentUsage>>20),
@@ -1728,7 +1728,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateStateObject(ID3D12Device5* self, con
             libraries[i].DXILLibrary = twin;
             subobjects[i].pDesc = &libraries[i];
             ++twinned;
-            log("[pso] stereo_rt twin for a %zu-byte library with %u export(s), first %ls", library.DXILLibrary.BytecodeLength,
+            if (cvr::RuntimeDiagnosticsEnabled()) log("[pso] stereo_rt twin for a %zu-byte library with %u export(s), first %ls", library.DXILLibrary.BytecodeLength,
                 library.NumExports, library.NumExports && library.pExports ? library.pExports[0].Name : L"(all)");
         }
         if (twinned) {
@@ -1745,7 +1745,8 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateStateObject(ID3D12Device5* self, con
             D3D12_STATE_OBJECT_DESC twin{desc->Type, desc->NumSubobjects, subobjects.data()};
             const HRESULT hr = g_orig_CreateStateObject(self, &twin, riid, out);
             cvr::hidden_area::shaders::LibraryTwinCreated(SUCCEEDED(hr), twinned);
-            log("[pso] state object with %u stereo_rt library twin(s): hr=0x%08X", twinned, static_cast<unsigned>(hr));
+            if (FAILED(hr) || cvr::RuntimeDiagnosticsEnabled())
+                log("[pso] state object with %u stereo_rt library twin(s): hr=0x%08X", twinned, static_cast<unsigned>(hr));
             if (SUCCEEDED(hr)) return hr;
         }
     }

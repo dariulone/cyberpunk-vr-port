@@ -1,4 +1,5 @@
 #include "Overlay/VrOverlay.hpp"
+#include "Core/LiveControls.hpp"
 #include "Runtimes/FingerGrip.hpp"
 #include "Runtimes/CyberFingerMenuPolicy.hpp"
 #include <windows.h>
@@ -19,6 +20,7 @@ bool hudToggle{};
 cvr::hud::DisplayClock clock;
 std::atomic<bool> visible{false},capture{false},externalCapture{false};
 int command=0;bool wanted=false,buttonDown=false,triggerArmed=false,releasePending=false,gripHeld[2]{},menuSummon=false;
+bool menuReleasePending=false;
 uint64_t bridgeStamp=0,requestStamp=0;
 std::vector<std::string> items;
 std::vector<PointerEvent> events;
@@ -63,16 +65,18 @@ int ConsumeTabStep(){std::lock_guard lock(mutex);const int step=tabStep;tabStep=
 void UpdateTracking(const Tracking& t){
     std::lock_guard lock(mutex);clock.Step(t.time);
     view.cyberfinger=t.cyberfinger;
-    const bool both=t.valid && (t.cyberfinger ? (t.menuLeft && t.menuRight) :
-        (t.hands[0].valid && t.hands[1].valid && t.hands[0].stickClick && t.hands[1].stickClick));
-    // CF: right pink wrist opens the world menu; both Menu buttons toggle HUD.
-    // Other controllers keep their existing stick-click summon chord.
-    if(chord.Update(!t.cyberfinger && both,clock.elapsed)){menuSummon=true;releasePending=true;}
+    const bool menuEnabled=g_liveControls.xrVrInterface!=0;
+    const bool bothHeld=t.valid && t.hands[0].valid && t.hands[1].valid && t.hands[0].stickClick && t.hands[1].stickClick;
+    const bool both=menuEnabled && !t.cyberfinger && bothHeld;
+    // The interface switch gates menu summon, not F10 capture or CF's HUD toggle.
+    if(!menuEnabled){menuSummon=false;menuReleasePending=false;}
+    if(chord.Update(both,clock.elapsed)){menuSummon=true;menuReleasePending=true;}
     // Physical Menu buttons do not require both optical hand poses to be visible.
-    const bool cfValid=t.cyberfinger && t.valid;
-    if(cfHudChord.Step(t.menuLeft,t.menuRight,cfValid,clock.elapsed)){hudToggle=true;releasePending=true;}
-    if(!t.cyberfinger || !t.valid || !t.hands[1].valid)cfWristMenu.Reset();
-    else if(cfWristMenu.Step(t.menuButton)){menuSummon=true;releasePending=true;}
+    if(cfHudChord.Step(t.menuLeft,t.menuRight,t.cyberfinger && t.valid,clock.elapsed)){
+        hudToggle=true;releasePending=true;
+    }
+    if(!menuEnabled || !t.cyberfinger || !t.valid || !t.hands[1].valid)cfWristMenu.Reset();
+    else if(cfWristMenu.Step(t.menuButton)){menuSummon=true;menuReleasePending=true;}
     const auto now=GetTickCount64();
     // The idle Lua bridge only polls commands, so its last acknowledgement may
     // be arbitrarily old while closed. Give each new request its opening window;
@@ -83,12 +87,12 @@ void UpdateTracking(const Tracking& t){
     // first, but only for 1.5 s; sticks and triggers as before. With the grip read from the fingers a hand closed on the
     // controller reads as gripping for as long as it holds it: the grips are not waited for at all.
     static uint64_t pendingSince=0;
-    if(!releasePending)pendingSince=0;else if(!pendingSince)pendingSince=now;
+    if(!releasePending && !menuReleasePending)pendingSince=0;else if(!pendingSince)pendingSince=now;
     const bool gripsFree=cvr::fingergrip::GripFromFingers() || (t.hands[0].grip<.5f && t.hands[1].grip<.5f) ||
                          (pendingSince && now-pendingSince>1500);
-    const bool summonReleased=t.cyberfinger?(!t.menuLeft && !t.menuRight && !t.menuButton):!both;
-    if(releasePending && summonReleased && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsFree)releasePending=false;
-    capture=visible || wanted || both || cfHudChord.Claimed() || releasePending;
+    const bool summonReleased=t.cyberfinger?(!t.menuLeft && !t.menuRight && !t.menuButton):!bothHeld;
+    if(summonReleased && t.hands[0].trigger<.3f && t.hands[1].trigger<.3f && gripsFree){releasePending=false;menuReleasePending=false;}
+    capture=visible || wanted || both || cfHudChord.Claimed() || releasePending || menuReleasePending;
     view.hold=t.cyberfinger?cfHudChord.Held():float(chord.held);
     const auto nav=navigation.Step(t.cyberfinger && visible,t.hands[0].stickX,t.hands[0].stickY,t.hands[1].stickX,
         t.hands[0].grip>.5f,t.hands[1].grip>.5f,now);

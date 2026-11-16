@@ -6,7 +6,7 @@ namespace cvr::gestures {
 struct GestureCalibration {int pose;const char* suffix;unsigned hands;float delta[4];};
 inline constexpr char GestureCalibrationSource[]="44385e91886cb8fbacc8bd7becd8c23293432b6a8ba8cfe34232d22076389009";
 inline constexpr GestureCalibration CalibratedGestures[]={
-    {2,"InHandThumb",2,{0.0f,0.0f,0.421091214f,0.907018296f}},
+    {2,"InHandThumb",3,{0.0f,0.0f,0.421091214f,0.907018296f}},
     {3,"HandIndex1",3,{0.0f,0.0f,0.37473604f,0.927131544f}},
     {3,"HandIndex2",3,{0.00792146401f,0.0016403122f,0.202763576f,0.979194308f}},
     {3,"HandIndex3",3,{0.0f,0.0f,0.314009036f,0.949419994f}},

@@ -1966,7 +1966,10 @@ updateGrenadeGrab = function(now, dt)
             local host = E.S.litHand[side]
             -- The proximity test the mark already ran IS the "at the belt" condition -- see the note
             -- on E.CFG.grenade_grab. Nothing else can start a grab.
-            if host ~= nil and string.sub(host, 1, 13) == "ucbeltgrenade" then
+            -- Not from a seat: the belt is under the hands on the wheel, and a squeeze there took a grenade by accident.
+            local seated = false
+            pcall(function() seated = Game.GetMountedVehicle(pl) ~= nil end)
+            if not seated and host ~= nil and string.sub(host, 1, 13) == "ucbeltgrenade" then
                 -- NEVER INTO A HAND A WEAPON IS IN. The holders do not light while a weapon is held
                 -- (init.lua, updateHighlight), so this is the second line, for a grip that lands in the
                 -- moment between a draw and the next highlight tick. Attaching anyway is the bug this

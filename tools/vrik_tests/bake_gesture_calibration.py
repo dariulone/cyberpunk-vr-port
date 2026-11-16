@@ -49,7 +49,7 @@ def generate():
                     assert error<.0001,(name,'finger frame is not mirror-compatible',mapped)
                 v=rotate(right,q[:3]);v[0]=-v[0];mirrored=[-x for x in rotate(inverse(left),v)]+[q[3]]
                 assert abs(sum(a*b for a,b in zip(norm(mirrored),q)))>1-1e-8
-            rows.append((pose,suffix,2 if key=='thumb' else 3,q))
+            rows.append((pose,suffix,3,q))
     def literal(x):
         text=f'{x:.9g}';return text+('' if '.' in text or 'e' in text else '.0')+'f'
     lines=['#pragma once','// Exported from: tools/vrik_tests/fixtures/gesture-calibration.json.',

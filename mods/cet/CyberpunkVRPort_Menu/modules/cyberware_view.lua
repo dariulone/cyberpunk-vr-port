@@ -48,7 +48,6 @@ end
 -- The game's tooltip for a cyberware item; a spawn or SetData that fails, or a tooltip that never lays out, shows
 -- the menu's own card instead of the empty black plate (modules/item_tooltip.lua, issue #188).
 local function spawnTooltip(kit,parent,item,x,y,w,h,upgrade,base)
-  local ctrl=kit.menuController()
   local context=ItemDisplayContextData.Make(Game.GetPlayer(),item.vendor and ItemDisplayContext.Vendor or ItemDisplayContext.GearPanel,false)
   if D.session(kit) then context:AddTag(CName.new("Ripperdoc")) end
   if upgrade then context:AddTag(CName.new("CyberwareUpgrade")) end
@@ -57,8 +56,8 @@ local function spawnTooltip(kit,parent,item,x,y,w,h,upgrade,base)
   local isDeck=item.raw:HasTag(CName.new("Cyberdeck"))
   local path=isDeck and [[base\gameplay\gui\common\tooltip\cyberdecktooltip.inkwidget]] or [[base\gameplay\gui\common\tooltip\itemtooltip.inkwidget]]
   local library=isDeck and "cyberdeckTooltip" or "itemTooltip"
-  local widget=ctrl:SpawnFromExternal(parent,ResRef.FromString(path),CName.new(library))
-  if not widget then return nil,"no widget from "..library end
+  local widget,why=Tooltip.widget(kit,parent,path,library)
+  if not widget then return nil,why or ("no widget from "..library) end
   widget:SetAnchor(inkEAnchor.TopLeft);widget:SetAnchorPoint(Vector2.new({X=0,Y=0}))
   widget:SetRenderTransformPivot(Vector2.new({X=0,Y=0}));widget:SetScale(Vector2.new({X=.001,Y=.001}))
   widget:SetMargin(inkMargin.new({left=x,top=y,right=0,bottom=0}));widget:SetOpacity(.001)
@@ -70,8 +69,8 @@ end
 local function tooltip(kit,parent,item,x,y,w,h,upgrade,base)
   if not item or not item.ui then return end
   local s=state(kit)
-  local ok,tip,why=pcall(spawnTooltip,kit,parent,item,x,y,w,h,upgrade,base)
-  if not (ok and tip) then tip=Tooltip.fallback(item.ui,parent,x,y,w,h,item.price,ok and why or tip) end
+  local tip=Tooltip.create(function() return spawnTooltip(kit,parent,item,x,y,w,h,upgrade,base) end,
+    item.ui,parent,x,y,w,h,item.price)
   s.tips[#s.tips+1]=tip
 end
 local function bar(kit,p,x,kind,data)
@@ -223,17 +222,7 @@ function V.update(kit)
   local s=state(kit);local now=kit.S.time;local dt=math.min(.1,now-(s.lastFrame or now));s.lastFrame=now
   for _,p in ipairs(s.pulses or {}) do p:SetOpacity(.45+.55*(.5+.5*math.sin(now*5))) end
   if s.body and not s.upgrade then Anatomy.update(s.body,dt) end
-  for _,tip in ipairs(s.tips or {}) do
-    local ok,size=false,nil
-    if not tip.fell then ok,size=pcall(function() return tip.widget:GetDesiredSize() end) end
-    if ok and size.X>1 and size.Y>1 then
-      tip.laid=true
-      local scale=math.min(tip.w/size.X,tip.h/(size.Y+60))
-      tip.widget:SetScale(Vector2.new({X=scale,Y=scale}));K.move(tip.widget,tip.x,tip.y+35*scale);tip.widget:SetOpacity(1)
-    elseif not tip.fell then
-      Tooltip.watch(tip)
-    end
-  end
+  Tooltip.fit(s.tips)
   if s.refreshAt and now>=s.refreshAt then s.refreshAt=nil;I.invalidate(s.ctx);C.redraw(kit);return end
   if D.updatePurchase(kit,s.ctx) then s.refreshAt=now+.4 end
   if not s.upgrade and s.tipHost then
@@ -244,9 +233,20 @@ function V.update(kit)
       local item=key and s.snapshot.byKey[key]
       if item then
         local x=s.area and 980 or 1020
+        -- Overview cards alternate left/right. Put the tooltip opposite its source, like the native
+        -- ripperdoc: its blocker on a right-hand card caused hover-out, hide, hover-in, repeat.
+        if not s.area then
+          for i,group in ipairs(s.snapshot.groups) do
+            if group.area==s.hoverArea or gamedataEquipmentArea[group.area]==item.area then
+              if i%2==0 then x=180 end
+              break
+            end
+          end
+        end
         K.roundFill(s.tipHost,x,165,650,925,K.BLACK,1,10)
         tooltip(kit,s.tipHost,item,x+10,180,630,890)
         s.tipBlock.x=kit.P1X+x;s.tipBlock.y=kit.P1Y+165;s.tipBlock.w=650;s.tipBlock.h=925;s.tipBlock.visible=true
+        K.move(s.tipCloseVisual,x+562,120);s.tipClose.x=kit.P1X+x+562
         s.tipClose.visible=true;s.tipCloseVisual:SetVisible(true)
       elseif key and key:find("^bar:") then
         local pane=K.canvas(s.tipHost,520,230,660,830);barTip(kit,pane,key:sub(5))

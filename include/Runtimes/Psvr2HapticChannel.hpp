@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <cmath>
 #include <mutex>
+#include "Runtimes/HapticPulseQueue.hpp"
 
 namespace cvr::psvr2 {
 // Same payload and heartbeat contract as the Toolkit slot-guard fork,
@@ -11,6 +12,7 @@ class HapticChannel {
     HANDLE handle{};
     float* data{};
     std::mutex mutex;
+    HapticPulseQueue pulses;
 public:
     HapticChannel() {
         handle = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, 1024, HapticMapping);
@@ -20,15 +22,19 @@ public:
     ~HapticChannel() { if (data) UnmapViewOfFile(data); if (handle) CloseHandle(handle); }
     void Heartbeat() {
         std::lock_guard lock(mutex);
-        if (data) data[170] = data[170] >= 1000000.0f ? 1.0f : data[170] + 1.0f;
+        if (!data) return;
+        data[170] = data[170] >= 1000000.0f ? 1.0f : data[170] + 1.0f;
+        HapticPulseQueue::Event pulse;
+        if (pulses.Pop(GetTickCount64(), pulse)) {
+            data[158] = static_cast<float>(pulse.hand); data[159] = pulse.amplitude;
+            data[160] = static_cast<float>(pulse.duration);
+            MemoryBarrier();
+            data[157] = data[157] >= 1000000.0f ? 1.0f : data[157] + 1.0f;
+        }
     }
     void Pulse(int hand, float amplitude, int duration) {
-        if ((hand != 0 && hand != 1) || !std::isfinite(amplitude) || amplitude <= 0 || amplitude > 1 || duration < 1 || duration > 1000) return;
         std::lock_guard lock(mutex);
-        if (!data) return;
-        data[158] = static_cast<float>(hand); data[159] = amplitude; data[160] = static_cast<float>(duration);
-        MemoryBarrier();
-        data[157] = data[157] >= 1000000.0f ? 1.0f : data[157] + 1.0f;
+        if (data) pulses.Push(hand, amplitude, duration, GetTickCount64());
     }
 };
 inline HapticChannel& Haptics() { static HapticChannel channel; return channel; }

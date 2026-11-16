@@ -11,8 +11,10 @@ constexpr auto Copy=D3D12_RESOURCE_STATE_COPY_SOURCE;
 constexpr auto Uav=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 constexpr char shader[]=R"(
 Texture2D<float> sourceDepth:register(t0);
+Texture2D<float2> motion:register(t1);
 RWTexture2D<float> outputDepth:register(u0);
-cbuffer Parameters:register(b0) {uint2 size;float2 jitter;float nearPlane;float farPlane;uint inverted;uint unused;};
+cbuffer Parameters:register(b0) {uint2 size;float2 jitter;float nearPlane;float farPlane;uint inverted;uint warp;
+    float2 motionToPixels;uint2 motionSize;};
 float clean(float d){return isfinite(d) && d>=0 && d<=1 ? d : (inverted?0:1);}
 float distanceAt(float d){
     if(inverted)d=1-d;
@@ -21,10 +23,21 @@ float distanceAt(float d){
 }
 [numthreads(8,8,1)] void main(uint3 id:SV_DispatchThreadID) {
     if(any(id.xy>=size))return;
+    float2 at=float2(id.xy);
+    if(warp) {
+        // A midpoint's pixel shows what B had at s, where s plus the given share of B's motion vector (which points
+        // back to A) lands on this pixel: two steps of that fixed point from the pixel itself.
+        const float2 centre=at+.5;float2 s=centre;
+        [unroll] for(int i=0;i<2;++i) {
+            const int2 m=clamp(int2(s*float2(motionSize)/float2(size)),int2(0,0),int2(motionSize)-1);
+            s=centre-motion.Load(int3(m,0))*motionToPixels;
+        }
+        at=clamp(s-.5,float2(0,0),float2(size)-1);
+    }
     // Native 0xC28EC0 adds +2*jitterX/W,+2*jitterY/H to NDC. CameraData
     // already flips Y for texture coordinates. Sample the rasterized depth
     // at that offset to describe the unjittered color/projection sent to XR.
-    float2 p=float2(id.xy)+jitter;int2 b=int2(floor(p));float2 w=frac(p);
+    float2 p=at+jitter;int2 b=int2(floor(p));float2 w=frac(p);
     float4 d=float4(clean(sourceDepth.Load(int3(clamp(b,int2(0,0),int2(size)-1),0))),
         clean(sourceDepth.Load(int3(clamp(b+int2(1,0),int2(0,0),int2(size)-1),0))),
         clean(sourceDepth.Load(int3(clamp(b+int2(0,1),int2(0,0),int2(size)-1),0))),
@@ -37,6 +50,16 @@ float distanceAt(float d){
         : clean(sourceDepth.Load(int3(clamp(int2(floor(p+.5)),int2(0,0),int2(size)-1),0)));
     outputDepth[id.xy]=value;
 })";
+// A shader-readable two-channel float view of the game's motion vector copy; UNKNOWN for a layout it cannot be.
+DXGI_FORMAT MotionFormat(DXGI_FORMAT format) {
+    switch(format) {
+        case DXGI_FORMAT_R16G16_FLOAT:case DXGI_FORMAT_R16G16_TYPELESS:return DXGI_FORMAT_R16G16_FLOAT;
+        case DXGI_FORMAT_R32G32_FLOAT:case DXGI_FORMAT_R32G32_TYPELESS:return DXGI_FORMAT_R32G32_FLOAT;
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:case DXGI_FORMAT_R16G16B16A16_TYPELESS:return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:case DXGI_FORMAT_R32G32B32A32_TYPELESS:return DXGI_FORMAT_R32G32B32A32_FLOAT;
+        default:return DXGI_FORMAT_UNKNOWN;
+    }
+}
 void Barrier(ID3D12GraphicsCommandList* l,ID3D12Resource* r,D3D12_RESOURCE_STATES a,D3D12_RESOURCE_STATES b) {
     D3D12_RESOURCE_BARRIER x{};x.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     x.Transition={r,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,a,b};l->ResourceBarrier(1,&x);
@@ -58,11 +81,11 @@ struct Renderer::Impl {
         if(pso)return device.Get()==d;
         device=d;
         D3D12_DESCRIPTOR_RANGE ranges[2]{};
-        ranges[0]={D3D12_DESCRIPTOR_RANGE_TYPE_SRV,1,0,0,0};
-        ranges[1]={D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,1};
+        ranges[0]={D3D12_DESCRIPTOR_RANGE_TYPE_SRV,2,0,0,0};
+        ranges[1]={D3D12_DESCRIPTOR_RANGE_TYPE_UAV,1,0,0,2};
         D3D12_ROOT_PARAMETER params[2]{};
         params[0].ParameterType=D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;params[0].DescriptorTable={2,ranges};
-        params[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;params[1].Constants={0,0,8};
+        params[1].ParameterType=D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;params[1].Constants={0,0,12};
         D3D12_ROOT_SIGNATURE_DESC desc{};desc.NumParameters=2;desc.pParameters=params;
         ComPtr<ID3DBlob> blob,error,code;
         if(FAILED(D3D12SerializeRootSignature(&desc,D3D_ROOT_SIGNATURE_VERSION_1,&blob,&error)) ||
@@ -85,15 +108,19 @@ bool Renderer::Record(ID3D12Device* device,ID3D12GraphicsCommandList* list,ID3D1
     // Same-queue FIFO is the readiness dependency. No wait on a game/async
     // queue which could itself be waiting for Present is introduced here.
     for(unsigned e=0;e<2;++e) {
-        if(!inputs[e] || inputs[e]->queue!=queue || !inputs[e]->submitted || !inputs[e]->depth ||
+        if(!inputs[e] || !inputs[e]->submitted || !inputs[e]->depth ||
             !inputs[e]->readyFence || !inputs[e]->fenceValue || !destinations[e])return false;
+        // From another queue only once finished there (the runtime's own queue reading the game's captures).
+        if(inputs[e]->queue!=queue && inputs[e]->readyFence->GetCompletedValue()<inputs[e]->fenceValue)return false;
         const auto a=inputs[e]->depth->GetDesc(),b=destinations[e]->GetDesc();const auto& v=plan.eyes[e];
         if(!v.width || !v.height || a.Width!=v.width || a.Height!=v.height || b.Width!=v.width || b.Height!=v.height ||
             a.Format!=DXGI_FORMAT_R32_FLOAT || (b.Format!=DXGI_FORMAT_D32_FLOAT && b.Format!=DXGI_FORMAT_R32_TYPELESS) ||
             a.DepthOrArraySize!=1 || b.DepthOrArraySize!=1 || a.SampleDesc.Count!=1 || b.SampleDesc.Count!=1)return false;
+        if(v.motion>0 && (!inputs[e]->motion || !inputs[e]->motionWidth || !inputs[e]->motionHeight ||
+            MotionFormat(inputs[e]->motion->GetDesc().Format)==DXGI_FORMAT_UNKNOWN))return false;
     }
     if(!slot.heap) {
-        D3D12_DESCRIPTOR_HEAP_DESC desc{};desc.NumDescriptors=4;desc.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;desc.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        D3D12_DESCRIPTOR_HEAP_DESC desc{};desc.NumDescriptors=6;desc.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;desc.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if(FAILED(device->CreateDescriptorHeap(&desc,IID_PPV_ARGS(&slot.heap))))return false;
     }
     const auto step=device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
@@ -106,10 +133,14 @@ bool Renderer::Record(ID3D12Device* device,ID3D12GraphicsCommandList* list,ID3D1
             if(FAILED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,Copy,nullptr,IID_PPV_ARGS(&slot.output[e]))))return false;
             slot.output[e]->SetName(L"CVR_OpenXR_UnjitteredDepth");
         }
-        auto cpu=slot.heap->GetCPUDescriptorHandleForHeapStart();cpu.ptr+=2*e*step;
+        auto cpu=slot.heap->GetCPUDescriptorHandleForHeapStart();cpu.ptr+=3*e*step;
         D3D12_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=DXGI_FORMAT_R32_FLOAT;srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
         srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;srv.Texture2D.MipLevels=1;
         device->CreateShaderResourceView(inputs[e]->depth.Get(),&srv,cpu);cpu.ptr+=step;
+        // B's motion vectors for a midpoint; a null view otherwise (the shader does not read it then).
+        const bool warp=v.motion>0;
+        srv.Format=warp ? MotionFormat(inputs[e]->motion->GetDesc().Format) : DXGI_FORMAT_R16G16_FLOAT;
+        device->CreateShaderResourceView(warp ? inputs[e]->motion.Get() : nullptr,&srv,cpu);cpu.ptr+=step;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};uav.Format=DXGI_FORMAT_R32_FLOAT;uav.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
         device->CreateUnorderedAccessView(slot.output[e].Get(),nullptr,&uav,cpu);
     }
@@ -118,11 +149,16 @@ bool Renderer::Record(ID3D12Device* device,ID3D12GraphicsCommandList* list,ID3D1
     ID3D12DescriptorHeap* heaps[]={slot.heap.Get()};list->SetDescriptorHeaps(1,heaps);
     list->SetComputeRootSignature(impl->root.Get());list->SetPipelineState(impl->pso.Get());
     for(unsigned e=0;e<2;++e) {
-        const auto& v=plan.eyes[e];const auto& c=inputs[e]->camera;
-        struct Constants {uint32_t w,h;float jitter[2],nearPlane,farPlane;uint32_t inverted,pad;} constants{v.width,v.height,{v.jitter[0],v.jitter[1]},c.nearPlane,c.farPlane,c.inverted?1u:0u,0};
-        auto gpu=slot.heap->GetGPUDescriptorHandleForHeapStart();gpu.ptr+=2*e*step;
+        const auto& v=plan.eyes[e];const auto& c=inputs[e]->camera;const bool warp=v.motion>0;
+        // The vectors' scale makes them a fraction of the image; the depth texture's size makes that pixels.
+        struct Constants {uint32_t w,h;float jitter[2],nearPlane,farPlane;uint32_t inverted,warp;float motionToPixels[2];uint32_t motionW,motionH;}
+            constants{v.width,v.height,{v.jitter[0],v.jitter[1]},c.nearPlane,c.farPlane,c.inverted?1u:0u,warp?1u:0u,
+                {warp?v.motion*v.motionScale[0]*float(v.width):0.f,warp?v.motion*v.motionScale[1]*float(v.height):0.f},
+                warp?inputs[e]->motionWidth:1u,warp?inputs[e]->motionHeight:1u};
+        static_assert(sizeof(Constants)==12*4);
+        auto gpu=slot.heap->GetGPUDescriptorHandleForHeapStart();gpu.ptr+=3*e*step;
         Barrier(list,slot.output[e].Get(),Copy,Uav);
-        list->SetComputeRootDescriptorTable(0,gpu);list->SetComputeRoot32BitConstants(1,8,&constants,0);
+        list->SetComputeRootDescriptorTable(0,gpu);list->SetComputeRoot32BitConstants(1,12,&constants,0);
         list->Dispatch((v.width+7)/8,(v.height+7)/8,1);
         Barrier(list,slot.output[e].Get(),Uav,Copy);
         Barrier(list,destinations[e],D3D12_RESOURCE_STATE_DEPTH_WRITE,D3D12_RESOURCE_STATE_COPY_DEST);

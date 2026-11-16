@@ -1,5 +1,31 @@
 # CyberFinger / Quest Pro: resume here
 
+## Installed: upstream 0.2.45 integration candidate (2026-11-15)
+
+The user requested a parallel integration branch, then asked to install the
+merged candidate for testing. Worktree: `build/upstream-integration` under the
+original checkout; branch `integration/upstream-0.2.45`. Original `main` remains
+at `af74b88c`. See the [integration report](upstream-0.2.45-integration.md) for
+upstream improvements, compatibility decisions and validation.
+
+- Full Release build, 155 controller/render/UI checks and 15 installer scenarios
+  passed. Two NVIDIA-only framegen tests cannot run on this AMD machine.
+- The complete port plus installed script mods compile with both compilers,
+  with no errors or warnings.
+- Full package installed: 181 changed files, independently hash-verified.
+- VR/CyberFinger/FBT settings and CET bindings are unchanged; CET and the
+  SteamVR driver were not replaced.
+- Package: `dist/CyberpunkVRPort-0.2.45-cyberfinger-upstream` in this worktree.
+- Backup: `build/cyberfinger-install-backups/aaf21d0e41b34e3296f106000ddb0c52/`.
+- DLL SHA256: `7D78E81EA2856E16C29ABE0797F492CE9ABF9FAB76E5CEA9F71EE7B8328E1A55`.
+- Matching symbols: original checkout's `build/up245/bin/red4ext/plugins/cyberpunkvrport/Release/`.
+
+Next: launch from GOG with SteamVR/Steam Link connected, load a save, check
+loading stereo and hands, movement, menus/CET release and HUD toggle, then
+combat and physical grabs. No headset or performance result is yet confirmed.
+The historical installed loading-r1 notes below describe the pre-merge build;
+do not use its DLL/PDB layouts against the newly installed candidate.
+
 ## Installed: save-load flicker correction (2026-11-15)
 
 User clarified the failure: loading a saved game shows the transition on the

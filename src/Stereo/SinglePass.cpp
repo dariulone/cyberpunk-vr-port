@@ -1,5 +1,6 @@
 // SinglePass -- see include/Stereo/SinglePass.hpp.
 #include "Stereo/SinglePass.hpp"
+#include "Utils/DebugGate.hpp"
 #include "Render/SinglePassPipelines.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include "Render/RenderProbeScope.hpp"
@@ -618,7 +619,7 @@ bool Draw(ID3D12GraphicsCommandList* list,uint32_t node,uint32_t kind,const uint
         if(l.phase!=1) {
             if(l.unsent){Cause(95);FlushList(list,l);}
             l.pending.clear();l.cursor=0;l.phase=1;l.broken=false;
-            if((Count(8).fetch_add(1,std::memory_order_relaxed)+1)%4096==0) {   // where kept draws went, now and then
+            if((Count(8).fetch_add(1,std::memory_order_relaxed)+1)%4096==0 && cvr::RuntimeDiagnosticsEnabled()) {   // where kept draws went, now and then (a diagnostic)
                 char line[1200];int u=0;
                 for(size_t i=0;i<96 && u<640;++i)if(const auto n=CyberpunkVR_SinglePassFlushBy[i].load(std::memory_order_relaxed))
                     u+=snprintf(line+u,sizeof(line)-u," %zu:%llu",i,static_cast<unsigned long long>(n));

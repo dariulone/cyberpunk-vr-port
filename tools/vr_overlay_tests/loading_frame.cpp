@@ -28,6 +28,8 @@ int main()try{
     // only one serial behind. It must never accompany the new kind of image.
     const Presentation kinds[]{Presentation::Scene,Presentation::Menu,Presentation::Loading,Presentation::Notice,Presentation::Dark};
     for(auto frame:kinds)for(auto eye:kinds) {
+        Check(CanGenerate(frame,eye)==(frame==Presentation::Scene && eye==Presentation::Scene),
+            "buffered frame generation crossed a menu/loading transition");
         Check(CanPair(frame,eye,102,102,3)==(frame==eye),"exact pair classification mismatch");
         Check(CanPair(frame,eye,102,101,3)==(frame==Presentation::Scene && eye==frame),"transition reused incompatible eye");
         Check(!CanPair(frame,eye,102,103,3),"future eye paired");

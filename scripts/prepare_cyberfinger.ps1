@@ -3,7 +3,7 @@
 .SYNOPSIS
 Prepare and build this checkout's CyberFinger mod without touching the game.
 .DESCRIPTION
-Downloads the checksum-pinned upstream 0.2.3 release for its packed assets and
+Downloads the checksum-pinned upstream 0.2.45 release for its packed assets and
 matching redscript compiler, initializes pinned submodules, configures CMake,
 and builds the patched native plugin. All downloaded files stay in this repo.
 Requires Git, CMake 3.24+ and Visual Studio 2022 C++ tools with a Windows SDK.
@@ -34,24 +34,24 @@ foreach ($tool in @('cmake', 'git')) {
 }
 $BuildDir = Local-Path $BuildDir
 $cache = Local-Path 'build\cyberfinger-bootstrap'
-$releaseZip = Local-Path 'build\cyberfinger-bootstrap\CyberpunkVRPort-0.2.3.zip'
-$releaseRoot = Local-Path 'build\cyberfinger-bootstrap\release-0.2.3'
+$releaseZip = Local-Path 'build\cyberfinger-bootstrap\CyberpunkVRPort-0.2.45.zip'
+$releaseRoot = Local-Path 'build\cyberfinger-bootstrap\release-0.2.45'
 $sdkRoot = Local-Path 'build\cyberfinger-bootstrap\RED4ext.SDK-game25'
 # The repository submodule still targets 2.31. Its own patch-day tooling uses
 # wopss/RED4ext.SDK for regenerated game layouts; pin the verified 2.5 revision.
 $sdkCommit = 'a34f0ad0a9e4f37cbe1fe001e4ff68c2949d0665'
 $sourceManifest = Local-Path 'mods\archive\cyberpunkvrport.archive.xl'
 if (!(Test-Path -LiteralPath $sourceManifest -PathType Leaf)) { throw 'The source archive manifest is missing; repair the checkout first.' }
-if (!$PSCmdlet.ShouldProcess($repo, "Fetch verified 0.2.3 assets, initialize dependencies, configure and build $BuildDir")) { return }
+if (!$PSCmdlet.ShouldProcess($repo, "Fetch verified 0.2.45 assets, initialize dependencies, configure and build $BuildDir")) { return }
 
 [void][IO.Directory]::CreateDirectory($cache)
-$expectedZip = '2269fa6d5f21b34ab6bb72f86a7e3a4c710d5a5c370e992eb1032a862ba4cddc'
+$expectedZip = '64b23fb8f211cb5c3df896676a7d9c8ebf6e70d3affaa4f280ffd39d9cfab6cf'
 if (!(Test-Path -LiteralPath $releaseZip)) {
-    Write-Host 'Downloading matching upstream 0.2.3 assets (about 144 MiB)...'
+    Write-Host 'Downloading matching upstream 0.2.45 assets (about 147 MiB)...'
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $download = Local-Path 'build\cyberfinger-bootstrap\CyberpunkVRPort-0.2.3.zip.download'
+    $download = Local-Path 'build\cyberfinger-bootstrap\CyberpunkVRPort-0.2.45.zip.download'
     $client = New-Object Net.WebClient
-    try { $client.DownloadFile('https://github.com/dariulone/cyberpunk-vr-port/releases/download/0.2.3/CyberpunkVRPort-0.2.3.zip', $download) }
+    try { $client.DownloadFile('https://github.com/dariulone/cyberpunk-vr-port/releases/download/0.2.45/CyberpunkVRPort-0.2.45.zip', $download) }
     finally { $client.Dispose() }
     if ((Hash $download) -ne $expectedZip) { throw "Release checksum mismatch: $download" }
     Move-Item -LiteralPath $download -Destination $releaseZip
@@ -74,11 +74,18 @@ try {
 } finally { $zip.Dispose() }
 $assetRoot = Local-Path (Join-Path $releaseRoot $plugin)
 if ((Hash (Join-Path $assetRoot 'config\archive.yaml')) -ne (Hash $sourceManifest)) {
-    throw 'The 0.2.3 archive manifest does not match this checkout. Obtain assets for this source version.'
+    throw 'The 0.2.45 archive manifest does not match this checkout. Obtain assets for this source version.'
 }
 $archive = Local-Path 'mods\archive\cyberpunkvrport.archive'
-if (!(Test-Path -LiteralPath $archive)) {
-    Copy-Item -LiteralPath (Join-Path $assetRoot 'archive\cyberpunkvrport.archive') -Destination $archive
+$releaseArchive = Join-Path $assetRoot 'archive\cyberpunkvrport.archive'
+if (!(Test-Path -LiteralPath $archive) -or (Hash $archive) -ne (Hash $releaseArchive)) {
+    if (Test-Path -LiteralPath $archive) {
+        # A checkout upgraded from 0.2.3 still has its ignored packed archive.
+        # Preserve it before replacing it with the verified matching release.
+        $archiveBackup = Local-Path ('build\cyberfinger-bootstrap\archive-' + (Hash $archive) + '.archive')
+        if (!(Test-Path -LiteralPath $archiveBackup)) { Copy-Item -LiteralPath $archive -Destination $archiveBackup }
+    }
+    Copy-Item -LiteralPath $releaseArchive -Destination $archive -Force
 }
 
 Write-Host 'Initializing pinned source dependencies...'

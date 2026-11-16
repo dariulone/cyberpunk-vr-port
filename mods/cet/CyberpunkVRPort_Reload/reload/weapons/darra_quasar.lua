@@ -33,7 +33,7 @@ return {
         enabled    = true,
         slot       = 'vrp_mag_slot',
         which      = 0,
-        showTrack  = 1,
+        showTrack  = 0, -- showMagazine in the source rig, not its remapped pose-buffer slot
         mesh       = 'base\\weapons\\firearms\\revolver\\darra_quasar\\entities\\meshes\\w_revolver__darra_quasar__mag_std_01.mesh',
         entity     = 'base\\vrport\\vrp_mag_quasar.ent',
         holdSlot   = 'WeaponLeft', holdSlotRight = 'WeaponRight',

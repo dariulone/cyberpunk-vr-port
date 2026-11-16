@@ -27,6 +27,7 @@
 // rotation mirrors as S_parent^T * local * S, its parent-local offset as S_parent^T * offset.
 
 #include "Anim/LeftHanded.hpp"
+#include "Utils/DebugGate.hpp"
 #include "Anim/CharacterRig.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/VrikHook.hpp"
@@ -259,6 +260,12 @@ void LeftHandedArmRig(const char* const* names, int count) {
     CyberpunkVR_DebugLeftHandedTwins = g_fingerCount + 1;
     CyberpunkVR_DebugLeftHandedResidual = worst;
     const auto& h = g_hands.s.m;
+    // Once per distinct result: the twins are rebuilt on every rebind, the same each time.
+    static int lastFingers = -1;
+    static float lastWorst = -1.0f;
+    if (g_fingerCount == lastFingers && std::fabs(worst - lastWorst) < 1e-4f && !cvr::RuntimeDiagnosticsEnabled()) return;
+    lastFingers = g_fingerCount;
+    lastWorst = worst;
     Log("[left-handed] twins: hands, %d fingers; residual %.3f, mirror %.1f mm; S hand [%g %g %g|%g %g %g|%g %g %g]\n",
         g_fingerCount, worst, worstMirror * 1000.0f, h[0][0], h[0][1], h[0][2], h[1][0], h[1][1], h[1][2], h[2][0],
         h[2][1], h[2][2]);

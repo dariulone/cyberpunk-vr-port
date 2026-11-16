@@ -203,7 +203,8 @@ public final func GetActiveWeaponToUnequip() -> ItemID {
   if !ItemID.IsValid(this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Right)) && VRLeftHanded() {
     left = this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Left);
     if VRLeftHandedWeapon.Movable(left) {
-      return this.GetActiveItem(this.GetEquipAreaFromItemID(left).areaType);
+      let area = this.GetEquipAreaFromItemID(left);
+      return this.GetActiveItem(area.areaType);
     };
   };
   return wrappedMethod();

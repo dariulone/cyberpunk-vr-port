@@ -55,6 +55,9 @@ target_link_libraries(cyberfinger_adapters PRIVATE wrpuppets_fbt_ik RED4ext.SDK)
 # sufficient here; the test supplies LuaJIT's math.atan2 alias explicitly.
 set(LUA_SOURCE_DIR "" CACHE PATH "Official Lua source directory containing lua.c")
 if(LUA_SOURCE_DIR)
+    add_test(NAME cyberfinger_stock_arm_shortcut COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/arm_shortcut_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_ArmCyberwareB/init.lua)
     add_test(NAME cyberfinger_melee_strength COMMAND cyberfinger_lua
         ${CMAKE_CURRENT_LIST_DIR}/melee_strength_test.lua
         ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_Weapon/)

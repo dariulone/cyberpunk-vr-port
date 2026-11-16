@@ -56,7 +56,8 @@ end
 
 ---------------------------------------------------------------- the places the shells hold
 
-local SIDE_OF = { hip_r = "r", hip_l = "l", underarm_l = "l", underarm_r = "r", chest_l = "l", chest_r = "r" }
+local SIDE_OF = { hip_r = "r", hip_l = "l", thigh_r = "r", thigh_l = "l",
+  underarm_l = "l", underarm_r = "r", chest_l = "l", chest_r = "r" }
 local DESIGN = { underarm_l = "underarm", underarm_r = "underarm", chest_l = "cknife", chest_r = "cknife" }
 
 -- The holster under the arm and its weapon, moved from where they were made: 3 cm further to the side and 1 cm back
@@ -109,11 +110,13 @@ function M.wanted(copies, body)
   for _, c in pairs(copies) do
     local name = c.place.name
     local side = SIDE_OF[name]
-    if name == "hip_r" or name == "hip_l" then
+    local leg = name == "hip_r" or name == "hip_l" or name == "thigh_r" or name == "thigh_l"
+    if leg then
       if c.kind == "pistol" then
         local kind = legKind(c.look, c.typeName)
         local spec = D.leg[side][kind][body]
-        out["leg_" .. side] = { ent = spec.ent, comp = c.place.comp, slot = c.place.slot,
+        local shellName = (name == "thigh_r" or name == "thigh_l") and "thigh_" or "leg_"
+        out[shellName .. side] = { ent = spec.ent, comp = c.place.comp, slot = c.place.slot,
           pose = compose({ p = c.place.pos, q = c.place.rot }, inverse(spec.fit)) }
       end
     elseif DESIGN[name] ~= nil then

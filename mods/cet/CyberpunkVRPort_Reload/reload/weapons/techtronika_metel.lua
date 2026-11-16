@@ -66,7 +66,7 @@ return {
         enabled    = true,
         slot       = 'vrp_mag_slot',
         which      = 0,
-        showTrack  = 1,
+        showTrack  = 0, -- showMagazine in the source rig, not its remapped pose-buffer slot
         mesh       = 'ep1\\weapons\\firearms\\revolver\\techtronika_metel\\entities\\meshes\\w_revolver__techtronika_metel__mag_std_01.mesh',
         entity     = 'base\\vrport\\vrp_mag_metel.ent',
         holdSlot   = 'WeaponLeft', holdSlotRight = 'WeaponRight',

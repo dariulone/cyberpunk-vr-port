@@ -11,7 +11,7 @@ add_executable(vr_overlay_tests main.cpp input_host.cpp ../../src/Overlay/VrOver
 target_include_directories(vr_overlay_tests PRIVATE ../../include ${OPENXR_INCLUDE_DIR})
 target_compile_features(vr_overlay_tests PRIVATE cxx_std_20)
 target_compile_definitions(vr_overlay_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-foreach(case chord chord_reopen bridge_timeout ray drag drag_rotate distance follow tracking_loss settings input menu desktop cyberfinger cyberfinger_back cyberfinger_handle cyberfinger_chord cyberfinger_anchor)
+foreach(case chord chord_reopen bridge_timeout ray drag drag_rotate distance follow tracking_loss settings input menu desktop cyberfinger cyberfinger_back cyberfinger_handle cyberfinger_chord cyberfinger_anchor interface_master cyberfinger_interface_master)
     add_test(NAME vr_overlay_${case} COMMAND vr_overlay_tests ${case})
 endforeach()
 set(root "${CMAKE_CURRENT_SOURCE_DIR}/../..")

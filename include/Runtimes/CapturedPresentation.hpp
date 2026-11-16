@@ -13,6 +13,11 @@ constexpr Presentation Classify(bool menu, bool loadingScreen, bool notice, bool
 constexpr bool IsLoading(Presentation kind) {
     return kind==Presentation::Loading || kind==Presentation::Notice || kind==Presentation::Dark;
 }
+constexpr bool CanGenerate(Presentation selected, Presentation newest) {
+    // The runtime queue may select an older completed capture. Do not carry a
+    // pending generated scene endpoint across a newly published menu/load.
+    return selected==Presentation::Scene && newest==Presentation::Scene;
+}
 constexpr bool CanHold(Presentation kind, int64_t ageNs) {
     // A loading pause can last seconds. Its stationary screen/black curtain
     // remains valid; dropping the layer lets the runtime show its fallback.

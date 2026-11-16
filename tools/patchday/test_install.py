@@ -112,6 +112,14 @@ def port_files(a):
     # redscript's compiler, built with the plugin, for a game without redscript installed
     for n in ('scc_lib.dll', 'LICENSE.txt'):
         files[PLUGIN + '/redscript/' + n] = os.path.relpath(os.path.join(dll, 'redscript', n), REPO)
+    # ANR FG's dlssg folder beside the plugin, unchanged (cmake/NativeFramegen.cmake); its logs stay
+    anr = os.path.join(dll, 'anr', 'dlssg')
+    for d, _, ns in os.walk(anr):
+        for n in ns:
+            if n.startswith('nr_fg-') and n.endswith('.log'):
+                continue
+            p = os.path.join(d, n)
+            files[PLUGIN + '/anr/dlssg/' + os.path.relpath(p, anr).replace('\\', '/')] = os.path.relpath(p, REPO)
     # the TweakDB's record names, for the Lua host (src/Lua)
     for n in ('tweakdbstr.kark', 'usedhashes.kark', 'LICENSE.txt'):
         files[PLUGIN + '/config/tweakdb/' + n] = os.path.relpath(os.path.join(dll, 'config', 'tweakdb', n), REPO)
@@ -163,6 +171,13 @@ def port_files(a):
         for n in sorted(os.listdir(full)):
             if n.endswith('.dxil'):
                 files[PLUGIN + '/shaders/' + plugin_folder + '/' + n] = 'src/Shaders/%s/%s' % (folder, n)
+    # Debug Draw (externals/cp2077_debug_draw, built by tools/debug_draw/build.py into its game_dir, laid out as the
+    # game is): the game's own debug renderer for drawing in the world, its own RED4ext plugin
+    debug_draw = os.path.join(REPO, 'externals', 'cp2077_debug_draw', 'game_dir')
+    for d, _, ns in os.walk(debug_draw):
+        for n in ns:
+            p = os.path.join(d, n)
+            files[os.path.relpath(p, debug_draw).replace('\\', '/')] = os.path.relpath(p, REPO)
     return files
 
 

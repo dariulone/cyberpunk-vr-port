@@ -16,7 +16,8 @@ local function upvalue(fn, name, replacement)
   end
   error("missing production upvalue: " .. name)
 end
-local choose = upvalue(M.update, "choose")
+local frame = upvalue(M.update, "frame")
+local choose = upvalue(frame, "choose")
 local H = {pos = {0,0,0}, palm = {o = {0,0,0}, d = {1,0,0}}}
 local near = {id = "near", pos = {.1,0,0}}
 local far = {id = "far", pos = {.5,0,0}}
@@ -44,14 +45,15 @@ Game = {
   end,
 }
 VRPalmModelPos = function() end
-upvalue(M.update, "drawTaken", function() end)
-upvalue(M.update, "blocked", function() return false end)
-upvalue(M.update, "refresh", function() end)
-upvalue(M.update, "where", function(t) return t.pos end)
-upvalue(M.update, "hands", function() end)
-upvalue(M.update, "aim", function() end)
-upvalue(M.update, "offers", function() return owner, false end)
-upvalue(M.update, "take", function(_, t) taken = t end)
+upvalue(frame, "drawTaken", function() end)
+upvalue(frame, "blocked", function() return false end)
+upvalue(frame, "refresh", function() end)
+upvalue(frame, "where", function(t) return t.pos end)
+upvalue(frame, "hands", function() end)
+upvalue(frame, "aim", function() end)
+upvalue(frame, "offers", function() return owner, false end)
+upvalue(frame, "take", function(_, t) taken = t end)
+upvalue(M.update, "outlineFrame", function() end)
 local marker = {mark = function() end}
 local function tick(grip, previous)
   taken = nil

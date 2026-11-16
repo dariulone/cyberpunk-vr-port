@@ -5,6 +5,7 @@
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
 #include "Camera/PoseIdentity.hpp"
+#include "Hooks/FarInlineHook.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include "Stereo/EngineStereoDlss.hpp"
 #include <MinHook.h>
@@ -250,22 +251,50 @@ ngx::Result CreateHook(ID3D12GraphicsCommandList* list,unsigned feature,ngx::Par
     }
     return result;
 }
+// A failed MH_CreateHook has already scanned the address space near its target for a trampoline block
+// (VirtualQuery, about 10 ms in this process) -- on the game's Present thread. Retried every two seconds it
+// cost one 45 fps frame slot each time. A failure is deterministic for a loaded module: try a few times, then
+// wait for a different nvngx_dlss.dll before trying again.
+constexpr unsigned kInstallAttempts=3;
+HMODULE installModule{};
+unsigned installAttempts{};
 void Install() {
     auto module=GetModuleHandleW(L"nvngx_dlss.dll");if(!module)return;
     if(GetModuleHandleW(L"CheekyFoveatedDLSSRuntime.dll")){Message("Another foveated backend is loaded; restart required");return;}
     auto create=reinterpret_cast<ngx::Create>(GetProcAddress(module,"NVSDK_NGX_D3D12_CreateFeature"));
     auto release=reinterpret_cast<ngx::Release>(GetProcAddress(module,"NVSDK_NGX_D3D12_ReleaseFeature"));if(!create || !release)return;
-    if(!originalCreate) {
-        if(MH_CreateHook(reinterpret_cast<void*>(create),reinterpret_cast<void*>(&CreateHook),reinterpret_cast<void**>(&originalCreate))!=MH_OK)return;
-        if(MH_EnableHook(reinterpret_cast<void*>(create))!=MH_OK)return;
-    }
+    if(module!=installModule){installModule=module;installAttempts=0;}
+    if(installAttempts>=kInstallAttempts)return;
+    ++installAttempts;
+    const auto failedAt=[](const char* what,MH_STATUS status) {
+        Log("[foveated-native] %s failed: %s (attempt %u/%u)%s\n",what,MH_StatusToString(status),installAttempts,
+            kInstallAttempts,installAttempts>=kInstallAttempts ? "; not retrying for this DLSS module" : "");
+    };
+    // nvngx_dlss.dll can be mapped among the game's reservations with no free page within MinHook's reach
+    // (seen: base 0x1784DCA0000, nothing free within 2 GB) -- MH_ERROR_MEMORY_ALLOC, and the feature never ran.
+    // Its NGX entry points open with plain register saves, so they take a far hook instead (Hooks/FarInlineHook).
+    const auto hook=[&](void* target,void* detour,void** original,const char* what) {
+        auto created=MH_CreateHook(target,detour,original);
+        if(created==MH_OK)created=MH_EnableHook(target);
+        if(created==MH_OK)return true;
+        if(created==MH_ERROR_MEMORY_ALLOC) {
+            const auto distant=cvr::hooks::FarInlineHook(target,detour,original);
+            Log("[foveated-native] %s: no free memory near nvngx_dlss.dll for MinHook; far hook %s\n",what,
+                cvr::hooks::ToString(distant));
+            if(distant==cvr::hooks::FarHookResult::Ok)return true;
+        }
+        failedAt(what,created);return false;
+    };
+    if(!originalCreate && !hook(reinterpret_cast<void*>(create),reinterpret_cast<void*>(&CreateHook),
+                                reinterpret_cast<void**>(&originalCreate),"CreateFeature hook"))return;
     create=originalCreate;
     const char* names[]{"NVSDK_NGX_D3D12_EvaluateFeature","NVSDK_NGX_D3D12_EvaluateFeature_C"};
     void* hooks[]{reinterpret_cast<void*>(&Hook<0>),reinterpret_cast<void*>(&Hook<1>)};
     for(unsigned i=0;i<2;++i) {
         auto* target=GetProcAddress(module,names[i]);if(!target || (i && target==routes[0].target))continue;
+        if(routes[i].evaluate)continue;
         routes[i].create=create;routes[i].release=release;routes[i].target=target;
-        if(MH_CreateHook(target,hooks[i],reinterpret_cast<void**>(&routes[i].evaluate))==MH_OK && MH_EnableHook(target)==MH_OK) {
+        if(hook(target,hooks[i],reinterpret_cast<void**>(&routes[i].evaluate),names[i])) {
             installed=true;Log("[foveated-native] hooked %s\n",names[i]);
         }
     }

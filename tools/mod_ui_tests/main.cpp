@@ -1,6 +1,8 @@
 #include "Overlay/ModUiInput.hpp"
 #include "Overlay/ModUiImGui.hpp"
 #include "CyberpunkVrAdapter.h"
+#include "Core/LiveControls.hpp"
+LiveControls g_liveControls{};
 #include <iostream>
 #include <stdexcept>
 #include <string>

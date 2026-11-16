@@ -1,7 +1,8 @@
 public native func VRWeaponTriggerEnabled() -> Bool;
 
-@addField(WeaponObject) private let vrTriggerHasShot: Bool;
-@addField(WeaponObject) private let vrTriggerLastShotReal: Float;
+// Public: read and written from WeaponTransition and the trigger wrap, which redscript 1.0 holds to field access.
+@addField(WeaponObject) public let vrTriggerHasShot: Bool;
+@addField(WeaponObject) public let vrTriggerLastShotReal: Float;
 
 @addMethod(WeaponTransition)
 protected final const func VRDirectSemiAuto(scriptInterface: ref<StateGameScriptInterface>) -> Bool {

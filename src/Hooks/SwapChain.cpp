@@ -1,4 +1,5 @@
 #include <MinHook.h>
+#include "Utils/DebugGate.hpp"
 #include "Hooks/RenderDocBridge.hpp"
 #include "Hooks/SwapChainInternal.hpp"
 #include "Render/DesktopMirror.hpp"
@@ -353,7 +354,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
     }
 
     static uint64_t presentLogCounter = 0;
-    if (hr != S_OK || ((++presentLogCounter % 600) == 1)) {
+    if (hr != S_OK || ((++presentLogCounter % 600) == 1 && cvr::RuntimeDiagnosticsEnabled())) {
         HWND foreground = GetForegroundWindow();
         RECT clientRect{};
         RECT windowRect{};
