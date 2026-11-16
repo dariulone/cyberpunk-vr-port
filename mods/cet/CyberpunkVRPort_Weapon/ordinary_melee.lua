@@ -1,6 +1,7 @@
 -- Ordinary melee speed is the grip's physical movement, as before Enhanced.
 -- Wrist roll must not acquire a sword-length lever and become a phantom swing.
 local tuning=require('melee_tuning')
+local strength=require('melee_strength')
 local M={}
 local state
 local clock=0
@@ -15,10 +16,10 @@ local function distance(a,b,lever)
     return d
 end
 function M.reset() state=nil end
--- The trigger of the hand holding the weapon: the slots are per physical controller, and the weapon is in the left
--- one while VRWeaponInLeftHand says so (input[3] below is that hand already).
+-- CyberFinger accepts either physical trigger; other controllers use the
+-- weapon hand (input[3] below is already that hand's tracking).
 local function weaponTrigger()
-    return Game.GetVRSharedSlot(Game.VRWeaponInLeftHand() and 154 or 160)>.5
+    return strength.strong(Game.VRWeaponInLeftHand() and 0 or 1)
 end
 
 function M.update(dt,player,weapon,position,forward,origin,diag)

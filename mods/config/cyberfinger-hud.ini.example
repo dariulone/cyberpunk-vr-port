@@ -1,0 +1,64 @@
+; CyberFinger HUD defaults captured from the live Quest Pro session, 2026-11-15.
+; Merge into config/vrport.ini. The installer seeds only missing keys by default.
+; -ResetHudDefaults deliberately reapplies these HUD settings to an existing install.
+; Values use the same precision as the F10 Save function. No transient hide/show state.
+; Layout: horizontal %, vertical %, scale, opacity, visible (0/1).
+xr_hud_panel=1
+xr_hud_follow_deg=60.000
+xr_interaction_panel=1
+xr_interaction_follow_deg=0.000
+xr_loot_follow_deg=0.000
+xr_interaction_distance=0.840
+xr_interaction_fov=57.500
+xr_hud_fov=56.200
+xr_hud_distance=1.170
+xr_hud_follow_mode=0
+xr_hud_stereo_depth=1
+xr_hud_brightness=1.000
+xr_hud_shadow=1.000
+xr_hud_glow=1.000
+xr_hud_clearance=1
+xr_hud_clearance_grow=0.510
+xr_hud_clearance_hands=0
+xr_hud_clearance_hands_scale=2.000
+xr_interaction_anchor=0
+hud_element_health=0.000,0.000,1.0000,1.0000,1
+hud_element_activity=0.000,0.000,1.0000,1.0000,1
+hud_element_hints=0.000,0.000,1.0000,1.0000,1
+hud_element_ammo=0.000,0.000,1.0000,1.0000,1
+hud_element_warning=0.000,0.000,1.0000,1.0000,1
+hud_element_device_cursor=0.000,0.000,1.0000,1.0000,1
+hud_element_quick_slots=0.000,0.000,1.0000,1.0000,1
+hud_element_boss=0.000,0.000,1.0000,1.0000,1
+hud_element_progress=0.000,0.000,1.0000,1.0000,1
+hud_element_oxygen=0.000,0.000,1.0000,1.0000,1
+hud_element_minimap=0.000,0.000,1.0000,1.0000,1
+hud_element_wanted=0.000,0.000,1.0000,1.0000,1
+hud_element_minimap_alternate=0.000,0.000,1.0000,1.0000,1
+hud_element_vehicle_summon=0.000,0.000,1.0000,1.0000,1
+hud_element_quest=0.000,0.000,1.0000,1.0000,1
+hud_element_vehicle_scan=0.000,0.000,1.0000,1.0000,1
+hud_element_cooldown=0.000,0.000,1.0000,1.0000,1
+hud_element_input_prompt=0.000,0.000,1.0000,1.0000,1
+hud_element_zone_alert=0.000,0.000,1.0000,1.0000,1
+hud_element_stamina=0.000,0.000,1.0000,1.0000,1
+hud_element_crouch=0.000,0.000,1.0000,1.0000,1
+hud_element_militech=0.000,0.000,1.0000,1.0000,1
+hud_element_phone=0.000,0.000,1.0000,1.0000,1
+hud_element_vehicle_combat=0.000,0.000,1.0000,1.0000,1
+hud_element_vehicle=0.000,0.000,1.0000,1.0000,1
+hud_element_consumables=0.000,0.000,1.0000,1.0000,1
+hud_element_songbird_audio=0.000,0.000,1.0000,1.0000,1
+hud_element_holocall=0.000,0.000,1.0000,1.0000,1
+hud_element_courier=0.000,0.000,1.0000,1.0000,1
+hud_element_radio=0.000,0.000,1.0000,1.0000,1
+hud_element_subtitles=0.000,0.000,1.0000,1.0000,1
+hud_element_dialogs=0.000,0.000,1.0000,1.0000,1
+hud_element_journal_notifications=0.000,0.000,1.0000,1.0000,1
+hud_element_basilisk=0.000,0.000,1.0000,1.0000,1
+hud_element_identity_dossier=0.000,0.000,1.0000,1.0000,1
+hud_element_identity_imprint=0.000,0.000,1.0000,1.0000,1
+hud_element_briefing_sequence=0.000,0.000,1.0000,1.0000,1
+hud_element_scanner_data=0.000,0.000,1.0000,1.0000,1
+hud_element_surveillance=0.000,0.000,1.0000,1.0000,1
+hud_element_scanner_reticle=0.000,0.000,1.0000,1.0000,1

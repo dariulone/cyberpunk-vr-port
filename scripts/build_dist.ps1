@@ -198,6 +198,7 @@ Add-File (Need (Join-Path $RepoRoot "src\Shaders\stereo_probe_cull\355ba40185eea
 # in vrport.ini. FirstLaunch clears it to 0 only after the merge succeeds. A timestamped backup
 # of the original file is kept. See INSTALL.txt.
 Add-File (Need (Join-Path $RepoRoot "mods\config\UserSettings.json") "UserSettings.json") "red4ext\plugins\cyberpunkvrport\config\UserSettings.json"
+Add-File (Need (Join-Path $RepoRoot "mods\config\cyberfinger-hud.ini.example") "CyberFinger HUD preset") "red4ext\plugins\cyberpunkvrport\config\cyberfinger-hud.ini.example"
 
 # ---- captured grip poses, read from beside the exe -------------------------------------------
 # ENUMERATED, never listed. This was a hardcoded three (both smoke grips and the lighter) while

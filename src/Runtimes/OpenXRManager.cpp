@@ -8,6 +8,7 @@
 #include "Runtimes/HybridBodyYaw.hpp"
 #include "Anim/WheelGrab.hpp"   // the wheel-grab blends, for the hand smoothing below
 #include "Runtimes/OpenXRManager.hpp"
+#include "Overlay/ModUi.hpp"
 #include "Render/FoveatedDlss.hpp"
 #include "Render/FixedVrs.hpp"
 #include "Hooks/Psvr2Input.hpp"
@@ -2440,6 +2441,8 @@ void OpenXRManager::Shutdown() {
     m_stereoDepth.Poll();
     m_framegenOverlay.Shutdown(true);
     m_settingsPanel.Shutdown();
+    m_modPanel.Shutdown(false);
+    cvr::modui::Suspend();cvr::vrui::SetExternalCapture(false);
     m_cfMenuLaser.Shutdown();
     cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();
     cvr::framegen::StopHardwareTelemetry();

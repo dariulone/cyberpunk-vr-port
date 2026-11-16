@@ -1,18 +1,22 @@
 cmake_minimum_required(VERSION 3.24)
 project(VrOverlayTests LANGUAGES CXX)
 enable_testing()
+add_executable(loading_frame_tests loading_frame.cpp)
+target_include_directories(loading_frame_tests PRIVATE ../../include)
+target_compile_features(loading_frame_tests PRIVATE cxx_std_17)
+add_test(NAME loading_frame_presentation COMMAND loading_frame_tests)
 set(OPENXR_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../build/_deps/openxr-src/include" CACHE PATH "OpenXR headers")
 set(IMGUI_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../build/_deps/imgui-src" CACHE PATH "ImGui sources")
 add_executable(vr_overlay_tests main.cpp input_host.cpp ../../src/Overlay/VrOverlay.cpp)
 target_include_directories(vr_overlay_tests PRIVATE ../../include ${OPENXR_INCLUDE_DIR})
 target_compile_features(vr_overlay_tests PRIVATE cxx_std_20)
 target_compile_definitions(vr_overlay_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-foreach(case chord chord_reopen bridge_timeout ray drag drag_rotate distance follow tracking_loss settings input menu desktop cyberfinger cyberfinger_back cyberfinger_handle cyberfinger_chord)
+foreach(case chord chord_reopen bridge_timeout ray drag drag_rotate distance follow tracking_loss settings input menu desktop cyberfinger cyberfinger_back cyberfinger_handle cyberfinger_chord cyberfinger_anchor)
     add_test(NAME vr_overlay_${case} COMMAND vr_overlay_tests ${case})
 endforeach()
 set(root "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(imgui "${IMGUI_SOURCE_DIR}")
-add_executable(vr_overlay_gpu gpu.cpp input_host.cpp ${root}/src/Overlay/VrOverlay.cpp ${root}/src/Overlay/VrPanel.cpp ${root}/src/Overlay/VrStyle.cpp ${root}/src/Render/ColorBlit.cpp
+add_executable(vr_overlay_gpu gpu.cpp mod_ui_gpu.cpp input_host.cpp ${root}/src/Overlay/ModUi.cpp ${root}/src/Overlay/VrOverlay.cpp ${root}/src/Overlay/VrPanel.cpp ${root}/src/Overlay/VrStyle.cpp ${root}/src/Render/ColorBlit.cpp
     ${root}/src/Runtimes/CyberFingerMenuLaser.cpp
     ${root}/src/Overlay/VrWidgets.cpp ${root}/src/Overlay/UiRec.cpp uirec_host.cpp
     ${imgui}/imgui.cpp ${imgui}/imgui_draw.cpp ${imgui}/imgui_widgets.cpp ${imgui}/imgui_tables.cpp ${imgui}/backends/imgui_impl_dx12.cpp)

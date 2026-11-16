@@ -69,6 +69,7 @@ int main(int argc,char** argv)try{
         }
     }else if(name=="drag_rotate"){
         // The grip carries the panel on the controller: turning the wrist swings it on the full lever.
+        s.distance=1.4f; // Explicit geometry for the 1.1 m controller-to-panel lever.
         Placement p;p.Update(t,s,.01f);t.hands[1].grip=1;p.Grab(1,t);
         const float a=.3f;t.hands[1].aim.orientation={0,std::sin(-a*.5f),0,std::cos(-a*.5f)};p.Update(t,s,.01f);
         Near(p.pose.position.x,1.1f*std::sin(a),"wrist turn did not swing the panel");
@@ -78,13 +79,29 @@ int main(int argc,char** argv)try{
         Placement p;p.Update(t,s,.01f);t.head.orientation={0,std::sin(.2f),0,std::cos(.2f)};
         for(int i=0;i<290;++i){p.Update(t,s,.01f);Near(p.follow.yaw,0,"cone moved before rest delay");}
         for(int i=0;i<70;++i)p.Update(t,s,.01f);Check(std::abs(p.follow.yaw-.4f)<.036f && !p.follow.following,"delayed follow did not settle");
+    }else if(name=="cyberfinger_anchor"){
+        t.cyberfinger=true;Placement p;p.Update(t,s,.01f);const auto before=p.pose;
+        t.head.position={1,1.2f,1};t.head.orientation={0,.70710678f,0,.70710678f};
+        for(int i=0;i<500;++i)p.Update(t,s,.01f);
+        Near(p.pose.position.x,before.position.x,"CF panel followed translation");
+        Near(p.pose.position.y,before.position.y,"CF panel followed leaning");
+        Near(p.pose.orientation.y,before.orientation.y,"CF panel turned toward head after rest delay");
+        t.hands[0].grip=1;p.Grab(0,t);t.hands[0].aim.position.x+=.3f;p.Update(t,s,.01f);
+        Check(p.pose.position.x>before.position.x+.29f,"CF anchored panel no longer moves by Grip");
+        t.hands[0].grip=0;p.Update(t,s,.01f);const auto released=p.pose;
+        t.head.position.x+=1;t.head.orientation={0,0,0,1};p.Update(t,s,.01f);
+        Near(p.pose.position.x,released.position.x,"released panel followed head");
+        Near(p.pose.orientation.y,released.orientation.y,"released panel rotated with head");
+        t.valid=false;p.Update(t,s,.01f);t.valid=true;p.Update(t,s,.01f);
+        Near(p.pose.position.x,released.position.x,"tracking recovery moved panel");
+        t.origin=2;p.Update(t,s,.01f);Check(p.pose.position.x>released.position.x+1,"recenter retained old CF anchor");
     }else if(name=="tracking_loss"){
         Placement p;p.Update(t,s,.01f);t.hands[1].grip=1;p.Grab(1,t);const auto before=p.pose;t.valid=false;p.Update(t,s,.01f);
         Check(p.dragging<0 && p.pose.position.z==before.position.z,"tracking loss dragged panel");
         t.valid=true;t.origin=2;t.head.orientation={0,std::sin(.2f),0,std::cos(.2f)};p.Update(t,s,.01f);Near(p.follow.yaw,.4f,"origin reset retained anchor");
     }else if(name=="settings"){
         s.distance=99;s.minDistance=-1;s.maxDistance=0;s.cone=500;s.scale=std::numeric_limits<float>::quiet_NaN();s=Sanitize(s);
-        Check(s.distance<=s.maxDistance && s.maxDistance>s.minDistance && s.cone==90 && s.scale==1,"settings clamping failed");
+        Check(s.distance<=s.maxDistance && s.maxDistance>s.minDistance && s.cone==90 && s.scale==Settings{}.scale,"settings clamping failed");
         FILE* f=std::tmpfile();Check(f!=nullptr,"temp file");WriteSettings(f,s);rewind(f);Settings restored;char line[128];while(std::fgets(line,sizeof(line),f))ParseSetting(line,restored);fclose(f);Near(restored.distance,s.distance,"setting round trip");
     }else if(name=="input" || name=="menu"){
         Toggle();Check(PollCommand()==1 && !Visible() && CapturesInput(),"overlay visible before pause acknowledgement");

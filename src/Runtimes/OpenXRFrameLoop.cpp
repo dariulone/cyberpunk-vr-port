@@ -23,6 +23,7 @@
 #include "Runtimes/RoomscaleTracking.hpp"
 #include "Runtimes/SimulatorRecenter.hpp"
 #include "Hooks/CyberwareChord.hpp"
+#include "Overlay/ModUi.hpp"
 #include "Runtimes/OpenXRInternal.hpp"
 #include "Anim/CharacterRig.hpp"   // VRIK_NoteShake: the shake census, stage 3
 #include "Utils/XrMath.hpp"
@@ -916,10 +917,10 @@ void OpenXRManager::ReportXrFrameRates() {
 bool OpenXRManager::ResubmitLastFrame(XrTime displayTime) {
     auto& last = m_lastSubmission;
     if (!last.valid || last.localSpace != m_localSpace || last.viewCount > m_eyeSwapchains.size()) return false;
-    // A second with no new frame is a stall, not a skipped cycle: held that long the picture would be
-    // a frozen world, so the empty end -- what the runtime shows for "nothing" -- comes back.
-    constexpr XrTime kMaxHoldNs = 1000000000;
-    if (displayTime - last.submittedAt > kMaxHoldNs) return false;
+    // Loading screens survive long stalls; gameplay retains the one-second
+    // limit. Never reuse a pose from an earlier tracking origin.
+    if (last.origin != GetTrackingOriginSerial() ||
+        !cvr::capture::CanHold(last.presentation,displayTime-last.submittedAt)) return false;
     for (uint32_t eye = 0; eye < last.viewCount; ++eye) {
         if (last.color[eye] != m_eyeSwapchains[eye].handle) return false;
         // A depth swapchain recreated since is dropped from the layer, not the frame.
@@ -1286,13 +1287,16 @@ DWORD OpenXRManager::FrameThreadMain() {
         // eyes are drawn each through its own pose (LoadingInSpace); nor the boot's notice, which keeps the intro's
         // heading (CapturedMonoFrame::oneTurn) -- latched as a menu it stayed put through small head turns and took the
         // menu's FOV.
-        bool noticeFrame = false;
+        bool capturedPresentation = false;
+        cvr::capture::Presentation inputPresentation = cvr::capture::Presentation::Scene;
         {
             std::lock_guard<std::mutex> lock(m_presentMutex);
-            noticeFrame = m_monoCapturedFrame.oneTurn;
+            capturedPresentation = m_monoCapturedFrame.serial != 0;
+            inputPresentation = m_monoCapturedFrame.presentation;
         }
-        const bool menuRectActive = ((GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture()) &&
-            !cvr::lobby::WorldShown() && !cvr::lobby::LoadingInSpace() && !noticeFrame;
+        const bool menuRectActive = capturedPresentation ? inputPresentation==cvr::capture::Presentation::Menu :
+            ((GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture()) &&
+            !cvr::lobby::WorldShown() && !cvr::lobby::LoadingInSpace();
         // Menu closed -> drop the latched panel anchors so the NEXT menu re-anchors in
         // front of wherever the player is looking at open time.
         if (!menuRectActive) {
@@ -1999,6 +2003,10 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // Route the CF wrist menu and both-Menu HUD toggle before
                 // gameplay conversion; other controllers retain L3+R3 summon.
                 cvr::vrui::UpdateTracking(uiTracking);
+                cvr::modui::Tracking(uiTracking,m_d3dDevice,
+                    m_sessionState==XR_SESSION_STATE_FOCUSED && !cvr::vrui::Visible() && !cvr::vrmenu::CapturesButtons(),
+                    m_sessionRunning);
+                cvr::vrui::SetExternalCapture(cvr::modui::CapturesInput());
                 if(cvr::vrui::ConsumeHudToggle())cvr::cyberfinger::ToggleHud();
                 cvr::cfmenu::Hands(uiTracking,menuRectActive && !cvr::vrui::CapturesInput() &&
                     !cvr::vrmenu::CapturesButtons());
@@ -2119,6 +2127,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 uint64_t monoPoseIds[2]{};
                 double monoCaptureMs = 0.0;   // when the frame below was captured; see the age counters
                 bool monoDark = false;        // presented under a loading screen (Lobby/MenuLobby.hpp LoadingDark)
+                cvr::capture::Presentation framePresentation = cvr::capture::Presentation::Scene;
                 XrFovf monoFovs[2]{};
                 bool monoHasView[2] = {};
                 cvr::framegen::Frame fgFrame;
@@ -2139,6 +2148,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         presentSerial = m_monoCapturedFrame.serial;
                         monoCaptureMs = m_monoCapturedFrame.captureMs;
                         monoDark = m_monoCapturedFrame.dark;
+                        framePresentation = m_monoCapturedFrame.presentation;
                         frameMainEye = m_monoCapturedFrame.mainEye ? 1u : 0u;
                         for (int eye = 0; eye < 2; ++eye) {
                             if(!cvr::framegen::CaptureInputsEnabled())m_monoCapturedFrame.framegenInputs[eye].reset();
@@ -2168,6 +2178,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                 }
 
+                const bool frameMenu = framePresentation==cvr::capture::Presentation::Menu;
+                const bool frameScene = framePresentation==cvr::capture::Presentation::Scene;
                 // DO NOT take m_captureMutex here.
                 //
                 // The game's Present takes that same mutex for its capture, so holding it
@@ -2265,7 +2277,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         if(lease->resources[0] && lease->resources[1])fgFrame.lease=std::move(lease);
                     }
                     fgSelection=m_framegen.Select(m_d3dDevice,m_d3dQueue,std::move(fgFrame),
-                        !menuRectActive && m_sessionRunning.load(std::memory_order_relaxed));
+                        frameScene && m_sessionRunning.load(std::memory_order_relaxed));
                     fgSelected=true;
                     for(unsigned eye=0;eye<2;++eye) {
                         monoPoses[eye]=fgSelection.frame.pose[eye];monoFovs[eye]=fgSelection.frame.fov[eye];
@@ -2480,7 +2492,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 (monoPoses[0].position.y + monoPoses[1].position.y) * 0.5f,
                                 (monoPoses[0].position.z + monoPoses[1].position.z) * 0.5f};
                         }
-                        if (menuRectActive) {
+                        if (frameMenu) {
                             // LAZY-FOLLOW menus (projection path). Head-locking to the
                             // live eye pose every frame made the panel drag 1:1 with the
                             // head (motion sickness). Instead LATCH the per-eye poses when
@@ -2586,7 +2598,7 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                     cvr::depth::Plan depthPlan;
                     auto depthReason=cvr::depth::Reject::Missing;
-                    if(reuseImages && copyReady && !menuRectActive && m_lastCopy.depthUsed && GetDepthSubmit() &&
+                    if(reuseImages && copyReady && frameScene && m_lastCopy.depthUsed && GetDepthSubmit() &&
                        GetMonoDepthCapture() && m_depthLayerSupported &&
                        m_lastCopy.depthInfo[0].subImage.swapchain==m_eyeSwapchains[0].depthHandle &&
                        m_lastCopy.depthInfo[1].subImage.swapchain==m_eyeSwapchains[1].depthHandle) {
@@ -2594,7 +2606,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         depthInfos.assign(m_lastCopy.depthInfo,m_lastCopy.depthInfo+2);
                         for(unsigned eye=0;eye<2;++eye){depthInfos[eye].next=nullptr;projectionViews[eye].next=&depthInfos[eye];}
                         useDepthLayer=true;depthReason=cvr::depth::Reject::None;
-                    } else if(copyReady && !menuRectActive && fgSelected && GetDepthSubmit() && GetMonoDepthCapture() && m_depthLayerSupported) {
+                    } else if(copyReady && frameScene && fgSelected && GetDepthSubmit() && GetMonoDepthCapture() && m_depthLayerSupported) {
                         depthReason=cvr::depth::Describe(fgSelection,projectionViews.data(),viewCountOutput,GetWorldScale(),depthPlan);
                         if(depthReason==cvr::depth::Reject::None &&
                             (std::abs(g_liveControls.xrIpdScale-1.f)>1e-4f || std::abs(g_liveControls.xrStereoScale-1.f)>1e-4f))
@@ -2721,17 +2733,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                             m_lastSubmission.valid = false;
                             XrCompositionLayerProjection layerProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
                             XrCompositionLayerQuad layerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
-                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+4] = {};
+                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+6] = {};
 
-                            if (menuRectActive) {
+                            if (frameMenu) {
                                 layerQuad.space = m_localSpace;
                                 layerQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
                                 layerQuad.subImage = projectionViews[0].subImage;
 
-                            // LAZY-FOLLOW panel: stays put within the dead-zone, eases
-                            // to the head past the threshold (see ComputeMenuQuadPose).
+                            // CF panels share F10's bounds and latch a world pose.
+                            // Other profiles retain their existing lazy follow.
+                            const auto panelSettings=cvr::vrui::GetSettings();
                             layerQuad.pose = cvr::cfmenu::PanelPose(
-                                ComputeMenuQuadPose(headPoseLocated, location.pose, frameState.predictedDisplayTime),GetTrackingOriginSerial());
+                                ComputeMenuQuadPose(headPoseLocated, location.pose, frameState.predictedDisplayTime),GetTrackingOriginSerial(),panelSettings);
 
                                 const bool pictureFrame=cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::PictureFrame;
                                 float quadWidth = 2.0f * 1.5f * tanf((pictureFrame?55.f:GetMenuFov()) * 3.14159f / 180.0f * 0.5f);
@@ -2747,8 +2760,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     quadHeight = quadWidth * windowH / menuW;
                                     quadWidth *= windowW / menuW;
                                 }
-                                layerQuad.size = {quadWidth, quadHeight};
-                                cvr::cfmenu::Panel(layerQuad.pose,quadWidth,quadHeight);
+                                layerQuad.size = cvr::cfmenu::PanelSize({quadWidth, quadHeight},panelSettings);
+                                cvr::cfmenu::Panel(layerQuad.pose,layerQuad.size.width,layerQuad.size.height);
                                 layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layerQuad);
                             } else {
                                 layerProj.space = m_localSpace;
@@ -2764,7 +2777,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             XrView hudViews[2]={{XR_TYPE_VIEW},{XR_TYPE_VIEW}};
                             XrVector3f eyeOffsets[2]{};
                             bool hudTracked=false, hudEyes=false;
-                            if(headPoseLocated && (!menuRectActive || cvr::framegen::GetSettings().overlay)) {
+                            if(headPoseLocated && (frameScene || cvr::framegen::GetSettings().overlay)) {
                                 constexpr auto valid=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT;
                                 hudTracked=XR_SUCCEEDED(xrLocateSpace(m_viewSpace,m_localSpace,
                                     frameState.predictedDisplayTime,&hudHead)) && (hudHead.locationFlags&valid)==valid;
@@ -2784,26 +2797,26 @@ DWORD OpenXRManager::FrameThreadMain() {
                             hudBodyYaw+=BodyYawFollowOffset();
                             endInfo.layerCount = 1;
                             const XrCompositionLayerBaseHeader* hudLayer=m_hudQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw);
                             if(hudLayer) {
                                 layers[endInfo.layerCount++]=hudLayer;
                                 if(const auto* other=m_hudQuad.SecondEye())layers[endInfo.layerCount++]=other;
                             }
                             if(const auto* interactions=m_interactionQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw)){
                                 layers[endInfo.layerCount++]=interactions;
                                 if(const auto* other=m_interactionQuad.SecondEye())layers[endInfo.layerCount++]=other;
                             }
                             if(const auto* basilisk=m_basiliskQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw)){
                                 layers[endInfo.layerCount++]=basilisk;
                                 if(const auto* other=m_basiliskQuad.SecondEye())layers[endInfo.layerCount++]=other;
                             }
                             if(const auto* surveillance=m_surveillanceQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw)){
                                 layers[endInfo.layerCount++]=surveillance;
                                 if(const auto* other=m_surveillanceQuad.SecondEye())layers[endInfo.layerCount++]=other;
@@ -2825,7 +2838,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 }
                             }
                             if(const auto* hitMarker=m_hitMarkerQuad.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw)){
                                 layers[endInfo.layerCount++]=hitMarker;
                                 if(const auto* other=m_hitMarkerQuad.SecondEye())layers[endInfo.layerCount++]=other;
@@ -2836,7 +2849,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             // shows the same statistics itself.
                             if(const auto* metrics=m_framegenOverlay.Prepare(m_session,m_viewSpace,m_d3dDevice,m_d3dQueue,
                                 m_localSpace,hudTracked?&hudHead.pose:nullptr,GetTrackingOriginSerial(),frameState.predictedDisplayTime))
-                                if(!cvr::vrui::Visible())layers[endInfo.layerCount++]=metrics;
+                                if(!cvr::vrui::Visible() && !cvr::modui::Visible())layers[endInfo.layerCount++]=metrics;
                             endInfo.layers = layers;
                             if(const auto* laser=m_cfMenuLaser.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue))
                                 layers[endInfo.layerCount++]=laser;
@@ -2844,8 +2857,14 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 layers[endInfo.layerCount++]=panel;
                                 if(const auto* ray=m_settingsPanel.Ray())layers[endInfo.layerCount++]=ray;
                             }
+                            const bool modPanelAllowed=!cvr::vrui::Visible() && !cvr::vrmenu::CapturesButtons();
+                            if(const auto* panel=m_modPanel.Prepare(m_session,m_localSpace,m_d3dDevice,m_d3dQueue,
+                                modPanelAllowed?cvr::modui::GetView():cvr::vrui::View{},cvr::modui::Latest())){
+                                layers[endInfo.layerCount++]=panel;
+                                if(const auto* ray=m_modPanel.Ray())layers[endInfo.layerCount++]=ray;
+                            }
                             // Separate HUD/metrics quads must not remain visible through closed eyes.
-                            if (menuBlink > 0.0f || curtainShut) endInfo.layerCount = 1;
+                            if (menuBlink > 0.0f || curtainShut || cvr::capture::IsLoading(framePresentation)) endInfo.layerCount = 1;
                             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEnds.fetch_add(1, std::memory_order_relaxed));
                             CVR_DIAGNOSTIC(CyberpunkVR_DebugXrEndsWithLayer.fetch_add(1, std::memory_order_relaxed));
                             // HOW OLD IS THE IMAGE WE ARE SUBMITTING. Recorded here rather than at the
@@ -2925,7 +2944,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     auto& last = m_lastSubmission;
                                     const uint32_t views = (std::min)(viewCountOutput, 2u);
                                     last.viewCount = views;
-                                    last.menuQuad = menuRectActive;
+                                    last.menuQuad = frameMenu;
+                                    last.presentation = framePresentation;
+                                    last.origin = GetTrackingOriginSerial();
                                     last.localSpace = m_localSpace;
                                     last.submittedAt = frameState.predictedDisplayTime;
                                     for (uint32_t eye = 0; eye < views; ++eye) {
@@ -2945,10 +2966,16 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     for (uint32_t i = 1; i < endInfo.layerCount && last.extraCount < LastSubmission::kMaxExtra; ++i)
                                         last.extra[last.extraCount++] = layers[i];
                                     last.valid = views == viewCountOutput && views > 0;
+                                    static int lastPresentation=-1;
+                                    if(lastPresentation!=static_cast<int>(framePresentation)) {
+                                        lastPresentation=static_cast<int>(framePresentation);
+                                        Log("[xr-presentation] serial=%llu kind=%d (0 scene, 1 menu, 2 loading, 3 notice, 4 dark) paired=%d\n",
+                                            static_cast<unsigned long long>(presentSerial),lastPresentation,vrcamEye?1:0);
+                                    }
                                     static_assert(sizeof(layers) / sizeof(layers[0]) - 1 <= LastSubmission::kMaxExtra,
                                                   "the record must hold every layer after the first");
                                 }
-                                if(hudLayer && !menuRectActive)
+                                if(hudLayer && frameScene)
                                     CVR_DIAGNOSTIC(CyberpunkVR_HudSubmittedFrames.fetch_add(1,std::memory_order_relaxed));
                                 for(int eye=0;eye<2;++eye)
                                     CVR_DIAGNOSTIC(CyberpunkVR_PoseIdLastSubmit[eye].store(monoPoseIds[eye],std::memory_order_relaxed));

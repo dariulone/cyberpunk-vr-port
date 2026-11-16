@@ -3,20 +3,27 @@
 #include "Camera/ImagePoseIdentity.hpp"
 #include <algorithm>
 
+extern void Log(const char* fmt,...);
+
 namespace cvr::cfmenu {
 const XrCompositionLayerBaseHeader* Laser::Prepare(XrSession session,XrSpace space,ID3D12Device* device,ID3D12CommandQueue* queue) {
     const auto state=Current();
-    if(!state.active || !state.hit || !device || !queue)return nullptr;
+    if(!state.active || !state.ray || !device || !queue)return nullptr;
     if(!swapchain) {
         uint32_t count{};
         if(XR_FAILED(xrEnumerateSwapchainFormats(session,0,&count,nullptr)))return nullptr;
         std::vector<int64_t> formats(count);
-        if(XR_FAILED(xrEnumerateSwapchainFormats(session,count,&count,formats.data())) ||
-            std::find(formats.begin(),formats.end(),DXGI_FORMAT_R8G8B8A8_UNORM)==formats.end())return nullptr;
+        if(XR_FAILED(xrEnumerateSwapchainFormats(session,count,&count,formats.data())))return nullptr;
+        // Use the same sRGB format as F10/CET. OpenXR runtimes need not expose
+        // its linear UNORM counterpart; requiring that silently hid the beam.
+        format=DXGI_FORMAT_UNKNOWN;
+        for(const auto candidate:{DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,DXGI_FORMAT_R8G8B8A8_UNORM})
+            if(std::find(formats.begin(),formats.end(),candidate)!=formats.end()){format=candidate;break;}
+        if(format==DXGI_FORMAT_UNKNOWN)return nullptr;
         XrSwapchainCreateInfo ci{XR_TYPE_SWAPCHAIN_CREATE_INFO};
         ci.createFlags=XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT;
         ci.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-        ci.format=DXGI_FORMAT_R8G8B8A8_UNORM;ci.width=ci.height=4;ci.sampleCount=ci.faceCount=ci.arraySize=ci.mipCount=1;
+        ci.format=format;ci.width=ci.height=4;ci.sampleCount=ci.faceCount=ci.arraySize=ci.mipCount=1;
         if(XR_FAILED(xrCreateSwapchain(session,&ci,&swapchain)))return nullptr;
         if(XR_FAILED(xrEnumerateSwapchainImages(swapchain,0,&count,nullptr)) || !count){Shutdown();return nullptr;}
         images.assign(count,{XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR});
@@ -27,6 +34,7 @@ const XrCompositionLayerBaseHeader* Laser::Prepare(XrSession session,XrSpace spa
             FAILED(device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&rtv))) ||
             FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)))){Shutdown();return nullptr;}
         list->Close();
+        Log("[cfmenu] Native-menu laser swapchain ready (DXGI format %d)\n",int(format));
     }
     if(!published) {
         if(fence->GetCompletedValue()<fenceValue)return nullptr;
@@ -35,7 +43,7 @@ const XrCompositionLayerBaseHeader* Laser::Prepare(XrSession session,XrSpace spa
         XrSwapchainImageWaitInfo w{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};w.timeout=0;
         if(xrWaitSwapchainImage(swapchain,&w)!=XR_SUCCESS)return nullptr;
         if(FAILED(allocator->Reset()) || FAILED(list->Reset(allocator.Get(),nullptr)))return nullptr;
-        D3D12_RENDER_TARGET_VIEW_DESC rd{};rd.Format=DXGI_FORMAT_R8G8B8A8_UNORM;rd.ViewDimension=D3D12_RTV_DIMENSION_TEXTURE2D;
+        D3D12_RENDER_TARGET_VIEW_DESC rd{};rd.Format=format;rd.ViewDimension=D3D12_RTV_DIMENSION_TEXTURE2D;
         device->CreateRenderTargetView(images[index].texture,&rd,rtv->GetCPUDescriptorHandleForHeapStart());
         const float color[]={.1f,.82f,1.f,1.f};
         list->ClearRenderTargetView(rtv->GetCPUDescriptorHandleForHeapStart(),color,0,nullptr);
@@ -74,6 +82,6 @@ void Laser::Shutdown() {
         XrSwapchainImageReleaseInfo r{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
         if(XR_FAILED(xrReleaseSwapchainImage(swapchain,&r)))return;acquired=false;}
     if(swapchain)xrDestroySwapchain(swapchain);
-    swapchain={};images.clear();allocator.Reset();list.Reset();rtv.Reset();fence.Reset();fenceValue=0;published=false;
+    swapchain={};format=DXGI_FORMAT_UNKNOWN;images.clear();allocator.Reset();list.Reset();rtv.Reset();fence.Reset();fenceValue=0;published=false;
 }
 }

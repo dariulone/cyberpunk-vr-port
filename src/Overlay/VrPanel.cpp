@@ -10,20 +10,24 @@ std::array<std::shared_ptr<Canvas>,3> pool;
 std::shared_ptr<Canvas> latest;
 uint64_t serial=0;
 }
+std::shared_ptr<Canvas> MakeCanvas(ID3D12Device* device,DXGI_FORMAT format){
+    if(!device)return {};
+    auto c=std::make_shared<Canvas>();D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=CanvasWidth;desc.Height=CanvasHeight;
+    desc.DepthOrArraySize=1;desc.MipLevels=1;desc.Format=format==DXGI_FORMAT_R8G8B8A8_UNORM?DXGI_FORMAT_R8G8B8A8_TYPELESS:format;desc.SampleDesc.Count=1;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_RTV;hd.NumDescriptors=1;
+    if(FAILED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,nullptr,IID_PPV_ARGS(&c->texture))) ||
+       FAILED(device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&c->rtv))))return {};
+    D3D12_RENDER_TARGET_VIEW_DESC rd{};rd.Format=format;rd.ViewDimension=D3D12_RTV_DIMENSION_TEXTURE2D;
+    device->CreateRenderTargetView(c->texture.Get(),&rd,c->rtv->GetCPUDescriptorHandleForHeapStart());c->format=format;return c;
+}
 std::shared_ptr<Canvas> AcquireCanvas(ID3D12Device* device,DXGI_FORMAT format){
     std::lock_guard lock(canvasMutex);
     for(auto& slot:pool){
         if(slot && (slot.use_count()!=1 || (slot->fence && slot->fence->GetCompletedValue()<slot->value)))continue;
         if(slot && slot->format!=format)slot.reset();
         if(!slot){
-            auto c=std::make_shared<Canvas>();D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
-            D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=CanvasWidth;desc.Height=CanvasHeight;
-            desc.DepthOrArraySize=1;desc.MipLevels=1;desc.Format=format==DXGI_FORMAT_R8G8B8A8_UNORM?DXGI_FORMAT_R8G8B8A8_TYPELESS:format;desc.SampleDesc.Count=1;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-            D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_RTV;hd.NumDescriptors=1;
-            if(FAILED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,nullptr,IID_PPV_ARGS(&c->texture))) ||
-               FAILED(device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&c->rtv))))return {};
-            D3D12_RENDER_TARGET_VIEW_DESC rd{};rd.Format=format;rd.ViewDimension=D3D12_RTV_DIMENSION_TEXTURE2D;
-            device->CreateRenderTargetView(c->texture.Get(),&rd,c->rtv->GetCPUDescriptorHandleForHeapStart());c->format=format;slot=c;
+            slot=MakeCanvas(device,format);if(!slot)return {};
         }
         return slot;
     }
@@ -32,12 +36,17 @@ std::shared_ptr<Canvas> AcquireCanvas(ID3D12Device* device,DXGI_FORMAT format){
 void PublishCanvas(const std::shared_ptr<Canvas>& c,ID3D12Fence* f,uint64_t value){std::lock_guard lock(canvasMutex);c->fence=f;c->value=value;c->serial=++serial;latest=c;}
 void ClearCanvas(){std::lock_guard lock(canvasMutex);latest.reset();for(auto& p:pool)if(p && p.use_count()==1 && (!p->fence || p->fence->GetCompletedValue()>=p->value))p.reset();}
 const XrCompositionLayerBaseHeader* Panel::Prepare(XrSession session,XrSpace space,ID3D12Device* device,ID3D12CommandQueue* queue){
-    rayVisible=false;
     if(!Visible()){Shutdown();return nullptr;}
-    const auto view=GetView();if(!view.valid || !device || !queue)return nullptr;
     std::shared_ptr<Canvas> source;{std::lock_guard lock(canvasMutex);source=latest;}
-    if(!source)return nullptr;
-    // Same queue as the producer. Hold its lease until this copy has completed.
+    return Prepare(session,space,device,queue,GetView(),source);
+}
+const XrCompositionLayerBaseHeader* Panel::Prepare(XrSession session,XrSpace space,ID3D12Device* device,ID3D12CommandQueue* queue,const View& view,const std::shared_ptr<Canvas>& source){
+    rayVisible=false;
+    if(!view.valid || !source){Shutdown(false);return nullptr;}
+    if(!device || !queue)return nullptr;
+    // Producers can have their own command queues. Never enqueue an unbounded
+    // wait on another plugin's fence; show the previous completed image instead.
+    const bool ready=source->fence && source->fence->GetCompletedValue()!=UINT64_MAX && source->fence->GetCompletedValue()>=source->value;
     if(!swapchain){
         uint32_t count=0;if(XR_FAILED(xrEnumerateSwapchainFormats(session,0,&count,nullptr)))return nullptr;
         std::vector<int64_t> formats(count);if(XR_FAILED(xrEnumerateSwapchainFormats(session,count,&count,formats.data())))return nullptr;
@@ -46,17 +55,17 @@ const XrCompositionLayerBaseHeader* Panel::Prepare(XrSession session,XrSpace spa
         XrSwapchainCreateInfo ci{XR_TYPE_SWAPCHAIN_CREATE_INFO};ci.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
         ci.format=format;ci.sampleCount=1;ci.width=CanvasWidth;ci.height=CanvasHeight;ci.faceCount=1;ci.arraySize=1;ci.mipCount=1;
         if(XR_FAILED(xrCreateSwapchain(session,&ci,&swapchain)))return nullptr;
-        if(XR_FAILED(xrEnumerateSwapchainImages(swapchain,0,&count,nullptr)) || !count){Shutdown();return nullptr;}
+        if(XR_FAILED(xrEnumerateSwapchainImages(swapchain,0,&count,nullptr)) || !count){Shutdown(false);return nullptr;}
         images.assign(count,{XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR});
         if(XR_FAILED(xrEnumerateSwapchainImages(swapchain,count,&count,reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()))) ||
            FAILED(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator))) ||
            FAILED(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),nullptr,IID_PPV_ARGS(&list))) ||
-           FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)))){Shutdown();return nullptr;}
+           FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)))){Shutdown(false);return nullptr;}
         list->Close();
     }
     if(fence->GetCompletedValue()>=fenceValue){
         flight.reset();
-        if(lastSerial!=source->serial || acquired){
+        if(ready && (lastSerial!=source->serial || acquired)){
             if(!acquired){XrSwapchainImageAcquireInfo a{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};if(XR_SUCCEEDED(xrAcquireSwapchainImage(swapchain,&a,&index)))acquired=true;}
             if(acquired){XrSwapchainImageWaitInfo w{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};w.timeout=0;
                 if(xrWaitSwapchainImage(swapchain,&w)==XR_SUCCESS){
@@ -97,11 +106,11 @@ const XrCompositionLayerBaseHeader* Panel::Prepare(XrSession session,XrSpace spa
     return reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
 }
 const XrCompositionLayerBaseHeader* Panel::Ray() const{return rayVisible?reinterpret_cast<const XrCompositionLayerBaseHeader*>(&ray):nullptr;}
-void Panel::Shutdown(){
+void Panel::Shutdown(bool clearDefaultCanvas){
     if(fence && fence->GetCompletedValue()<fenceValue)return;
     if(acquired && swapchain){XrSwapchainImageWaitInfo w{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};w.timeout=0;if(xrWaitSwapchainImage(swapchain,&w)!=XR_SUCCESS)return;
         XrSwapchainImageReleaseInfo r{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};if(XR_FAILED(xrReleaseSwapchainImage(swapchain,&r)))return;acquired=false;}
     if(swapchain)xrDestroySwapchain(swapchain);swapchain={};images.clear();flight.reset();allocator.Reset();list.Reset();fence.Reset();
-    fenceValue=lastSerial=0;published=rayVisible=false;ClearCanvas();
+    fenceValue=lastSerial=0;published=rayVisible=false;if(clearDefaultCanvas)ClearCanvas();
 }
 }

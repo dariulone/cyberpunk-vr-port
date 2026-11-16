@@ -7,6 +7,8 @@ Defaults to the GOG game folder and a left-handed weapon with eight-role SlimeVR
 Use -Package for an extracted, complete patched build_dist package. Otherwise
 prepares dependencies, builds this checkout, and packages it with build_dist.ps1.
 -Build remains accepted; source installs always build. -WhatIf writes nothing.
+Missing HUD settings use the captured CyberFinger preset. -ResetHudDefaults
+also reapplies that preset to existing HUD settings; other preferences survive.
 SteamVR drivers and RED4ext are installed separately. Never launches the game.
 .EXAMPLE
 .\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger -WhatIf
@@ -21,6 +23,7 @@ param(
     [switch]$Build,
     [ValidateSet('Left', 'Right')][string]$WeaponHand = 'Left',
     [switch]$NoSlimeVR,
+    [switch]$ResetHudDefaults,
     [Parameter(DontShow = $true)][switch]$ConciseErrors
 )
 
@@ -85,11 +88,12 @@ function Ensure-Parent([string]$Path) {
     Assert-NoLink $Path
     [void][IO.Directory]::CreateDirectory((Split-Path -Parent $Path))
 }
-function Merge-Ini([string]$Text, [System.Collections.IDictionary]$Values) {
+function Merge-Ini([string]$Text, [System.Collections.IDictionary]$Values, [switch]$MissingOnly) {
     foreach ($key in $Values.Keys) {
         $pattern = '(?m)^[ \t]*' + [regex]::Escape($key) + '[ \t]*=[^\r\n]*'
         $line = $key + '=' + $Values[$key]
         if ([regex]::IsMatch($Text, $pattern)) {
+            if ($MissingOnly) { continue }
             # Replace every duplicate, since some of the native readers take the last.
             $Text = [regex]::Replace($Text, $pattern, $line)
         } else {
@@ -169,6 +173,21 @@ $dllText = $null
 $world = [IO.File]::ReadAllText((Under-Root $Package "$Plugin\lua\CyberpunkVRPort_Reach\modules\world.lua"))
 if (!$world.Contains('VRCyberFingerEnabled')) { throw 'Package contains the unpatched Reach script. Repackage this checkout.' }
 
+$hudPreset = Under-Root $Package "$Plugin\config\cyberfinger-hud.ini.example"
+if (!(Test-Path -LiteralPath $hudPreset -PathType Leaf)) {
+    $hudPreset = Under-Root $RepoRoot 'mods\config\cyberfinger-hud.ini.example'
+}
+$hudDefaults = [ordered]@{}
+foreach ($line in [IO.File]::ReadAllLines($hudPreset)) {
+    if ($line -match '^\s*(?:;.*)?$') { continue }
+    if ($line -notmatch '^((?:xr_hud_|xr_interaction_|hud_element_)[a-z_]+|xr_loot_follow_deg)=([-+0-9.eE, \t]+)$') {
+        throw "Invalid HUD preset entry: $line"
+    }
+    if ($hudDefaults.Contains($Matches[1])) { throw "Duplicate HUD preset key: $($Matches[1])" }
+    $hudDefaults[$Matches[1]] = $Matches[2]
+}
+if (!$hudDefaults.Count) { throw 'HUD preset is empty' }
+
 $plan = [ordered]@{}
 function Plan-File([string]$Relative, [string]$Source, [byte[]]$Bytes, [bool]$Remove = $false) {
     $target = Under-Root $GameRoot $Relative
@@ -222,6 +241,9 @@ foreach ($name in $settings.Keys) {
         $existing = Under-Root $GameRoot 'bin\x64\vrport.ini'
     }
     $text = if (Test-Path -LiteralPath $existing -PathType Leaf) { [IO.File]::ReadAllText($existing) } else { '' }
+    if ($name -eq 'vrport.ini') {
+        $text = Merge-Ini $text $hudDefaults -MissingOnly:(!$ResetHudDefaults)
+    }
     $bytes = $Utf8.GetBytes((Merge-Ini $text $settings[$name]))
     Plan-File $rel '' $bytes
 }

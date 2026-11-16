@@ -5,6 +5,8 @@
 #include "Overlay/VrPanel.hpp"
 #include "Overlay/VrDraw.hpp"
 #include "Overlay/VrImGuiInput.hpp"
+#include "Overlay/ModUi.hpp"
+#include "Overlay/ModUiImGui.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Render/DesktopMirror.hpp"
 #include "Runtimes/CyberFingerGameMenu.hpp"
@@ -29,6 +31,7 @@ extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 
 
 extern void Log(const char* fmt, ...);
+extern void ToggleOverlay();
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -151,6 +154,9 @@ WNDPROC g_originalWndProc = nullptr;
 bool g_imguiInitialized = false;
 bool g_menuVisible = false;
 bool g_drawDataSubmitted = false;
+bool g_luaVrDraw=false;
+CvrModUiHandle g_luaUiSource{};
+cvr::modui::client::ImGuiInput g_luaUiInput;
 cvr::vrui::ImGuiPointerRouter g_pointerInput;
 std::atomic<float> g_desktopWidth{0},g_desktopHeight{0};
 std::mutex g_desktopPointerMutex;
@@ -214,6 +220,7 @@ void ReleaseRenderTargets() {
 }
 
 void ShutdownOverlay() {
+    if(g_luaUiSource){cvr::modui::Api()->State(g_luaUiSource,0);g_luaUiInput={};}
     {std::lock_guard pointerLock(g_desktopPointerMutex);g_pointerInput={};}
     ReleaseRenderTargets();
     if (g_imguiInitialized) {
@@ -486,6 +493,7 @@ bool IsBlockedInputMessage(UINT msg) {
 
 LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     const float clientMouseX=float((short)LOWORD(lParam)),clientMouseY=float((short)HIWORD(lParam));
+    cvr::cfmenu::DesktopMouse(msg,int(clientMouseX),int(clientMouseY),uintptr_t(GetMessageExtraInfo()));
     static int totalMsgCount = 0;
     if (g_verboseLog && totalMsgCount++ % 5000 == 0) {
         Log("OverlayWndProc: msg=%u, hwnd=%p, count=%d\n", msg, hwnd, totalMsgCount);
@@ -640,6 +648,7 @@ void OverlaySetWindow(HWND hwnd) {
 
 void OverlayRender(IDXGISwapChain* swapChain) {
     g_drawDataSubmitted = false;
+    g_luaVrDraw=false;
     if (!EnsureImGui(swapChain)) return;
     // The VR menu's settings page: recorded here, on the panel's own thread (Overlay/UiRec.hpp).
     cvr::uirec::RunPendingPass();
@@ -654,6 +663,17 @@ void OverlayRender(IDXGISwapChain* swapChain) {
     g_menuVisible=cvr::vrui::Visible();
     std::shared_ptr<cvr::vrui::Canvas> vrCanvas;
     if(g_menuVisible){vrCanvas=cvr::vrui::AcquireCanvas(g_device,g_imguiPsoFormat);if(!vrCanvas)return;}
+    const auto* modUi=cvr::modui::Api();
+    if(!g_luaUiSource)g_luaUiSource=modUi->Register("VR port Lua windows");
+    const bool luaOverlay=!g_menuVisible && cvr::lua::OverlayOpen();
+    modUi->State(g_luaUiSource,luaOverlay?CVR_MOD_UI_VISIBLE|CVR_MOD_UI_INTERACTIVE:0);
+    CvrModUiViewport luaViewport{sizeof(CvrModUiViewport)};
+    const bool luaVr=luaOverlay && modUi->Viewport(g_luaUiSource,&luaViewport);
+    struct Lease {
+        const CvrModUiApi* api;CvrModUiHandle source;CvrModUiTarget target{sizeof(CvrModUiTarget)};
+        ~Lease(){if(target.lease)api->Cancel(source,target.lease);}
+    } luaCanvas{modUi,g_luaUiSource};
+    if(luaVr && !modUi->Begin(g_luaUiSource,g_device,uint32_t(g_imguiPsoFormat),&luaCanvas.target))return;
 
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -685,10 +705,14 @@ void OverlayRender(IDXGISwapChain* swapChain) {
         io.FontGlobalScale=1;cvr::vrui::ClearCanvas();
     }
     // The Lua mods' windows on the desktop: ImGui draws the pointer the game hides.
-    const bool luaOverlay=!g_menuVisible && cvr::lua::OverlayOpen();
     if(luaOverlay)ReleaseGameMouseCapture();
     io.MouseDrawCursor=luaOverlay;
-    if(luaOverlay){
+    g_luaUiInput.Viewport(luaViewport,luaVr);
+    if(luaVr){
+        CvrModUiInput samples[64];const auto count=modUi->Poll(g_luaUiSource,samples,64);g_luaUiInput.Feed(samples,count);
+        if(g_luaUiInput.CloseRequested()){ToggleOverlay();modUi->State(g_luaUiSource,0);}
+    }
+    if(luaOverlay && !luaVr){
         // The frame is two eyes wide and the mirror shrinks it into the window: about 18 px of text on the monitor.
         RECT client{};POINT clientOrigin{};
         if(GetDesktopPhysicalClientRect(g_hwnd,client,clientOrigin) && client.right>client.left)
@@ -697,7 +721,11 @@ void OverlayRender(IDXGISwapChain* swapChain) {
 
     ImGui::NewFrame();
 
-    if(!g_menuVisible){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);}
+    if(!g_menuVisible){
+        if(!luaVr){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();}
+        cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);
+        if(luaVr)g_luaUiInput.Finish("VR port Lua windows  |  Grip top strip to move");
+    }
 
     const bool placementSave = cvr::vrui::ConsumePlacementSave();
     bool foveatedEditing=false;
@@ -736,14 +764,14 @@ void OverlayRender(IDXGISwapChain* swapChain) {
 
     D3D12_RESOURCE_BARRIER toRt{};
     toRt.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    toRt.Transition.pResource = vrCanvas?vrCanvas->texture.Get():frame.renderTarget;
-    toRt.Transition.StateBefore = vrCanvas?D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:D3D12_RESOURCE_STATE_PRESENT;
+    toRt.Transition.pResource = luaVr?static_cast<ID3D12Resource*>(luaCanvas.target.texture):vrCanvas?vrCanvas->texture.Get():frame.renderTarget;
+    toRt.Transition.StateBefore = (vrCanvas || luaVr)?D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE:D3D12_RESOURCE_STATE_PRESENT;
     toRt.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     toRt.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     g_cmdList->ResourceBarrier(1, &toRt);
 
-    const auto drawRtv=vrCanvas?vrCanvas->rtv->GetCPUDescriptorHandleForHeapStart():frame.rtv;
-    if(vrCanvas){const float clear[4]={0,0,0,0};g_cmdList->ClearRenderTargetView(drawRtv,clear,0,nullptr);}
+    const auto drawRtv=luaVr?D3D12_CPU_DESCRIPTOR_HANDLE{luaCanvas.target.rtv}:vrCanvas?vrCanvas->rtv->GetCPUDescriptorHandleForHeapStart():frame.rtv;
+    if(vrCanvas || luaVr){const float clear[4]={0,0,0,0};g_cmdList->ClearRenderTargetView(drawRtv,clear,0,nullptr);}
     g_cmdList->OMSetRenderTargets(1, &drawRtv, FALSE, nullptr);
     ID3D12DescriptorHeap* heaps[] = {g_srvHeap};
     g_cmdList->SetDescriptorHeaps(1, heaps);
@@ -760,6 +788,10 @@ void OverlayRender(IDXGISwapChain* swapChain) {
     if (FAILED(g_cmdList->Close())) return;
     ID3D12CommandList* lists[] = {g_cmdList};
     g_queue->ExecuteCommandLists(1, lists);
+    const auto luaLease=luaCanvas.target.lease;
+    // Submitted GPU work must never take Cancel's CPU-only path. A failed
+    // signal leaves this lease quarantined in the host instead of reusing it.
+    luaCanvas.target.lease=0;
 
     // SIGNAL, DO NOT WAIT. The value is remembered twice: on this backbuffer slot, whose allocator we
     // will reuse, and as "the previous submission", which is what the next frame waits for before it
@@ -771,6 +803,8 @@ void OverlayRender(IDXGISwapChain* swapChain) {
             g_drawDataSubmitted = true;
             CVR_DIAGNOSTIC(++CyberpunkVR_DebugOverlaySubmissions);
             if(vrCanvas)cvr::vrui::PublishCanvas(vrCanvas,g_fence,submitted);
+            g_luaVrDraw=luaVr; // Never bake a VR-sized canvas into the second eye, even if publication fails.
+            if(luaVr)modUi->Submit(g_luaUiSource,luaLease,g_fence,submitted);
             frame.fenceValue = submitted;
             g_previousOverlayFenceValue = submitted;
             // The full drain, only while the churn guard is open (or in mode 0). Every recorded device
@@ -783,7 +817,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
 }
 
 void OverlayRenderDesktop(IDXGISwapChain* swapChain) {
-    if(!g_drawDataSubmitted || !cvr::vrui::Visible() || !g_menuVisible || !g_imguiInitialized || !g_swapChain3 || !g_cmdList)return;
+    if(!g_drawDataSubmitted || (!g_menuVisible && !g_luaVrDraw) || !g_imguiInitialized || !g_swapChain3 || !g_cmdList)return;
     const UINT index=g_swapChain3->GetCurrentBackBufferIndex();if(index>=g_frames.size())return;
     auto& frame=g_frames[index];
     if(!frame.renderTarget || (g_fence && g_fence->GetCompletedValue()<frame.desktopFence))return;
@@ -904,7 +938,7 @@ bool OverlayRecordIntoTarget(ID3D12GraphicsCommandList* cmdList, ID3D12Resource*
                              float shiftPx) {
     // Settings are now an independent BOTH-eyes XR quad; never bake a second
     // copy of their draw data into the world image or framegen input.
-    if(!g_drawDataSubmitted || g_menuVisible || cvr::vrui::Visible())return false;
+    if(!g_drawDataSubmitted || g_menuVisible || g_luaVrDraw || cvr::vrui::Visible())return false;
     using namespace overlay;
     if (!CyberpunkVR_OverlaySecondEye) return false;
     if (!cmdList || !target || !g_device || !g_srvHeap || !g_imguiInitialized) return false;

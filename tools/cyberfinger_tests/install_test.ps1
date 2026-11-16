@@ -135,6 +135,9 @@ $passed++
 $ini = Read $game "$plugin\config\vrport.ini"
 Assert ($ini.Contains('resolution=custom') -and $ini.Contains('; personal preference')) 'INI merge lost unrelated settings'
 Assert ($ini.Contains('xr_left_handed=1') -and !$ini.Contains('xr_left_handed=0')) 'Left hand or duplicate-key merge failed'
+Assert ($ini.Contains('xr_hud_fov=56.200') -and $ini.Contains('xr_hud_clearance_hands=0')) 'Fresh HUD defaults were not seeded'
+Assert ($ini.Contains('hud_element_quick_slots=0.000,0.000,1.0000,1.0000,1') -and
+    $ini.Contains('hud_element_phone=0.000,0.000,1.0000,1.0000,1')) 'Captured HUD element settings were not seeded'
 Assert ((Read $game "$plugin\config\cyberfinger.ini").Contains('enabled=1')) 'CyberFinger disabled'
 Assert ((Read $game "$plugin\config\fbt_settings.ini").Contains('slime_joints=1')) 'SlimeVR disabled'
 Assert ((Read $game "$plugin\config\fbt_calibration.ini") -eq 'my fbt calibration') 'FBT calibration overwritten'
@@ -164,6 +167,26 @@ $passed++
 & $installer -GameRoot $game -Package $package -WeaponHand Right -NoSlimeVR
 Assert ((Read $game "$plugin\config\vrport.ini").Contains('xr_left_handed=0')) 'Right-handed preset failed'
 Assert ((Read $game "$plugin\config\fbt_settings.ini").Contains('slime_joints=0')) 'NoSlimeVR preset failed'
+$passed++
+
+# Packaged presets also seed missing keys without resetting existing tuning.
+Put $package "$plugin\config\cyberfinger-hud.ini.example" (Read $repo 'mods\config\cyberfinger-hud.ini.example')
+$hudGame = New-Game 'custom HUD game'
+Put $hudGame 'bin\x64\vrport.ini' "xr_hud_fov=77.000`r`nxr_hud_clearance_hands=1`r`nhud_element_phone=2,3,1.2,0.8,1`r`nresolution=custom`r`n"
+& $installer -GameRoot $hudGame -Package $package
+$hudIni = Read $hudGame "$plugin\config\vrport.ini"
+Assert ($hudIni.Contains('xr_hud_fov=77.000') -and $hudIni.Contains('xr_hud_clearance_hands=1') -and
+    $hudIni.Contains('hud_element_phone=2,3,1.2,0.8,1')) 'Existing HUD tuning was overwritten'
+Assert ($hudIni.Contains('xr_hud_distance=1.170')) 'Missing HUD key was not seeded alongside existing settings'
+$passed++
+$hudBefore = Snapshot $hudGame
+& $installer -GameRoot $hudGame -Package $package -ResetHudDefaults -WhatIf
+Assert ((Snapshot $hudGame) -eq $hudBefore) 'HUD reset preview wrote game files'
+& $installer -GameRoot $hudGame -Package $package -ResetHudDefaults
+$hudIni = Read $hudGame "$plugin\config\vrport.ini"
+Assert ($hudIni.Contains('xr_hud_fov=56.200') -and $hudIni.Contains('xr_hud_clearance_hands=0') -and
+    $hudIni.Contains('hud_element_phone=0.000,0.000,1.0000,1.0000,1')) 'Explicit HUD preset reset failed'
+Assert ($hudIni.Contains('resolution=custom')) 'HUD reset changed unrelated preferences'
 $passed++
 
 # Inject one copy failure after writes begin; restore must include existing files

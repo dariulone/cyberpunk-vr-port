@@ -10,6 +10,7 @@ bool ParseSetting(const char*,Settings&);
 void WriteSettings(void*,const Settings&);
 bool Visible();
 bool CapturesInput();
+void SetExternalCapture(bool);
 void Toggle();
 // CF right pink-wrist press, or other controllers' L3+R3 hold: ask the world menu
 // to open/close. F10/Insert remains the separate settings overlay.

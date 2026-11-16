@@ -1,5 +1,7 @@
 ; Merge these keys into the plugin's config/vrport.ini; do not replace the file.
 ; Requires config/cyberfinger.ini with enabled=1 and the guide's SteamVR binding.
+; Captured HUD defaults are in cyberfinger-hud.ini.example; the installer seeds
+; missing HUD keys, or reapplies them explicitly with -ResetHudDefaults.
 xr_input_actions=1
 xr_xinput_hook=1
 xr_finger_bones=1

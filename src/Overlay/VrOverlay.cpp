@@ -17,7 +17,7 @@ cvr::cyberfinger::HudChord cfHudChord;
 cvr::cyberfinger::ButtonEdge cfWristMenu;
 bool hudToggle{};
 cvr::hud::DisplayClock clock;
-std::atomic<bool> visible{false},capture{false};
+std::atomic<bool> visible{false},capture{false},externalCapture{false};
 int command=0;bool wanted=false,buttonDown=false,triggerArmed=false,releasePending=false,gripHeld[2]{},menuSummon=false;
 uint64_t bridgeStamp=0,requestStamp=0;
 std::vector<std::string> items;
@@ -39,7 +39,8 @@ void ToggleLocked(){wanted=!wanted;command=wanted?1:2;requestStamp=GetTickCount6
 Settings GetSettings(){std::lock_guard lock(mutex);return settings;}
 void SetSettings(Settings s){std::lock_guard lock(mutex);settings=Sanitize(s);}
 bool Visible(){return visible.load(std::memory_order_relaxed);}
-bool CapturesInput(){return capture.load(std::memory_order_relaxed);}
+bool CapturesInput(){return capture.load(std::memory_order_relaxed) || externalCapture.load(std::memory_order_relaxed);}
+void SetExternalCapture(bool value){externalCapture.store(value,std::memory_order_relaxed);}
 void Toggle(){std::lock_guard lock(mutex);ToggleLocked();}
 bool ConsumeMenuSummon(){std::lock_guard lock(mutex);const bool s=menuSummon;menuSummon=false;return s;}
 bool ConsumeHudToggle(){std::lock_guard lock(mutex);const bool value=hudToggle;hudToggle=false;return value;}

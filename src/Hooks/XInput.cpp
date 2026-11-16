@@ -32,6 +32,7 @@
 #include "Hooks/Handedness.hpp"
 #include "Hooks/KeypadInput.hpp"
 #include "Hooks/CyberwareChord.hpp"
+#include "Hooks/CyberFingerMelee.hpp"
 #include "Hooks/WeaponWheelHold.hpp"
 #include "Natives/Reach.hpp"
 #include "Natives/VrMenu.hpp"
@@ -406,6 +407,25 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         const uint16_t mask=cfMouseHand?0x0080:0x0100;
         physical.buttons&=~mask;physical.cyberFingerButtons&=~mask;
     }
+    // Fists/hand-held melee only: support Grip toggles the equipped melee item
+    // and bare fists through the game's equipment requests. Never enter from
+    // a firearm, menu, interaction, scanner, vehicle or tracked object grab.
+    static cvr::cyberfinger::MeleeToggleButton cfMeleeToggle;
+    const bool cfMeleeAllowed=cfActive && cvr::cyberware::SelectedKind()==5 && g_hasWeaponEquipped &&
+        g_menuModeValue==0 && g_uiPopupOpen.load(std::memory_order_relaxed)==0 &&
+        !cvr::input::KeypadInputActive() && !cvr::cfmenu::Current().active &&
+        !g_isInVehicle && !g_bdActive.load(std::memory_order_relaxed) && g_sceneTier.load(std::memory_order_relaxed)<=1 &&
+        !cvr::lobby::WorldShown() && !cfConversation && !cfInteract && !cfComputer && !cfScanActive &&
+        !cvr::swimming::Active() && !cvr::ladder::Active() &&
+        !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons() &&
+        !physical.leftMenuButton && !physical.rightMenuButton &&
+        (supportHand?physical.rightHandValid:physical.leftHandValid) &&
+        !cvr::reach::UseHeld() && !cvr::reach::HandHolds(supportHand);
+    const auto meleeGrip=cfMeleeToggle.Step(cfActive,cfMeleeAllowed,leftHanded,
+        physical.leftGrabButton,physical.rightGrabButton,GetTickCount64());
+    if(meleeGrip.toggle)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::MeleeToggle);
+    if(meleeGrip.claimMask&1){physical.leftGrabButton=false;physical.buttons&=~0x0100;physical.cyberFingerButtons&=~0x0100;}
+    if(meleeGrip.claimMask&2){physical.rightGrabButton=false;physical.buttons&=~0x0080;physical.cyberFingerButtons&=~0x0080;}
     vr=cvr::cyberfinger::ForGame(physical,leftHanded,g_liveControls.xrLeftHandedBindings);
     vr.buttons|=cfScanButtons; // through the existing scanner Apply route below
     if(cfActive && cvr::vrui::CapturesInput()) {
@@ -419,7 +439,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     cfScannerRequest.Update(cfScannerHeld,cvr::input::ScannerVision(),GetTickCount64());
     if(cfActive)vr.buttons=static_cast<uint16_t>((vr.buttons&~0x0100u)|(cfScannerHeld?0x0100u:0));
     // Opening another surface releases any mouse press owned by the game menu.
-    if(cvr::vrui::CapturesInput() || cvr::vrmenu::CapturesButtons())cvr::cfmenu::Reset();
+    if(cvr::vrui::CapturesInput() || cvr::vrmenu::CapturesButtons())cvr::cfmenu::SuspendInput();
     cvr::cfmenu::DispatchPointer();
     // The hand's grip on what it reaches for presses the interaction button (Natives/Reach.hpp).
     if (cvr::reach::UseHeld()) vr.buttons |= 0x4000;

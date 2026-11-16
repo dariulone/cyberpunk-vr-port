@@ -28,6 +28,7 @@ struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Runtimes/HudQuad.hpp"
 #include "Render/IntroOverlay.hpp"
 #include "Render/LoadingScreen.hpp"
+#include "Runtimes/CapturedPresentation.hpp"
 #include "Runtimes/RoomscaleMovement.hpp"
 #include "Runtimes/TrackingReset.hpp"
 #include "Runtimes/HandPublication.hpp"
@@ -1119,6 +1120,8 @@ private:
     struct LastSubmission {
         bool valid = false;
         bool menuQuad = false;
+        cvr::capture::Presentation presentation = cvr::capture::Presentation::Scene;
+        uint64_t origin = 0;
         uint32_t viewCount = 0;
         XrTime submittedAt = 0;
         XrSpace localSpace = XR_NULL_HANDLE;
@@ -1205,6 +1208,7 @@ private:
         // The dark with the boot's notice, nothing else (Render/LoadingScreen.hpp, at the intro's heading): one picture
         // drawn for the main eye, submitted to both eyes with the turn it was drawn for.
         bool oneTurn = false;
+        cvr::capture::Presentation presentation = cvr::capture::Presentation::Scene;
         // The eye this picture is: CyberpunkVR_MainIsRightEye as it stood for the frame -- under AFW it turns over
         // every frame (Render/Afw.hpp), and the submit routes the frame it carries, not the switch's state now.
         int8_t mainEye = 1;
@@ -1280,7 +1284,10 @@ private:
     static constexpr int kVrcamEyeSlots = 3;
     ID3D12Resource* m_vrcamEyePool[kVrcamEyeSlots] = {};
     uint64_t        m_vrcamEyePoolSerial[kVrcamEyeSlots] = {};
-    struct CapturedEyeLabel { XrPosef pose{};XrFovf fov{};uint64_t poseId{},imageGeneration{};bool valid{}; };
+    struct CapturedEyeLabel {
+        XrPosef pose{};XrFovf fov{};uint64_t poseId{},imageGeneration{};bool valid{};
+        cvr::capture::Presentation presentation = cvr::capture::Presentation::Scene;
+    };
     CapturedEyeLabel m_vrcamEyeLabels[kVrcamEyeSlots]{};
     int             m_vrcamEyeSlot = 0;
     uint32_t        m_vrcamEyeW = 0;
@@ -1520,6 +1527,7 @@ private:
     cvr::hud::Quad m_surveillanceQuad{cvr::hud::Channel::Surveillance};
     cvr::hud::Quad m_hitMarkerQuad{cvr::hud::Channel::HitMarker};
     cvr::vrui::Panel m_settingsPanel;
+    cvr::vrui::Panel m_modPanel;
     cvr::cfmenu::Laser m_cfMenuLaser;
     cvr::hud::Follow m_menuFollow;
     cvr::hud::DisplayClock m_menuClock;

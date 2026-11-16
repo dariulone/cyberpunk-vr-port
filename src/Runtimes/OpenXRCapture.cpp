@@ -821,7 +821,8 @@ ID3D12Resource* OpenXRManager::AcquireCapturedVrcamLocked(uint64_t serial,uint32
         auto* source=m_vrcamEyePool[i];
         if(!source || !sourceSerial || sourceSerial>serial || !m_vrcamEyeLabels[i].valid ||
            m_captureLeases.Writing(reinterpret_cast<uintptr_t>(source)))continue;
-        if(sourceSerial!=serial && (!maxReuse || serial-sourceSerial>maxReuse))continue;
+        if(!cvr::capture::CanPair(m_monoCapturedFrame.presentation,m_vrcamEyeLabels[i].presentation,
+            serial,sourceSerial,maxReuse))continue;
         if(sourceSerial>bestSerial) { best=i;bestSerial=sourceSerial; }
     }
     if(best<0)return nullptr;
@@ -1750,6 +1751,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             m_monoCapturedFrame.dark = loadingDark && !loadingWindow;
             // The boot's notice in the dark: both eyes are submitted with the turn it was drawn for.
             m_monoCapturedFrame.oneTurn = loadingWindow && notice.shown;
+            m_monoCapturedFrame.presentation = cvr::capture::Classify(menuOpen,loadingWindow,notice.shown,
+                m_monoCapturedFrame.dark);
             m_monoCapturedFrame.mainEye = static_cast<int8_t>(mainEyeIndex);
             CVR_DIAGNOSTIC(CyberpunkVR_DebugCapOk.fetch_add(1, std::memory_order_relaxed));
             for (int eye = 0; eye < 2; ++eye) {
@@ -1774,7 +1777,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
             if (vrcamEyeCaptured) {
                 m_vrcamEyePoolSerial[m_vrcamEyeSlot] = serial;
                 const auto eye=mainEyeIndex^1u;
-                m_vrcamEyeLabels[m_vrcamEyeSlot]={capturedPoses[eye],fovs[eye],capturedPoseIds[eye],capturedImageGenerations[eye],true};
+                m_vrcamEyeLabels[m_vrcamEyeSlot]={capturedPoses[eye],fovs[eye],capturedPoseIds[eye],capturedImageGenerations[eye],true,
+                    m_monoCapturedFrame.presentation};
             }
         }
         for(auto& resource:writeResources) {

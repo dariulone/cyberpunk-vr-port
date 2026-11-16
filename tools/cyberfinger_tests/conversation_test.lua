@@ -1,7 +1,8 @@
 local events, calls, actions = {}, {}, {}
+package.path=assert(arg[1]:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local enabled, nextAction, activeId = true, 0, 7
 local hubs = {choiceHubs={}}
-local prompt={choices={}}
+local prompt={active=false,choices={}}
 local uiState,uiPrompt
 function VRCyberFingerUiState(context,interaction) uiState,uiPrompt=context,interaction end
 local initialized,uninitialized={},{}
@@ -21,7 +22,10 @@ dofile(assert(arg[1]))
 events.onInit()
 events.onUpdate();assert(calls[#calls]==false,'ambient prompt captured controls')
 prompt.choices={1};events.onUpdate()
+assert(not uiPrompt and not calls[#calls],'cached inactive choices revealed HUD or captured interaction buttons')
+prompt.active=true;events.onUpdate()
 assert(uiPrompt and not calls[#calls],'prompt was mistaken for conversation')
+prompt.active=false;events.onUpdate();assert(not uiPrompt,'expired prompt retained HUD reveal')
 local shown=true
 local root={IsVisible=function() return shown end,GetOpacity=function() return 1 end,GetParentWidget=function() return nil end}
 local controller={GetRootWidget=function() return root end}

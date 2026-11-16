@@ -61,6 +61,14 @@ clicks your laser target; with stick focus or no ray target it activates the
 highlighted item. A laser click never also emits a second A press. Tap and release
 Menu for B; holding both Menu buttons toggles the HUD without also sending B.
 
+Esc/pause, inventory, map/journal and PgUp's native character editor use a
+visible hand laser like CET and F10. It ends at the same point that moves the
+mouse cursor, including empty areas between controls. It starts from your
+configured weapon hand (left for this preset). Pointing outside the canvas
+keeps a short aiming beam; moving back onto it resumes the cursor. Joystick
+highlight navigation or physical mouse control hides the beam until hand
+pointer control resumes. Closing the menu or losing hand tracking hides it.
+
 **World-space VR menu:** Menu dismisses a sort popup, returns from a section to
 the main column, then closes. Point at an inventory/backpack item and press Grip
 to show its existing item actions, or Grip the sorting control for sort options.
@@ -113,9 +121,28 @@ Ordinary nearby interaction prompts do not activate this dialogue layout.
 **both Menu buttons for about half a second** to hide/show them; release both before
 repeating. Conversations, object interaction prompts (including the mirror),
 and loot temporarily show the HUD, then restore your preference.
+**F10 > HUD > Hide HUD (CyberFinger)** changes the same preference and shows
+why it is temporarily revealed. Visible subtitles and cinematics also reveal
+it; staged gameplay alone and cached inactive interaction choices do not.
+The hide preference lasts for the current game session. **Enable HUD panel**
+chooses VR-panel rendering; switching that off restores the native HUD rather
+than hiding it. The hide/show shortcut affects the main HUD and interaction
+panel, not separate scanner, vehicle-camera or hit-marker layers.
 Left-stick + right-Grip is retired; those controls keep their ordinary actions.
 For another size, set `hud_scale=1.25`
 (range `1.0` to `2.0`) in the plugin's `config/cyberfinger.ini`, then restart.
+
+The captured **CyberFinger HUD preset** uses **56.2° FOV**, **1.17 m stereo
+depth**, head follow with a **60° free-look cone**, and wall avoidance on.
+**Hands push the HUD out of view is off.** All individual HUD elements are
+enabled with their original position, size and opacity. Wall-avoidance growth is **0.51**.
+Interactions/dialogs stay at **0.84 m**, **57.5° FOV**, with head-locked follow;
+brightness, shadow and glow are **1×**. The CyberFinger 1.25× HUD scale still applies.
+The full preset is [cyberfinger-hud.ini.example](mods/config/cyberfinger-hud.ini.example).
+Fresh/missing HUD settings use this preset during CyberFinger installation;
+updates preserve your existing tuning. To deliberately restore this entire
+preset, pass `-ResetHudDefaults` to the installer. F10's **Reset element** and
+**Reset all elements** remain the game's neutral element layout controls.
 
 [Start playing](#start-playing) · [Buttons](#buttons-at-a-glance) ·
 [Grabbing and weapons](#grabbing-and-weapons) · [VR settings](#vr-settings) ·
@@ -150,6 +177,17 @@ SteamVR must be running for this VR setup. Omitting it is not the mod's flat-mod
 switch. A side-by-side desktop mirror is normal; the headset should show an
 immersive scene during gameplay.
 
+**Loading screens:** loading a save, starting a game, fast travel and checkpoint
+reloads already have a stationary panel for the game's loading artwork/progress
+display. It opens ahead of your gaze, about **3 m away**, and stays in that place
+as you move your head. The loading correction keeps that panel submitted during
+long loading pauses and prevents an older gameplay view appearing in the other
+eye. **Saved-game loading still needs an in-headset retest.** This uses a separate
+loading renderer from the interactive Esc/map panels. An in-world scene cut does not itself switch gameplay into a
+panel; transition videos may need separate handling. If a loading screen fills
+your view or follows your head, note which transition produced it so its render
+path can be checked.
+
 ## Buttons at a glance
 
 ![CyberFinger physical controls and gameplay mapping](docs/controls/cyberfinger-controls.svg)
@@ -174,7 +212,7 @@ The physical grip buttons are utilities. **Closing your fingers supplies grab.**
 | Left trigger | Fire; throttle when driving without a drawn weapon |
 | Right trigger | Aim/block; brake when driving |
 | Left physical grip button | Toggle scanner in gameplay; secondary/context action in menus (X in native menus) |
-| Right physical grip button | R3: slide release/rack or melee in gameplay; secondary/context action in menus (X in native menus) |
+| Right physical grip button | With fists/melee equipped: toggle fists ↔ equipped melee weapon; with a firearm: R3 slide release/rack. Secondary/context action in menus (X in native menus) |
 | Left Menu, tap / hold | Next weapon / weapon wheel in gameplay; Back/cancel on release in menus |
 | Right Menu, tap / hold | Inventory on release / operating-system cyberware after 0.65 s in gameplay; Back/cancel on release in menus |
 | Left black wrist, short press | Eject magazine from the weapon |
@@ -231,13 +269,85 @@ mod installer does not enforce them. Restart after changing bindings: the VR
 port reads CET's overlay key at startup.
 Avoid F8 + F9: F8 changes the VR menu display and F9 is the game's quick-load key.
 
-CET's own overlay and Character Preset Manager's CET window do not yet have the
-F10 panel's stereo/laser integration. Character Preset Manager also opens a
-native character editor; New Game Plus Native adds native game menus. Those
-native screens use the game-menu input path, separately from CET's overlay.
+CET's own overlay and Character Preset Manager's CET window require the new
+**CET renderer adapter** for stereo/laser integration. Updating only the VR
+plugin does not change stock CET's SBS rendering. The mod-panel integration is
+a development build. The `mod-ui-r3` / CET adapter `r2` correction fixes the
+earlier build's stuck CET input capture, native-menu anchoring and mouse handoff.
+See the [session status](docs/cyberfinger-session-todo.md) for installation and
+headset validation status.
+Character Preset Manager also opens a native character editor; New Game Plus
+Native adds native game menus. Those screens use the native game-menu path.
 The overlay-toggle freeze is still under investigation; changing the shortcut
 removes an input conflict but is not a confirmed crash fix. See the
 [CET investigation](docs/cet-vr-compatibility-20261114.md).
+
+### Mod windows in VR (development build)
+
+There are two common rendering paths: Cyberpunk's **ink** UI and **CET ImGui**.
+RED4ext, redscript, Codeware, ArchiveXL and TweakXL are not separate window
+renderers. Native modal mod menus share the game's menu controls. With
+CyberFinger active, their canvas stays where it opened instead of following
+your head. Computers and other world devices retain their surface interaction.
+
+Adapted CET windows and the port's Lua windows use a separate **1440 x 1080**
+canvas displayed to both eyes. They open in front of you and stay in place.
+Your configured weapon hand is the preferred laser hand. Point with the other
+hand and press its Trigger to transfer the pointer after releasing the first.
+Brief tracking loss does not silently swap the CyberFinger pointer hand;
+reopening a mod panel restores your configured preference.
+
+**Page Down opens and closes the entire CET panel.** Closing it removes the
+windows, top strip and laser, and returns movement and interactions to the game.
+If a controller button or stick was held while closing, release it once first.
+CET mods that draw continuously in `onDraw` do not leave an active panel behind;
+their CET canvas is shown only while CET is open in VR.
+
+**Panels too large or following your head:** in this development build,
+CyberFinger native menus, F10 and adapted mod windows use the same physical
+panel bounds. Wide SBS canvases fit inside those bounds without stretching or
+making the panel wider. The defaults match the saved Quest Pro setup:
+**123% panel scale**, **1.22 m away**, centered horizontally and vertically.
+That gives bounds of about **1.91 m wide by 1.43 m high**; wide menus use less height.
+Fresh configurations and **Reset** use these defaults; saved custom settings
+continue to take precedence.
+Use **F10 > Overlay > Panel size** to shrink or enlarge them, then **Save**.
+**Distance** changes where native/mod panels open next; close and reopen those
+panels after changing it.
+
+Panels keep their world position and orientation while you turn or lean, switch
+menu tabs, temporarily open F10, or briefly lose tracking. Grip still moves F10
+and mod panels by their top strip. Closing and reopening a panel, or recentering
+tracking, anchors it again. The gameplay HUD and in-world computer screens keep
+their own placement rules. Other controllers retain their existing native-menu
+and F10 follow settings.
+
+| Input | Mod panel action |
+|---|---|
+| Laser-hand Trigger | Click/select; hold to drag a slider |
+| Laser-hand Grip | Right click/context action |
+| Grip on the top strip | Move the whole panel |
+| Laser-hand stick up/down | Scroll |
+| Opposite-hand stick left/right | Switch standard ImGui tabs |
+| Either Menu, released | Cancel a popup/edit, then close the host overlay |
+
+The laser stays visible over empty space. Finger-close and pinch gestures do
+not click these panels. Game movement and firing are suppressed while an
+interactive panel has focus; release held buttons before resuming gameplay.
+F10 and the world VR menu take priority over mod panels.
+
+**Mouse:** moving or clicking the physical mouse takes over native menus
+(including Esc and the character editor) and adapted mod windows. Press Trigger
+to return to laser control; native-menu joystick navigation also takes over.
+The CET mouse cursor is visible on its VR canvas. F10 retains its desktop
+click/wheel takeover; CET yields its Win32 mouse/keyboard handler while F10 has
+focus, and lets F10/Insert through even when CET is open.
+
+CET's toolbar buttons and custom hand-drawn tabs remain laser-clickable.
+Closing a mod window that stays open independently of CET may require its own
+close button. Decorative ink HUDs are not automatically converted into modal
+panels. Keyboard text entry still uses the keyboard. See
+[renderer coverage, adapter setup and validation](docs/mod-ui-vr.md).
 
 ## Grabbing and weapons
 
@@ -268,8 +378,23 @@ removes an input conflict but is not a confirmed crash fix. See the
   page the quickhack list; the **Trigger opposite the movement stick** applies
   the selected hack (right Trigger in the default layout). Release it before
   normal weapon aim/fire resumes.
-- **Melee:** swing an equipped melee weapon. Physical grabs and throws depend
-  on valid finger tracking; weapon-specific mechanics are detailed in the
+- **Fists / melee weapon:** with fists or an ordinary melee weapon in hand,
+  tap the **Grip opposite your weapon hand** (right for this left-handed preset)
+  to switch between **bare fists and an equipped melee weapon**. It remembers
+  your last melee weapon while it remains in a weapon slot, otherwise uses the
+  first equipped melee weapon. With no melee weapon equipped, it leaves fists
+  selected. **Left Menu** keeps general weapon cycling, including guns.
+  Menus, interactions, scanner use and nearby held objects take priority over
+  this shortcut; release Grip before pressing it again after a context change.
+  This toggle is installed for testing; in-headset combat validation is still pending.
+- **Melee attacks:** physically jab/punch or swing your equipped melee weapon.
+  **No Trigger is needed for a normal attack.** With CyberFinger active, hold
+  **either physical Trigger before starting the swing** to make it a strong
+  attack, including arm-cyberware melee. Trigger presses alone do not launch
+  attacks; tracked motion and contact are still required. Other controllers
+  keep their existing attacking-hand Trigger modifier. Combat still needs
+  in-headset playtesting. Physical grabs and throws depend on valid finger
+  tracking; weapon-specific mechanics are detailed in the
   [main controls reference](README.md#controls).
 - **Driving:** close a hand near the wheel/handlebar to grab it, then steer with
   your hands. Weapon-hand black hold now **pauses**, including in a vehicle;
@@ -532,8 +657,10 @@ use the prepared patched package:
 Without `-Package`, `install_cyberfinger.cmd` prepares/builds/packages the source;
 that needs Git, CMake and Visual Studio C++ build tools. Optional arguments:
 `-WeaponHand Right`, `-NoSlimeVR`, and `-GameRoot "D:\Games\Cyberpunk 2077"`.
-The default installer selects the left-handed/eight-role preset. SteamVR driver
-updates and their bindings are installed separately; restart SteamVR afterwards.
+The default installer selects the left-handed/eight-role preset.
+The installer seeds missing HUD keys from the captured preset; use
+`-ResetHudDefaults` only when you want to replace existing HUD tuning too.
+SteamVR driver updates and their bindings are installed separately; restart SteamVR afterwards.
 This UI update uses inputs already exposed by your driver. Select the new v2
 game binding after launching; another driver binary update is not required.
 

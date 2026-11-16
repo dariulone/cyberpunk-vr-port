@@ -1,5 +1,10 @@
 # CET overlay and CyberFinger: investigation, 2026-11-14
 
+Follow-up development: [general mod UI bridge and CET renderer adapter](mod-ui-vr.md).
+That work adds a separate VR canvas and laser input; it does not establish the
+cause of the watchdog hangs documented below. Installation and headset validation
+are separate from the source/build checks.
+
 ## Confirmed evidence
 
 - User reported a freeze after toggling CET; they are unsure whether the full

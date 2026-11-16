@@ -75,13 +75,22 @@ int main()try {
     ConversationInput(true,0,1);Check(ConversationTick(true)==3,"confirm not delivered");
     ConversationInput(true,0,1);Check(ConversationTick(true)==0,"held trigger repeated confirm");
     ConversationTick(false);Check(!ConversationActive() && !HudVisible(),"dialogue exit lost hidden HUD preference");
-    g_sceneTier=2;Check(HudVisible(),"conversation without choices failed to reveal HUD");g_sceneTier=0;
+    for(int tier:{1,2,3}) {
+        g_sceneTier=tier;Check(!HudVisible() && !HudRevealReason(),"staged gameplay forced the hidden HUD visible");
+        SubtitleTick(true);Check(HudVisible() && HudRevealReason() && !ConversationActive(),"speech without choices did not reveal HUD independently of controls");
+        SubtitleTick(false);Check(!HudVisible(),"subtitle exit lost hidden preference");
+    }
+    SubtitleTick(true);std::this_thread::sleep_for(std::chrono::milliseconds(270));
+    Check(!HudVisible(),"stalled subtitle producer kept HUD visible");
+    g_sceneTier=4;Check(HudVisible(),"cinematic failed to reveal HUD");g_sceneTier=0;
+    SetHudHidden(false);Check(!HudHidden() && HudVisible(),"F10 Show did not change preference");
+    SetHudHidden(true);Check(HudHidden() && !HudVisible(),"F10 Hide did not change preference");
     ConversationTick(true);ConversationInput(false,0,0);ConversationInput(true,0,0);
     ConversationInput(true,0,1);
     std::this_thread::sleep_for(std::chrono::milliseconds(270));
     Check(!ConversationActive() && ConversationTick(true)==0,"stale queued confirmation replayed");
     ConversationTick(false);cfEnabled=false;
     Check(HudVisible() && !ConversationActive(),"CF hidden state affected another controller");
-    ToggleHud();cfEnabled=true;Check(!HudVisible(),"inactive profile toggled stored HUD preference");
+    ToggleHud();SetHudHidden(false);cfEnabled=true;Check(!HudVisible(),"inactive profile toggled stored HUD preference");
     std::cout<<"CyberFinger HUD and conversation state passed\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

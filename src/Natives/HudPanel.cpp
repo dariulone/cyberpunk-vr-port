@@ -644,7 +644,11 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
     for(auto& snapshot:snapshots){snapshot=std::make_shared<cvr::hud::Snapshot>();snapshot->stamp=GetTickCount64();}
     snapshots[cvr::hud::Index(Channel::Interaction)]->lootVisible=lootVisible;
     cvr::cyberfinger::LootTick(lootVisible);
-    auto publish=[&]{for(size_t i=0;i<snapshots.size();++i)cvr::hud::Publish(snapshots[i],static_cast<Channel>(i));};
+    bool subtitlesVisible=false;
+    auto publish=[&]{
+        cvr::cyberfinger::SubtitleTick(subtitlesVisible);
+        for(size_t i=0;i<snapshots.size();++i)cvr::hud::Publish(snapshots[i],static_cast<Channel>(i));
+    };
     if (!g_liveControls.xrHudPanel || g_menuModeValue != 0 || g_liveControls.xrMenuRect || !hudLayer ||
         cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::PictureFrame) {
         Restore(); lastRoot = nullptr; lastMasked = {}; ++generation;publish();return;
@@ -694,7 +698,11 @@ void VRHudPanelUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_
             sprite.x=rect.x;sprite.y=rect.y;sprite.width=rect.width;sprite.height=rect.height;
             // A window with nothing visible contributes only zeros: keep its slot (masked), skip its draw.
             const int64_t tContent=HudNow();
-            const bool content=CyberpunkVR_HudSkipEmpty.load(std::memory_order_relaxed)==0 || HasVisibleContent(e.rootWidget.GetPtr());
+            const bool subtitles=e.hudEntryName.hash==cvr::hud::EntryHash("subtitles");
+            const bool inspectContent=subtitles || CyberpunkVR_HudSkipEmpty.load(std::memory_order_relaxed)!=0;
+            const bool visibleContent=inspectContent && HasVisibleContent(e.rootWidget.GetPtr());
+            const bool content=!inspectContent || visibleContent;
+            subtitlesVisible|=subtitles && visibleContent && sprite.tint[3]>0;
             HudAdd(4,HudNow()-tContent);
             if(content){snapshot.sprites.push_back(std::move(sprite));HudAdd(7,1);}
             else CyberpunkVR_HudEmptySprites.fetch_add(1,std::memory_order_relaxed);

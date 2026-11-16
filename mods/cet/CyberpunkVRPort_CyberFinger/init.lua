@@ -1,6 +1,7 @@
 -- A live choice hub, not merely looking at a generic interaction prompt, owns
 -- conversation controls. Non-CyberFinger controllers never enter this path.
 local controllers={}
+local meleeToggle=require('melee_toggle')
 local function visible(root)
   for _=1,32 do
     if not root then return true end
@@ -35,7 +36,10 @@ local function publishUi(enabled)
       local defs=GetAllBlackboardDefs().UIInteractions
       local bb=Game.GetBlackboardSystem():Get(defs)
       local hub=FromVariant(bb:GetVariant(defs.InteractionChoiceHub))
-      interaction=hub and hub.choices and #hub.choices>0 or false
+      -- The blackboard retains the last choices after the prompt disappears.
+      -- Its active flag is the game's visibility gate, also used by the weapon
+      -- wheel when deciding whether a world interaction owns the button.
+      interaction=hub and hub.active and hub.choices and #hub.choices>0 or false
     end)
   end
   VRCyberFingerUiState(context,interaction)
@@ -75,6 +79,7 @@ local function command(enabled)
     if Game.GetSystemRequestsHandler():IsGamePaused() then return end
     local defs=GetAllBlackboardDefs().UI_System
     if Game.GetBlackboardSystem():Get(defs):GetBool(defs.IsInMenu) then return end
+    if action==4 then meleeToggle.toggle(player);return end
     if action==3 then
       -- Uses the same item/cooldown/phone-call checks as the game's OS action.
       player:VRActivateIconicCyberware()
@@ -96,6 +101,7 @@ end
 local function update()
   if type(VRCyberFingerConversation)~="function" or type(VRCyberFingerEnabled)~="function" then return end
   local enabled=VRCyberFingerEnabled();command(enabled);publishUi(enabled);computer(enabled)
+  pcall(function() meleeToggle.observe(enabled and Game.GetPlayer() or nil) end)
   if not enabled then VRCyberFingerConversation(false);return end
   local active=false
   pcall(function()

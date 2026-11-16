@@ -15,6 +15,7 @@ public:
     void Shutdown();
 private:
     XrSwapchain swapchain{};
+    DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> allocator;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> list;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv;

@@ -19,17 +19,33 @@ cvr::cyberfinger::NativeMenuButtons nativeButtons;
 bool active{},armed[2]{},pressed[2]{},edges[2]{};
 int hand{};uint16_t pulse{},heldButtons{};uint64_t pulseUntil{};
 bool directional{};
+bool desktop{},mouseKnown{};int mouseX{},mouseY{};
 cvr::cyberfinger::MenuContext context{};
 bool grabArmed[2]{},zoomArmed{},anchored{};XrPosef anchor{};uint64_t anchorOrigin{};
 bool Foreground(){return g_gameHwnd && GetForegroundWindow()==g_gameHwnd;}
 void Clear(){tracking={};snapshot={};navigation={};focus={};nativeButtons={};active=false;hand=0;pulse=heldButtons=0;pulseUntil=0;
     for(int i=0;i<2;++i)armed[i]=pressed[i]=edges[i]=grabArmed[i]=false;
-    zoomArmed=anchored=false;context={};}
+    zoomArmed=false;context={};desktop=mouseKnown=false;}
 }
-void Reset(){std::lock_guard lock(mutex);Clear();}
+void Reset(){std::lock_guard lock(mutex);Clear();anchored=false;}
+void SuspendInput(){std::lock_guard lock(mutex);const auto pose=tracking;Clear();tracking=pose;}
+void DesktopMouse(uint32_t message,int x,int y,uintptr_t extraInfo) {
+    std::lock_guard lock(mutex);
+    if(!active)return;
+    const bool move=message==WM_MOUSEMOVE;
+    const bool click=message==WM_LBUTTONDOWN || message==WM_RBUTTONDOWN ||
+        message==WM_LBUTTONDBLCLK || message==WM_RBUTTONDBLCLK;
+    const bool wheel=message==WM_MOUSEWHEEL || message==WM_MOUSEHWHEEL;
+    if(!move && !click && !wheel)return;
+    const bool moved=move && mouseKnown && (std::abs(x-mouseX)>1 || std::abs(y-mouseY)>1);
+    if(move){mouseX=x;mouseY=y;mouseKnown=true;}
+    if(extraInfo!=PointerTag && (moved || click || wheel) && !snapshot.down && !snapshot.secondary)desktop=true;
+}
 void Hands(const cvr::vrui::Tracking& value,bool enabled) {
     std::lock_guard lock(mutex);
-    if(!enabled || !value.cyberfinger || !value.valid){Clear();return;}
+    // Input focus and menu context can change while the same panel remains
+    // open. Keep its anchor until Reset (menu closed) or an origin change.
+    if(!enabled || !value.cyberfinger || !value.valid){Clear();tracking=value;return;}
     const auto now=GetTickCount64();
     const auto wanted=cvr::cyberfinger::Context();
     if(!active || now-snapshot.tick>250 || context!=wanted){Clear();active=true;hand=value.preferLeft?0:1;context=wanted;}
@@ -63,13 +79,23 @@ void Hands(const cvr::vrui::Tracking& value,bool enabled) {
         const bool down=trigger>(pressed[i]?.35f:.65f);
         edges[i]=armed[i] && down && !pressed[i];pressed[i]=down;
     }
-    if(!value.valid){snapshot.hit=snapshot.down=snapshot.secondary=false;heldButtons=snapshot.buttons=0;}
+    if(!value.valid){snapshot.ray=snapshot.hit=snapshot.down=snapshot.secondary=false;heldButtons=snapshot.buttons=0;}
 }
-XrPosef PanelPose(const XrPosef& pose,uint64_t origin) {
+XrPosef PanelPose(const XrPosef& pose,uint64_t origin,const cvr::vrui::Settings& settings) {
     std::lock_guard lock(mutex);
-    if(context!=cvr::cyberfinger::MenuContext::PictureFrame){anchored=false;return pose;}
-    if(!anchored || anchorOrigin!=origin){anchor=pose;anchored=true;anchorOrigin=origin;}
+    // Native mod menus use the same ink canvas as stock menus. Anchor every
+    // active CF modal canvas, not only the apartment picture frame, so head
+    // motion cannot move the laser's target. Other profiles keep their pose.
+    if(!tracking.cyberfinger){anchored=false;return pose;}
+    if((!anchored || anchorOrigin!=origin) && tracking.valid){
+        anchor=cvr::vrui::OpeningPose(tracking.head,settings);anchored=true;anchorOrigin=origin;
+    }
+    if(!anchored)return pose;
     return anchor;
+}
+XrExtent2Df PanelSize(XrExtent2Df legacy,const cvr::vrui::Settings& settings) {
+    std::lock_guard lock(mutex);
+    return tracking.cyberfinger?cvr::vrui::PanelBounds(legacy.height>0?legacy.width/legacy.height:0,settings):legacy;
 }
 void Panel(const XrPosef& pose,float width,float height) {
     std::lock_guard lock(mutex);
@@ -81,9 +107,10 @@ void Panel(const XrPosef& pose,float width,float height) {
     const bool special=context==cvr::cyberfinger::MenuContext::Map || context==cvr::cyberfinger::MenuContext::Journal;
     if(!special && !snapshot.down && !snapshot.focus) {
         const int other=1-hand;
-        if(hits[other].valid && (edges[other] || !tracking.hands[hand].valid))hand=other;
+        if(hits[other].valid && edges[other])hand=other;
     }
     const auto& hit=hits[hand];
+    if(directional || edges[hand] || edges[1-hand])desktop=false;
     const float u=hit.valid?hit.x/cvr::vrui::CanvasWidth:snapshot.u;
     const float v=hit.valid?hit.y/cvr::vrui::CanvasHeight:snapshot.v;
     snapshot.focus=focus.Step(directional,hit.valid,u,v);
@@ -103,7 +130,15 @@ void Panel(const XrPosef& pose,float width,float height) {
     }
     snapshot.buttons=(now<pulseUntil?pulse:0)|heldButtons;
     snapshot.secondary=snapshot.secondary && snapshot.hit;
-    snapshot.u=u;snapshot.v=v;snapshot.start=tracking.hands[hand].aim.position;snapshot.end=hit.point;
+    if(desktop){snapshot.hit=snapshot.down=snapshot.secondary=false;}
+    // The beam and cursor share the exact displayed quad intersection. Keep a
+    // short aiming ray off the canvas too, but yield visuals with input when
+    // desktop mouse or joystick focus owns the menu. Tracking loss never
+    // transfers the beam to the other hand implicitly.
+    const auto& pointer=tracking.hands[hand];
+    snapshot.ray=tracking.valid && pointer.valid && !desktop && !snapshot.focus;
+    snapshot.u=u;snapshot.v=v;snapshot.start=pointer.aim.position;
+    snapshot.end=hit.valid?hit.point:cvr::vrui::Add(snapshot.start,RotateVector(pointer.aim.orientation,{0,0,-1.4f}));
     // An edge is consumed by this frame's panel, not replayed by a repeated image.
     directional=false;edges[0]=edges[1]=false;
 }
@@ -113,6 +148,7 @@ Snapshot Current() {
     return snapshot;
 }
 bool Cursor(float& u,float& v) {
+    {std::lock_guard lock(mutex);if(desktop)return false;}
     const auto state=Current();
     if(!state.active || !state.hit || !Foreground())return false;
     u=state.u;v=state.v;return true;
@@ -140,6 +176,7 @@ void DispatchPointer() {
             const int w=metrics(SM_CXVIRTUALSCREEN),h=metrics(SM_CYVIRTUALSCREEN);
             if(w>1 && h>1 && Foreground()) {
                 INPUT event{};event.type=INPUT_MOUSE;
+                event.mi.dwExtraInfo=PointerTag;
                 event.mi.dx=LONG(double(x-left)*65535/(w-1));event.mi.dy=LONG(double(y-top)*65535/(h-1));
                 event.mi.dwFlags=MOUSEEVENTF_ABSOLUTE|MOUSEEVENTF_VIRTUALDESK|MOUSEEVENTF_MOVE;
                 if(SendInput(1,&event,sizeof(event))==1){previousU=state.u;previousV=state.v;positioned=true;}
@@ -150,11 +187,13 @@ void DispatchPointer() {
     down=down && positioned && Foreground();
     if(down!=mouseDown) {
         INPUT event{};event.type=INPUT_MOUSE;event.mi.dwFlags=down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP;
+        event.mi.dwExtraInfo=PointerTag;
         if(SendInput(1,&event,sizeof(event))==1)mouseDown=down;
     }
     const bool secondary=owns && positioned && state.secondary && Foreground();
     if(secondary!=secondaryDown) {
         INPUT event{};event.type=INPUT_MOUSE;event.mi.dwFlags=secondary?MOUSEEVENTF_RIGHTDOWN:MOUSEEVENTF_RIGHTUP;
+        event.mi.dwExtraInfo=PointerTag;
         if(SendInput(1,&event,sizeof(event))==1)secondaryDown=secondary;
     }
     if(!owns)previousU=previousV=-1;

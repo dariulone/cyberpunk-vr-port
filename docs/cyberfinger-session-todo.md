@@ -1,5 +1,305 @@
 # CyberFinger / Quest Pro: resume here
 
+## Installed: save-load flicker correction (2026-11-15)
+
+User clarified the failure: loading a saved game shows the transition on the
+monitor, but the headset flickers uncomfortably instead of displaying the panel.
+The earlier `[loading-screen] up` message proves activation only, not successful
+headset presentation. No live reproduction has yet been recorded; game is closed.
+
+Implemented corrections to concrete submission hazards:
+
+- Capture carries Scene/Menu/Loading/Notice/Dark presentation with its pixels.
+  XR submission uses that captured classification instead of live flags which
+  may already describe the next frame. Loading projections cannot be rewrapped
+  as a menu quad while their last image is being repeated.
+- Second-eye pairing checks presentation type. Loading/menu/notice/dark require
+  the same capture serial; a recently rendered gameplay eye cannot accompany
+  a loading image, or vice versa. Normal bounded gameplay reuse is preserved.
+- Loading/notice/dark fallback survives stalls longer than one second, until
+  a new frame replaces it. Gameplay retains the existing timeout. Fallback is
+  rejected after a tracking-origin change or swapchain/space replacement.
+- Loading frames suppress separate gameplay HUD layers, depth and framegen.
+- New `[xr-presentation]` log records successfully submitted mode transitions.
+
+Full Release build and all 23 overlay tests pass, including loading policy,
+a 45-second stall and eye pairing across transitions. Installed and independently
+verified with the game closed; only the plugin DLL changed. Eight settings/
+binding files, five melee-related Lua scripts and CET ASI are unchanged.
+
+- Package: `dist/CyberpunkVRPort-0.2.3-cyberfinger-loading-r1`.
+- Plan, installer, verification and matching DLL/PDB: `build/loading-frame-install/`.
+- Backup: `build/loading-frame-install/backup-da90742e9c4644809b08997b59db3603/`.
+- Installed DLL SHA256: `11D469AC67FED11E32D8E01B215C0C2AEED44FB5577A5D888DF6EA55553E6EBC`.
+- Matching diagnostic layouts: `build/loading-frame-install/types.json`.
+
+Read-only probe prepared at `build/loading-transition-probe.py`; resolves the exact DLL/PDB and
+records loading-layer, capture, submit and loading-screen readiness. User was
+asked to leave the game at its main menu for a recording, with headset off if
+desired. Await reply; do not claim the headset flicker is confirmed fixed. After
+resolving the new PID, run the probe with `--pid PID --dll
+build/loading-frame-install/symbols/cyberpunkvrport.dll --seconds 45`, then tell
+the user to load a save while it is recording. Old melee-r1 symbols no longer
+match the installed DLL.
+
+## Loading-screen panel investigation (2026-11-15)
+
+User asked whether between-scene/loading screens can appear as an anchored panel
+like Esc/map. Existing `Render/LoadingScreen` already does this for recognized
+post-main-menu loading screens: 3 m ahead, 1.8 m tall, anchored on first valid
+head pose. `Lobby::LoadingInSpace` and `EngineStereo::LoadingShown` select it;
+capture draws the same panel through each eye's pose. Installed configuration
+has engine stereo enabled. Latest game log (2026-11-15 18:26) confirms the layer
+hook and a post-intro `[loading-screen] up: hung 3.0 m ahead` activation.
+
+Historical investigation before the user's save-load clarification above. The game was
+closed. Asked what the user sees (head-following oversized screen, black screen,
+or scene/video filling view). Need the affected transition
+before changing detection or treating a cinematic as a loading screen. README
+now describes the existing behavior; headset behavior on that transition is
+not yet verified.
+
+## Installed: physical melee strength modifier (2026-11-15)
+
+The user resolved the attack choice: normal physical jabs/swings need no Trigger;
+**either physical Trigger held before a swing makes it strong** with CyberFinger
+active. Trigger presses alone never launch punches. Ordinary fists/melee and
+arm-cyberware melee share the modifier; other controllers retain the weapon or
+attacking hand's Trigger. Firearms and projectile-launcher controls are unchanged.
+
+- Implemented in the Weapon Lua module with a shared `melee_strength.lua` helper.
+- 288 offline replays of the actual ordinary/arm-melee detectors pass: 30/90 Hz,
+  both hands, either/both/neither Trigger, threshold boundary, active/inactive/
+  missing CyberFinger profile. Stationary Trigger presses never start attacks;
+  physical strokes preserve contacts and sounds and do not repeat while still.
+- All 11 CyberFinger tests pass. Package:
+  `dist/CyberpunkVRPort-0.2.3-cyberfinger-melee-r2`.
+- Installed and independently verified with Cyberpunk closed: `ordinary_melee.lua`,
+  `cyberware.lua`, and new `melee_strength.lua`. Eight settings/binding files,
+  the CET ASI and the VR plugin DLL are unchanged; no driver update is needed.
+- Plan/installer/verification: `build/melee-strength-install/`. Two original
+  files have verified backups in
+  `build/melee-strength-install/backup-52345aecadbd4fae9e3e1560245e8639/`.
+- The installed DLL/PDB symbols remain those of melee-r1 below.
+- **Headset test still needed:** equip fists/melee, jab without Trigger for a
+  normal hit; hold either Trigger before a physical swing for a strong hit.
+  Test alongside the installed support-Grip fists/melee toggle below.
+
+## Installed: fists/melee toggle plus laser/HUD fixes (2026-11-15)
+
+**Installed and independently verified after Cyberpunk closed.** Three mod
+files: plugin DLL, CyberFinger `init.lua`, and new `melee_toggle.lua`. Eight
+settings/binding files and the CET ASI are unchanged. Two replaced files have
+verified backups; the third file is new.
+
+- Package: `dist/CyberpunkVRPort-0.2.3-cyberfinger-melee-r1`.
+- Plan, installer, verification and matching DLL/PDB: `build/melee-toggle-install/`.
+- Backup/verification: `build/melee-toggle-install/backup-53f9cad0a39b4f7da35ea3bd9d86c778/`.
+- Installed DLL SHA256: `B8AFF3B1D35B05EEB9B05991EE436EE5BFA16FCBB1F0DD541C4645A293E71669`.
+- Full Release build and all 10 CyberFinger tests pass. Includes the prior
+  tested native-menu laser, HUD visibility correction and F10 defaults.
+- The user clarified Grip must toggle **equipped melee weapon ↔ bare fists**,
+  never a gun. Implemented on the support-hand physical Grip (right for left
+  dominance, left for right dominance), only with fists/ordinary melee active.
+  Remembers last melee while equipped, otherwise uses first eligible weapon
+  slot; never falls back to a gun or arm cyberware. No melee slot means no-op.
+  Input is claimed until release, with neutral rearming and stale-input checks.
+  Menus, interactions, held world objects, scanner, vehicles, swimming, ladders
+  and staged/cinematic contexts suppress the toggle. Game-thread requests
+  recheck pause, vehicle/device/swim/scene state and equipment restrictions.
+- README_CYBRFNGR is updated. No driver update required.
+- **Headset playtesting remains:** left-hand native-menu beam meets its cursor;
+  closing menus restores gameplay; both Menu hide/show HUD away from prompts;
+  equip a melee weapon, right Grip to fists, release, right Grip back to melee.
+  Left Menu must retain general weapon cycling and guns' Grip reload actions.
+- The later attack-trigger choice and its implementation are recorded above.
+  Native automatic melee remains blocked by the port's tracked combat system.
+- Old mod-ui-r3 live probes/PID 67968 are stale after restart; resolve symbols
+  from the matching DLL/PDB above for the next running game.
+
+## Latest HUD preset and pending combat choices (2026-11-15)
+
+**HUD capture complete; included in the installed update above.**
+The user requested the current F10 HUD parameters as defaults before restart.
+Read-only capture from PID 67968, exact installed mod-ui-r3 symbols:
+`build/hud-defaults-captured.json`. This is the refreshed capture after further
+live adjustments, replacing the earlier 58.9-degree / 1.5 m snapshot.
+
+- HUD: 56.2-degree FOV, 1.17 m stereo depth, head/cone follow at 60 degrees.
+- Wall clearance on, grow 0.51, hand push-away off (inactive amount still 2x).
+- Interactions: enabled, 0.84 m, 57.5-degree FOV, zero interaction/loot cone,
+  object-depth anchoring off. Brightness, shadow and glow are 1x.
+- All 40 individual elements enabled at neutral position/scale/opacity.
+- Complete 59-key preset: `mods/config/cyberfinger-hud.ini.example`, shipped by
+  build_dist. CyberFinger installer seeds missing keys, preserving existing
+  tuning; explicit `-ResetHudDefaults` reapplies all captured HUD keys.
+  F10's per-element Reset controls still restore the neutral element layout.
+- All 15 installer integration scenarios pass, including existing preferences,
+  captured defaults, explicit reset, preview, game guard and rollback.
+- Latest package: `dist/CyberpunkVRPort-0.2.3-hud-r4`. No DLL rebuild needed for
+  this preset; includes the tested laser/HUD fix and F10 defaults below.
+- Latest install plan: `build/hud-defaults-install/`. Current saved vrport.ini
+  already agrees with all captured values, so **only two mod files change**;
+  all eight settings/binding files and CET ASI are preserved. Refresh hashes
+  with `verify.py --before` only after game exit, then `install.ps1`, then
+  `verify.py`. Exact DLL SHA is the same 71A30C5B... listed below. Preview passes.
+- Older hud-r1/r2/r3 prepared packages are superseded for this session.
+
+User reconfirmed: native Esc/map/PgUp cursor already follows the hand when the
+PC window has focus; the missing feature is visible laser feedback. The laser
+fix below is prepared, not yet installed/headset-tested.
+
+**Historical combat request, superseded by the modifier choice above.** User wanted dominant
+Trigger = fast attack, opposite Trigger = strong, and opposite Grip to toggle
+melee rather than cycle/equip successive weapons (left Menu already cycles).
+The Grip clarification is resolved as equipped melee weapon vs bare fists.
+The user subsequently chose physical swings with either Trigger as strong modifier.
+The existing port intentionally suppresses native button melee while tracked
+hands fight (`physicalCyberware` in XInput and `vrport_native_attack_guard.reds`).
+Its physical swing scripts use each hand's trigger as that swing's strong flag.
+Do not simply remap RT/LT: it would still be blocked and/or double-hit alongside
+physical collision. Current right Grip is exposed as R3; left Grip as cf_scanner.
+Inspect context claims and handedness before changing either. Preserve menus,
+world grabs, firearms and other controller profiles. README combat additions
+follow the clarified design above.
+
+## Native-menu laser correction (2026-11-15)
+
+**Built and packaged; awaiting game closure to install.** This includes the
+pending HUD/defaults update below; do not install the older hud-r1 package separately.
+While Esc was open, live PID 67968 showed the configured left-hand pointer
+active, hitting the panel and moving its cursor, with no native laser swapchain
+allocated. CET/F10 captures were false. Read-only capture:
+`build/menu-laser-samples.json`; symbols match installed mod-ui-r3.
+
+The native beam required linear RGBA8 UNORM while the working F10/CET surfaces
+use sRGB. It now prefers sRGB with a linear fallback and uses that same format
+for its RTV. The beam follows the native cursor intersection, stays visible
+between controls and continues as a short ray off-canvas. Mouse/stick focus,
+tracking loss, menu closure and overlay input handoff hide it. This applies to
+CF native Esc/inventory/map/journal/mod editor menus; handedness and existing
+click/secondary/tab behavior remain intact.
+
+All 8 CyberFinger and 22 overlay tests pass, including GPU creation on an
+sRGB-only runtime, linear fallback, unsupported formats, endpoint geometry,
+handedness, off-canvas aim and input ownership. README_CYBRFNGR and the mod UI
+design notes describe the behavior. After installation, check the visible ray
+in Esc, PgUp's native character editor and map/inventory; compare its endpoint
+with the cursor, then close the menu and verify normal gameplay resumes.
+
+- Release build: passed; log `build/menu-laser-release.log`.
+- Package: `dist/CyberpunkVRPort-0.2.3-hud-r2` (1,218 files).
+- Two-file plan/installer/verification and matching symbols: `build/menu-laser-install/`.
+- Preview passed: only VR DLL and `lua/CyberpunkVRPort_CyberFinger/init.lua`.
+- Prepared DLL SHA256: `71A30C5BF66384EF8E8CA099D3813BC10D8D16C28E628A19AB921695948B5C3F`.
+- Live game remains on mod-ui-r3 until this install runs. Wait for Cyberpunk to
+  close, refresh preserved hashes with `verify.py --before`, run `install.ps1`
+  with existing authorized game-folder access, then run `verify.py`.
+- The installer verifies backups and target hashes, preserves eight settings/
+  binding files and the installed CET ASI, and rolls back if either copy fails.
+
+## HUD visibility correction in progress (2026-11-15)
+
+Live PID 67968 confirms the Menu chord worked: hidden=true. In menus, Tier2
+forced the HUD visible. Back in gameplay (tier=1, menus=0, no visible prompt),
+interactionUntil stayed refreshed: the Lua bridge read cached choices without
+checking InteractionChoiceHub.active. Snapshot: `build/hud-toggle-gameplay.json`.
+
+The correction checks active prompts, uses visible subtitles/choices instead of
+all staged gameplay to reveal HUD, retains cinematic reveal, and adds F10 > HUD
+> Hide HUD (CyberFinger) with temporary-reveal status. The F10 defaults below are
+also included. **Built, packaged, awaiting game closure to install**; live game
+is still on mod-ui-r3. Full Release build and all eight CyberFinger tests pass,
+including regressions for cached inactive prompts, staged gameplay, subtitles,
+temporary reveal expiry and F10's shared hide preference. The 33 overlay/mod-UI
+tests also passed with the new defaults before this HUD-only correction.
+
+- Superseded package: `dist/CyberpunkVRPort-0.2.3-hud-r1`; install hud-r2 above instead.
+- Superseded installer, plan, verification and symbols: `build/hud-toggle-install/`.
+- Preview changes only plugin DLL and `lua/CyberpunkVRPort_CyberFinger/init.lua`.
+- Prepared DLL SHA256: `B6C4431E60F630C4A84B38C83B03010E7B6E28A19FDE22E37E3AFB908DC1483C`.
+- Post-install test: away from prompts, both Menu held 0.5 s should hide/show main
+  HUD. Approach/leave an interactable object; check automatic reveal then hide.
+  Test dialogue/subtitles and F10 > HUD's preference/reveal status.
+
+## F10 defaults captured (2026-11-15)
+
+Source defaults now match the user's saved working placement: distance 1.22 m,
+scale 1.23, width 1.55 m, zero X/Y offsets (about 1.91 x 1.43 m total bounds).
+Fresh configurations and Reset use these values in the prepared hud-r2 build.
+README and shared-panel documentation are updated. Existing installed settings
+already contain these values and are preserved by the combined update.
+
+## CET / menu regression correction (2026-11-15)
+
+**Installed and independently verified:** VR `mod-ui-r3` and CET adapter `r2`,
+replacing the r2/r1 build below. User verified live hands in V's apartment; the actual
+gameplay blocker is CET retaining overlay input after PgDn closes it.
+
+- CET close hides its entire canvas, strip and ray, regardless of background
+  mod windows. Input returns after any held controls are released.
+- Native Esc/character-editor anchors survive XInput overlay suspension.
+- Native/adapted panels support physical mouse takeover and deliberate Trigger
+  return to the laser. CET yields its Win32 handler when F10 has focus and lets
+  F10/Insert reach the host.
+- Opening a mod panel restores the configured hand; CF optical dropout does
+  not silently transfer it to the opposite hand.
+- Added regression coverage for the real CET adapter lifecycle with an ordinary
+  always-running ImGui mod window, desktop/laser handoff, and native suspension.
+
+Both Release builds pass; **41 tests pass** (11 mod UI, 22 overlay, 8 CyberFinger).
+Seven prepared CET source files match the compiled isolated source; original CET
+integration files are unchanged. Two installed binaries and their backups were
+independently hash-verified; eight settings/bindings files are unchanged.
+
+- Packages: `dist/CyberpunkVRPort-0.2.3-mod-ui-r3`, `dist/CET-VR-ModUi-1.38.1-r2`.
+- CET prepared patch: `build/cet-vr-adapter-r2-final/`.
+- Installer/plan/symbols: `build/mod-ui-r3-install/`.
+- Backup and receipts: `build/mod-ui-r3-install/backup-dee0c9a74271414ab7a10a99b18aa676/`.
+- VR SHA256: `06EFA8DB9DE6FC33AD83A69EA82A5EDD3DBE179806090A57BD30363179455D5D`.
+- CET SHA256: `7DAFCC22219558DC29C65C0C895DBFBE20E00B4703F7A9488F46730C1F2DEBAD`.
+
+Headset checks after installation: PgDn open/close leaves no strip or laser and
+restores movement/dialogue; Esc and both CPM screens remain anchored; physical
+mouse works on native/CPM/F10 panels; opening F10 over CET transfers mouse focus.
+
+## General mod UI integration installed (2026-11-15)
+
+**Installed and verified; headset validation pending.** The [mod UI bridge](mod-ui-vr.md) provides
+world-anchored OpenXR canvases and shared laser/Trigger, Grip, Menu, scroll and
+opposite-hand tab input. The port's Lua renderer uses it; an isolated CET build
+adds the companion renderer adapter. Native CyberFinger modal menus are anchored
+while open; existing device surfaces and other controller behavior remain.
+
+Both full Release builds pass, plus **9 mod UI + 22 overlay + 8 CyberFinger tests**.
+The original CET source checkout remains unchanged. Generated CET patch
+and source hashes: `build/cet-vr-adapter-final/`; tested CET base is
+`v1.38.1-11-g20b42c6`. `README_CYBRFNGR.md` documents the controls and limitations.
+
+- VR package: `dist/CyberpunkVRPort-0.2.3-mod-ui-r2` (supersedes r1).
+- CET companion: `dist/CET-VR-ModUi-1.38.1-r1`.
+- Two-file plan and guarded installer: `build/mod-ui-install/`.
+- Installed with explicit user approval. Both installed hashes and both original
+  backups verified independently; six VR INIs and CET's bindings/config JSON
+  remain byte-for-byte unchanged (eight files).
+- Backup/receipts: `build/mod-ui-install/backup-718d7d890870416d80e5d6e290901601/`.
+- VR DLL SHA256: `C0072B332E02E2ABB22D95A53650A392E81101CBE4E3625F960B96B755E033EF`.
+- CET ASI SHA256: `CB0C16437460688CAA8E796392A85331A9360A33E34096CAA941AB06B3A32952`.
+
+**Next:** start SteamVR/Steam Link and launch Cyberpunk through GOG, then test
+CET/CPM/native mod menus in the headset. Page Down opens CET. Check left-handed
+pointing, scrolling, tabs, Menu, Grip panel movement,
+F10 priority, held-button release, save loading and clean exit. Standard ImGui
+tabs support joystick switching; CET's toolbar uses buttons and needs laser
+clicks. Custom independent windows and decorative HUD widgets need the coverage
+limits in the design doc. The earlier CET watchdog hang remains unproven/fix unconfirmed.
+
+The r2 placement correction fits the complete native SBS canvas into F10's
+physical bounds (default max 1.55 x 1.1625 m), shares Panel size with adapted mod
+windows, and keeps CF native/F10 panels fixed through head rotation/translation,
+tab changes, temporary focus changes and tracking loss. Grip still moves F10/mod
+panels. Other controller profiles retain their native/F10 follow behavior.
+
 ## Installed controls correction (2026-11-15)
 
 **Installed `controls-r5`**, superseding `wrist-r4`. Right Menu tap opens Inventory

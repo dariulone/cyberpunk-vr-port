@@ -166,6 +166,8 @@ tools/quickboot_tests/__pycache__/
 !tools/vrs_tests/live_ab.py
 !tools/face_tests/
 !tools/face_tests/live_probe.py
+!tools/mod_ui_tests/
+!integrations/cet/prepare_adapter.py
 !tools/mono_cascade_tests/
 !tools/hidden_area_tests/
 !tools/optics_tests/
@@ -271,3 +273,6 @@ mods/archive/cyberpunkvrport.archive
 __pycache__/
 *.pyc
 *.pyo
+
+# Local configuration from isolated CET/xmake adapter builds.
+.xmake/

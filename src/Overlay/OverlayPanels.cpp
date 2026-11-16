@@ -22,6 +22,7 @@
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/EyeTracking.hpp"
 #include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
 #include "Fbt/Game/Menu.hpp"
 extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
@@ -1040,7 +1041,17 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
         }
 
         if (section>=0 ? section==2 : UI::BeginTabItem("HUD")) {
+            if(cvr::cyberfinger::Enabled()) {
+                bool hidden=cvr::cyberfinger::HudHidden();
+                if(UI::Checkbox("Hide HUD (CyberFinger)",&hidden))cvr::cyberfinger::SetHudHidden(hidden);
+                if(UI::IsItemHovered())UI::SetTooltip("Same preference as holding both Menu buttons for 0.5 seconds.\nResets when the game restarts. Dialogue, subtitles, interactions and cinematics temporarily reveal the HUD.");
+                if(const auto* reason=cvr::cyberfinger::HudRevealReason())
+                    UI::TextWrapped("HUD temporarily shown: %s. It will hide again when this ends.",reason);
+                else UI::TextDisabled(hidden?"HUD hidden during gameplay":"HUD shown during gameplay");
+                UI::Separator();
+            }
             changed |= CheckboxInt("Enable HUD panel", &state.xrHudPanel);
+            if(UI::IsItemHovered())UI::SetTooltip("Use the VR panel to render the HUD.\nTurning this off restores native HUD rendering; it does not hide the HUD.");
             const char* followModes[] = {"Head / free-look cone", "Body rotation"};
             changed |= widgets::Combo("Follow", &state.xrHudFollowMode, followModes, 2);
             UI::BeginDisabled(state.xrHudFollowMode != 0);
