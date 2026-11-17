@@ -335,7 +335,17 @@ pwsh scripts\deploy_stereo.ps1 -GameRoot "<game root>"
 VR controller input is merged into the native CP2077 gamepad, so the in-game
 "Controller" key bindings apply. The icons show the Meta Quest Touch controllers; other
 controllers use the buttons in the same places. *To the stop* means the stick pushed all
-the way. The default VR mapping:
+the way.
+
+Steam Frame uses the native `XR_VALVE_frame_controller_interaction` profile when
+available. Right A/B/X/Y, left D-pad, left View, right Menu and both bumpers map
+to the matching gamepad controls. Grips retain the port's VR gestures. Touch
+emulation remains the fallback when the runtime does not expose the extension.
+
+Buttons follow each runtime's interaction profile (Touch / Index / Vive / WMR);
+customise the actual actions in the game's *Settings → Key Bindings → Controller*.
+
+The default VR mapping:
 
 ### General
 
@@ -356,14 +366,6 @@ L3 press instead, so nothing is lost by using it.
 In **menus** and in **braindances** the pad is otherwise vanilla. Quest Touch grips
 stand in for LB/RB in menus because the controllers have no physical shoulder buttons;
 gameplay remaps stay off there, and grips are not remapped during braindances.
-
-Steam Frame uses the native `XR_VALVE_frame_controller_interaction` profile when
-available. Right A/B/X/Y, left D-pad, left View, right Menu and both bumpers map
-to the matching gamepad controls. Grips retain the port's VR gestures. Touch
-emulation remains the fallback when the runtime does not expose the extension.
-
-Buttons follow each runtime's interaction profile (Touch / Index / Vive / WMR);
-customise the actual actions in the game's *Settings → Key Bindings → Controller*.
 
 Hotkeys:
 
