@@ -14,12 +14,39 @@ set(cvr_ffx_libs)
 foreach(component backend_dx12 frameinterpolation opticalflow)
     list(APPEND cvr_ffx_libs "${CVR_FIDELITYFX_ROOT}/sdk/bin/ffx_sdk/ffx_${component}_x64.lib")
 endforeach()
+# A Visual Studio generator configures the SDK as it always has: nothing below reaches it.
+set(cvr_ffx_cmake_args)
+set(cvr_ffx_patch_command)
+# Built on Linux (cmake/msvc-wine.cmake): the SDK gets the same toolchain, or it would configure for the host. Only
+# that one: a Windows toolchain file (vcpkg, a preset) is not handed on.
+if(CVR_MSVC_WINE)
+    list(APPEND cvr_ffx_cmake_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+        "-DCVR_MSVC_WINE_ROOT=${CVR_MSVC_WINE_ROOT}")
+endif()
+# Not a Visual Studio generator (Ninja, on Linux or Windows): a single-config generator needs the build type at
+# configure time. The SDK's own toolchain.cmake forces CMAKE_GENERATOR_PLATFORM=x64, which only Visual Studio takes:
+# _TOOLCHAIN_ skips that file, the linker flags are the SDK's other way of naming x64, and ffx-ninja-platform.cmake
+# gives libs/pix the platform once project() is past. The compiler flags are left at CMake's defaults
+# (/DWIN32 /D_WINDOWS /EHsc), which is what a Visual Studio build gets: toolchain.cmake's /W3 /GR- /fp:fast /GS /Gy sit
+# under if(MSVC), and it is included before project(), where MSVC is not yet set. The patch drops a dependency on a
+# file that never exists, which Ninja, unlike MSBuild, stops on (PatchFidelityFXNinja.cmake).
+if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio")
+    list(APPEND cvr_ffx_cmake_args -DCMAKE_BUILD_TYPE=Release -D_TOOLCHAIN_=ON "-DCMAKE_EXE_LINKER_FLAGS=/machine:x64"
+        "-DCMAKE_PROJECT_INCLUDE=${CMAKE_CURRENT_LIST_DIR}/ffx-ninja-platform.cmake")
+    if(CMAKE_HOST_UNIX)
+        find_program(CVR_WINE_EXECUTABLE NAMES wine64 wine REQUIRED)
+        list(APPEND cvr_ffx_cmake_args "-DCVR_FFX_SC_LAUNCHER=${CVR_WINE_EXECUTABLE}")
+    endif()
+    set(cvr_ffx_patch_command PATCH_COMMAND "${CMAKE_COMMAND}" "-DSDK=${CVR_FIDELITYFX_ROOT}/sdk"
+        -P "${CMAKE_CURRENT_LIST_DIR}/PatchFidelityFXNinja.cmake")
+endif()
 ExternalProject_Add(cvr_framegen_sdk
     SOURCE_DIR "${CVR_FIDELITYFX_ROOT}/sdk"
     BINARY_DIR "${CMAKE_BINARY_DIR}/fidelityfx-native-build"
     DOWNLOAD_COMMAND ""
+    ${cvr_ffx_patch_command}
     CMAKE_ARGS -DFFX_ALL=OFF -DFFX_OF=ON -DFFX_FI=ON
-        -DFFX_API_BACKEND=DX12_X64 -DFFX_BUILD_AS_DLL=OFF
+        -DFFX_API_BACKEND=DX12_X64 -DFFX_BUILD_AS_DLL=OFF ${cvr_ffx_cmake_args}
     BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release --parallel 4
     INSTALL_COMMAND ""
     BUILD_BYPRODUCTS ${cvr_ffx_libs})

@@ -3,6 +3,7 @@
 /build-vs-aerv2/
 /build-cuda/
 /build-cuda-vs/
+/build-wine/
 /.vs/
 /.vscode/
 /out/

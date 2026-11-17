@@ -72,12 +72,27 @@ FetchContent_GetProperties(redscript)
 if(NOT redscript_POPULATED)
   FetchContent_Populate(redscript)
 endif()
-find_program(CVR_CARGO cargo HINTS "$ENV{USERPROFILE}/.cargo/bin" REQUIRED)
+find_program(CVR_CARGO cargo HINTS "$ENV{USERPROFILE}/.cargo/bin" "$ENV{HOME}/.cargo/bin" REQUIRED)
+# Built on Linux (cmake/msvc-wine.cmake): cargo builds for the Windows target and links with the toolchain's
+# link.exe (`rustup target add x86_64-pc-windows-msvc` first); any C a crate's build script compiles goes to cl.
+# Natively the host is that target, and cargo's own defaults are kept -- under any other toolchain file too.
+set(cvr_cargo_env)
+set(cvr_cargo_target_args)
+set(cvr_cargo_profile_dir release)
+if(CVR_MSVC_WINE)
+  set(cvr_cargo_env ${CMAKE_COMMAND} -E env
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=${CMAKE_LINKER}
+      CC_x86_64_pc_windows_msvc=${CMAKE_C_COMPILER}
+      CXX_x86_64_pc_windows_msvc=${CMAKE_CXX_COMPILER}
+      AR_x86_64_pc_windows_msvc=${CMAKE_AR})
+  set(cvr_cargo_target_args --target x86_64-pc-windows-msvc)
+  set(cvr_cargo_profile_dir x86_64-pc-windows-msvc/release)
+endif()
 # One target directory per tag: a changed tag builds its own library instead of finding the old one up to date.
-set(CVR_SCC_LIB "${CMAKE_BINARY_DIR}/redscript/${CVR_REDSCRIPT_TAG}/release/scc_lib.dll")
+set(CVR_SCC_LIB "${CMAKE_BINARY_DIR}/redscript/${CVR_REDSCRIPT_TAG}/${cvr_cargo_profile_dir}/scc_lib.dll")
 add_custom_command(
   OUTPUT ${CVR_SCC_LIB}
-  COMMAND ${CVR_CARGO} build --release --locked -p scc-lib
+  COMMAND ${cvr_cargo_env} ${CVR_CARGO} build --release --locked -p scc-lib ${cvr_cargo_target_args}
           --manifest-path "${redscript_SOURCE_DIR}/Cargo.toml"
           --target-dir "${CMAKE_BINARY_DIR}/redscript/${CVR_REDSCRIPT_TAG}"
   WORKING_DIRECTORY ${redscript_SOURCE_DIR}
@@ -296,4 +311,7 @@ add_custom_command(TARGET cyberpunkvrport_stereo POST_BUILD
 #     cmake --build build --config Release --target xr_probe_layer
 add_subdirectory(tools/xr_probe)
 # rtti_dump_plugin -- patch-day RED4ext plugin: the running game's RTTI layouts as JSON (tools/rtti_dump).
-add_subdirectory(tools/rtti_dump)
+# Not in the repository: a checkout without it configures without the tool.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/rtti_dump/CMakeLists.txt")
+    add_subdirectory(tools/rtti_dump)
+endif()

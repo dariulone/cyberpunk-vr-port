@@ -3,7 +3,14 @@ file(MAKE_DIRECTORY "${directory}")
 set(header "#pragma once\nnamespace cvr::markers::bytecode {\n")
 foreach(variant Sprite Procedural SpriteStereo TextStereo SpriteStereoZ SpriteStereoOne)
     set(binary "${directory}/${variant}.dxil")
-    execute_process(COMMAND "${DXC}" -T vs_6_0 -E "${variant}Main" -O3 -Fo "${binary}" "${SOURCE}"
+    # Under Wine (DXC_LAUNCHER) the Linux paths go through Wine's Z: drive.
+    set(fo "${binary}")
+    set(src "${SOURCE}")
+    if(DXC_LAUNCHER)
+        string(REPLACE "/" "\\" fo "Z:${binary}")
+        string(REPLACE "/" "\\" src "Z:${SOURCE}")
+    endif()
+    execute_process(COMMAND ${DXC_LAUNCHER} "${DXC}" -T vs_6_0 -E "${variant}Main" -O3 -Fo "${fo}" "${src}"
         RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors)
     if(NOT result EQUAL 0)
         message(FATAL_ERROR "World marker ${variant} shader failed: ${output}${errors}")
