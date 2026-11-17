@@ -23,6 +23,7 @@
 #include "Overlay/OverlayInternal.hpp"
 #include "Overlay/UiRec.hpp"
 #include "Lua/Host.hpp"
+#include "Render/DesktopWindow.hpp"
 
 extern volatile int g_verboseLog; // per-frame log spam toggle (default off)
 
@@ -484,6 +485,8 @@ bool IsBlockedInputMessage(UINT msg) {
 }
 
 LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // The free desktop window (xr_desktop_window=1): its setup, Alt+Enter and remembering where it is.
+    if (LRESULT handled = 0; cvr::desktop_window::OnMessage(hwnd, msg, wParam, lParam, &handled)) return handled;
     const float clientMouseX=float((short)LOWORD(lParam)),clientMouseY=float((short)HIWORD(lParam));
     static int totalMsgCount = 0;
     if (g_verboseLog && totalMsgCount++ % 5000 == 0) {

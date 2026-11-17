@@ -38,6 +38,7 @@
 #include "Core/GameSettings.hpp"
 #include "Camera/CameraLink.hpp"
 #include "Hooks/Hook.hpp"
+#include "Render/DesktopWindow.hpp"
 
 // Rewrite the one key in place. PersistLiveControlsUiState rewrites the whole file, but that only
 // runs when the overlay saves; this has to survive a launch where the player never opens it, and
@@ -116,9 +117,13 @@ extern "C" void ApplyLaunchWindowMode() {
     if (!localLength || localLength>=MAX_PATH) return;
     const auto player=std::filesystem::path(local)/L"CD Projekt Red"/L"Cyberpunk 2077"/L"UserSettings.json";
     if (GetFileAttributesW(player.c_str()) == INVALID_FILE_ATTRIBUTES) return;   // the game writes it first
-    const auto set=cvr::settings::SetGameSetting(player,"/video/display","WindowMode","BorderlessWindowed",1);
+    // The free desktop window (xr_desktop_window=1, Render/DesktopWindow.hpp) starts in the game's Windowed mode
+    // instead: a framed window the player sizes, which the port then leaves alone.
+    const bool free=cvr::desktop_window::Free();
+    const char* mode=free?"Windowed":"BorderlessWindowed";
+    const auto set=cvr::settings::SetGameSetting(player,"/video/display","WindowMode",mode,free?0:1);
     if(!set.ok) Log("WindowMode: %s -- left as it is\n",set.error.c_str());
-    else if(set.changed) Log("WindowMode: %s -> BorderlessWindowed for this launch\n",set.previous.c_str());
+    else if(set.changed) Log("WindowMode: %s -> %s for this launch\n",set.previous.c_str(),mode);
 }
 
 extern "C" void ApplyFirstLaunchGameSettings() {

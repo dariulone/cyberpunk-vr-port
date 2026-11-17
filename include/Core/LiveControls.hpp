@@ -138,6 +138,14 @@ struct LiveControls {
     // Master switches preserve individual gesture, collision and grab preferences.
     volatile int xrVrInterface = 1;
     volatile int xrHandPhysics = 1;
+    // The game's window on the desktop (Render/DesktopWindow.hpp). 0 (default) = fitted to its monitor by the port;
+    // 1 = an ordinary window the player moves and resizes, with Alt+Enter for borderless fullscreen.
+    volatile int xrDesktopWindow = 0;
+    // The free window's last state: borderless fullscreen or not, its restored (not maximised) rectangle in
+    // workspace coordinates -- all zero until it is first placed -- and whether it was maximised.
+    volatile int xrDesktopFullscreen = 0;
+    volatile int xrDesktopRect[4] = {0, 0, 0, 0};
+    volatile int xrDesktopMaximized = 0;
     // 1 (default) = holding Y opens the port's weapon wheel in front of the body and the game keeps running; a
     // tap is still the game's next weapon. 0 = the game's own wheel (it slows time). Hooks/WeaponWheelHold.hpp.
     volatile int xrVrWeaponWheel = 1;

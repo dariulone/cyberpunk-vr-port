@@ -163,6 +163,11 @@ struct LiveControlsUiState {
     int xrMenuGesture = 1;
     int xrVrInterface = 1;
     int xrHandPhysics = 1;
+    // The desktop window: free (1) or fitted by the port (0), and the free window's remembered state.
+    int xrDesktopWindow = 0;
+    int xrDesktopFullscreen = 0;
+    int xrDesktopRect[4] = {0, 0, 0, 0};
+    int xrDesktopMaximized = 0;
     // The port's weapon wheel on a held Y (1 = on); off, the game's own.
     int xrVrWeaponWheel = 1;
     // Hands and arms stop at the body, each other and the world (1 = on); and in a vehicle.

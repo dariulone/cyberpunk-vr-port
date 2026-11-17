@@ -47,6 +47,8 @@ extern "C" int GetLauncherInterface();
 extern "C" void SetLauncherInterfaceAndPersist(int on);
 extern "C" int GetLauncherHandPhysics();
 extern "C" void SetLauncherHandPhysicsAndPersist(int on);
+extern "C" int GetLauncherDesktopWindow();
+extern "C" void SetLauncherDesktopWindowAndPersist(int on);
 
 #define ID_COMBO_RES     101
 #define ID_BUTTON_START  102
@@ -62,6 +64,7 @@ extern "C" void SetLauncherHandPhysicsAndPersist(int on);
 #define ID_CHECK_LOBBY     112
 #define ID_CHECK_INTERFACE 113
 #define ID_CHECK_PHYSICS   114
+#define ID_CHECK_DESKTOP   115
 
 struct ResolutionPreset {
     int width;
@@ -589,8 +592,8 @@ static RECT g_rcTitle, g_rcSub, g_rcRule, g_rcLabelHmd, g_rcLabelRuntime, g_rcLa
 // the ladder's sizes, so every control lands on the ladder entry nearest in cost.
 static HWND g_hResDown = nullptr, g_hResUp = nullptr, g_hSlider = nullptr;
 static HWND g_hEditW = nullptr, g_hEditH = nullptr, g_hEditAspect = nullptr;
-static HWND g_hLobby = nullptr, g_hInterface = nullptr, g_hPhysics = nullptr;
-static bool g_lobbyOn = true, g_interfaceOn = true, g_physicsOn = true;
+static HWND g_hLobby = nullptr, g_hInterface = nullptr, g_hPhysics = nullptr, g_hDesktop = nullptr;
+static bool g_lobbyOn = true, g_interfaceOn = true, g_physicsOn = true, g_desktopOn = false;
 static RECT g_rcFeatures;
 static int g_resW = 0, g_resH = 0;         // the pick the controls show
 static int g_refW = 0, g_refH = 0;         // the size asked for: the saved one, or the last one the player set
@@ -793,11 +796,12 @@ static LRESULT CALLBACK ButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         if (hwnd == g_hLobby) return g_lobbyOn ? BST_CHECKED : BST_UNCHECKED;
         if (hwnd == g_hInterface) return g_interfaceOn ? BST_CHECKED : BST_UNCHECKED;
         if (hwnd == g_hPhysics) return g_physicsOn ? BST_CHECKED : BST_UNCHECKED;
+        if (hwnd == g_hDesktop) return g_desktopOn ? BST_CHECKED : BST_UNCHECKED;
         break;
     case BM_SETCHECK:
-        if (hwnd == g_hDebug || hwnd == g_hLobby || hwnd == g_hInterface || hwnd == g_hPhysics) {
+        if (hwnd == g_hDebug || hwnd == g_hLobby || hwnd == g_hInterface || hwnd == g_hPhysics || hwnd == g_hDesktop) {
             bool& checked = hwnd == g_hDebug ? g_debugOn : hwnd == g_hLobby ? g_lobbyOn :
-                            hwnd == g_hInterface ? g_interfaceOn : g_physicsOn;
+                            hwnd == g_hInterface ? g_interfaceOn : hwnd == g_hPhysics ? g_physicsOn : g_desktopOn;
             checked = wParam == BST_CHECKED;
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
@@ -1420,6 +1424,7 @@ static void StartGame(HWND hwnd) {
     SetLauncherLobbyAndPersist(SendMessageW(g_hLobby, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     SetLauncherInterfaceAndPersist(SendMessageW(g_hInterface, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     SetLauncherHandPhysicsAndPersist(SendMessageW(g_hPhysics, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    SetLauncherDesktopWindowAndPersist(SendMessageW(g_hDesktop, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     if (const HmdPreset* hmd = SelectedHmd()) SetHmdTypeAndPersist(hmd->mhdType);
     const int rIdx = int(SendMessageW(g_hRuntime, CB_GETCURSEL, 0, 0));
     if (rIdx >= 0 && rIdx < static_cast<int>(std::size(kRuntimeOptions))) SetRuntimeModeAndPersist(kRuntimeOptions[rIdx].mode);
@@ -1536,6 +1541,9 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         g_hInterface = MakeButton(hwnd, ID_CHECK_INTERFACE, L"VR Interface", {featureLeft, fy, featureRight, fy + Px(48)});
         fy += Px(78);
         g_hPhysics = MakeButton(hwnd, ID_CHECK_PHYSICS, L"Hand physics", {featureLeft, fy, featureRight, fy + Px(48)});
+        fy += Px(78);
+        g_desktopOn = GetLauncherDesktopWindow() != 0;
+        g_hDesktop = MakeButton(hwnd, ID_CHECK_DESKTOP, L"Start Windowed Mode", {featureLeft, fy, featureRight, fy + Px(48)});
 
         // Master switch for every probe, census and dump in the mod (see debug_gate.cpp). Off is the normal way
         // to play: on, the log grows by tens of MB and the frame time with it, because probes like
@@ -1570,6 +1578,8 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             DrawSwitch(d, g_interfaceOn, L"VR Interface", L"SAO menu, shops and storage in VR.");
         else if (d.CtlID == ID_CHECK_PHYSICS)
             DrawSwitch(d, g_physicsOn, L"Hand physics", L"Collisions, object/NPC grabs and climbing.");
+        else if (d.CtlID == ID_CHECK_DESKTOP)
+            DrawSwitch(d, g_desktopOn, L"Start Windowed Mode", L"Resizable; Alt+Enter toggles; Off=Fullscreen");
         else if (d.CtlID == ID_BUTTON_RES_DOWN || d.CtlID == ID_BUTTON_RES_UP)
             DrawStep(d, d.CtlID == ID_BUTTON_RES_UP);
         return TRUE;
@@ -1630,6 +1640,9 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         } else if (id == ID_CHECK_PHYSICS && notif == BN_CLICKED) {
             g_physicsOn = !g_physicsOn;
             InvalidateRect(g_hPhysics, nullptr, FALSE);
+        } else if (id == ID_CHECK_DESKTOP && notif == BN_CLICKED) {
+            g_desktopOn = !g_desktopOn;
+            InvalidateRect(g_hDesktop, nullptr, FALSE);
         } else if (id == ID_CHECK_DEBUG && notif == BN_CLICKED) {
             g_debugOn = !g_debugOn;
             InvalidateRect(g_hDebug, nullptr, FALSE);
@@ -1650,7 +1663,7 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             if (*font) { DeleteObject(*font); *font = nullptr; }
         if (g_brushSurface) { DeleteObject(g_brushSurface); g_brushSurface = nullptr; }
         g_hHmd = g_hRuntime = g_hRes = g_hDebug = g_hStart = g_hot = nullptr;
-        g_hResDown = g_hResUp = g_hSlider = g_hEditW = g_hEditH = g_hEditAspect = g_hLobby = g_hInterface = g_hPhysics = nullptr;
+        g_hResDown = g_hResUp = g_hSlider = g_hEditW = g_hEditH = g_hEditAspect = g_hLobby = g_hInterface = g_hPhysics = g_hDesktop = nullptr;
         g_sliderDrag = false;
         break;
     default:

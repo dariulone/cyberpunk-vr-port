@@ -32,6 +32,7 @@
 #include <mutex>
 #include <atomic>
 #include <wrl.h>
+#include "Render/DesktopWindow.hpp"
 
 extern void Log(const char* fmt, ...);
 extern volatile int g_verboseLog; // gate per-frame spam (ClipCursor / depth-diag)
@@ -291,7 +292,9 @@ static BOOL WINAPI HookedGetCursorInfo(PCURSORINFO pci) {
 }
 
 static BOOL WINAPI HookedClipCursor(const RECT* lpRect) {
-    if(IsLauncherOpen())return g_origClipCursor ? g_origClipCursor(nullptr) : ClipCursor(nullptr);
+    // The launcher's dialog, and the free desktop window (Render/DesktopWindow.hpp): never confined.
+    if(IsLauncherOpen() || cvr::desktop_window::ReleasesCursor())
+        return g_origClipCursor ? g_origClipCursor(nullptr) : ClipCursor(nullptr);
     RECT scaledRect{};
     const RECT* rectToUse = lpRect;
     
@@ -371,13 +374,17 @@ static BOOL WINAPI HookedGetWindowRect(HWND hWnd, LPRECT lpRect) {
 // the desktop mirror wants it: on the monitor it is on, at the render size or less. Any other size is
 // fitted inside the monitor at its own aspect, centred.
 static bool IsAutomaticGameWindow(HWND hWnd) {
+    if (cvr::desktop_window::Free()) return false;
     const UINT forcedWindowWidth = GetForcedWindowWidth();
     return hWnd && hWnd == g_gameHwnd &&
         (forcedWindowWidth == 0 || forcedWindowWidth == GetForcedDisplayModeWidth());
 }
 
 static BOOL WINAPI HookedSetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags) {
-    if (!(uFlags & SWP_NOSIZE)) {
+    // The free desktop window is the player's: the game's own moves and resizes of it are dropped, the rest kept.
+    if (cvr::desktop_window::Free() && hWnd && hWnd == g_gameHwnd) {
+        uFlags |= SWP_NOMOVE | SWP_NOSIZE;
+    } else if (!(uFlags & SWP_NOSIZE)) {
         HMONITOR monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi = { sizeof(MONITORINFO) };
         if (cx > 0 && cy > 0 && GetMonitorInfoA(monitor, &mi)) {
@@ -408,6 +415,7 @@ static BOOL WINAPI HookedSetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, in
 }
 
 static BOOL WINAPI HookedMoveWindow(HWND hWnd, int X, int Y, int nWidth, int nHeight, BOOL bRepaint) {
+    if (cvr::desktop_window::Free() && hWnd && hWnd == g_gameHwnd) return TRUE;   // the player's, as above
     HMONITOR monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = { sizeof(MONITORINFO) };
     if (nWidth > 0 && nHeight > 0 && GetMonitorInfoA(monitor, &mi)) {
@@ -571,7 +579,7 @@ static bool GetClampedClientRect(HWND hwnd, RECT* outRect) {
 }
 
 void UpdateCursorCapture(HWND hwnd) {
-    if (IsLauncherOpen() || OverlayIsVisible()) {
+    if (IsLauncherOpen() || OverlayIsVisible() || cvr::desktop_window::ReleasesCursor()) {
         if (g_cursorClipped) {
             SetPhysicalCursorClip(nullptr);
             g_cursorClipped = false;
