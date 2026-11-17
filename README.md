@@ -335,16 +335,54 @@ pwsh scripts\deploy_stereo.ps1 -GameRoot "<game root>"
 VR controller input is merged into the native CP2077 gamepad, so the in-game
 "Controller" key bindings apply. The icons show the Meta Quest Touch controllers; other
 controllers use the buttons in the same places. *To the stop* means the stick pushed all
-the way. Default VR mapping, **on foot**:
+the way. The default VR mapping:
+
+### General
 
 | Input | Action |
 |---|---|
 | <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Open / close the VR menu |
-| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3), held" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> + <img src="docs/controls/icons/rs_vertical.svg" alt="Right stick up / down" height="40"> to&nbsp;the&nbsp;stop | **Dialogue choices** — hold the left stick clicked in and push the right stick up or down to move between the lines (the D-pad chord below), then **X** to pick one (**A** in a vehicle) |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3), held" height="40"> + <img src="docs/controls/icons/rs_vertical.svg" alt="Right stick up / down" height="40"> to&nbsp;the&nbsp;stop | **Dialogue choices** — hold the left stick clicked in and push the right stick up or down to move between the lines (the D-pad chord below), then **X** to pick one (**A** in a vehicle) |
+| <img src="docs/controls/icons/menu.svg" alt="Menu button" height="40"> (left on Touch; right on Steam Frame) | Pause menu |
+
+**D-pad chord.** <img src="docs/controls/icons/ls_press.svg" alt="Left stick click, held" height="26"> + <img src="docs/controls/icons/rs_up.svg" alt="Right stick up" height="26"> <img src="docs/controls/icons/rs_down.svg" alt="Right stick down" height="26"> <img src="docs/controls/icons/rs_left.svg" alt="Right stick left" height="26"> <img src="docs/controls/icons/rs_right.svg" alt="Right stick right" height="26"> Hold the **left stick clicked in**, then pick the direction with
+the **right stick** — up / down / left / right, **to the stop**, the same full push
+every other gesture here asks for so that a resting thumb cannot step a list. While
+the chord is held the right stick is taken out of the camera, so selecting a
+direction cannot snap-turn you.
+Release the left stick *without* having chosen a direction and it emits the normal
+L3 press instead, so nothing is lost by using it.
+
+In **menus** and in **braindances** the pad is otherwise vanilla. Quest Touch grips
+stand in for LB/RB in menus because the controllers have no physical shoulder buttons;
+gameplay remaps stay off there, and grips are not remapped during braindances.
+
+Steam Frame uses the native `XR_VALVE_frame_controller_interaction` profile when
+available. Right A/B/X/Y, left D-pad, left View, right Menu and both bumpers map
+to the matching gamepad controls. Grips retain the port's VR gestures. Touch
+emulation remains the fallback when the runtime does not expose the extension.
+
+Buttons follow each runtime's interaction profile (Touch / Index / Vive / WMR);
+customise the actual actions in the game's *Settings → Key Bindings → Controller*.
+
+Hotkeys:
+
+| Input | Action |
+|---|---|
+| <img src="docs/controls/icons/key_f7.svg" alt="F7" height="40"> | Recenter HMD |
+| <img src="docs/controls/icons/key_f8.svg" alt="F8" height="40"> | Toggle the game menus' rectangle between full-HMD and a small panel |
+| <img src="docs/controls/icons/key_f10.svg" alt="F10" height="40"> / <img src="docs/controls/icons/key_insert.svg" alt="Insert" height="40"> | Toggle the in-headset settings overlay from the keyboard |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Open / close the VR menu; its Settings section has the same pages |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Activate iconic cyberware in gameplay |
+
+### On Foot
+
+| Input | Action |
+|---|---|
 | <img src="docs/controls/icons/ls.svg" alt="Left stick" height="40"> | Move — **one speed whatever the deflection**, direction from the stick |
 | <img src="docs/controls/icons/ls_up.svg" alt="Left stick fully forward" height="40"> to&nbsp;the&nbsp;stop, **held 0.2&nbsp;s** | **Sprint** — held, and it survives a dash |
-| <img src="docs/controls/icons/rs_horizontal.svg" alt="Right stick left / right" height="40"> | Turn camera (snap or smooth; a snap needs a FULL push) |
 | <img src="docs/controls/icons/rs_up.svg" alt="Right stick fully up" height="40"> to&nbsp;the&nbsp;stop | **Dash** (dodge, direction from the left stick) — once per push |
+| <img src="docs/controls/icons/rs_horizontal.svg" alt="Right stick left / right" height="40"> | Turn camera (snap or smooth; a snap needs a FULL push) |
 | <img src="docs/controls/icons/rs_down.svg" alt="Right stick fully down" height="40"> to&nbsp;the&nbsp;stop | **Crouch** (R3) |
 | <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> | **Slide release** — racks the weapon (physical reload) |
 | <img src="docs/controls/icons/ear_left.svg" alt="Left hand to your left ear" height="40"> + <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> | **Scanner**, *toggled* — bring the left controller to your **left ear** and click the left stick to open, click again to close (always the physical left hand, also left-handed) |
@@ -360,7 +398,6 @@ the way. Default VR mapping, **on foot**:
 | <img src="docs/controls/icons/x.svg" alt="X" height="40"> | Reload · interact |
 | <img src="docs/controls/icons/y.svg" alt="Y" height="40"> **tap** | Next weapon (the game's own switch) |
 | <img src="docs/controls/icons/y.svg" alt="Y" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> | **VR weapon wheel** in front of the body — point at a weapon, the arm cyberware, fists, holster, a grenade or a consumable and let go of Y; the game keeps running (*Controls → VR weapon wheel on a held Y*; off = the game's own wheel) |
-| <img src="docs/controls/icons/menu.svg" alt="Menu button" height="40"> (left on Touch; right on Steam Frame) | Pause menu |
 | <img src="docs/controls/icons/swing.svg" alt="Swing" height="40"> | Swing a melee weapon: VR motion melee (native attack along the blade) |
 | <img src="docs/controls/icons/lt.svg" alt="Left trigger" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> + <img src="docs/controls/icons/rg.svg" alt="Right grip" height="40">, <img src="docs/controls/icons/throw.svg" alt="Throw and open the grip" height="40"> | **Physical throw** of a throwable melee weapon: hold the left trigger, take it in the right grip, throw and open the grip |
 | <img src="docs/controls/icons/squat.svg" alt="Squat" height="40"> | Squat in the room: crouch (physical crouch; the right stick still works) |
@@ -376,11 +413,6 @@ A hand that holds a cigarette or the wheel is left alone, and seated only the bo
 the other hand stop it (*Hand collision in vehicles*).
 
 **Touching things** (*Avatar*): a hand gives a loose object its own speed while it presses on it. *Pick up small objects* takes anything loose up to 30 kg with the grip, and the weight tells: one hand lifts about 6 kg, two hands about 30, a heavy thing lags behind the hand, and a second hand on it is drawn on it. What a hand woke goes back to rest after lying still for 3 seconds. The other hand can take hold as well, and letting go of the first then hands it over. Letting go throws it with the swing and the wrist's turn. A thing held by its own body is seated in the hand for the grasp its shape and the hand's approach make, and the fingers close on it; fingers do not otherwise stop at surfaces. *Carried objects stick to the hand* draws a carried thing on the hand in the same frame while its body follows in the physics, and back on the body against a wall. *Carried objects lead the hand* sets how far ahead its body is put. *Distance kept from surfaces* keeps hands off meshes larger than their collision. A gun in the hand goes where the controller puts it: a wall does not stop it. Loot, food and drink lying about, pointed at up to 6 m, are ringed and outlined; a grip closed on one marks it, and a flick back brings it to the hand. Loose objects do not come this way. Food and drink come first: gripped they stay in the hand, go into the inventory at the hip, are eaten or drunk at the mouth, and go back where they lay if let go elsewhere. A hand opens at what it could take, and a heavy thing slows the player. *Show collision shapes and rays* draws, for finding faults, the hands' and people's capsules, every ray, and the real collision shapes PhysX has within 2 m of the hands. A hand can take a living person by an arm, a leg, the head or the chest, and what it holds follows within what that part can do. A hand on a car's wheel (*Hold a car's wheel anywhere on the rim*) stays where it took hold and turns with the drawn wheel. No grenade comes off the belt while seated.
-
-Steam Frame uses the native `XR_VALVE_frame_controller_interaction` profile when
-available. Right A/B/X/Y, left D-pad, left View, right Menu and both bumpers map
-to the matching gamepad controls. Grips retain the port's VR gestures. Touch
-emulation remains the fallback when the runtime does not expose the extension.
 
 While the scanner is open the same hand works it: the **left stick to the stop** <img src="docs/controls/icons/ls_vertical.svg" alt="Left stick up / down" height="26">
 pages the quickhack list (below the stop it still walks, so you can read and move),
@@ -398,9 +430,7 @@ overlays rather than menus, which is why they used to be impossible to close wit
 gun out. Spamming that button is safe — the magazine drop stays blocked for a second
 after the popup closes.
 
-In **menus** and in **braindances** the pad is otherwise vanilla. Quest Touch grips
-stand in for LB/RB in menus because the controllers have no physical shoulder buttons;
-gameplay remaps stay off there, and grips are not remapped during braindances.
+### Driving
 
 While **driving**, the same controllers do something else:
 
@@ -427,27 +457,6 @@ game's own driving animation — bikes included.
 The exit is a HOLD rather than a tap on purpose. The game's `ExitVehicle_Button`
 carries no hold of its own, so the vehicle acts on the first frame it sees the
 action — and at speed acting on it means throwing you out of the car.
-
-**D-pad chord.** <img src="docs/controls/icons/ls_press.svg" alt="Left stick click, held" height="26"> + <img src="docs/controls/icons/rs_up.svg" alt="Right stick up" height="26"> <img src="docs/controls/icons/rs_down.svg" alt="Right stick down" height="26"> <img src="docs/controls/icons/rs_left.svg" alt="Right stick left" height="26"> <img src="docs/controls/icons/rs_right.svg" alt="Right stick right" height="26"> Hold the **left stick clicked in**, then pick the direction with
-the **right stick** — up / down / left / right, **to the stop**, the same full push
-every other gesture here asks for so that a resting thumb cannot step a list. While
-the chord is held the right stick is taken out of the camera, so selecting a
-direction cannot snap-turn you.
-Release the left stick *without* having chosen a direction and it emits the normal
-L3 press instead, so nothing is lost by using it.
-
-Buttons follow each runtime's interaction profile (Touch / Index / Vive / WMR);
-customise the actual actions in the game's *Settings → Key Bindings → Controller*.
-
-Hotkeys:
-
-| Input | Action |
-|---|---|
-| <img src="docs/controls/icons/key_f7.svg" alt="F7" height="40"> | Recenter HMD |
-| <img src="docs/controls/icons/key_f8.svg" alt="F8" height="40"> | Toggle the game menus' rectangle between full-HMD and a small panel |
-| <img src="docs/controls/icons/key_f10.svg" alt="F10" height="40"> / <img src="docs/controls/icons/key_insert.svg" alt="Insert" height="40"> | Toggle the in-headset settings overlay from the keyboard |
-| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Open / close the VR menu; its Settings section has the same pages |
-| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Activate iconic cyberware in gameplay |
 
 ## In-headset overlay (F10)
 
