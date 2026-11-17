@@ -1,0 +1,954 @@
+{
+ "Header": {
+  "WolvenKitVersion": "9.1.1",
+  "WKitJsonVersion": "0.0.9",
+  "GameVersion": 2310,
+  "ExportedDateTime": "2026-11-17T23:49:59.5431626Z",
+  "DataType": "CR2W",
+  "ArchiveFileName": "/tmp/tmp6xvl3dw6/template/base/gameplay/gui/fullscreen/main_menu/menu_background.inkatlas"
+ },
+ "Data": {
+  "Version": 195,
+  "BuildVersion": 0,
+  "RootChunk": {
+   "$type": "inkTextureAtlas",
+   "activeTexture": "StaticTexture",
+   "cookingPlatform": "PLATFORM_PC",
+   "dynamicTexture": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "dynamicTextureSlot": {
+    "$type": "inkDynamicTextureSlot",
+    "parts": [],
+    "texture": {
+     "DepotPath": {
+      "$type": "ResourcePath",
+      "$storage": "uint64",
+      "$value": "0"
+     },
+     "Flags": "Soft"
+    }
+   },
+   "isSingleTextureMode": 1,
+   "parts": [],
+   "slices": [],
+   "slots": {
+    "Elements": [
+     {
+      "$type": "inkTextureSlot",
+      "parts": [
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.0,
+         "Right": 0.125,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "a"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.125,
+         "Right": 0.25,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "b"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.25,
+         "Right": 0.375,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "x"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.375,
+         "Right": 0.5,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "y"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.5,
+         "Right": 0.625,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "menu"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.625,
+         "Right": 0.75,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lt"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.75,
+         "Right": 0.875,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rt"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.2,
+         "Left": 0.875,
+         "Right": 1.0,
+         "Top": 0.0
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "lg"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.0,
+         "Right": 0.125,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rg"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.125,
+         "Right": 0.25,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "ls"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.25,
+         "Right": 0.375,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "ls_up"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.375,
+         "Right": 0.5,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "ls_down"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.5,
+         "Right": 0.625,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "ls_vertical"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.625,
+         "Right": 0.75,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "ls_press"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.75,
+         "Right": 0.875,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.4,
+         "Left": 0.875,
+         "Right": 1.0,
+         "Top": 0.2
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs_up"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.0,
+         "Right": 0.125,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs_down"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.125,
+         "Right": 0.25,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs_left"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.25,
+         "Right": 0.375,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs_right"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.375,
+         "Right": 0.5,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs_horizontal"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.5,
+         "Right": 0.625,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs_vertical"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.625,
+         "Right": 0.75,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "rs_press"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.75,
+         "Right": 0.875,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_f7"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.6,
+         "Left": 0.875,
+         "Right": 1.0,
+         "Top": 0.4
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_f8"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.0,
+         "Right": 0.125,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_f10"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.125,
+         "Right": 0.25,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_insert"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.25,
+         "Right": 0.375,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_escape"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.375,
+         "Right": 0.5,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_alt"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.5,
+         "Right": 0.625,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_enter"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.625,
+         "Right": 0.75,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "key_shift"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.75,
+         "Right": 0.875,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "ear_left"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 0.8,
+         "Left": 0.875,
+         "Right": 1.0,
+         "Top": 0.6
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "hold"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.0,
+         "Right": 0.125,
+         "Top": 0.8
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "squat"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.125,
+         "Right": 0.25,
+         "Top": 0.8
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "swing"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.25,
+         "Right": 0.375,
+         "Top": 0.8
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "holster"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.375,
+         "Right": 0.5,
+         "Top": 0.8
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "throw"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.5,
+         "Right": 0.625,
+         "Top": 0.8
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "wheel_grab"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.625,
+         "Right": 0.75,
+         "Top": 0.8
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "steer"
+        }
+       },
+       {
+        "$type": "inkTextureAtlasMapper",
+        "clippingRectInPixels": {
+         "$type": "Rect",
+         "bottom": 0,
+         "left": 0,
+         "right": 0,
+         "top": 0
+        },
+        "clippingRectInUVCoords": {
+         "$type": "RectF",
+         "Bottom": 1.0,
+         "Left": 0.75,
+         "Right": 0.875,
+         "Top": 0.8
+        },
+        "partName": {
+         "$type": "CName",
+         "$storage": "string",
+         "$value": "horn"
+        }
+       }
+      ],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "string",
+        "$value": "vrport\\ui\\vr_controls_icons.xbm"
+       },
+       "Flags": "Soft"
+      }
+     },
+     {
+      "$type": "inkTextureSlot",
+      "parts": [],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "Flags": "Soft"
+      }
+     },
+     {
+      "$type": "inkTextureSlot",
+      "parts": [],
+      "slices": [],
+      "texture": {
+       "DepotPath": {
+        "$type": "ResourcePath",
+        "$storage": "uint64",
+        "$value": "0"
+       },
+       "Flags": "Soft"
+      }
+     }
+    ]
+   },
+   "texture": {
+    "DepotPath": {
+     "$type": "ResourcePath",
+     "$storage": "uint64",
+     "$value": "0"
+    },
+    "Flags": "Soft"
+   },
+   "textureResolution": "UltraHD_3840_2160"
+  },
+  "EmbeddedFiles": []
+ }
+}

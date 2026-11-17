@@ -2,180 +2,27 @@
 -- what they do -- a Controls page in the lobby's menu with all of it, and a board standing in the hall with the major
 -- ones, in view while the player walks about and tries them.
 --
--- THE GLYPHS ARE DRAWN, not pictures: rings, bars and arcs of ink (modules/ink.lua), in the panels' own light, the way
--- the lobby's footer draws its loudspeaker. They follow the README's icons (docs/controls/icons, Kenney's Meta Quest
--- glyphs and the VR gestures drawn to match): a face button is a ring and its letter, a trigger or a grip a pill and
--- its two letters, a stick a ring with its L or R and the way it is pushed, a click a chevron over it. Every glyph is
--- drawn in a box `size` px square on a grid of 100.
+-- THE GLYPHS ARE THE README'S ICONS (docs/controls/icons: Kenney's Meta Quest glyphs and the VR gestures drawn to
+-- match), without their tiles, white on clear in one atlas -- vrport\ui\vr_controls_icons.inkatlas, a part per icon
+-- named as the icon (tools/controls_icons/make_ink_icons.py) -- drawn tinted in the panels' own light.
 --
--- A binding is a list of tokens: a glyph's name, or "+" / "/" between two (drawn as text).
+-- A binding is a list of tokens: an icon's name, or "+" / "/" between two (drawn as text).
 local M = {}
 local Ink = require("modules/ink")
 
 ---------------------------------------------------------------- the glyphs
 
-local function bar(out, p, x, y, s, x1, y1, x2, y2, col, op, w)
-  out[#out + 1] = Ink.line(p, x + x1 * s, y + y1 * s, x + x2 * s, y + y2 * s, col, op, (w or 6) * s)
+local ATLAS = "vrport\\ui\\vr_controls_icons.inkatlas"
+local ICONS = {}
+for name in ("a b x y menu lt rt lg rg ls ls_up ls_down ls_vertical ls_press rs rs_up rs_down rs_left rs_right " ..
+             "rs_horizontal rs_vertical rs_press ear_left hold squat swing holster throw wheel_grab steer horn"):gmatch("%S+") do
+  ICONS[name] = true
 end
 
-local function ring(out, p, x, y, s, cx, cy, r, col, op, w)
-  for _, b in ipairs(Ink.ring(p, x + cx * s, y + cy * s, r * s, (w or 6) * s, col, op, 28)) do out[#out + 1] = b end
-end
-
-local function arc(out, p, x, y, s, cx, cy, r, a, b, col, op, w)
-  for _, l in ipairs(Ink.arc(p, x + cx * s, y + cy * s, r * s, a, b, (w or 6) * s, col, op, 10)) do out[#out + 1] = l end
-end
-
-local function label(out, p, x, y, s, cx, cy, str, size, col)
-  out[#out + 1] = Ink.text(p, x + (cx - 40) * s, y + (cy - 30) * s, 80 * s, 60 * s, str, math.floor(size * s + 0.5), col,
-                           "centre", true)
-end
-
--- A chevron: its point at (px, py), its arms back along (dx, dy) and spread `spread` either side of it.
-local function chevron(out, p, x, y, s, px, py, dx, dy, col, op)
-  local n = math.sqrt(dx * dx + dy * dy)
-  local ux, uy = dx / n, dy / n
-  local bx, by = px - ux * 9, py - uy * 9
-  bar(out, p, x, y, s, bx - uy * 8, by + ux * 8, px, py, col, op, 5)
-  bar(out, p, x, y, s, bx + uy * 8, by - ux * 8, px, py, col, op, 5)
-end
-
-local function faceButton(letter)
-  return function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 50, 50, 40, col, op)
-    label(out, p, x, y, s, 50, 50, letter, 52, col)
-  end
-end
-
--- A trigger or a grip: a pill and its letters (LT, RT, LG, RG).
-local function pill(text)
-  return function(out, p, x, y, s, col, op)
-    arc(out, p, x, y, s, 34, 50, 24, math.pi * 0.5, math.pi * 1.5, col, op)
-    arc(out, p, x, y, s, 66, 50, 24, -math.pi * 0.5, math.pi * 0.5, col, op)
-    bar(out, p, x, y, s, 34, 26, 66, 26, col, op)
-    bar(out, p, x, y, s, 34, 74, 66, 74, col, op)
-    label(out, p, x, y, s, 50, 50, text, 34, col)
-  end
-end
-
--- A stick: its ring and letter, chevrons for the ways it is pushed ("u", "d", "l", "r"), and for a click one over it
--- pointing down into it.
-local function stick(letter, ways, click)
-  return function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 50, 50, 34, col, op)
-    label(out, p, x, y, s, 50, 50, letter, 44, col)
-    for w in (ways or ""):gmatch(".") do
-      if w == "u" then chevron(out, p, x, y, s, 50, 3, 0, -1, col, op) end
-      if w == "d" then chevron(out, p, x, y, s, 50, 97, 0, 1, col, op) end
-      if w == "l" then chevron(out, p, x, y, s, 3, 50, -1, 0, col, op) end
-      if w == "r" then chevron(out, p, x, y, s, 97, 50, 1, 0, col, op) end
-    end
-    if click then chevron(out, p, x, y, s, 50, 15, 0, 1, col, op) end
-  end
-end
-
--- An open hand, palm on (cx, cy): the palm and four fingers.
-local function hand(out, p, x, y, s, cx, cy, col, op)
-  bar(out, p, x, y, s, cx - 9, cy, cx + 9, cy, col, op, 14)
-  for i = 0, 3 do
-    local fx = cx - 9 + i * 6
-    bar(out, p, x, y, s, fx, cy - 3, fx, cy - 15, col, op, 4)
-  end
-  bar(out, p, x, y, s, cx - 11, cy + 4, cx - 16, cy - 4, col, op, 4)
-end
-
-local GLYPHS = {
-  a = faceButton("A"), b = faceButton("B"), x = faceButton("X"), y = faceButton("Y"),
-  menu = function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 50, 50, 40, col, op)
-    for _, ly in ipairs({ 38, 50, 62 }) do bar(out, p, x, y, s, 34, ly, 66, ly, col, op, 5) end
-  end,
-  lt = pill("LT"), rt = pill("RT"), lg = pill("LG"), rg = pill("RG"),
-  ls = stick("L"), ls_up = stick("L", "u"), ls_vertical = stick("L", "ud"), ls_press = stick("L", nil, true),
-  rs = stick("R"), rs_up = stick("R", "u"), rs_down = stick("R", "d"), rs_horizontal = stick("R", "lr"),
-  rs_vertical = stick("R", "ud"), rs_all = stick("R", "udlr"), rs_press = stick("R", nil, true),
-  -- held: a stopwatch
-  hold = function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 50, 56, 32, col, op)
-    bar(out, p, x, y, s, 50, 56, 50, 36, col, op)
-    bar(out, p, x, y, s, 50, 24, 50, 16, col, op)
-    bar(out, p, x, y, s, 42, 13, 58, 13, col, op)
-  end,
-  -- the left hand brought up to the left ear: a head and shoulders, the hand low at the side, the way it goes
-  ear_left = function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 66, 34, 15, col, op)
-    arc(out, p, x, y, s, 66, 92, 30, math.pi, math.pi * 2, col, op)
-    hand(out, p, x, y, s, 20, 84, col, op)
-    arc(out, p, x, y, s, 46, 64, 28, math.pi, math.pi * 1.5, col, op, 5)
-    chevron(out, p, x, y, s, 48, 36, 1, 0, col, op)
-  end,
-  -- squat in the room: a crouched figure and the way down
-  squat = function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 32, 16, 8, col, op)
-    bar(out, p, x, y, s, 32, 26, 28, 48, col, op)
-    bar(out, p, x, y, s, 28, 48, 48, 54, col, op)
-    bar(out, p, x, y, s, 48, 54, 40, 78, col, op)
-    bar(out, p, x, y, s, 31, 32, 50, 40, col, op)
-    bar(out, p, x, y, s, 76, 18, 76, 76, col, op)
-    chevron(out, p, x, y, s, 76, 84, 0, 1, col, op)
-  end,
-  -- a melee weapon swung: its blade and the arc it takes
-  swing = function(out, p, x, y, s, col, op)
-    bar(out, p, x, y, s, 30, 76, 66, 34, col, op, 8)
-    bar(out, p, x, y, s, 22, 64, 40, 82, col, op)
-    arc(out, p, x, y, s, 58, 68, 44, math.pi * 1.1, math.pi * 1.55, col, op, 5)
-    chevron(out, p, x, y, s, 66, 24, 1, -0.1, col, op)
-  end,
-  -- reaching for a holster: a pistol at the hip, the hand coming down to its grip
-  holster = function(out, p, x, y, s, col, op)
-    bar(out, p, x, y, s, 26, 56, 86, 56, col, op, 12)
-    bar(out, p, x, y, s, 34, 62, 28, 88, col, op, 12)
-    arc(out, p, x, y, s, 48, 66, 8, 0, math.pi, col, op, 4)
-    ring(out, p, x, y, s, 34, 16, 10, col, op)
-    bar(out, p, x, y, s, 34, 30, 34, 40, col, op, 5)
-    chevron(out, p, x, y, s, 34, 48, 0, 1, col, op)
-  end,
-  -- a throw: the hand opening and where it goes
-  throw = function(out, p, x, y, s, col, op)
-    hand(out, p, x, y, s, 24, 66, col, op)
-    bar(out, p, x, y, s, 44, 40, 82, 40, col, op)
-    chevron(out, p, x, y, s, 90, 40, 1, 0, col, op)
-    bar(out, p, x, y, s, 50, 54, 70, 54, col, op, 4)
-  end,
-  -- a hand on the wheel or the handlebars
-  wheel_grab = function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 48, 56, 34, col, op)
-    ring(out, p, x, y, s, 48, 56, 7, col, op)
-    bar(out, p, x, y, s, 14, 58, 41, 58, col, op)
-    bar(out, p, x, y, s, 55, 58, 82, 58, col, op)
-    bar(out, p, x, y, s, 48, 63, 48, 90, col, op)
-    hand(out, p, x, y, s, 74, 26, col, op)
-  end,
-  -- steering: the wheel and the tilt of the line through both hands
-  steer = function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 50, 62, 28, col, op)
-    ring(out, p, x, y, s, 50, 62, 6, col, op)
-    bar(out, p, x, y, s, 22, 64, 44, 64, col, op)
-    bar(out, p, x, y, s, 56, 64, 78, 64, col, op)
-    arc(out, p, x, y, s, 50, 62, 44, math.pi * 1.2, math.pi * 1.8, col, op, 5)
-    chevron(out, p, x, y, s, 80, 32, 0.8, 0.6, col, op)
-    chevron(out, p, x, y, s, 20, 32, -0.8, 0.6, col, op)
-  end,
-  -- the horn: a hand on the middle of the wheel
-  horn = function(out, p, x, y, s, col, op)
-    ring(out, p, x, y, s, 40, 54, 30, col, op)
-    ring(out, p, x, y, s, 40, 54, 10, col, op)
-    arc(out, p, x, y, s, 60, 54, 18, -0.6, 0.6, col, op, 5)
-    arc(out, p, x, y, s, 60, 54, 30, -0.6, 0.6, col, op, 5)
-  end,
-}
-
--- One glyph in the box (x, y, size square); every widget it is made of.
+-- One icon in the box (x, y, size square), tinted; its widgets.
 function M.glyph(parent, name, x, y, size, col, op)
-  local out = {}
-  local draw = GLYPHS[name]
-  if draw ~= nil then draw(out, parent, x, y, size / 100, col, op or 1.0) end
-  return out
+  if not ICONS[name] then return {} end
+  return { Ink.image(parent, x, y, size, size, ATLAS, name, col, op or 1.0) }
 end
 
 -- A binding's tokens left to right from (x, y), each glyph `size` square and a "+" or "/" between them narrower;
@@ -183,7 +30,7 @@ end
 function M.strip(parent, tokens, x, y, size, col, sepCol)
   local cx = x
   for _, t in ipairs(tokens) do
-    if GLYPHS[t] ~= nil then
+    if ICONS[t] then
       M.glyph(parent, t, cx, y, size, col)
       cx = cx + size + size * 0.08
     else
@@ -202,7 +49,7 @@ M.SECTIONS = {
     { { "ls_press", "+", "rs_press", "hold" }, "VR menu", "hold both sticks in for half a second", board = true },
     { { "ls_press", "+", "rs_vertical" }, "Dialogue choices", "hold L3, right stick up or down to the stop; X picks (A in a car)", board = true },
     { { "menu" }, "Pause menu", "left on Touch; right on Steam Frame" },
-    { { "ls_press", "+", "rs_all" }, "D-pad", "hold L3, right stick to the stop; let go alone for a plain L3" },
+    { { "ls_press", "+", "rs_vertical", "rs_horizontal" }, "D-pad", "hold L3, right stick to the stop; let go alone for a plain L3" },
   } },
   { title = "On Foot", entries = {
     { { "ls" }, "Move", "one speed, the direction from the stick" },

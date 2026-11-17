@@ -138,23 +138,30 @@ def tile(drawing, title):
             f'<g transform="translate(3.2 3.2) scale(0.9)">{drawing}</g></svg>\n')
 
 
+def glyphs(pack):
+    """Every icon's drawing on the 64-unit grid (no tile): the Kenney glyphs from the pack, then the gestures."""
+    def load(folder, name):
+        return inner((pack / folder / "Vector" / f"{name}.svg").read_text())
+
+    icons = {name: load(*src) for name, src in KENNEY.items()}
+    icons.update(gestures({name: load(*src) for name, src in PARTS.items()}))
+    return icons
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pack", type=pathlib.Path)
     ap.add_argument("--preview", type=pathlib.Path)
     a = ap.parse_args()
 
-    def load(folder, name):
-        return inner((a.pack / folder / "Vector" / f"{name}.svg").read_text())
-
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.svg"):
         old.unlink()
-    icons = {name: load(*src) for name, src in KENNEY.items()}
-    icons.update(gestures({name: load(*src) for name, src in PARTS.items()}))
+    icons = glyphs(a.pack)
     for name, drawing in icons.items():
         (OUT / f"{name}.svg").write_text(tile(drawing, name.replace("_", " ")))
-    shutil.copyfile(a.pack / "License.txt", OUT / "LICENSE-kenney.txt")
+    licence = (a.pack / "License.txt").read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+    (OUT / "LICENSE-kenney.txt").write_text(licence, encoding="utf-8")
     print(f"{len(icons)} icons -> {OUT.relative_to(ROOT)}")
 
     if a.preview:
