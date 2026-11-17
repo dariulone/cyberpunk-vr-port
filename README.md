@@ -12,6 +12,11 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 > ⚠️ Experimental community mod. Not affiliated with CD PROJEKT RED. Use at your
 > own risk and keep backups of your saves.
 
+**Contents:** [Features](#features) · [Requirements](#requirements) · [Installation](#installation-drop-in) ·
+[Controls](#controls) · [In-headset overlay](#in-headset-overlay-f10) · [Mod components](#mod-components) ·
+[Logs](#logs) · [Test hardware](#test-hardware-used-during-development) · [Donations](#donations) ·
+[Credits](#credits)
+
 ## Features
 
 - **Real stereo, not reprojection.** The second eye is an actual engine view — a
