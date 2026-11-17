@@ -53,10 +53,20 @@ A checkout made while the RED4ext.SDK submodule still pointed at the fork (`mark
 
 ## In game
 
-The Wine-built DLL (RED4ext.SDK `a34f0ad0`), installed into game 2.5 with RED4ext 1.31.1 and redscript 0.5.32,
-played through the whole Nomad prologue up to the first rescue mission (2026-11-17). Not singled out in that run:
-FSR frame generation (the FidelityFX shaders) and the bundled `scc_lib.dll`, which only compiles the scripts when
-redscript is not installed.
+Installed into game 2.5 with RED4ext 1.31.1 and redscript 0.5.32 under Proton-CachyOS 11.0 and SteamVR
+(2026-11-17):
+
+- Built against RED4ext.SDK `a34f0ad0`, it played the whole Nomad prologue up to the first rescue mission.
+- Built against `26cf8670`, the SDK the submodule now pins, it loaded, played and shut down cleanly.
+- The port's frame generation is unusable on this setup, and the 0.2.45 release DLL fails the same way. With
+  FidelityFX frame generation on, the overlay showed about 8 real fps, 0 generated frames, and about 120 ms of CPU
+  and GPU time per frame, against about 1 ms for the generation itself; DLSS-G behaved the same. This is not caused
+  by the Wine build: it looks like a synchronisation stall in the frame-generation path under Proton (VKD3D-Proton),
+  and is not yet investigated.
+- Under Wine the desktop mirror calls `SetWindowPos` on almost every present (`DesktopMirror: client placed` floods
+  the log), because the window manager never gives the window the exact geometry asked for. Turning the mirror
+  off did not change the frame-generation result.
+- Not exercised: the bundled `scc_lib.dll`, which only compiles the scripts when redscript is not installed.
 
 ## What is not yet known
 
