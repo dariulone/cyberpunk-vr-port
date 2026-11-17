@@ -2,6 +2,10 @@
 
 #include "Scripting.h"
 
+// The host's profiler (src/Lua/Profiler.cpp): counting pcall/xpcall on CVR_LUA_PROFILE.
+extern "C" bool CvrProfileWanted();
+extern "C" void CvrProfileInstallPcall(lua_State* L);
+
 #include "config/CETVersion.h"
 #include "EmbeddedJsonLua.h"
 
@@ -59,6 +63,9 @@ void Scripting::Initialize()
 
     if (m_options.Developer.EnableJIT)
         luaVm.open_libraries(sol::lib::jit);
+
+    if (CvrProfileWanted())
+        CvrProfileInstallPcall(luaVm.lua_state());
 
 
     // make sure to set package path to current directory scope
