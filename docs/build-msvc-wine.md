@@ -58,14 +58,14 @@ Installed into game 2.5 with RED4ext 1.31.1 and redscript 0.5.32 under Proton-Ca
 
 - Built against RED4ext.SDK `a34f0ad0`, it played the whole Nomad prologue up to the first rescue mission.
 - Built against `26cf8670`, the SDK the submodule now pins, it loaded, played and shut down cleanly.
-- The port's frame generation is unusable on this setup, and the 0.2.45 release DLL fails the same way. With
-  FidelityFX frame generation on, the overlay showed about 8 real fps, 0 generated frames, and about 120 ms of CPU
-  and GPU time per frame, against about 1 ms for the generation itself; DLSS-G behaved the same. This is not caused
-  by the Wine build: it looks like a synchronisation stall in the frame-generation path under Proton (VKD3D-Proton),
-  and is not yet investigated.
+- Approaching the apartment door in The Rescue the game drops to about 8 fps, with about 120 ms of CPU and GPU time
+  per frame, with frame generation on or off and with the 0.2.45 release DLL as well: not caused by the Wine build,
+  and not by frame generation, which cost about 1 ms there. Past that point it runs normally. Reported upstream as
+  dariulone/cyberpunk-vr-port#251. The frame-generation tests were all made at that door, so they say nothing
+  about frame generation elsewhere.
 - Under Wine the desktop mirror calls `SetWindowPos` on almost every present (`DesktopMirror: client placed` floods
   the log), because the window manager never gives the window the exact geometry asked for. Turning the mirror
-  off did not change the frame-generation result.
+  off did not change the slowdown above.
 - Not exercised: the bundled `scc_lib.dll`, which only compiles the scripts when redscript is not installed.
 
 ## What is not yet known
