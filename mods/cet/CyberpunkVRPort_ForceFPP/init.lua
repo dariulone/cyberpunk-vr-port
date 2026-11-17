@@ -219,7 +219,12 @@ end
 -- second: the state only has to be right BEFORE a press, and the plugin's own block window covers the rest.
 local ui = { acc = 0.0, widget = false, sent = nil, what = "-" }
 
+-- A leaf widget (text, image) is no inkCompoundWidget and has no GetNumChildren: the lookup gives nil, so it is
+-- asked for before calling. Calling it raised a Lua error per leaf, which the pcall swallowed -- hundreds a
+-- second with quest notifications up -- and every Lua error is an SEH exception, which under Wine/Proton
+-- costs enough to drop the game to single figures (dariulone/cyberpunk-vr-port#251).
 local function numChildren(w)
+  if w == nil or w.GetNumChildren == nil then return 0 end
   local n = 0
   pcall(function() n = w:GetNumChildren() end)
   return n

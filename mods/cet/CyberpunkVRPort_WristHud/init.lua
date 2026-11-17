@@ -386,6 +386,8 @@ end
 -- `bg` is a root child and hidden by the same pass; hover_buy_button goes with its text.
 local function hideAuthored(w, depth)
   if depth > 6 then return end
+  -- Leaves have no GetNumChildren: asked first rather than letting the call raise a Lua error (see ForceFPP).
+  if w.GetNumChildren == nil then return end
   local n = -1
   pcall(function() n = w:GetNumChildren() end)
   if n < 0 then return end

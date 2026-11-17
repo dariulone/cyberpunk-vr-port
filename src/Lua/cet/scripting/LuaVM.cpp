@@ -39,7 +39,7 @@ template <typename F> void Guarded(bool& aFailed, const char* acWhat, F&& aCall)
 }
 
 // The host's cost on the game's main thread: each onUpdate tick (the mods' updates, the binds, the GC steps the
-// mods take) timed, summed up in the plugin's log every 30 s with the launcher's DEBUG box ticked (RuntimeDiagnostics). Main thread only.
+// mods take) timed, summed up in the plugin's log every 30 s (10 s under CVR_LUA_PROFILE) with the launcher's DEBUG box ticked (RuntimeDiagnostics). Main thread only.
 struct UpdateCost
 {
     std::vector<float> ms;
@@ -50,7 +50,7 @@ struct UpdateCost
         ms.push_back(aMs);
         const auto now = std::chrono::steady_clock::now();
         const float seconds = std::chrono::duration<float>(now - since).count();
-        if (seconds < 30.f)
+        if (seconds < (CvrProfileWanted() ? 10.f : 30.f))
             return;
         std::sort(ms.begin(), ms.end());
         double sum = 0;
