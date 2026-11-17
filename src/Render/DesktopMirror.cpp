@@ -1,6 +1,7 @@
 #include "Render/DesktopMirror.hpp"
 
 #include "Render/ColorBlit.hpp"
+#include "Render/DesktopWindow.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -39,8 +40,10 @@ SetWindowPosFn OriginalSetWindowPos() {
     return fn;
 }
 
-// A window size set in the launcher that differs from the render size is the player's; leave it alone.
+// A window size set in the launcher that differs from the render size is the player's; leave it alone. So is the
+// free window (xr_desktop_window=1, Render/DesktopWindow.hpp).
 bool UsesAutomaticDesktopWindow() {
+    if (cvr::desktop_window::Free()) return false;
     const UINT windowWidth = GetForcedWindowWidth();
     const UINT renderWidth = GetForcedDisplayModeWidth();
     return windowWidth == 0 || windowWidth == renderWidth;
@@ -313,6 +316,7 @@ void DesktopMirrorInvalidate() {
 
 void DesktopMirrorRender(IDXGISwapChain* swapChain, HWND hwnd) {
     if (!swapChain || !hwnd) return;
+    cvr::desktop_window::OnPresent(hwnd);
     UpdateWindowForCurrentMonitor(hwnd);
 
     RECT client{};

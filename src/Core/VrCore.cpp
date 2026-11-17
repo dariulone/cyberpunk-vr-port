@@ -217,6 +217,13 @@ extern "C" void SetLauncherHandPhysicsAndPersist(int on) {
     g_liveControls.xrHandPhysics = on != 0;
     PersistLiveControlsUiState(MakeLiveControlsUiState());
 }
+// The resizable desktop window (xr_desktop_window, Render/DesktopWindow.hpp). Read live, so it applies from this
+// launch; the game's own window mode (Windowed or borderless) follows from the next.
+extern "C" int GetLauncherDesktopWindow() { return g_liveControls.xrDesktopWindow != 0; }
+extern "C" void SetLauncherDesktopWindowAndPersist(int on) {
+    g_liveControls.xrDesktopWindow = on != 0;
+    PersistLiveControlsUiState(MakeLiveControlsUiState());
+}
 extern "C" int GetLauncherLobby() {
     return cvr::lobby::Enabled() ? 1 : 0;
 }

@@ -687,6 +687,11 @@ void PollLiveControls() {
     int xrMenuGesture = g_liveControls.xrMenuGesture;
     int xrVrInterface = g_liveControls.xrVrInterface;
     int xrHandPhysics = g_liveControls.xrHandPhysics;
+    int xrDesktopWindow = g_liveControls.xrDesktopWindow;
+    int xrDesktopFullscreen = g_liveControls.xrDesktopFullscreen;
+    int xrDesktopRect[4] = {g_liveControls.xrDesktopRect[0], g_liveControls.xrDesktopRect[1],
+                            g_liveControls.xrDesktopRect[2], g_liveControls.xrDesktopRect[3]};
+    int xrDesktopMaximized = g_liveControls.xrDesktopMaximized;
     int xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
     int xrHandCollision = g_liveControls.xrHandCollision;
     int xrHandCollisionVehicle = g_liveControls.xrHandCollisionVehicle;
@@ -1700,6 +1705,29 @@ void PollLiveControls() {
             xrHandPhysics = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_desktop_window=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_desktop_window = %d", &intValue) == 1) {
+            xrDesktopWindow = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_desktop_fullscreen=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_desktop_fullscreen = %d", &intValue) == 1) {
+            xrDesktopFullscreen = intValue;
+            continue;
+        }
+        if (sscanf_s(line, "xr_desktop_maximized=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_desktop_maximized = %d", &intValue) == 1) {
+            xrDesktopMaximized = intValue;
+            continue;
+        }
+        {
+            int r[4] = {};
+            if (sscanf_s(line, "xr_desktop_window_rect=%d,%d,%d,%d", &r[0], &r[1], &r[2], &r[3]) == 4 ||
+                sscanf_s(line, "xr_desktop_window_rect = %d,%d,%d,%d", &r[0], &r[1], &r[2], &r[3]) == 4) {
+                for (int i = 0; i < 4; ++i) xrDesktopRect[i] = r[i];
+                continue;
+            }
+        }
         if (sscanf_s(line, "xr_menu_gesture=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_menu_gesture = %d", &intValue) == 1) {
             xrMenuGesture = intValue;
@@ -1963,6 +1991,10 @@ void PollLiveControls() {
     g_liveControls.xrMenuGesture = xrMenuGesture != 0 ? 1 : 0;
     g_liveControls.xrVrInterface = xrVrInterface != 0 ? 1 : 0;
     g_liveControls.xrHandPhysics = xrHandPhysics != 0 ? 1 : 0;
+    g_liveControls.xrDesktopWindow = xrDesktopWindow != 0 ? 1 : 0;
+    g_liveControls.xrDesktopFullscreen = xrDesktopFullscreen != 0 ? 1 : 0;
+    for (int i = 0; i < 4; ++i) g_liveControls.xrDesktopRect[i] = xrDesktopRect[i];
+    g_liveControls.xrDesktopMaximized = xrDesktopMaximized != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = xrVrWeaponWheel != 0 ? 1 : 0;
     g_liveControls.xrHandCollision = xrHandCollision != 0 ? 1 : 0;
     g_liveControls.xrHandCollisionVehicle = xrHandCollisionVehicle != 0 ? 1 : 0;
@@ -2345,6 +2377,10 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrMenuGesture = g_liveControls.xrMenuGesture;
     state.xrVrInterface = g_liveControls.xrVrInterface;
     state.xrHandPhysics = g_liveControls.xrHandPhysics;
+    state.xrDesktopWindow = g_liveControls.xrDesktopWindow;
+    state.xrDesktopFullscreen = g_liveControls.xrDesktopFullscreen;
+    for (int i = 0; i < 4; ++i) state.xrDesktopRect[i] = g_liveControls.xrDesktopRect[i];
+    state.xrDesktopMaximized = g_liveControls.xrDesktopMaximized;
     state.xrVrWeaponWheel = g_liveControls.xrVrWeaponWheel;
     state.xrHandCollision = g_liveControls.xrHandCollision;
     state.xrHandCollisionVehicle = g_liveControls.xrHandCollisionVehicle;
@@ -2741,6 +2777,11 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_menu_gesture=%d\n", state.xrMenuGesture != 0 ? 1 : 0);
     fprintf(file, "xr_vr_interface=%d\n", state.xrVrInterface != 0 ? 1 : 0);
     fprintf(file, "xr_hand_physics=%d\n", state.xrHandPhysics != 0 ? 1 : 0);
+    fprintf(file, "xr_desktop_window=%d\n", state.xrDesktopWindow != 0 ? 1 : 0);
+    fprintf(file, "xr_desktop_fullscreen=%d\n", state.xrDesktopFullscreen != 0 ? 1 : 0);
+    fprintf(file, "xr_desktop_window_rect=%d,%d,%d,%d\n", state.xrDesktopRect[0], state.xrDesktopRect[1],
+            state.xrDesktopRect[2], state.xrDesktopRect[3]);
+    fprintf(file, "xr_desktop_maximized=%d\n", state.xrDesktopMaximized != 0 ? 1 : 0);
     fprintf(file, "xr_vr_weapon_wheel=%d\n", state.xrVrWeaponWheel != 0 ? 1 : 0);
     fprintf(file, "xr_hand_collision=%d\n", state.xrHandCollision != 0 ? 1 : 0);
     fprintf(file, "xr_hand_collision_vehicle=%d\n", state.xrHandCollisionVehicle != 0 ? 1 : 0);
@@ -2923,6 +2964,10 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrMenuGesture = state->xrMenuGesture != 0 ? 1 : 0;
     g_liveControls.xrVrInterface = state->xrVrInterface != 0 ? 1 : 0;
     g_liveControls.xrHandPhysics = state->xrHandPhysics != 0 ? 1 : 0;
+    g_liveControls.xrDesktopWindow = state->xrDesktopWindow != 0 ? 1 : 0;
+    g_liveControls.xrDesktopFullscreen = state->xrDesktopFullscreen != 0 ? 1 : 0;
+    for (int i = 0; i < 4; ++i) g_liveControls.xrDesktopRect[i] = state->xrDesktopRect[i];
+    g_liveControls.xrDesktopMaximized = state->xrDesktopMaximized != 0 ? 1 : 0;
     g_liveControls.xrVrWeaponWheel = state->xrVrWeaponWheel != 0 ? 1 : 0;
     g_liveControls.xrHandCollision = state->xrHandCollision != 0 ? 1 : 0;
     g_liveControls.xrHandCollisionVehicle = state->xrHandCollisionVehicle != 0 ? 1 : 0;
