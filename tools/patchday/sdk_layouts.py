@@ -210,7 +210,8 @@ def ensure_clone():
         subprocess.run(['git', 'clone', '--filter=blob:none', '--no-checkout', UPSTREAM, CLONE], check=True)
     subprocess.run(['git', '-C', CLONE, 'fetch', '--quiet', 'origin'], check=True)
     head = subprocess.run(['git', '-C', SDK, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
-    # The submodule's own commit, for a diff from it (its remote is a fork; the commit may be upstream's).
+    # The submodule's own commit, for a diff from it (fetched from the submodule if the clone lacks it: a local
+    # commit, or one from a fork).
     if subprocess.run(['git', '-C', CLONE, 'cat-file', '-e', head + '^{commit}'], capture_output=True).returncode:
         subprocess.run(['git', '-C', CLONE, 'fetch', '--quiet', SDK, 'HEAD'], check=False)
     return head
