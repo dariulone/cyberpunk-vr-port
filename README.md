@@ -328,34 +328,36 @@ pwsh scripts\deploy_stereo.ps1 -GameRoot "<game root>"
 ## Controls
 
 VR controller input is merged into the native CP2077 gamepad, so the in-game
-"Controller" key bindings apply. Default VR mapping, **on foot**:
+"Controller" key bindings apply. The icons show the Meta Quest Touch controllers; other
+controllers use the buttons in the same places. *To the stop* means the stick pushed all
+the way. Default VR mapping, **on foot**:
 
 | Input | Action |
 |---|---|
-| Left stick | Move — **one speed whatever the deflection**, direction from the stick |
-| Left stick **fully forward, held 0.2 s** | **Sprint** — held, and it survives a dash |
-| Right stick X | Turn camera (snap or smooth; a snap needs a FULL push) |
-| Right stick **fully up** | **Dash** (dodge, direction from the left stick) — once per push |
-| Right stick **fully down** | **Crouch** (R3) |
-| Right thumb **click** | **Slide release** — racks the weapon (physical reload) |
-| Left hand to your **left ear** + **left stick click (L3)** | **Scanner**, *toggled* — click to open, click again to close (always the physical left hand, also left-handed) |
-| Right trigger / Left trigger | Fire / Aim (left trigger is also melee block) |
-| Right grip | Hand-to-holster equip / unequip; melee power modifier |
-| Left grip | **Grab the magazine** during a reload |
-| **L3 + R3, held 0.5 s** | Open / close the VR menu |
-| **L3 + left Grip, held 0.5 s** | Activate the cyberware operating system (Sandevistan, Berserk, overclock) in gameplay |
-| Left stick **up / down, to the stop** | Page the quickhack list *while the scanner is open* |
-| A | Jump (double jump and charge jump unchanged) |
-| B, **weapon in hand** | **Drop the magazine** (physical reload) — not dodge |
-| B, **holstered** | The game's own B again — close the phone, back out |
-| B, **phone / radio / vehicle list open** | Closes it, weapon in hand or not — and cannot drop a magazine for a second afterwards |
-| X | Reload · interact |
-| Y, **tap** | Next weapon (the game's own switch) |
-| Y, **held** | **VR weapon wheel** in front of the body — point at a weapon, the arm cyberware, fists, holster, a grenade or a consumable and let go of Y; the game keeps running (*Controls → VR weapon wheel on a held Y*; off = the game's own wheel) |
-| Menu button (left on Touch; right on Steam Frame) | Pause menu |
-| Swing a melee weapon | VR motion melee (native attack along the blade) |
-| Left trigger held + right grip, throw, open the grip | **Physical throw** of a throwable melee weapon |
-| Squat in the room | Crouch (physical crouch; the right stick still works) |
+| <img src="docs/controls/icons/ls.svg" alt="Left stick" height="40"> | Move — **one speed whatever the deflection**, direction from the stick |
+| <img src="docs/controls/icons/ls_up.svg" alt="Left stick fully forward" height="40"> to&nbsp;the&nbsp;stop, **held 0.2&nbsp;s** | **Sprint** — held, and it survives a dash |
+| <img src="docs/controls/icons/rs_horizontal.svg" alt="Right stick left / right" height="40"> | Turn camera (snap or smooth; a snap needs a FULL push) |
+| <img src="docs/controls/icons/rs_up.svg" alt="Right stick fully up" height="40"> to&nbsp;the&nbsp;stop | **Dash** (dodge, direction from the left stick) — once per push |
+| <img src="docs/controls/icons/rs_down.svg" alt="Right stick fully down" height="40"> to&nbsp;the&nbsp;stop | **Crouch** (R3) |
+| <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> | **Slide release** — racks the weapon (physical reload) |
+| <img src="docs/controls/icons/ear_left.svg" alt="Left hand to your left ear" height="40"> + <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> | **Scanner**, *toggled* — bring the left controller to your **left ear** and click the left stick to open, click again to close (always the physical left hand, also left-handed) |
+| <img src="docs/controls/icons/rt.svg" alt="Right trigger" height="40"> / <img src="docs/controls/icons/lt.svg" alt="Left trigger" height="40"> | Fire / Aim (left trigger is also melee block) |
+| <img src="docs/controls/icons/holster.svg" alt="Hand at a holster" height="40"> <img src="docs/controls/icons/rg.svg" alt="Right grip" height="40"> | Hand-to-holster equip / unequip; melee power modifier |
+| <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> during a reload | **Grab the magazine** |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Open / close the VR menu |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Activate the cyberware operating system (Sandevistan, Berserk, overclock) in gameplay |
+| <img src="docs/controls/icons/ls_vertical.svg" alt="Left stick up / down" height="40"> to&nbsp;the&nbsp;stop, scanner open | Page the quickhack list *while the scanner is open* |
+| <img src="docs/controls/icons/a.svg" alt="A" height="40"> | Jump (double jump and charge jump unchanged) |
+| <img src="docs/controls/icons/b.svg" alt="B" height="40"> **weapon in hand** | **Drop the magazine** (physical reload) — not dodge |
+| <img src="docs/controls/icons/b.svg" alt="B" height="40"> **holstered** | The game's own B again — close the phone, back out |
+| <img src="docs/controls/icons/b.svg" alt="B" height="40"> **phone / radio / vehicle list open** | Closes it, weapon in hand or not — and cannot drop a magazine for a second afterwards |
+| <img src="docs/controls/icons/x.svg" alt="X" height="40"> | Reload · interact |
+| <img src="docs/controls/icons/y.svg" alt="Y" height="40"> **tap** | Next weapon (the game's own switch) |
+| <img src="docs/controls/icons/y.svg" alt="Y" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> | **VR weapon wheel** in front of the body — point at a weapon, the arm cyberware, fists, holster, a grenade or a consumable and let go of Y; the game keeps running (*Controls → VR weapon wheel on a held Y*; off = the game's own wheel) |
+| <img src="docs/controls/icons/menu.svg" alt="Menu button" height="40"> (left on Touch; right on Steam Frame) | Pause menu |
+| <img src="docs/controls/icons/swing.svg" alt="Swing" height="40"> | Swing a melee weapon: VR motion melee (native attack along the blade) |
+| <img src="docs/controls/icons/lt.svg" alt="Left trigger" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> + <img src="docs/controls/icons/rg.svg" alt="Right grip" height="40">, <img src="docs/controls/icons/throw.svg" alt="Throw and open the grip" height="40"> | **Physical throw** of a throwable melee weapon: hold the left trigger, take it in the right grip, throw and open the grip |
+| <img src="docs/controls/icons/squat.svg" alt="Squat" height="40"> | Squat in the room: crouch (physical crouch; the right stick still works) |
 
 **Hand collision** (*Avatar → Hand collision*): the drawn hands and arms stop at the
 body, at each other and at people, empty hands stop at walls, furniture and props, and a
@@ -374,11 +376,11 @@ available. Right A/B/X/Y, left D-pad, left View, right Menu and both bumpers map
 to the matching gamepad controls. Grips retain the port's VR gestures. Touch
 emulation remains the fallback when the runtime does not expose the extension.
 
-While the scanner is open the same hand works it: the **left stick to the stop**
+While the scanner is open the same hand works it: the **left stick to the stop** <img src="docs/controls/icons/ls_vertical.svg" alt="Left stick up / down" height="26">
 pages the quickhack list (below the stop it still walks, so you can read and move),
-**X** applies the selected hack, the **right trigger** tags the target instead of
-firing, the **right stick click** changes the tab and **left trigger + right stick**
-zooms. The list used to sit on X and Y, which meant reaching across the face buttons
+**X** <img src="docs/controls/icons/x.svg" alt="X" height="26"> applies the selected hack, the **right trigger** <img src="docs/controls/icons/rt.svg" alt="Right trigger" height="26"> tags the target instead of
+firing, the **right stick click** <img src="docs/controls/icons/rs_press.svg" alt="Right stick click" height="26"> changes the tab and **left trigger + right stick**
+<img src="docs/controls/icons/lt.svg" alt="Left trigger" height="26"> + <img src="docs/controls/icons/rs.svg" alt="Right stick" height="26"> zooms. The list used to sit on X and Y, which meant reaching across the face buttons
 with the hand that is already at your ear — the very reach a one-hand
 scanner exists to avoid.
 
@@ -398,15 +400,15 @@ While **driving**, the same controllers do something else:
 
 | Input | Action |
 |---|---|
-| Grip, hand at the wheel / handlebars | Grab it — that arm goes back to the driving animation |
-| Tilt of the line through both controllers | Steering (one hand: that controller against the wheel centre) |
-| Hand on the **middle of the wheel** | **Horn** — no grip needed; a hand that is grabbing never honks |
-| Right trigger / Left trigger | Throttle / Brake |
-| Right trigger **with a weapon drawn** | **Fire.** The throttle latches at the speed it had |
-| Left stick forward / back, weapon drawn | Trim the latched throttle |
-| **X, held** | **Get out.** B is never the exit in a car, so no stray press can eject you |
+| <img src="docs/controls/icons/wheel_grab.svg" alt="Hand at the wheel" height="40"> <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> / <img src="docs/controls/icons/rg.svg" alt="Right grip" height="40"> | Grip with a hand at the wheel / handlebars: grab it — that arm goes back to the driving animation |
+| <img src="docs/controls/icons/steer.svg" alt="Tilt both controllers" height="40"> | Tilt of the line through both controllers: steering (one hand: that controller against the wheel centre) |
+| <img src="docs/controls/icons/horn.svg" alt="Hand on the middle of the wheel" height="40"> | Hand on the **middle of the wheel**: **horn** — no grip needed; a hand that is grabbing never honks |
+| <img src="docs/controls/icons/rt.svg" alt="Right trigger" height="40"> / <img src="docs/controls/icons/lt.svg" alt="Left trigger" height="40"> | Throttle / Brake |
+| <img src="docs/controls/icons/rt.svg" alt="Right trigger" height="40"> **with a weapon drawn** | **Fire.** The throttle latches at the speed it had |
+| <img src="docs/controls/icons/ls_vertical.svg" alt="Left stick up / down" height="40"> weapon drawn | Trim the latched throttle |
+| <img src="docs/controls/icons/x.svg" alt="X" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> | **Get out.** B is never the exit in a car, so no stray press can eject you |
 | Perspective toggle | Native view toggle; third-person and external cameras retain VR tracking |
-| A | **Confirm a dialogue line** (it is X on foot, and X is the exit in here) — the handbrake still fires |
+| <img src="docs/controls/icons/a.svg" alt="A" height="40"> | **Confirm a dialogue line** (it is X on foot, and X is the exit in here) — the handbrake still fires |
 
 Each hand is independent, so you can hold the wheel with one and keep the other on
 a gun. With a weapon equipped the right hand shoots and cannot grab the wheel;
@@ -420,7 +422,7 @@ The exit is a HOLD rather than a tap on purpose. The game's `ExitVehicle_Button`
 carries no hold of its own, so the vehicle acts on the first frame it sees the
 action — and at speed acting on it means throwing you out of the car.
 
-**D-pad chord.** Hold the **left stick clicked in**, then pick the direction with
+**D-pad chord.** <img src="docs/controls/icons/ls_press.svg" alt="Left stick click, held" height="26"> + <img src="docs/controls/icons/rs_up.svg" alt="Right stick up" height="26"> <img src="docs/controls/icons/rs_down.svg" alt="Right stick down" height="26"> <img src="docs/controls/icons/rs_left.svg" alt="Right stick left" height="26"> <img src="docs/controls/icons/rs_right.svg" alt="Right stick right" height="26"> Hold the **left stick clicked in**, then pick the direction with
 the **right stick** — up / down / left / right, **to the stop**, the same full push
 every other gesture here asks for so that a resting thumb cannot step a list. While
 the chord is held the right stick is taken out of the camera, so selecting a
@@ -433,11 +435,13 @@ customise the actual actions in the game's *Settings → Key Bindings → Contro
 
 Hotkeys:
 
-- `F7` — recenter HMD
-- `F8` — toggle the game menus' rectangle between full-HMD and a small panel
-- `F10` / `Insert` — toggle the in-headset settings overlay from the keyboard
-- `L3` + `R3`, held for 0.5 s — open / close the VR menu; its Settings section has the same pages
-- `L3` + left Grip, held for 0.5 s — activate iconic cyberware in gameplay
+| Input | Action |
+|---|---|
+| <img src="docs/controls/icons/key_f7.svg" alt="F7" height="40"> | Recenter HMD |
+| <img src="docs/controls/icons/key_f8.svg" alt="F8" height="40"> | Toggle the game menus' rectangle between full-HMD and a small panel |
+| <img src="docs/controls/icons/key_f10.svg" alt="F10" height="40"> / <img src="docs/controls/icons/key_insert.svg" alt="Insert" height="40"> | Toggle the in-headset settings overlay from the keyboard |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Open / close the VR menu; its Settings section has the same pages |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Activate iconic cyberware in gameplay |
 
 ## In-headset overlay (F10)
 
@@ -583,5 +587,7 @@ possible — nobody is forcing you to do it.
 - **[Louspirit](https://github.com/Louspirit)** — B toggles the equipped arm cyberware from empty hands.
 - **[ElvioRibeiro](https://github.com/ElvioRibeiro)** — the VRIK hands no longer freeze with low Windows
   memory allocations.
+- **[Kenney](https://kenney.nl/assets/input-prompts)** — the controller and keyboard glyphs in
+  *Controls* (Input Prompts, CC0); the VR gesture icons are drawn to match (`tools/controls_icons/make_icons.py`).
 - **[Apex Neural Rendering](https://github.com/apex-compute/ANR)** — the ANR FG frame generation model,
   shipped unchanged beside the plugin.
