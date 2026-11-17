@@ -27,8 +27,8 @@ local function arc(out, p, x, y, s, cx, cy, r, a, b, col, op, w)
 end
 
 local function label(out, p, x, y, s, cx, cy, str, size, col)
-  out[#out + 1] = Ink.text(p, x + (cx - 40) * s, y + (cy - 30) * s, 80 * s, 60 * s, str, size * s, col, "centre", true,
-                           "Bold")
+  out[#out + 1] = Ink.text(p, x + (cx - 40) * s, y + (cy - 30) * s, 80 * s, 60 * s, str, math.floor(size * s + 0.5), col,
+                           "centre", true)
 end
 
 -- A chevron: its point at (px, py), its arms back along (dx, dy) and spread `spread` either side of it.
@@ -187,7 +187,7 @@ function M.strip(parent, tokens, x, y, size, col, sepCol)
       M.glyph(parent, t, cx, y, size, col)
       cx = cx + size + size * 0.08
     else
-      Ink.text(parent, cx, y, size * 0.42, size, t, size * 0.5, sepCol or col, "centre", true)
+      Ink.text(parent, cx, y, size * 0.42, size, t, math.floor(size * 0.5 + 0.5), sepCol or col, "centre", true)
       cx = cx + size * 0.5
     end
   end
