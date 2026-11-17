@@ -42,6 +42,7 @@ KENNEY = {
     "rs_left": ("Meta Quest", "quest_stick_r_left"),
     "rs_right": ("Meta Quest", "quest_stick_r_right"),
     "rs_horizontal": ("Meta Quest", "quest_stick_r_horizontal"),
+    "rs_vertical": ("Meta Quest", "quest_stick_r_vertical"),
     "rs_press": ("Meta Quest", "quest_stick_r_press"),
     "key_f7": ("Keyboard & Mouse", "keyboard_f7"),
     "key_f8": ("Keyboard & Mouse", "keyboard_f8"),

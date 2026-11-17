@@ -334,6 +334,8 @@ the way. Default VR mapping, **on foot**:
 
 | Input | Action |
 |---|---|
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Open / close the VR menu |
+| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3), held" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> + <img src="docs/controls/icons/rs_vertical.svg" alt="Right stick up / down" height="40"> to&nbsp;the&nbsp;stop | **Dialogue choices** — hold the left stick clicked in and push the right stick up or down to move between the lines (the D-pad chord below), then **X** to pick one (**A** in a vehicle) |
 | <img src="docs/controls/icons/ls.svg" alt="Left stick" height="40"> | Move — **one speed whatever the deflection**, direction from the stick |
 | <img src="docs/controls/icons/ls_up.svg" alt="Left stick fully forward" height="40"> to&nbsp;the&nbsp;stop, **held 0.2&nbsp;s** | **Sprint** — held, and it survives a dash |
 | <img src="docs/controls/icons/rs_horizontal.svg" alt="Right stick left / right" height="40"> | Turn camera (snap or smooth; a snap needs a FULL push) |
@@ -344,7 +346,6 @@ the way. Default VR mapping, **on foot**:
 | <img src="docs/controls/icons/rt.svg" alt="Right trigger" height="40"> / <img src="docs/controls/icons/lt.svg" alt="Left trigger" height="40"> | Fire / Aim (left trigger is also melee block) |
 | <img src="docs/controls/icons/holster.svg" alt="Hand at a holster" height="40"> <img src="docs/controls/icons/rg.svg" alt="Right grip" height="40"> | Hand-to-holster equip / unequip; melee power modifier |
 | <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> during a reload | **Grab the magazine** |
-| <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/rs_press.svg" alt="Right stick click (R3)" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Open / close the VR menu |
 | <img src="docs/controls/icons/ls_press.svg" alt="Left stick click (L3)" height="40"> + <img src="docs/controls/icons/lg.svg" alt="Left grip" height="40"> <img src="docs/controls/icons/hold.svg" alt="held" height="40"> 0.5&nbsp;s | Activate the cyberware operating system (Sandevistan, Berserk, overclock) in gameplay |
 | <img src="docs/controls/icons/ls_vertical.svg" alt="Left stick up / down" height="40"> to&nbsp;the&nbsp;stop, scanner open | Page the quickhack list *while the scanner is open* |
 | <img src="docs/controls/icons/a.svg" alt="A" height="40"> | Jump (double jump and charge jump unchanged) |
