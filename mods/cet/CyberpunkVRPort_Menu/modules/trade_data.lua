@@ -25,6 +25,8 @@ local function item(ctx,visit,raw,side,quantity,buyback,available)
   v.recipe=v.ui:IsRecipe()
   v.price=(side=="sell" or buyback) and visit.manager:GetSellingPrice(v.id) or visit.manager:GetBuyingPrice(v.id)
   v.iconic=v.ui:IsIconic();v.favorite=v.ui:IsPlayerFavourite()
+  -- the native tile's quest marker (issue #258): UIInventoryItem.IsQuestItem, the Quest or UnequipBlocked tag
+  v.quest=v.ui:IsQuestItem()
   -- ranged and melee weapons in tabs of their own (issue #221)
   v.melee=v.ui:IsWeapon() and raw:HasTag(CName.new("MeleeWeapon")) or false
   v.category=v.ui:IsWeapon() and (v.melee and "melee" or "ranged") or v.ui:IsClothing() and "clothing" or v.ui:IsPart() and "mods"
@@ -149,7 +151,17 @@ function D.sellMany(ctx,visit,list)
   end
   return items,skipped,earned,pieces
 end
+-- THE VENDOR'S STOCK IS PART OF IT (issue #258): a quest can put an item in a vendor's stock while the shop is open
+-- (Wilson's Dying Night in the prologue arrives through MarketSystem's AddItemToVendorRequest), and an item can become
+-- buyable when a fact changes. Neither moves the money or the weight, so the stock the native grid reads is counted here.
+local function stock(visit)
+  local parts={}
+  for _,s in ipairs(MarketSystem.GetVendorItemsForSale(visit.vendor,true)) do
+    parts[#parts+1]=I.key(s.itemID).."x"..tostring(s.quantity)..(s.isAvailable and "" or "!")
+  end
+  return table.concat(parts,",")
+end
 function D.signature(visit)
-  return tostring(visit.manager:GetLocalPlayerCurrencyAmount())..":"..tostring(MarketSystem.GetVendorMoney(visit.vendor))..":"..tostring(Game.GetPlayer().curInventoryWeight)
+  return tostring(visit.manager:GetLocalPlayerCurrencyAmount())..":"..tostring(MarketSystem.GetVendorMoney(visit.vendor))..":"..tostring(Game.GetPlayer().curInventoryWeight)..":"..stock(visit)
 end
 return D
