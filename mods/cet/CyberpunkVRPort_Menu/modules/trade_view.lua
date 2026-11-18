@@ -56,7 +56,7 @@ function V.draw(kit,p,p2)
     s.loading=s.loading or {key=sortKey(s),filter=s.filter,modes={sell=s.sorts.sell,buy=s.sorts.buy}}
     return
   end
-  s.stamp=D.signature(visit);s.poll=kit.S.time
+  s.stamp=s.snapshotStamp or D.signature(visit);s.poll=kit.S.time
   U.comparison(kit,p,H,s.comparison,function() s.comparison=not s.comparison;C.redraw(kit) end,"tradeComparison")
   -- ranged and melee weapons each in a tab (issue #221)
   local filters={{"all","ВСЁ","ALL"},{"ranged","ОГНЕСТРЕЛЬНОЕ","RANGED"},{"melee","ХОЛОДНОЕ","MELEE"},{"clothing","ОДЕЖДА","CLOTHING"},{"mods","МОДИФИКАЦИИ","MODS"},{"consumable","РАСХОДНИКИ","CONSUMABLES"},{"other","ДРУГОЕ","OTHER"}}
@@ -193,7 +193,8 @@ function V.update(kit)
     local load=s.loading;local deadline=os.clock()+.004
     if not load.snapshot then
       if s.snapshot then load.snapshot=s.snapshot
-      elseif not load.data then load.data=D.beginSnapshot(s.ctx,visit);return
+      -- the stamp is taken when the read begins: a change while it is read a slice a frame shows as a new stamp
+      elseif not load.data then load.stamp=D.signature(visit);load.data=D.beginSnapshot(s.ctx,visit);return
       else load.snapshot=D.stepSnapshot(s.ctx,visit,load.data,deadline);if not load.snapshot then return end end
     end
     load.sorted=load.sorted or {};local side=not load.sorted.sell and "sell" or "buy"
@@ -201,6 +202,7 @@ function V.update(kit)
     local sorted=Sort.step(load.sort,deadline)
     if sorted then load.sorted[side]=sorted;load.sort=nil end
     if load.sorted.sell and load.sorted.buy then
+      if load.stamp then s.snapshotStamp=load.stamp end
       s.snapshot=load.snapshot;s.sorted=load.sorted;s.sortedKey=load.key;s.loading=nil
       C.redraw(kit)
     end

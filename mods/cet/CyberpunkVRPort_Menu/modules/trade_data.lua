@@ -149,7 +149,17 @@ function D.sellMany(ctx,visit,list)
   end
   return items,skipped,earned,pieces
 end
+-- THE VENDOR'S STOCK IS PART OF IT (issue #258): a quest can put an item in a vendor's stock while the shop is open
+-- (Wilson's Dying Night in the prologue arrives through MarketSystem's AddItemToVendorRequest), and an item can become
+-- buyable when a fact changes. Neither moves the money or the weight, so the stock the native grid reads is counted here.
+local function stock(visit)
+  local parts={}
+  for _,s in ipairs(MarketSystem.GetVendorItemsForSale(visit.vendor,true)) do
+    parts[#parts+1]=I.key(s.itemID).."x"..tostring(s.quantity)..(s.isAvailable and "" or "!")
+  end
+  return table.concat(parts,",")
+end
 function D.signature(visit)
-  return tostring(visit.manager:GetLocalPlayerCurrencyAmount())..":"..tostring(MarketSystem.GetVendorMoney(visit.vendor))..":"..tostring(Game.GetPlayer().curInventoryWeight)
+  return tostring(visit.manager:GetLocalPlayerCurrencyAmount())..":"..tostring(MarketSystem.GetVendorMoney(visit.vendor))..":"..tostring(Game.GetPlayer().curInventoryWeight)..":"..stock(visit)
 end
 return D
