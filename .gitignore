@@ -259,6 +259,9 @@ tools/holsters/*
 !tools/mirror/
 tools/mirror/*
 !tools/mirror/walkable_mirror.py
+# Builds docs/controls/icons (the README's control icons) from Kenney's Input Prompts pack.
+!tools/controls_icons/
+!tools/controls_icons/*.py
 
 # The packed archive: 100+ MB, over GitHub's file size limit. Its files come back out of it with WolvenKit, and the
 # release package (scripts/build_dist.ps1) takes it from mods/archive on disk.
