@@ -75,7 +75,9 @@ def sheet(pack, work):
     a = out.getchannel("A")
     out = Image.merge("RGBA", (a, a, a, a))
     out.save(work / (NAME + ".png"))
-    return out.tobytes(), w, h, parts
+    # The game takes an uncompressed texture's first row as its BOTTOM: written top down, every part showed the cell
+    # mirrored across the sheet's middle, upside down. The rows go in bottom up; the parts' UVs stay as drawn.
+    return out.transpose(Image.Transpose.FLIP_TOP_BOTTOM).tobytes(), w, h, parts
 
 
 def templates(cli, game, work):
