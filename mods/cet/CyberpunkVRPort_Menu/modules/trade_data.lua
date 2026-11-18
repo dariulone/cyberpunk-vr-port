@@ -25,6 +25,8 @@ local function item(ctx,visit,raw,side,quantity,buyback,available)
   v.recipe=v.ui:IsRecipe()
   v.price=(side=="sell" or buyback) and visit.manager:GetSellingPrice(v.id) or visit.manager:GetBuyingPrice(v.id)
   v.iconic=v.ui:IsIconic();v.favorite=v.ui:IsPlayerFavourite()
+  -- the native tile's quest marker (issue #258): UIInventoryItem.IsQuestItem, the Quest or UnequipBlocked tag
+  v.quest=v.ui:IsQuestItem()
   -- ranged and melee weapons in tabs of their own (issue #221)
   v.melee=v.ui:IsWeapon() and raw:HasTag(CName.new("MeleeWeapon")) or false
   v.category=v.ui:IsWeapon() and (v.melee and "melee" or "ranged") or v.ui:IsClothing() and "clothing" or v.ui:IsPart() and "mods"
