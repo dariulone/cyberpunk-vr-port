@@ -16,6 +16,31 @@ local function book(p,x,y,size,col)
   K.rect(p,x+size*.18,y+3,2,size-6,col,1)
   K.text(p,x+size*.2,y,size*.5,size,"!",math.floor(size*.66+.5),col,"center")
 end
+-- TRACKING SAYS SO. A tap on an active objective tracks it, and nothing on the row said that. Each active
+-- objective now carries its state at its right end: TRACK (an outlined chip with a crosshair, lit with the
+-- row's hover) or TRACKING (filled yellow, the colour the tracked quest already has in the list and on its
+-- distance). The chip is drawing only: the whole row stays the button, as before.
+local CHIP_W,CHIP_H=176,46
+local function crosshair(p,x,y,size,col)
+  K.image(p,x,y,size,size,K.ATLAS.phone,"circle",col,1)
+  K.image(p,x+2,y+2,size-4,size-4,K.ATLAS.phone,"circle",K.BLACK,1)
+  local m=size/2
+  U.line(p,x+m,y-4,x+m,y+5,col,1,2);U.line(p,x+m,y+size-5,x+m,y+size+4,col,1,2)
+  U.line(p,x-4,y+m,x+5,y+m,col,1,2);U.line(p,x+size-5,y+m,x+size+4,y+m,col,1,2)
+end
+-- returns the chip's fill for the hover to light (nil for the tracked one, which stays as it is)
+local function trackChip(kit,p,x,y,tracked)
+  if tracked then
+    K.roundFill(p,x,y,CHIP_W,CHIP_H,K.YELLOW,.9,6)
+    K.text(p,x,y,CHIP_W,CHIP_H,Loc.tr("СЛЕЖЕНИЕ","TRACKING"),23,K.BLACK,"center")
+    return nil
+  end
+  local bg=K.roundFill(p,x,y,CHIP_W,CHIP_H,K.CYAN,.08,6)
+  K.roundEdge(p,x,y,CHIP_W,CHIP_H,K.CYAN,.8,6)
+  crosshair(p,x+17,y+14,18,K.CYAN)
+  K.text(p,x+46,y,CHIP_W-54,CHIP_H,Loc.tr("СЛЕДИТЬ","TRACK"),23,K.CYAN,"center")
+  return bg
+end
 local function filterIcon(p,x,y,kind,col)
   if kind=="main" then mark(p,x,y,30,true,col)
   elseif kind=="active" then
@@ -94,7 +119,10 @@ function J.journal(kit,p,p2)
         local reserved=q.distance and q.active and 110 or 8
         local available=v.cw-78-reserved
         K.text(c,70,5,available,42,K.clip(q.name,math.floor(available/16)),29,K.CYAN)
-        K.text(c,70,49,v.cw-90,37,K.clip(q.objective,math.floor((v.cw-90)/13)),25,K.GREY)
+        -- the tracked quest says so in words too, not only in yellow
+        local tag=q.tracked and q.active and 140 or 0
+        K.text(c,70,49,v.cw-90-tag,37,K.clip(q.objective,math.floor((v.cw-90-tag)/13)),25,K.GREY)
+        if tag>0 then K.text(c,v.cw-tag-14,49,tag,37,Loc.tr("СЛЕЖЕНИЕ","TRACKED"),22,K.YELLOW,"right") end
         if q.distance and q.active then
           if q.tracked then K.roundFill(c,v.cw-112,3,108,43,K.YELLOW,.9,5) end
           s.distanceWidgets[q.hash]=K.text(c,v.cw-110,3,101,43,distanceText(kit,s.distances[q.hash] or q.distance),27,q.tracked and K.BLACK or K.CYAN,"center")
@@ -117,16 +145,42 @@ function J.journal(kit,p,p2)
     -- Title and objective are separate rows, with the same breathing room as the native journal.
     C.textRows(kit,details,K.upper(q.name),detailW,K.WHITE,34)
     details[#details+1]={h=28,build=function() end}
-    local firstActive=true
+    -- ONLY OBJECTIVES GET A CHIP. The native details panel makes a trackable row of each JournalQuestObjective only
+    -- (QuestLogDetailsPanel / QuestDetailsObjectiveController); sub-objectives are drawn indented under their
+    -- objective, without a chip, and a tap on one tracks the objective it belongs to (D.quest lists each objective's
+    -- subs right after it).
+    -- WHICH ONE IS TRACKED comes from JournalManager:GetTrackedEntry(), not from the rows' tracked flag: the wrapper's
+    -- QuestObjectiveWrapper.IsTrackedInHierarchy() is true only when one of its SUB-objectives is the tracked entry,
+    -- never for the objective itself, so the flag is false on almost every objective row.
+    local trackedHash=0
+    pcall(function()
+      local jm=Game.GetJournalManager();local e=jm:GetTrackedEntry()
+      if e~=nil then trackedHash=jm:GetEntryHash(e) end
+    end)
+    local trackedRow={};local parent
     for _,o in ipairs(q.objectives) do
+      if not o.sub then parent=o end
+      if o.hash==trackedHash or o.tracked then trackedRow[(o.sub and parent or o).hash]=true end
+    end
+    parent=nil
+    for _,o in ipairs(q.objectives) do
+      if not o.sub then parent=o end
       if o.active then
-        local tracked=o.tracked or (firstActive and selected and selected.tracked);firstActive=false
-        local lines=C.wrap(K.upper(o.name),math.floor((detailW-100)/17));local h=#lines*41+26
+        local sub=o.sub and parent~=nil
+        local target=sub and parent.hash or o.hash
+        local tracked=not sub and trackedRow[o.hash]==true
+        local indent=sub and 36 or 0
+        local chipW=sub and 0 or CHIP_W+16
+        local lines=C.wrap(K.upper(o.name),math.floor((detailW-100-indent-chipW)/17));local h=#lines*41+26
         details[#details+1]={h=h+12,build=function(c,it,v)
-          local bg=K.roundFill(c,0,0,v.cw,h,K.CYAN,.05,6)
-          book(c,16,15,27,tracked and K.YELLOW or K.CYAN)
-          K.text(c,66,11,v.cw-90,#lines*41,table.concat(lines,"\n"),30,K.CYAN)
-          kit.button("p2",kit.at(v.x,it.y,v),0,0,v.cw,h,function() C.perform(kit,function() return D.track(o.hash) end) end,function(hov) bg:SetOpacity(hov and .2 or .05) end)
+          local bg=K.roundFill(c,indent,0,v.cw-indent,h,K.CYAN,.05,6)
+          if sub then K.rect(c,indent+22,25,10,10,K.CYAN,.8) else book(c,16,15,27,tracked and K.YELLOW or K.CYAN) end
+          K.text(c,indent+66,11,v.cw-90-indent-chipW,#lines*41,table.concat(lines,"\n"),sub and 27 or 30,K.CYAN)
+          local chip=not sub and trackChip(kit,c,v.cw-CHIP_W-14,math.floor((h-CHIP_H)/2),tracked) or nil
+          kit.button("p2",kit.at(v.x,it.y,v),indent,0,v.cw-indent,h,function() C.perform(kit,function() return D.track(target) end) end,function(hov)
+            bg:SetOpacity(hov and .2 or .05)
+            if chip then chip:SetOpacity(hov and .3 or .08) end
+          end)
         end}
       end
     end
