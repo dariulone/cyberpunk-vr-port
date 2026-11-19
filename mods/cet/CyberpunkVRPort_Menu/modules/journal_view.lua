@@ -20,7 +20,10 @@ end
 -- objective now carries its state at its right end: TRACK (an outlined chip with a crosshair, lit with the
 -- row's hover) or TRACKING (filled yellow, the colour the tracked quest already has in the list and on its
 -- distance). The chip is drawing only: the whole row stays the button, as before.
+-- Russian uses the game's own words (Отслеживать / Отслеживается, as in the menu's LABELS), which are longer: the chip
+-- and the list's TRACKED label are wider in Russian (set per draw, the language can change in the settings).
 local CHIP_W,CHIP_H=176,46
+local TAG_W=140
 local function crosshair(p,x,y,size,col)
   K.image(p,x,y,size,size,K.ATLAS.phone,"circle",col,1)
   K.image(p,x+2,y+2,size-4,size-4,K.ATLAS.phone,"circle",K.BLACK,1)
@@ -32,13 +35,13 @@ end
 local function trackChip(kit,p,x,y,tracked)
   if tracked then
     K.roundFill(p,x,y,CHIP_W,CHIP_H,K.YELLOW,.9,6)
-    K.text(p,x,y,CHIP_W,CHIP_H,Loc.tr("СЛЕЖЕНИЕ","TRACKING"),23,K.BLACK,"center")
+    K.text(p,x,y,CHIP_W,CHIP_H,Loc.tr("ОТСЛЕЖИВАЕТСЯ","TRACKING"),23,K.BLACK,"center")
     return nil
   end
   local bg=K.roundFill(p,x,y,CHIP_W,CHIP_H,K.CYAN,.08,6)
   K.roundEdge(p,x,y,CHIP_W,CHIP_H,K.CYAN,.8,6)
   crosshair(p,x+17,y+14,18,K.CYAN)
-  K.text(p,x+46,y,CHIP_W-54,CHIP_H,Loc.tr("СЛЕДИТЬ","TRACK"),23,K.CYAN,"center")
+  K.text(p,x+46,y,CHIP_W-54,CHIP_H,Loc.tr("ОТСЛЕЖИВАТЬ","TRACK"),23,K.CYAN,"center")
   return bg
 end
 local function filterIcon(p,x,y,kind,col)
@@ -60,6 +63,7 @@ end
 
 function J.journal(kit,p,p2)
   local s,t=C.state(kit);local inspect=s.journalInspect
+  local ru=Loc.code=="ru-ru";CHIP_W=ru and 250 or 176;TAG_W=ru and 205 or 140
   local listW=820
   local detailX=kit.P2X
   local detailW=900
@@ -120,9 +124,9 @@ function J.journal(kit,p,p2)
         local available=v.cw-78-reserved
         K.text(c,70,5,available,42,K.clip(q.name,math.floor(available/16)),29,K.CYAN)
         -- the tracked quest says so in words too, not only in yellow
-        local tag=q.tracked and q.active and 140 or 0
+        local tag=q.tracked and q.active and TAG_W or 0
         K.text(c,70,49,v.cw-90-tag,37,K.clip(q.objective,math.floor((v.cw-90-tag)/13)),25,K.GREY)
-        if tag>0 then K.text(c,v.cw-tag-14,49,tag,37,Loc.tr("СЛЕЖЕНИЕ","TRACKED"),22,K.YELLOW,"right") end
+        if tag>0 then K.text(c,v.cw-tag-14,49,tag,37,Loc.tr("ОТСЛЕЖИВАЕТСЯ","TRACKED"),22,K.YELLOW,"right") end
         if q.distance and q.active then
           if q.tracked then K.roundFill(c,v.cw-112,3,108,43,K.YELLOW,.9,5) end
           s.distanceWidgets[q.hash]=K.text(c,v.cw-110,3,101,43,distanceText(kit,s.distances[q.hash] or q.distance),27,q.tracked and K.BLACK or K.CYAN,"center")
