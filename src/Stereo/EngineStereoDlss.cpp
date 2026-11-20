@@ -418,6 +418,62 @@ sl::Result HookedSetOptions(const sl::ViewportHandle& viewport, const sl::DLSSOp
     return setOptions(viewport, options);
 }
 
+// THE ENGINE'S DLSS AVAILABILITY ABOVE 8192 PIXELS. The engine asks slDLSSGetOptimalSettings for the side-by-side
+// output (both eyes, e.g. 8304x3476 for 4152 per eye) and turns DLSS off when the call fails
+// (Cyberpunk2077.exe 2.5: the caller of the slDLSSGetOptimalSettings thunk returns false on a non-eOk result).
+// Seen on 2.5 at 4152 and 5072 per eye: no tags, no options, no evaluate (the call does not take an output wider
+// than 8192), so the per-eye split below never runs and the eyes get no upscaled picture. The eyes never evaluate
+// that wide: each gets half the width (kEyeViewport). So for a side-by-side frame too wide for DLSS the question is asked
+// for one eye and the answer given back for two: widths doubled, heights as they are.
+using GetOptimalSettingsFn = sl::Result (*)(const sl::DLSSOptions&, sl::DLSSOptimalSettings&);
+GetOptimalSettingsFn getOptimalSettings = nullptr;   // the trampoline of slDLSSGetOptimalSettings
+constexpr uint32_t kDlssMaxOutputWidth = 8192;
+// 1 = above 8192 pixels the engine's question is asked per eye (default); 0 = passed through as asked. Live.
+}  // namespace
+}  // namespace cvr::engine_stereo::dlss
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoDlssWideQuery{1};
+// [0] queries asked per eye, [1] of them answered eOk, [2] passed through, [3] the per-eye answer failed.
+extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEngineStereoDlssWide[4] = {};
+namespace cvr::engine_stereo::dlss {
+namespace {
+
+// SEH on its own: no objects to unwind here (C2712).
+bool WideQuery(const sl::DLSSOptions& options) {
+    __try {
+        return CyberpunkVR_EngineStereoDlssWideQuery.load(std::memory_order_relaxed) && Enabled() &&
+               options.outputWidth > kDlssMaxOutputWidth && (options.outputWidth % 2) == 0 &&
+               options.outputWidth / 2 <= kDlssMaxOutputWidth;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+sl::Result HookedGetOptimalSettings(const sl::DLSSOptions& options, sl::DLSSOptimalSettings& settings) {
+    auto* debug = CyberpunkVR_DebugEngineStereoDlssWide;
+    if (!WideQuery(options)) { ++debug[2]; return getOptimalSettings(options, settings); }
+    sl::DLSSOptions eye = options;   // the chain (next) stays the engine's
+    eye.outputWidth = options.outputWidth / 2;
+    ++debug[0];
+    const sl::Result result = getOptimalSettings(eye, settings);
+    static std::atomic<uint32_t> logged{0};
+    if (result != sl::Result::eOk) {
+        ++debug[3];
+        if (logged.fetch_add(1) < 4)
+            Log("[engine-stereo-dlss] optimal settings for %ux%u asked per eye (%ux%u): failed %d\n", options.outputWidth,
+                options.outputHeight, eye.outputWidth, eye.outputHeight, int(result));
+        return result;
+    }
+    ++debug[1];
+    const uint32_t eyeRender = settings.optimalRenderWidth;
+    settings.optimalRenderWidth *= 2;
+    settings.renderWidthMin *= 2;
+    settings.renderWidthMax *= 2;
+    if (logged.fetch_add(1) < 4)
+        Log("[engine-stereo-dlss] optimal settings for %ux%u (wider than DLSS takes) asked per eye: mode %u eye output "
+            "%ux%u -> render %ux%u, given back as %ux%u (min %u max %u)\n", options.outputWidth, options.outputHeight,
+            uint32_t(options.mode), eye.outputWidth, eye.outputHeight, eyeRender, settings.optimalRenderHeight,
+            settings.optimalRenderWidth, settings.optimalRenderHeight, settings.renderWidthMin, settings.renderWidthMax);
+    return result;
+}
+
 // RR's options are only taken as the engine set them: the guides' layout (normal/roughness packing) and the view
 // matrices cannot be derived.
 void CopyRrOptions(const sl::DLSSDOptions& options, uint32_t v) {
@@ -630,6 +686,19 @@ void InstallOptionsHook() {
     } else {
         optionsIntercepted.store(true,std::memory_order_release);
         Log("[engine-stereo-dlss] slDLSSSetOptions hooked\n");
+    }
+    target = nullptr;
+    if (get(sl::kFeatureDLSS, "slDLSSGetOptimalSettings", target) == sl::Result::eOk && target) {
+        if (MH_CreateHook(target, reinterpret_cast<void*>(&HookedGetOptimalSettings),
+                          reinterpret_cast<void**>(&getOptimalSettings)) == MH_OK && MH_EnableHook(target) == MH_OK) {
+            Log("[engine-stereo-dlss] slDLSSGetOptimalSettings hooked (side-by-side wider than %u asked per eye)\n",
+                kDlssMaxOutputWidth);
+        } else {
+            MH_RemoveHook(target);
+            getOptimalSettings = nullptr;
+            Log("[engine-stereo-dlss] slDLSSGetOptimalSettings could not be hooked; DLSS stays off above %u pixels\n",
+                kDlssMaxOutputWidth);
+        }
     }
     optionsHooked.store(true, std::memory_order_release);
 }
