@@ -585,15 +585,18 @@ bool Generate(ID3D12Device* device,ID3D12CommandQueue* producer,ID3D12Resource* 
               std::shared_ptr<const void> captureLease) {
     if(!Enabled() || !device || !producer || !colors[0] || !colors[1] || !inputs[0] || !inputs[1])return false;
     const auto color=colors[0]->GetDesc();
-    if(color.Format!=DXGI_FORMAT_R8G8B8A8_TYPELESS && color.Format!=DXGI_FORMAT_R8G8B8A8_UNORM &&
-       color.Format!=DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
+    const auto right=colors[1]->GetDesc();
+    // MAIN can be UNORM while the secondary capture is TYPELESS. Both use the same UNORM view.
+    const auto rgba8=[](DXGI_FORMAT f){return f==DXGI_FORMAT_R8G8B8A8_TYPELESS || f==DXGI_FORMAT_R8G8B8A8_UNORM;};
+    if(!rgba8(color.Format) || !rgba8(right.Format)) {
         SetText("FSR3 needs RGBA8 eye captures");return false;
     }
     const InputLayout requested{device,UINT(color.Width),color.Height,inputs[0]->width,inputs[0]->height,
                                 inputs[0]->camera.inverted,inputs[0]->camera.infinite};
-    const auto right=colors[1]->GetDesc();
-    if(right.Width!=color.Width || right.Height!=color.Height || right.Format!=color.Format ||
-       inputs[1]->width!=requested.renderWidth || inputs[1]->height!=requested.renderHeight) return false;
+    if(right.Width!=color.Width || right.Height!=color.Height ||
+       inputs[1]->width!=requested.renderWidth || inputs[1]->height!=requested.renderHeight) {
+        SetText("Waiting for matching stereo input dimensions");return false;
+    }
     if(layout.device && !(layout==requested) && !ReleaseResources())return false;
     layout=requested;
     if(!producerFence && FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&producerFence))))return false;

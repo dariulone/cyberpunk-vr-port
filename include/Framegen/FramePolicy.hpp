@@ -143,7 +143,7 @@ inline bool CanInterpolate(const Identity& a,const Identity& b) {
 // the pending endpoint with a newer capture, or motion reverses/skips time.
 class Cadence {
 public:
-    enum class Next { Repeat, Real, Midpoint, PendingReal };
+    enum class Next { Repeat, Real, Midpoint, PendingReal, Extrapolated };
     Next Select(uint64_t serial,bool pairReady,bool enabled) const {
         if(pending_)return Next::PendingReal;
         if(!serial || serial==displayed_)return Next::Repeat;

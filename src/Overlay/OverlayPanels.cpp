@@ -983,8 +983,10 @@ void DrawNeuralRenderControls() {
         "The game's DLSS picture is in a format this cannot read.", "The DLSS hook could not be put in."};
     if (CyberpunkVR_NrDisabled) {
         const int fault = CyberpunkVR_NrFault;
-        UI::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Stopped: %s",
-                        fault > 0 && fault < int(IM_ARRAYSIZE(kFaults)) ? kFaults[fault] : "a fault.");
+        const char* reason=fault>0 && fault<int(IM_ARRAYSIZE(kFaults)) ? kFaults[fault] : "NGX error.";
+        if(fault==3 && CyberpunkVR_NrCreateResult==0xBAD0000Cu)
+            reason="NGX requires a newer display driver or feature library.";
+        UI::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Stopped: %s",reason);
         if (UI::Button("Retry")) { CyberpunkVR_NrFault = 0; CyberpunkVR_NrDisabled = 0; }
     } else if (!CyberpunkVR_NrEnable) {
         UI::TextDisabled("Off.");

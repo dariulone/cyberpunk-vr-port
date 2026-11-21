@@ -471,13 +471,21 @@ Context* ContextFor(const void* handle, ID3D12Device* dev, ID3D12GraphicsCommand
     Context& c = *slot;
     c.handle = handle; c.w = w; c.h = h;
     const Vram before = ReadVram(dev);
-    if (NgxFailed(g_alloc(&c.params)) || !c.params) { c.broken = true; return &c; }
+    if (NgxFailed(g_alloc(&c.params)) || !c.params) {
+        c={};Fault(2);return nullptr;
+    }
     FillCreateParams(static_cast<NgxParams*>(c.params), int(w), int(h));
     void* feature = nullptr;
     const unsigned r = SafeCreate(g_coreCreate, list, c.params, &feature);
     CyberpunkVR_NrCreateResult = r;
     if (r == 0xDEAD0003u) { c.broken = true; Fault(5); TestLog("[nr] CreateFeature(18) FAULTED (handle %p)\n", handle); return &c; }
-    if (NgxFailed(r) || !feature) { c.broken = true; Fault(3); TestLog("[nr] CreateFeature(18) failed 0x%08X (handle %p, %ux%u)\n", r, handle, w, h); return &c; }
+    if (NgxFailed(r) || !feature) {
+        SafeDestroyParams(c.params);
+        c={}; // A later Retry must issue a fresh create request.
+        Fault(3);
+        TestLog("[nr] CreateFeature(18) failed 0x%08X (handle %p, %ux%u)\n", r, handle, w, h);
+        return nullptr;
+    }
     c.feature = feature;
     c.color = MakeTexture(dev, w, h);
     c.output = MakeTexture(dev, w, h);

@@ -178,7 +178,7 @@ void GpuFsr3(bool extrapolate,bool hardware) {
             for(unsigned y=25;y<67;++y)for(unsigned x=start;x<start+24;++x) {
                 const auto i=y*width+x;pixels[i]=0xffeeeeee;depth[i]=.6f;motion[2*i]=-6.0f/width;
             }
-            color[eye]=gpu.Texture(width,height,DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_STATE_COPY_DEST);
+            color[eye]=gpu.Texture(width,height,eye ? DXGI_FORMAT_R8G8B8A8_TYPELESS : DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_STATE_COPY_DEST);
             input->depth=gpu.Texture(width,height,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
             input->motion=gpu.Texture(width,height,DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
             gpu.Upload(color[eye].Get(),pixels.data(),4,D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -207,6 +207,12 @@ void GpuFsr3(bool extrapolate,bool hardware) {
             Check(extrapolate ? center>realCenter+.4 : center<realCenter-.4,"generated frame moved in the wrong direction");
         }
         accept(selected);
+        if(extrapolate) {
+            Check(selected.kind==Cadence::Next::Extrapolated,"first prediction counted as a repeat");
+            const auto held=take();
+            Check(held.synthetic && held.kind==Cadence::Next::Repeat && held.frame.color[0]==selected.frame.color[0],
+                  "repeated display cycle regressed from prediction to the older real image");
+        }
         if(!extrapolate) {selected=take();Check(!selected.synthetic && selected.kind==Cadence::Next::PendingReal,
             "missing real endpoint after FSR3 midpoint");accept(selected);}
     }

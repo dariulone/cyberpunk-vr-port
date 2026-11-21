@@ -161,7 +161,10 @@ Selection Presenter::SelectFsr3(ID3D12Device* device,ID3D12CommandQueue* produce
         if(backend!=Backend::Fsr3Extrapolation || result.kind!=Cadence::Next::Repeat) return result;
         if(predictNext==serial) {
             predictNext=0;
-            if(fsr3::Generate(device,producer,current.color,current.inputs,serial,0,current.lease)) predictedSerial=serial;
+            if(fsr3::Generate(device,producer,current.color,current.inputs,serial,0,current.lease)) {
+                predictedSerial=serial;
+                if(fsr3::ShowGenerated())result.kind=Cadence::Next::Extrapolated;
+            }
         }
         if(predictedSerial==serial && fsr3::ShowGenerated()) {
             for(unsigned eye=0;eye<2;++eye) {
