@@ -189,13 +189,17 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   latches so the car keeps rolling.
 - **World-map head-lock** — DLSS/NGX handling (the second
   view gets its own upscaler viewport automatically).
-- **19 headsets, 188 resolutions**, every ladder shaped to that headset's measured
-  eye window, picked before launch: Quest 2 / 3 / 3S, Pico 4 / 4 Ultra, Pimax
+- **20 headsets, 200 resolutions**, every ladder shaped to that headset's measured
+  eye window, picked before launch: Quest 2 / 3 / 3S / Pro, Pico 4 / 4 Ultra, Pimax
   Crystal OG / Light / Super / Ultra Wide and Dream Air, Valve Index, PSVR2,
   Bigscreen Beyond 2/2e, Steam Frame, HP Reverb G2, MeganeX superlight 8K,
   Samsung Galaxy XR, HTC Vive and HTC Vive Pro / Pro Eye. Up to 3500 px the
-  steps are at most 1.12 per side; 49 of them need engine stereo (the default)
+  steps are at most 1.12 per side; 61 of them need engine stereo (the default)
   and are not listed when it is off.
+  Quest Pro's preset is measured through WiVRn 26.9; its 12 resolutions use
+  engine stereo. With engine stereo off, it uses the existing Quest 2 camera
+  resolutions, which render about 1.8% wider than the measured Quest Pro window.
+  Other Quest Pro connection methods have not been validated with this preset.
 - **HUD placement is built into the port.** The HUD page controls native VR
   panels and their elements. HUDitor is not required and its old layout is not
   installed by the release package.

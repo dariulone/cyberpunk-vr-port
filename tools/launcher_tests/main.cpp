@@ -110,7 +110,7 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
         if(mode==0) {
             Check(GetDlgItem(window,102) && GetDlgItem(window,104),"launcher controls missing");
             const auto headset=GetDlgItem(window,104);
-            Check(SendMessageW(headset,CB_GETCOUNT,0,0)==19,"headset count changed unexpectedly");
+            Check(SendMessageW(headset,CB_GETCOUNT,0,0)==20,"headset count changed unexpectedly");
             Check(ComboText(headset,3)==L"Pico4" && ComboText(headset,12)==L"Bigscreen Beyond 2/2e","existing headset IDs moved");
             Check(ComboText(headset,13)==L"Steam Frame" && ComboText(headset,14)==L"HP Reverb G2","new headset entries missing");
             Check(ComboText(headset,15)==L"MeganeX superlight 8K","MeganeX superlight 8K entry missing");
@@ -121,6 +121,16 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             const auto vive=Resolutions(window,17),vivePro=Resolutions(window,18);
             Check(vive.size()==8 && vive.front()==L"1080 x 1200 (panel)" && vive[4]==L"1512 x 1680 (SteamVR 100%)","HTC Vive resolution ladder incorrect");
             Check(vivePro.size()==10 && vivePro.front()==L"1440 x 1600 (panel)" && vivePro[6]==L"2016 x 2240 (SteamVR 100%)","HTC Vive Pro resolution ladder incorrect");
+            Check(ComboText(headset,19)==L"Meta Quest Pro (WiVRn)","Quest Pro entry missing");
+            const auto questPro=Resolutions(window,19);
+            Check(questPro.size()==12 && questPro.front()==L"2608 x 2680 (WiVRn render cost)","Quest Pro resolution ladder incorrect");
+            const double radians=std::acos(-1.0)/180.0;
+            const double questProAspect=(std::tan(54*radians)+std::tan(40*radians))/(std::tan(42*radians)+std::tan(54*radians));
+            for(const auto& label:questPro) {
+                int w=0,h=0;
+                Check(std::swscanf(label.c_str(),L"%d x %d",&w,&h)==2 && w%8==0 && h%8==0 &&
+                      std::abs(double(w)/h/questProAspect-1.0)<0.0025,"Quest Pro resolution does not fit the measured eye window");
+            }
             // Steam Frame is selected last: the nearest-cost check below reads its ladder.
             const auto meganex=Resolutions(window,15),quest3=Resolutions(window,2);
             Check(meganex.size()==11 && meganex.front()==L"3824 x 3568 (cost of the 3552 x 3840 panel)" && meganex.back()==L"6216 x 5792","MeganeX superlight 8K resolution ladder incorrect");
@@ -137,11 +147,18 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             // The steps only engine stereo offers (no VRCAM assets): listed and kept with it, gone without it.
             w=2352;h=2352;Check(SnapLauncherResolution(3,&w,&h)==0 && w==2352,"an engine-stereo step was moved with engine stereo on");
             w=4096;h=4096;Check(FitLauncherResolution(3,3400,3400,&w,&h)==1 && w==3384 && h==3384,"the runtime fit skipped an engine-stereo step");
+            w=2832;h=2912;Check(SnapLauncherResolution(19,&w,&h)==0,"Quest Pro engine-stereo pick was moved");
+            w=6056;h=6224;Check(FitLauncherResolution(19,5040,5544,&w,&h)==1 && w==5040 && h==5184,"Quest Pro resolution did not fit the runtime limits");
             engineStereo=0;
             Check(Resolutions(window,3).size()==8,"engine-stereo steps listed without engine stereo");
             w=2352;h=2352;Check(SnapLauncherResolution(3,&w,&h)==1 && w==2560 && h==2560,"an engine-stereo pick was kept without engine stereo");
             w=4096;h=4096;Check(FitLauncherResolution(3,3400,3400,&w,&h)==1 && w==3072 && h==3072,"the runtime fit took an engine-stereo step without engine stereo");
+            const auto quest2Vrcam=Resolutions(window,0),questProVrcam=Resolutions(window,19);
+            Check(!questProVrcam.empty() && questProVrcam==quest2Vrcam,"Quest Pro legacy choices must have existing camera assets");
+            w=2832;h=2912;Check(SnapLauncherResolution(19,&w,&h)==1 && w==2600 && h==2624,"Quest Pro engine-stereo pick did not fall back to an authored camera");
+            w=6056;h=6224;Check(FitLauncherResolution(19,5040,5544,&w,&h)==1 && w==4168 && h==4208,"Quest Pro legacy fit selected an unavailable camera");
             engineStereo=1;
+            w=2600;h=2624;Check(SnapLauncherResolution(19,&w,&h)==1 && w==2608 && h==2680,"Quest Pro legacy pick did not return to the measured ladder");
             SelectHmd(window,1);
             SendMessageW(GetDlgItem(window,105),BM_SETCHECK,BST_CHECKED,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
@@ -218,6 +235,16 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             for(int id : {112,113,114}) SendMessageW(GetDlgItem(window,id),BM_SETCHECK,BST_CHECKED,0);
             SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
             Check(savedCustom==0 && savedLobby==1 && savedInterface==1 && savedPhysics==1,"feature re-enable was not saved");
+        } else if(mode==8) {
+            SelectHmd(window,19);
+            SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,0,0);
+            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            Check(savedHmd==19 && savedWidth==2608 && savedHeight==2680 && savedCustom==0,"Quest Pro selection was not saved");
+        } else if(mode==9) {
+            Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==19 &&
+                  SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==0 &&
+                  FieldText(window,109)==L"2608" && FieldText(window,110)==L"2680","Quest Pro selection did not reload");
+            PostMessageW(window,WM_CLOSE,0,0);
         }
     }catch(const std::exception& e){failure=e.what();if(window)PostMessageW(window,WM_CLOSE,0,0);else PostQuitMessage(20);}
 }
@@ -235,7 +262,7 @@ int main()try {
     InstallOSHooks();
     g_origClipCursor=FakeClip;g_origSetCursorPos=FakeWarp;g_origGetCursorPos=FakePos;
     g_origGetCursorInfo=FakeInfo;g_origGetMessagePos=FakeMessagePos;
-    for(mode=0;mode<8;++mode){
+    for(mode=0;mode<10;++mode){
         deadline=GetTickCount64()+3000;timer=SetTimer(nullptr,0,20,Inspect);Check(timer!=0,"timer unavailable");
         ShowLauncherDialog();KillTimer(nullptr,timer);
         Check(failure.empty(),failure.c_str());
@@ -246,13 +273,13 @@ int main()try {
         else Check(!PeekMessageW(&message,nullptr,WM_QUIT,WM_QUIT,PM_REMOVE),"closing launcher posted application WM_QUIT");
         RECT client{};HookedGetClientRect(g_gameHwnd,&client);Check(client.right==7654 && client.bottom==4321,"game virtual input did not resume");
     }
-    Check(saves==5 && savedDebug==1,"Start did not save once per selection");
+    Check(saves==6 && savedDebug==1,"Start did not save once per selection");
     WNDCLASSW failed{};failed.lpfnWndProc=RejectWindow;failed.hInstance=gameClass.hInstance;failed.lpszClassName=L"CyberpunkVRPortLauncherClass";
     Check(RegisterClassW(&failed)!=0,"failure class unavailable");ShowLauncherDialog();
     Check(!IsLauncherOpen() && IsWindowVisible(g_gameHwnd),"creation failure stranded game/input");
     UnregisterClassW(failed.lpszClassName,failed.hInstance);
     DestroyWindow(g_gameHwnd);g_gameHwnd=nullptr;UnregisterClassW(gameClass.lpszClassName,gameClass.hInstance);
     Check(SetThreadDesktop(originalDesktop),"cannot restore test thread desktop");CloseDesktop(desktop);
-    std::cout<<"PASS window-shaped Steam Frame/Reverb G2/MeganeX/Galaxy XR/Vive ladders, engine-stereo steps, nearest-cost snap of retired picks, saved IDs, Unicode title, topmost, hidden fullscreen owner, input passthrough, start/close/quit, reentry and creation failure\n";
+    std::cout<<"PASS window-shaped Steam Frame/Reverb G2/MeganeX/Galaxy XR/Vive/Quest Pro ladders, Quest Pro legacy cameras and runtime limits, engine-stereo steps, nearest-cost snap of retired picks, saved IDs, Unicode title, topmost, hidden fullscreen owner, input passthrough, start/close/quit, reentry and creation failure\n";
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
