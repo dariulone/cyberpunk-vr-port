@@ -79,6 +79,8 @@ struct HmdPreset {
     const wchar_t* label;
     const ResolutionPreset* resolutions;
     int resolutionCount;
+    // Optional ladder backed by shipped VRCAM assets, with the same saved headset ID.
+    const HmdPreset* withoutEngineStereo = nullptr;
 };
 
 // --- Per-HMD resolution lists ---
@@ -173,6 +175,34 @@ static const ResolutionPreset kQuest3Resolutions[] = {
     {3672, 3968, L"3672 x 3968"},
     {4480, 4840, L"4480 x 4840"},
     {5384, 5816, L"5384 x 5816"},
+};
+
+// QUEST PRO: measured on hardware through WiVRn 26.9, CyberpunkVRPort 0.2.45 (2026-11-21).
+// systemName="Meta Quest Pro on WiVRn", parallel views; left L-54/R+40, right L-40/R+54,
+// both U+42/D-54. Window AR = (tan 54 + tan 40) / (tan 42 + tan 54) = 0.973074.
+// WiVRn recommended 2520 x 2772 per eye in this session. 2608 x 2680 keeps that pixel count
+// within 0.06% while fitting the measured window; the recommendation is not the panel resolution.
+// All sides are multiples of 8 and all aspects within 0.25% of the window. These new sizes need
+// engine stereo: no matching VRCAM assets are shipped. The legacy path uses the existing Quest 2
+// assets (about 1.8% wider than this window), so this preset needs no new camera assets.
+// IPD and projection still come from the runtime; these measurements only shape the resolution list.
+static const ResolutionPreset kQuestProResolutions[] = {
+    {2608, 2680, L"2608 x 2680 (WiVRn render cost)", kEngineStereoOnly},
+    {1696, 1744, L"1696 x 1744", kEngineStereoOnly},
+    {1848, 1896, L"1848 x 1896", kEngineStereoOnly},
+    {2064, 2120, L"2064 x 2120", kEngineStereoOnly},
+    {2304, 2368, L"2304 x 2368", kEngineStereoOnly},
+    {2432, 2496, L"2432 x 2496", kEngineStereoOnly},
+    {2832, 2912, L"2832 x 2912", kEngineStereoOnly},
+    {3112, 3200, L"3112 x 3200", kEngineStereoOnly},
+    {3416, 3512, L"3416 x 3512", kEngineStereoOnly},
+    {4128, 4248, L"4128 x 4248", kEngineStereoOnly},
+    {5040, 5184, L"5040 x 5184", kEngineStereoOnly},
+    {6056, 6224, L"6056 x 6224", kEngineStereoOnly},
+};
+
+static const HmdPreset kQuestProVrcamPreset = {
+    19, L"QPRO", L"Meta Quest Pro (WiVRn)", kQuest2Resolutions, _countof(kQuest2Resolutions)
 };
 
 // PICO 4 / PICO 4 ULTRA: the runtime reports a symmetric +-52 deg window both ways (Pico 4 through
@@ -465,7 +495,12 @@ static const HmdPreset kHmdPresets[] = {
     {16,L"GXR",   L"Samsung Galaxy XR", kGalaxyXrResolutions, _countof(kGalaxyXrResolutions)},
     {17,L"VIVE",  L"HTC Vive", kViveResolutions, _countof(kViveResolutions)},
     {18,L"VIVEP", L"HTC Vive Pro / Pro Eye", kViveProResolutions, _countof(kViveProResolutions)},
+    {19,L"QPRO", L"Meta Quest Pro (WiVRn)", kQuestProResolutions, _countof(kQuestProResolutions), &kQuestProVrcamPreset},
 };
+
+static const HmdPreset& PresetForStereoMode(const HmdPreset& hmd) {
+    return !GetLauncherEngineStereo() && hmd.withoutEngineStereo ? *hmd.withoutEngineStereo : hmd;
+}
 
 // The entries this launch offers: every one with engine stereo, only those with VRCAM assets without it.
 static bool Offered(const ResolutionPreset& r) {
@@ -487,7 +522,8 @@ static int NearestCostEntry(const HmdPreset& hmd, int w, int h) {
 
 int SnapLauncherResolution(int hmdType, int* width, int* height) {
     if (!width || !height || *width <= 0 || *height <= 0) return 0;
-    for (const HmdPreset& hmd : kHmdPresets) {
+    for (const HmdPreset& preset : kHmdPresets) {
+        const HmdPreset& hmd = PresetForStereoMode(preset);
         if (hmd.mhdType != hmdType || hmd.resolutionCount <= 0) continue;
         for (int i = 0; i < hmd.resolutionCount; ++i)
             if (hmd.resolutions[i].width == *width && hmd.resolutions[i].height == *height &&
@@ -505,7 +541,8 @@ int SnapLauncherResolution(int hmdType, int* width, int* height) {
 int FitLauncherResolution(int hmdType, int maxWidth, int maxHeight, int* width, int* height) {
     if (!width || !height || *width <= 0 || *height <= 0 || maxWidth < 8 || maxHeight < 8) return 0;
     if (*width <= maxWidth && *height <= maxHeight) return 0;
-    for (const HmdPreset& hmd : kHmdPresets) {
+    for (const HmdPreset& preset : kHmdPresets) {
+        const HmdPreset& hmd = PresetForStereoMode(preset);
         if (hmd.mhdType != hmdType) continue;
         int best = -1;
         for (int i = 0; i < hmd.resolutionCount; ++i) {
@@ -850,7 +887,7 @@ static void SizeList(HWND combo) {
 
 static const HmdPreset* SelectedHmd() {
     const int index = g_hHmd ? int(SendMessageW(g_hHmd, CB_GETCURSEL, 0, 0)) : -1;
-    return index >= 0 && index < int(std::size(kHmdPresets)) ? &kHmdPresets[index] : nullptr;
+    return index >= 0 && index < int(std::size(kHmdPresets)) ? &PresetForStereoMode(kHmdPresets[index]) : nullptr;
 }
 
 // The ladder entry the resolution field shows (its item data: the entry's index in the headset's ladder).
@@ -1092,7 +1129,7 @@ static void PopulateResolutionCombo(int hmdIndex) {
         hmdIndex = 0;
     }
 
-    const HmdPreset& hmd = kHmdPresets[hmdIndex];
+    const HmdPreset& hmd = PresetForStereoMode(kHmdPresets[hmdIndex]);
     for (int i = 0; i < hmd.resolutionCount; ++i) {
         if (!Offered(hmd.resolutions[i])) continue;
         const int item = int(SendMessageW(g_hRes, CB_ADDSTRING, 0, (LPARAM)hmd.resolutions[i].label));
