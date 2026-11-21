@@ -4,7 +4,9 @@
 extern "C" {
 #endif
 
-void ShowLauncherDialog();
+// A desktop choice lasts only for this process. VR choices are applied after live settings load.
+int ShowLauncherDialog();
+void ApplyLauncherSelection();
 int IsLauncherOpen();
 void WaitForLauncherStartup(unsigned int milliseconds);
 // A resolution that is not in the headset's ladder becomes the ladder entry nearest in cost; 1 when it

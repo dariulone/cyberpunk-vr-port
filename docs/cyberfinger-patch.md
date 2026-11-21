@@ -274,9 +274,10 @@ change the jump/wrist mappings in the table. Dedicated `cf_weapon`,
 ### Installer
 
 Run `install_cyberfinger.cmd` from this checkout. It uses Windows PowerShell 5.1,
-defaults to `C:\Program Files (x86)\GOG Galaxy\Games\Cyberpunk 2077`, enables the
-CyberFinger profile and eight-role SlimeVR, and selects the left-handed weapon
-preset. SteamVR drivers and RED4ext are installed separately.
+detects GOG and Steam game folders, and asks you to choose when it finds several
+copies. Use `-GameRoot` to select a folder explicitly. The default preset enables
+CyberFinger and eight-role SlimeVR with a left-handed weapon. Install SteamVR
+drivers and RED4ext separately.
 
 With a complete **patched** release package already extracted:
 

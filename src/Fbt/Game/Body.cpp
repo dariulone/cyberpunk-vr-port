@@ -1,5 +1,6 @@
 #include "Core/Paths.hpp"
 #include "Fbt/Game/Body.hpp"
+#include "Fbt/Game/StickGait.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include "Fbt/Game/Trackers.hpp"
 #include "Fbt/Game/ExtendedBody.hpp"
@@ -21,7 +22,8 @@ using namespace wrpuppets::fbt;   // the IK library (externals/wrpuppets-fbt-ik)
 namespace cvr::fbt::game {
 namespace {
 std::atomic<int> g_legs{-1}, g_spine{0}, g_arms{0};   // g_legs -1: the file not read yet
-std::atomic<int> g_slimeJoints{0};
+std::atomic<int> g_slimeJoints{0}, g_stickSteps{1};
+std::atomic<ULONGLONG> g_lastMovingStick{0};
 std::atomic<float> g_eyeZ{0.0f};                     // V's eye height as calibrated, model space (the camera's target)
 std::atomic<bool> g_eyeZOn{false};
 std::atomic<unsigned long long> g_eyeZTime{0};       // when the solve last set it: older than 200 ms counts as off
@@ -35,7 +37,7 @@ void ReadSettings() {
     if (g_legs.load(std::memory_order_relaxed) >= 0) return;
     char path[MAX_PATH];
     SettingsPath(path);
-    int legs = 0, spine = 0, arms = 0, slimeJoints = 0;
+    int legs = 0, spine = 0, arms = 0, slimeJoints = 0, stickSteps = 1;
     FILE* f = nullptr;
     if (path[0] && fopen_s(&f, path, "r") == 0 && f) {
         char line[128];
@@ -44,11 +46,13 @@ void ReadSettings() {
             sscanf_s(line, "spine=%d", &spine);
             sscanf_s(line, "arms=%d", &arms);
             sscanf_s(line, "slime_joints=%d", &slimeJoints);
+            sscanf_s(line, "stick_steps=%d", &stickSteps);
         }
         fclose(f);
     }
     g_spine.store(spine ? 1 : 0, std::memory_order_relaxed);
     g_arms.store(arms ? 1 : 0, std::memory_order_relaxed);
+    g_stickSteps.store(stickSteps != 0, std::memory_order_relaxed);
     g_slimeJoints.store(slimeJoints ? 1 : 0, std::memory_order_relaxed);
     g_legs.store(legs ? 1 : 0, std::memory_order_relaxed);
 }
@@ -59,6 +63,7 @@ void WriteSettings() {
     if (!path[0] || fopen_s(&f, path, "w") != 0 || !f) return;
     fprintf(f, "; Full-body tracking settings (src/Fbt/Game).\nlegs=%d\nspine=%d\narms=%d\n", g_legs.load() == 1 ? 1 : 0,
             g_spine.load() == 1 ? 1 : 0, g_arms.load() == 1 ? 1 : 0);
+    fprintf(f, "stick_steps=%d\n", g_stickSteps.load());
     fprintf(f, "slime_joints=%d\n", g_slimeJoints.load() == 1 ? 1 : 0);
     fclose(f);
 }
@@ -67,6 +72,8 @@ void WriteSettings() {
 struct State {
     const Skeleton* skeleton = nullptr;
     IkStack stack;
+    StickGait gait;
+    Quat gaitWorldToModel{};
     bool stackReady = false;
     PoseFilter filters[kCalCount], head;
     PoseFilter extraFilters[5];
@@ -89,6 +96,16 @@ Vec3 Heading(Quat view) {
     return {f.x * c - u.x * sn, f.y * c - u.y * sn, 0};
 }
 }  // namespace
+
+bool StickStepsEnabled() { ReadSettings(); return g_stickSteps.load(std::memory_order_relaxed) != 0; }
+void SetStickStepsEnabled(bool on) {
+    ReadSettings();
+    g_stickSteps.store(on, std::memory_order_relaxed);
+    WriteSettings();
+}
+void NoteLocomotionStick(bool moving) {
+    g_lastMovingStick.store(moving ? GetTickCount64() : 0, std::memory_order_relaxed);
+}
 
 bool SlimeJointsEnabled() { ReadSettings(); return g_slimeJoints.load(std::memory_order_relaxed) == 1; }
 void SetSlimeJointsEnabled(bool on) {
@@ -145,13 +162,14 @@ bool CameraEyeHeight(float* modelZ) {
 
 void SolveLowerBody(uint8_t* boneBuf, const float camModelPos[3], const float camModelRot[4]) {
     g_bodySolved = false;
-    if (!boneBuf || !LegsEnabled() || Calibrating()) { g_eyeZOn.store(false, std::memory_order_relaxed); return; }
+    if (!boneBuf || !LegsEnabled() || Calibrating()) { g.gait = {}; g_eyeZOn.store(false, std::memory_order_relaxed); return; }
     Calibration c;
     ChestCalibration chestCalibration;
     const Skeleton* sk = nullptr;
     const Calibrator* calibrator = nullptr;
     if (!ReadCalibration(&c, &chestCalibration) || !Rig(&sk, &calibrator)) return;
     if (sk != g.skeleton || !g.stackReady) {
+        g.gait = {};
         g.skeleton = sk;
         g.stackReady = g.stack.Init(*sk);
         extended::MakeChain(*sk, sk->Role("spine0"), sk->Role("spine3"), g.lowerSpine);
@@ -160,6 +178,7 @@ void SolveLowerBody(uint8_t* boneBuf, const float camModelPos[3], const float ca
     }
     if (!g.stackReady) return;
     if (g.calibrationRevision != chestCalibration.revision) {
+        g.gait = {};
         g.calibrationRevision = chestCalibration.revision;
         for (auto& f : g.extraFilters) f = {};
         g.lastSample = 0;
@@ -168,7 +187,7 @@ void SolveLowerBody(uint8_t* boneBuf, const float camModelPos[3], const float ca
     // The devices (STAGE, the same instant as the head), filtered as in the lab; the head goal only held through
     // impossible steps.
     XrPosef headStage{};
-    if (!cvr::trackers::ReadHeadStage(&headStage)) return;
+    if (!cvr::trackers::ReadHeadStage(&headStage)) { g.gait = {}; return; }
     RoomPose devices[kCalCount];
     const cvr::trackers::Role roles[3] = {cvr::trackers::kWaist, cvr::trackers::kLeftFoot, cvr::trackers::kRightFoot};
     const int slots[3] = {kCalWaist, kCalLeftFoot, kCalRightFoot};
@@ -177,6 +196,7 @@ void SolveLowerBody(uint8_t* boneBuf, const float camModelPos[3], const float ca
         cvr::trackers::Read(roles[i], &p);
         devices[slots[i]] = ToRoom(p.stageValid, p.stage);
     }
+    const bool bothFeetLive = devices[kCalLeftFoot].valid && devices[kCalRightFoot].valid;
     // The time step from the high-resolution clock (GetTickCount64 ticks every 10-16 ms: at 90 fps many steps read 0,
     // which the filter takes as a restart and passes the raw pose through -- raw and filtered frames alternating).
     // A pass that sees the same device sample as the last one keeps the filter as it is.
@@ -189,8 +209,9 @@ void SolveLowerBody(uint8_t* boneBuf, const float camModelPos[3], const float ca
     ++g.solves;
     if (fresh) ++g.newSamples; else ++g.sameSample;
     static RoomPose s_filtered[kCalCount], s_head, s_extra[5];
+    const float sampleDt = g.lastTime.QuadPart ? float(t.QuadPart - g.lastTime.QuadPart) / float(g.frequency.QuadPart) : 0.f;
     if (fresh) {
-        const float dt = g.lastTime.QuadPart ? std::fmin(0.1f, float(t.QuadPart - g.lastTime.QuadPart) / float(g.frequency.QuadPart)) : 0.0f;
+        const float dt = std::min(.1f, sampleDt);
         g.lastTime = t;
         g.lastSample = sample;
         FilterOptions fo;
@@ -273,6 +294,30 @@ void SolveLowerBody(uint8_t* boneBuf, const float camModelPos[3], const float ca
         const float z = i == kGoalHead ? camModelPos[2] + d.z : goals[i].pos.z;
         goals[i].pos = {camModelPos[0] + d.x, camModelPos[1] + d.y, z};
         goals[i].rot = Normalize(turn * goals[i].rot);
+    }
+    // Measure capsule travel in world space. Head turns and tracker motion alone do not generate steps.
+    const int detailed = g_VRLocomotionDetailed;
+    const bool offGround = g_VRLocomotionState == 10 || detailed == 5 || detailed == 14 || (detailed >= 18 && detailed <= 25);
+    const bool validFeet = bothFeetLive && goals[kGoalLeftFoot].active && goals[kGoalRightFoot].active &&
+        extended::Finite(devices[kCalLeftFoot].pos) && extended::Finite(devices[kCalRightFoot].pos);
+    if (!StickStepsEnabled() || !validFeet || offGround) {
+        g.gait = {};
+    } else if (fresh) {
+        float position[3], rotation[4], trackingYaw;
+        if (VRIK_ReadCurrentBodyFrame(position, rotation, &trackingYaw) && extended::Finite(Vec3{position[0],position[1],position[2]})) {
+            const auto lastStick = g_lastMovingStick.load(std::memory_order_relaxed);
+            const bool movingStick = lastStick && now >= lastStick && now - lastStick < 160;
+            const Vec3 feet[] = {devices[kCalLeftFoot].pos, devices[kCalRightFoot].pos};
+            const bool lifted = std::fabs(goals[kGoalLeftFoot].pos.z - goals[kGoalRightFoot].pos.z) > .09f;
+            g.gait.Advance(sampleDt, {position[0],position[1],position[2]}, feet, movingStick, lifted);
+            g.gaitWorldToModel = Conjugate(Quat{rotation[0],rotation[1],rotation[2],rotation[3]});
+        } else g.gait = {};
+    }
+    for (int side = 0; side < 2; ++side) {
+        const Vec3 step = Rotate(g.gaitWorldToModel, g.gait.offset[side]);
+        Goal& foot = goals[side == 0 ? kGoalLeftFoot : kGoalRightFoot];
+        foot.pos = foot.pos + step;
+        if (g.extra[1 + side].valid) g.extra[1 + side].pos = g.extra[1 + side].pos + step * .5f;
     }
     goals[kGoalLeftHand].active = goals[kGoalRightHand].active = false;   // the port's arms
     // The camera at V's eyes (with the spine): the camera patch sets the view's height to V's eye height as calibrated

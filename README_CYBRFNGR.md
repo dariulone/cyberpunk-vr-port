@@ -157,9 +157,12 @@ preset, pass `-ResetHudDefaults` to the installer. F10's **Reset element** and
 2. Start **CyberFinger Bridge** and connect both CyberFingers. Confirm both hands
    move in SteamVR. In the bridge, set **Right pink button = SteamVR** so that
    button reaches the game instead of controlling microphone mute/FluxAction.
-3. Launch **Cyberpunk from GOG**. In the VR startup dialog choose
+3. Launch **Cyberpunk from Steam or GOG**.
+   For a monitor-only session, choose **Play on desktop**. You can skip headset and SteamVR setup
+   for that launch. To bring back a hidden startup dialog, set `show_launcher=1` in
+   `red4ext/plugins/cyberpunkvrport/config/vrport-launcher.ini`. For VR, choose
    **Meta Quest Pro**, **SteamVR**, and **2080 x 2104 (Balanced)** as the initial
-   resolution. Leave **DEBUG off** for normal play; enable it when collecting
+   resolution, then click **Play in VR**. Leave **DEBUG off** for normal play; enable it when collecting
    diagnostic logs.
 4. For the first launch or after a binding reset, keep the game running and open
    SteamVR's **Settings > Controllers > Manage Controller Bindings**. Choose
@@ -544,6 +547,12 @@ validation details are in [Quest Pro face tracking](docs/quest-pro-face-tracking
 5. Test your legs, lean and elbows before playing. Recalibrate if the chest was
    absent during calibration. Missing optional joints fall back to ordinary IK.
 
+With calibrated feet, **F10 > Controls > Full-Body Tracking > Animate feet during stick movement**
+is on by default. Keep your feet planted and walk, strafe or run with the movement stick to see V
+take alternating steps. The stride follows how fast V actually travels. Lifting or stepping with your
+own feet fades out the generated steps. Turn the option off for tracker-only legs. The switch is
+saved as `stick_steps` in `config/fbt_settings.ini`.
+
 FBT is optional; get headset, hands and buttons working first. ResoFBTAutoSetup
 is the reference for this sensor arrangement, not a mod to install into Cyberpunk.
 
@@ -651,8 +660,30 @@ RED4ext separately (Vortex is fine). The port bundles its other scripting
 components; CET, ArchiveXL, TweakXL, Input Loader, Codeware and standalone
 redscript are needed only if your other mods require them.
 
-Close Cyberpunk before installation. From this repository's root in PowerShell,
-use the prepared patched package:
+### Install on another Windows PC from the prepared ZIP
+
+1. **On this build PC**, copy `dist\CyberpunkVRPort-0.2.45-CyberFinger-portable.zip` from the top-level workspace to the other PC. It contains the prebuilt mod and its installer. The destination only needs Windows PowerShell 5.1 to run the installer.
+2. **On the destination PC**, install Cyberpunk 2077 **2.5** and deploy **RED4ext 1.31.0 or newer** into that game (Vortex is fine). Install SteamVR and the CyberFinger Bridge/driver with the Cyberpunk v2 binding separately. If using SlimeVR, set it up on that PC too. Close Cyberpunk before installing.
+3. Use **Extract All** to unpack the ZIP into a writable folder outside the game, for example `C:\VRMods\CyberFinger`. Open PowerShell in the extracted folder containing `install_cyberfinger.cmd`. Beside it you should see `scripts\install_cyberfinger.ps1`, `package\bin\`, and `package\red4ext\`.
+4. Preview the install. The installer looks for Cyberpunk 2077 in GOG and Steam, including Steam libraries on other drives. If it finds one copy, it selects it automatically. If it finds several, it shows each store and full path. Enter the number for the copy you play, or press **Enter** to cancel. Check the **Game** path in the preview, then run the install and choose the same copy if prompted again.
+
+   ```powershell
+   .\install_cyberfinger.cmd -Package .\package -WhatIf
+   .\install_cyberfinger.cmd -Package .\package
+   ```
+
+   If the game is missing from the list or you want to skip the prompt, add `-GameRoot "D:\Games\Cyberpunk 2077"` to both commands using the folder that contains `bin\x64\Cyberpunk2077.exe`. For Steam, right-click **Cyberpunk 2077 → Manage → Browse local files** to find that folder.
+
+   Keep `-Package .\package` on both commands. Omitting it starts a source build. The defaults are a left-handed weapon and eight-role SlimeVR. Add `-WeaponHand Right` or `-NoSlimeVR` to **both** commands as needed. Keep the extracted folder after installation for the backup and `install.json` under `build\cyberfinger-install-backups\`.
+5. Connect both controllers in CyberFinger Bridge and start SteamVR with the headset connected. For the Steam edition, click **Play** on Cyberpunk 2077 in your Steam Library. For GOG, launch the game as usual. Choose **Play in VR** in the startup dialog, or **Play on desktop** for a monitor-only session. While the game is in VR, open **SteamVR Settings > Controllers > Manage Controller Bindings**, choose **CyberpunkVRPort** and the **CyberFinger CyberpunkVRPort** layout. Load a save, press **F10** to check the VR settings, and open and close your fingers to verify tracking.
+
+**If you have a prepared package folder instead of the portable ZIP**, copy the entire folder that contains `bin` and `red4ext` to the destination as `package`. From the matching checkout, copy `install_cyberfinger.cmd` and `scripts\install_cyberfinger.ps1` beside it in the layout above. For an older package missing `package\red4ext\plugins\cyberpunkvrport\config\cyberfinger-hud.ini.example`, also copy `mods\config\cyberfinger-hud.ini.example` from that checkout, preserving its path beside the installer. Then follow steps 2–5.
+
+### Install from this checkout
+
+For the older 0.2.3 wrist-r4 build in this checkout, close Cyberpunk and run
+the following from its repository root in PowerShell. The portable ZIP above
+contains the newer 0.2.45 integration build.
 
 ```powershell
 .\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4 -WhatIf

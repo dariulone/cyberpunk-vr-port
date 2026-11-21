@@ -98,6 +98,59 @@ Assert ($freshExit -eq 0) "Fresh-process preview failed: $freshOutput"
 Assert ((Snapshot $game) -eq $before -and (Backup-Count) -eq $backupsBefore) 'Fresh-process preview changed files'
 $passed++
 
+# Test store discovery without probing the machine's actual games or registry.
+& {
+    $savedProgramFiles = $env:ProgramFiles
+    $savedProgramFilesX86 = ${env:ProgramFiles(x86)}
+    $savedSystemDrive = $env:SystemDrive
+    $registry = @{}
+    $answers = New-Object 'System.Collections.Generic.Queue[string]'
+    function Get-ItemProperty {
+        [CmdletBinding()]param([string]$LiteralPath, [string]$Name)
+        if ($registry.ContainsKey($LiteralPath)) { [pscustomobject]@{ $Name = $registry[$LiteralPath] } }
+    }
+    function Read-Host([string]$Prompt) { return $answers.Dequeue() }
+    try {
+        $env:ProgramFiles = Join-Path $fixture 'Program Files'
+        ${env:ProgramFiles(x86)} = Join-Path $fixture 'Program Files (x86)'
+        $env:SystemDrive = Join-Path $fixture 'system drive'
+        Expect-Failure { & $installer -Package $package -WhatIf } 'Pass -GameRoot'
+
+        $steamClient = Join-Path ${env:ProgramFiles(x86)} 'Steam'
+        $steamKey = 'HKCU:\Software\Valve\Steam'
+        $steamLibrary = Join-Path $fixture 'another Steam library'
+        $registry[$steamKey] = $steamClient.Replace('\', '/')
+        $escapedPath = $steamLibrary.Replace('\', '\\')
+        Put $steamClient 'steamapps\libraryfolders.vdf' ('"path" "' + $escapedPath + '"')
+        $steam = New-Game 'another Steam library\steamapps\common\Cyberpunk 2077'
+        function Assert-PreviewSelects([string]$Root) {
+            $output = (& $installer -Package $package -WhatIf 6>&1 | Out-String -Width 4096)
+            Assert ($output.IndexOf("Game: $Root;", [StringComparison]::OrdinalIgnoreCase) -ge 0) "Preview did not select $Root"
+        }
+        Assert-PreviewSelects $steam
+        $gog = New-Game 'Program Files (x86)\GOG Galaxy\Games\Cyberpunk 2077'
+        $registry['HKLM:\SOFTWARE\WOW6432Node\GOG.com\Games\1423049311'] = $gog.ToUpperInvariant()
+        $gogBefore = Snapshot $gog
+        $answers.Enqueue('77')
+        $answers.Enqueue('2')
+        & $installer -Package $package
+        Assert ((Read $steam "$plugin\config\cyberfinger.ini").Contains('enabled=1')) 'Selected Steam copy was not installed'
+        Assert ((Snapshot $gog) -eq $gogBefore) 'Choosing Steam modified the GOG copy'
+        $answers.Enqueue('1')
+        Assert-PreviewSelects $gog
+        $answers.Enqueue('')
+        Expect-Failure { & $installer -Package $package } 'selection cancelled'
+        & $installer -GameRoot $game -Package $package -WhatIf
+        Put $steamClient 'steamapps\libraryfolders.vdf' ('"path" "' + $escapedPath + '\\offline_library"')
+        Assert-PreviewSelects $gog
+    } finally {
+        $env:ProgramFiles = $savedProgramFiles
+        ${env:ProgramFiles(x86)} = $savedProgramFilesX86
+        $env:SystemDrive = $savedSystemDrive
+    }
+}
+$passed++
+
 # A source checkout need not already contain built artifacts. Preview must plan
 # preparation, without requiring a CMakeCache or creating the selected build tree.
 $freshBuild = Join-Path $fixture 'unconfigured source build'

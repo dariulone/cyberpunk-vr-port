@@ -260,7 +260,7 @@ def click_launcher(row, pid):
         raise RuntimeError("Start Game button does not belong to this game process")
     title = c.create_unicode_buffer(256)
     user32.GetWindowTextW(button, title, len(title))
-    if title.value != "Start Game":
+    if title.value not in ("Start Game", "Play in VR"):
         raise RuntimeError(f"Unexpected launcher button: {title.value!r}")
     result = c.c_size_t()
     if not user32.SendMessageTimeoutW(button, 0xF5, 0, 0, 2, 2000, c.byref(result)):

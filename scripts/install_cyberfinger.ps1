@@ -3,7 +3,9 @@
 .SYNOPSIS
 Install the CyberFinger-patched VR port, with backups and merged preferences.
 .DESCRIPTION
-Defaults to the GOG game folder and a left-handed weapon with eight-role SlimeVR.
+Detects GOG and Steam installations. If several are found, asks which to use.
+Pass -GameRoot to select a folder explicitly or run unattended with multiple copies.
+Defaults to a left-handed weapon with eight-role SlimeVR.
 Use -Package for an extracted, complete patched build_dist package. Otherwise
 prepares dependencies, builds this checkout, and packages it with build_dist.ps1.
 -Build remains accepted; source installs always build. -WhatIf writes nothing.
@@ -17,7 +19,7 @@ SteamVR drivers and RED4ext are installed separately. Never launches the game.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [string]$GameRoot = 'C:\Program Files (x86)\GOG Galaxy\Games\Cyberpunk 2077',
+    [ValidateNotNullOrEmpty()][string]$GameRoot,
     [string]$BuildDir = 'build\cyberfinger-release',
     [string]$Package,
     [switch]$Build,
@@ -104,6 +106,77 @@ function Merge-Ini([string]$Text, [System.Collections.IDictionary]$Values, [swit
     return $Text
 }
 
+function Find-CyberpunkInstallations {
+    $found = [ordered]@{}
+    function Add-Game([string]$Store, [string]$Directory) {
+        if (!$Directory -or ![IO.File]::Exists([IO.Path]::Combine($Directory, 'bin\x64\Cyberpunk2077.exe'))) { return }
+        $path = [IO.Path]::GetFullPath($Directory).TrimEnd('\')
+        if (!$found.Contains($path)) { $found[$path] = [pscustomobject]@{ Store = $Store; Path = $path } }
+    }
+
+    $programDirs = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ } | Select-Object -Unique
+    $softwareKeys = @('HKLM:\SOFTWARE', 'HKLM:\SOFTWARE\WOW6432Node')
+    foreach ($key in $softwareKeys) {
+        $path = Get-ItemProperty -LiteralPath "$key\GOG.com\Games\1423049311" -Name path -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty path
+        Add-Game 'GOG' $path
+    }
+    foreach ($dir in $programDirs) { Add-Game 'GOG' ([IO.Path]::Combine($dir, 'GOG Galaxy\Games\Cyberpunk 2077')) }
+    if ($env:SystemDrive) { Add-Game 'GOG' "$env:SystemDrive\GOG Games\Cyberpunk 2077" }
+
+    $steamClients = @(
+        Get-ItemProperty -LiteralPath 'HKCU:\Software\Valve\Steam' -Name SteamPath -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty SteamPath
+        foreach ($key in $softwareKeys) {
+            Get-ItemProperty -LiteralPath "$key\Valve\Steam" -Name InstallPath -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty InstallPath
+        }
+        foreach ($dir in $programDirs) { [IO.Path]::Combine($dir, 'Steam') }
+    )
+    $steamGame = 'steamapps\common\Cyberpunk 2077'
+    foreach ($client in ($steamClients | Where-Object { $_ } | Select-Object -Unique)) {
+        Add-Game 'Steam' ([IO.Path]::Combine($client, $steamGame))
+        foreach ($relative in @('steamapps\libraryfolders.vdf', 'config\libraryfolders.vdf')) {
+            $manifest = [IO.Path]::Combine($client, $relative)
+            if (![IO.File]::Exists($manifest)) { continue }
+            try { $lines = [IO.File]::ReadAllLines($manifest) }
+            catch [IO.IOException] { continue }
+            catch [UnauthorizedAccessException] { continue }
+            foreach ($line in $lines) {
+                # New manifests use "path"; older ones use the library number as the key.
+                if ($line -match '^\s*"(?:path|\d+)"\s+"((?:[a-z]:[\\/]|\\\\)[^"]*)"') {
+                    $library = $Matches[1].Replace('\\', '\')
+                    Add-Game 'Steam' ([IO.Path]::Combine($library, $steamGame))
+                }
+            }
+        }
+    }
+    $found.Values
+}
+
+if (!$PSBoundParameters.ContainsKey('GameRoot')) {
+    $installs = @(Find-CyberpunkInstallations)
+    if (!$installs.Count) {
+        throw 'Cyberpunk 2077 was not found in GOG or Steam. Pass -GameRoot "D:\Games\Cyberpunk 2077" with the folder containing bin\x64\Cyberpunk2077.exe.'
+    }
+    $choice = 1
+    if ($installs.Count -gt 1) {
+        Write-Host 'Which Cyberpunk 2077 installation should receive the mod?'
+        for ($i = 0; $i -lt $installs.Count; $i++) {
+            Write-Host ('  {0}. {1}  {2}' -f ($i + 1), $installs[$i].Store, $installs[$i].Path)
+        }
+        do {
+            try { $answer = Read-Host "Enter 1-$($installs.Count), or press Enter to cancel" }
+            catch { throw 'Selection requires an interactive console. Pass -GameRoot with the desired game folder.' }
+            if ([string]::IsNullOrWhiteSpace($answer)) { throw 'Installation selection cancelled.' }
+            $valid = [int]::TryParse($answer, [ref]$choice) -and $choice -ge 1 -and $choice -le $installs.Count
+            if (!$valid) { Write-Host 'Choose one of the listed numbers.' }
+        } until ($valid)
+    }
+    $selected = $installs[$choice - 1]
+    $GameRoot = $selected.Path
+    Write-Host ("Selected {0}: {1}" -f $selected.Store, $GameRoot)
+}
 $GameRoot = Full-Path $GameRoot
 Assert-NoLink $GameRoot
 $missing = New-Object 'System.Collections.Generic.List[string]'

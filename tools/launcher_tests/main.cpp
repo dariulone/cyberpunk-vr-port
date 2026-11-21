@@ -17,6 +17,7 @@ bool g_cursorClipped=false;
 void Log(const char*,...) {}
 bool OverlayIsVisible(){return false;}
 namespace cvr::lua { bool OverlayOpen(){return false;} }
+namespace cvr::cfmenu { bool Cursor(float&,float&){return false;} }
 extern "C" UINT GetForcedDisplayModeWidth(){return 7654;}
 extern "C" UINT GetForcedDisplayModeHeight(){return 4321;}
 extern "C" UINT GetForcedSwapchainWidth(){return 7654;}
@@ -83,6 +84,12 @@ std::vector<std::wstring> Resolutions(HWND window,int headset) {
     for(int i=0;i<count;++i)result.push_back(ComboText(combo,i));
     return result;
 }
+void ClickPlayVr(HWND window) {
+    const int before=saves;
+    SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+    Check(saves==before,"launcher wrote preferences before VR initialization");
+    ApplyLauncherSelection();
+}
 VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
     HWND window=FindWindowW(L"CyberpunkVRPortLauncherClass",nullptr);
     if(!window && GetTickCount64()<deadline)return;
@@ -145,19 +152,19 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             engineStereo=1;
             SelectHmd(window,1);
             SendMessageW(GetDlgItem(window,105),BM_SETCHECK,BST_CHECKED,0);
-            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            ClickPlayVr(window);
         } else if(mode==1)PostMessageW(window,WM_CLOSE,0,0);
         else if(mode==2)PostQuitMessage(19);
         else if(mode==3) {
             SelectHmd(window,14);
             SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,6,0);
-            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            ClickPlayVr(window);
             Check(savedHmd==13 && savedWidth==3064 && savedHeight==3080,"Steam Frame selection was not saved");
         } else if(mode==4) {
             Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==14 && SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==6,"Steam Frame selection did not reload");
             SelectHmd(window,15);
             SendMessageW(GetDlgItem(window,101),CB_SETCURSEL,10,0);
-            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            ClickPlayVr(window);
             Check(savedHmd==14 && savedWidth==6080 && savedHeight==5928,"Reverb G2 selection was not saved");
         } else if(mode==5) {
             Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==15 && SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==10,"Reverb G2 selection did not reload");
@@ -190,7 +197,7 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             Check(SendMessageW(combo,CB_GETCOUNT,0,0)==ladder && FieldText(window,109)==L"2648","a ladder pick did not replace the own size");
             TypeField(window,110,L"2400");
             SendMessageW(GetDlgItem(window,112),BM_SETCHECK,BST_UNCHECKED,0);
-            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            ClickPlayVr(window);
             Check(savedHmd==2 && savedWidth==2648 && savedHeight==2400 && savedCustom==1,"an own size was not saved as custom");
             Check(savedLobby==0,"the VR lobby switch was not saved");
         } else if(mode==7) {
@@ -206,15 +213,19 @@ VOID CALLBACK Inspect(HWND,UINT,UINT_PTR,DWORD){
             Check(SnapLauncherResolution(2,&w,&h)==0,"without engine stereo a typed size left the ladder");
             engineStereo=1;
             SendMessageW(GetDlgItem(window,112),BM_SETCHECK,BST_CHECKED,0);
-            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            ClickPlayVr(window);
             Check(savedCustom==0 && savedLobby==1,"a ladder size was saved as custom");
         } else if(mode==8) {
             SelectHmd(window,3);
             HWND combo=GetDlgItem(window,101);
             SendMessageW(combo,CB_SETCURSEL,2,0);
             SendMessageW(window,WM_COMMAND,MAKEWPARAM(101,CBN_SELCHANGE),reinterpret_cast<LPARAM>(combo));
-            SendMessageW(GetDlgItem(window,102),BM_CLICK,0,0);
+            ClickPlayVr(window);
             Check(savedHmd==19 && savedWidth==2080 && savedHeight==2104,"Quest Pro selection was not saved");
+        } else if(mode==10) {
+            SelectHmd(window,2);
+            SendMessageW(GetDlgItem(window,115),BM_CLICK,0,0);
+            Check(!IsWindow(window) && savedHmd==19,"desktop launch saved a pending headset change");
         } else if(mode==9) {
             Check(SendMessageW(GetDlgItem(window,104),CB_GETCURSEL,0,0)==3 &&
                   SendMessageW(GetDlgItem(window,101),CB_GETCURSEL,0,0)==2,"Quest Pro selection did not reload");
@@ -237,9 +248,11 @@ int main()try {
     InstallOSHooks();
     g_origClipCursor=FakeClip;g_origSetCursorPos=FakeWarp;g_origGetCursorPos=FakePos;
     g_origGetCursorInfo=FakeInfo;g_origGetMessagePos=FakeMessagePos;
-    for(mode=0;mode<10;++mode){
+    for(mode=0;mode<11;++mode){
         deadline=GetTickCount64()+3000;timer=SetTimer(nullptr,0,20,Inspect);Check(timer!=0,"timer unavailable");
-        ShowLauncherDialog();KillTimer(nullptr,timer);
+        const int desktopChoice=ShowLauncherDialog();KillTimer(nullptr,timer);
+        ApplyLauncherSelection(); // idempotent; closing or selecting desktop never commits
+        Check(desktopChoice==(mode==10),"wrong launch mode");
         Check(failure.empty(),failure.c_str());
         Check(!IsLauncherOpen() && IsWindowVisible(g_gameHwnd),"close did not restore the game and input mode");
         Check(!FindWindowW(L"CyberpunkVRPortLauncherClass",nullptr),"launcher window leaked");

@@ -11,6 +11,7 @@
 #include "Anim/Cyberware.hpp"
 #include "Anim/HandGestures.hpp"
 #include "Anim/HeadAimWeapon.hpp"
+#include "Fbt/Game/Body.hpp"
 #include "Anim/VrikState.hpp"   // g_VRLocomotionState, for the sprint crouch gate
 #include "Core/VrCoreShared.hpp"
 #include "Camera/CameraState.hpp"   // DeviceCamActive -- the stick belongs to the camera, not the player
@@ -1196,6 +1197,9 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         }
     }
 
+    cvr::fbt::game::NoteLocomotionStick(gameplayScreen && !g_isInVehicle && !menuCapture && !uiPopupOpen &&
+        !cvr::lobby::WorldShown() && !cvr::vrui::CapturesInput() && !inBraindance && !cfComputer &&
+        (lx * lx + ly * ly > .003f));
     if (fabsf(lx) > fabsf(pState->Gamepad.sThumbLX / 32767.0f)) pState->Gamepad.sThumbLX = FloatToSHORT(lx);
     if (fabsf(ly) > fabsf(pState->Gamepad.sThumbLY / 32767.0f)) pState->Gamepad.sThumbLY = FloatToSHORT(ly);
     // Swimming gestures enter the player's native action reader. XInput

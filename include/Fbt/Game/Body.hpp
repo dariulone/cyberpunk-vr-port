@@ -20,6 +20,10 @@ namespace cvr::fbt::game {
 // calibration has run in this session.
 bool LegsEnabled();
 void SetLegsEnabled(bool on);
+bool StickStepsEnabled();
+void SetStickStepsEnabled(bool on);
+// The routed VR locomotion stick, after menu capture, deadzone and movement tiers.
+void NoteLocomotionStick(bool moving);
 // "* V's spine and head follow the headset" (fbt_settings.ini, spine=0/1), off by default; acts with the legs on.
 bool SpineEnabled();
 void SetSpineEnabled(bool on);

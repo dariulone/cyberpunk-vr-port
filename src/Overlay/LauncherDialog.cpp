@@ -23,6 +23,7 @@ extern HWND g_gameHwnd;
 extern void Log(const char*,...);
 static std::atomic<bool> g_launcherOpen{};
 static bool g_restoreGameFocus{};
+static bool g_desktopRequested{};
 
 int IsLauncherOpen(){return g_launcherOpen.load(std::memory_order_acquire)?1:0;}
 
@@ -46,6 +47,7 @@ extern "C" void SetLauncherLobbyAndPersist(int on);
 
 #define ID_COMBO_RES     101
 #define ID_BUTTON_START  102
+#define ID_BUTTON_DESKTOP 115
 #define ID_COMBO_RUNTIME 103
 #define ID_COMBO_HMD     104
 #define ID_CHECK_DEBUG   105
@@ -1292,7 +1294,7 @@ static HWND MakeEdit(HWND parent, int id, const RECT& frame) {
 static void PaintWindow(HWND hwnd, HDC dc, const RECT& rc) {
     FillRect(dc, &rc, g_brushBg);
     Text(dc, L"cyberpunk-vr-port", g_rcTitle, g_fontTitle, kColText, DT_LEFT | DT_TOP | DT_SINGLELINE);
-    Text(dc, L"Configure the headset, the runtime and the render size, then start the game.", g_rcSub, g_fontSub,
+    Text(dc, L"Choose VR settings, or play on desktop for this launch.", g_rcSub, g_fontSub,
          kColMuted, DT_LEFT | DT_TOP | DT_WORDBREAK);
     HBRUSH rule = CreateSolidBrush(kColBorder);
     FillRect(dc, &g_rcRule, rule);
@@ -1336,14 +1338,16 @@ static void DrawStart(const DRAWITEMSTRUCT& d) {
     FillRect(d.hDC, &d.rcItem, g_brushBg);
     const bool down = (d.itemState & ODS_SELECTED) != 0;
     const bool hot = g_hot == d.hwndItem;
-    const COLORREF fill = down ? kColAccentDown : hot ? kColAccentHot : kColAccent;
+    const bool desktop = d.CtlID == ID_BUTTON_DESKTOP;
+    const COLORREF fill = desktop ? (down || hot ? kColSurfaceHot : kColSurface)
+                                  : (down ? kColAccentDown : hot ? kColAccentHot : kColAccent);
     Rounded(d.hDC, d.rcItem, Px(6), fill, fill);
     if (d.itemState & ODS_FOCUS) {
         RECT ring = d.rcItem;
         InflateRect(&ring, -Px(3), -Px(3));
         Rounded(d.hDC, ring, Px(4), fill, kColOnAccent);
     }
-    Text(d.hDC, L"START GAME", d.rcItem, g_fontButton, kColOnAccent, DT_CENTER | DT_VCENTER | DT_SINGLELINE, Px(1));
+    Text(d.hDC, desktop ? L"PLAY ON DESKTOP" : L"PLAY IN VR", d.rcItem, g_fontButton, desktop ? kColText : kColOnAccent, DT_CENTER | DT_VCENTER | DT_SINGLELINE, Px(1));
 }
 
 // An on / off switch with its title and a line under it (the debug mode, the VR lobby).
@@ -1422,23 +1426,41 @@ static void DrawListItem(const DRAWITEMSTRUCT& d) {
          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 }
 
+// Capture controls on the UI thread. Main applies them only after the VR path has loaded
+// all live preferences, so saving one launcher choice cannot overwrite unrelated settings.
+struct LauncherSelection {
+    bool pending{}, debug{}, lobby{}, custom{};
+    int headset = -1, runtime = -1, width{}, height{};
+};
+static LauncherSelection g_selection;
+
+void ApplyLauncherSelection() {
+    if (!g_selection.pending) return;
+    g_selection.pending = false;
+    SetLauncherDebugAndPersist(g_selection.debug);
+    SetLauncherLobbyAndPersist(g_selection.lobby);
+    if (g_selection.headset >= 0) SetHmdTypeAndPersist(g_selection.headset);
+    if (g_selection.runtime >= 0) SetRuntimeModeAndPersist(g_selection.runtime);
+    if (g_selection.width > 0 && g_selection.height > 0) {
+        SetLauncherCustomResolution(g_selection.custom);
+        SetWindowResolutionAndPersist(g_selection.width, g_selection.height);
+    }
+}
+
 static void StartGame(HWND hwnd) {
-    // a field still being typed in counts as taken
     const HWND focus = GetFocus();
     if (focus && (focus == g_hEditW || focus == g_hEditH || focus == g_hEditAspect)) CommitField(focus);
-    SetLauncherDebugAndPersist(SendMessageW(g_hDebug, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
-    SetLauncherLobbyAndPersist(SendMessageW(g_hLobby, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
-    if (const HmdPreset* hmd = SelectedHmd()) SetHmdTypeAndPersist(hmd->mhdType);
-    const int rIdx = int(SendMessageW(g_hRuntime, CB_GETCURSEL, 0, 0));
-    if (rIdx >= 0 && rIdx < static_cast<int>(std::size(kRuntimeOptions))) SetRuntimeModeAndPersist(kRuntimeOptions[rIdx].mode);
-    if (const ResolutionPreset* res = SelectedResolution()) {
-        SetLauncherCustomResolution(0);
-        SetWindowResolutionAndPersist(res->width, res->height);
-    } else if (g_resW > 0 && g_resH > 0) {
-        // the combo box's "Custom" item: the player's own size
-        SetLauncherCustomResolution(1);
-        SetWindowResolutionAndPersist(g_resW, g_resH);
-    }
+    g_selection.pending = true;
+    g_selection.debug = g_debugOn;
+    g_selection.lobby = g_lobbyOn;
+    if (const HmdPreset* hmd = SelectedHmd()) g_selection.headset = hmd->mhdType;
+    const int runtime = int(SendMessageW(g_hRuntime, CB_GETCURSEL, 0, 0));
+    if (runtime >= 0 && runtime < static_cast<int>(std::size(kRuntimeOptions)))
+        g_selection.runtime = kRuntimeOptions[runtime].mode;
+    const ResolutionPreset* res = SelectedResolution();
+    g_selection.custom = !res;
+    g_selection.width = res ? res->width : g_resW;
+    g_selection.height = res ? res->height : g_resH;
     g_restoreGameFocus = GetForegroundWindow() == hwnd;
     DestroyWindow(hwnd);
 }
@@ -1543,7 +1565,9 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         g_hDebug = MakeButton(hwnd, ID_CHECK_DEBUG, L"Debug mode", {margin, y, right, y + Px(42)});
         y += Px(42) + Px(24);
 
-        g_hStart = MakeButton(hwnd, ID_BUTTON_START, L"Start Game", {margin, y, right, y + Px(48)});
+        const int mid = (margin + right) / 2;
+        g_hStart = MakeButton(hwnd, ID_BUTTON_START, L"Play in VR", {margin, y, mid - Px(4), y + Px(48)});
+        MakeButton(hwnd, ID_BUTTON_DESKTOP, L"Play on desktop", {mid + Px(4), y, right, y + Px(48)});
         y += Px(48) + Px(28);
         g_clientH = y;
         break;
@@ -1560,7 +1584,7 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     case WM_DRAWITEM: {
         const auto& d = *reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
         if (d.CtlType == ODT_COMBOBOX) DrawListItem(d);
-        else if (d.CtlID == ID_BUTTON_START) DrawStart(d);
+        else if (d.CtlID == ID_BUTTON_START || d.CtlID == ID_BUTTON_DESKTOP) DrawStart(d);
         else if (d.CtlID == ID_CHECK_DEBUG)
             DrawSwitch(d, g_debugOn, L"Debug mode", L"Probes and a verbose log. Slower; for bug reports.");
         else if (d.CtlID == ID_CHECK_LOBBY)
@@ -1622,6 +1646,10 @@ LRESULT CALLBACK LauncherWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         } else if (id == ID_CHECK_DEBUG && notif == BN_CLICKED) {
             g_debugOn = !g_debugOn;
             InvalidateRect(g_hDebug, nullptr, FALSE);
+        } else if ((id == ID_BUTTON_DESKTOP && notif == BN_CLICKED) || (id == IDOK && GetFocus() == GetDlgItem(hwnd, ID_BUTTON_DESKTOP))) {
+            g_desktopRequested = true;
+            g_restoreGameFocus = GetForegroundWindow() == hwnd;
+            DestroyWindow(hwnd);
         } else if (id == ID_BUTTON_START || id == IDOK) {
             StartGame(hwnd);
         } else if (id == IDCANCEL) {
@@ -1673,8 +1701,10 @@ void WaitForLauncherStartup(unsigned int milliseconds) {
     }
 }
 
-void ShowLauncherDialog() {
-    if(g_launcherOpen.exchange(true,std::memory_order_acq_rel))return;
+int ShowLauncherDialog() {
+    if(g_launcherOpen.exchange(true,std::memory_order_acq_rel))return 0;
+    g_desktopRequested = false;
+    g_selection = {};
     g_restoreGameFocus=false;
     struct StartupWindow {
         HWND game{};bool visible{};bool sameThread{};unsigned cursorShows{};
@@ -1712,7 +1742,7 @@ void ShowLauncherDialog() {
     const auto registered=RegisterClassW(&wc);
     if(!registered && GetLastError()!=ERROR_CLASS_ALREADY_EXISTS) {
         Log("Launcher: RegisterClassW failed (%lu)\n",GetLastError());
-        DeleteObject(g_brushBg);g_brushBg=nullptr;return;
+        DeleteObject(g_brushBg);g_brushBg=nullptr;return 0;
     }
     // the resolution slider's own class (painted and driven in SliderProc)
     WNDCLASSW sliderClass = {};
@@ -1747,7 +1777,7 @@ void ShowLauncherDialog() {
         Log("Launcher: CreateWindowExW failed (%lu)\n",GetLastError());
         if(registered)UnregisterClassW(wc.lpszClassName,wc.hInstance);
         if (g_brushBg) { DeleteObject(g_brushBg); g_brushBg = nullptr; }
-        return;
+        return 0;
     }
 
     RECT rc = {0, 0, g_clientW, g_clientH};
@@ -1785,4 +1815,5 @@ void ShowLauncherDialog() {
     if(quit)PostQuitMessage(quitCode);
     if(registered)UnregisterClassW(wc.lpszClassName,wc.hInstance);
     if (g_brushBg) { DeleteObject(g_brushBg); g_brushBg = nullptr; }
+    return g_desktopRequested ? 1 : 0;
 }

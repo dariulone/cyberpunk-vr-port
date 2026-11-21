@@ -35,6 +35,9 @@ void DrawSettingsSection() {
         if (UI::Checkbox("V's legs follow the trackers", &legs)) SetLegsEnabled(legs);
         if (UI::IsItemHovered()) UI::SetTooltip("V's hips and legs follow your waist and foot trackers (needs a calibration).\nThe spine, head and arms stay as before.");
         UI::BeginDisabled(!legs);
+        bool steps = StickStepsEnabled();
+        if (UI::Checkbox("Animate feet during stick movement", &steps)) SetStickStepsEnabled(steps);
+        if (UI::IsItemHovered()) UI::SetTooltip("Adds steps at your in-game walking or running speed. Moving your real feet takes priority.");
         bool spine = SpineEnabled();
         if (UI::Checkbox("V's spine and head follow the headset", &spine)) SetSpineEnabled(spine);
         if (UI::IsItemHovered()) UI::SetTooltip("V's spine bends from your hips to your headset, V's eyes on your view (with the legs on).\nThe arms stay as before.");

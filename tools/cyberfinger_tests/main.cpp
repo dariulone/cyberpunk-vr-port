@@ -3,6 +3,7 @@
 #include "Runtimes/FingerGrip.hpp"
 #include "Fbt/Game/Trackers.hpp"
 #include "Fbt/Game/ExtendedBody.hpp"
+#include "Fbt/Game/StickGait.hpp"
 #include <array>
 #include <fstream>
 #include <iostream>
@@ -182,7 +183,41 @@ void Body() {
     Check(!ApplyChest(sk, pose, lower, upper, chest, head), "absent tracker overrides spine");
 }
 
+void StickSteps() {
+    cvr::fbt::game::StickGait gait;
+    Vec3 player{}, feet[2]{{-.1f,0,0},{.1f,0,0}};
+    constexpr float dt = 1.f / 90;
+    auto advance = [&](float speed, bool stick, bool lifted = false) {
+        player.x += speed * dt; // strafe in world space
+        gait.Advance(dt, player, feet, stick, lifted);
+    };
+    for (int i = 0; i < 90; ++i) advance(3.f, false);
+    for (int i = 0; i < 90; ++i) { advance(0.f, false); }
+    for (int i = 0; i < 90; ++i) advance(0.f, true);
+    Check(Near(gait.offset[0], {}) && Near(gait.offset[1], {}), "blocked stick or room-scale motion generated steps");
+    bool leftSwing = false, rightSwing = false;
+    for (int i = 0; i < 180; ++i) {
+        advance(3.f, true);
+        leftSwing |= gait.offset[0].z > .06f && gait.offset[1].z < .01f;
+        rightSwing |= gait.offset[1].z > .06f && gait.offset[0].z < .01f;
+        Check(std::fabs(gait.offset[0].x + gait.offset[1].x) < 1e-4f && gait.offset[0].y == 0.f, "stride ignores direction");
+    }
+    Check(leftSwing && rightSwing && std::fabs(gait.offset[0].x) > .02f, "feet did not alternate during a stick run");
+    for (int i = 0; i < 60; ++i) advance(3.f, true, true);
+    Check(Near(gait.offset[0], {}) && Near(gait.offset[1], {}), "held physical step lost priority");
+    for (int i = 0; i < 90; ++i) { feet[0].y += dt * .5f; advance(-3.f, true); }
+    Check(Near(gait.offset[0], {}) && Near(gait.offset[1], {}), "physical foot motion doubled with the stride");
+    for (int i = 0; i < 120; ++i) advance(-3.f, true);
+    player.x += 15.f;
+    advance(3.f, true);
+    Check(Near(gait.offset[0], {}) && Near(gait.offset[1], {}), "teleport generated a stride");
+    for (int i = 0; i < 90; ++i) advance(4.f, true);
+    for (int i = 0; i < 90; ++i) advance(0.f, false);
+    Check(Near(gait.offset[0], {}) && Near(gait.offset[1], {}), "stick release did not settle onto trackers");
+}
+
 int main() try {
+    StickSteps();
     using namespace cvr::cyberfinger;
     Check(StickActionFullTravel(-.8467f,true,.8f),"measured CF full-back travel cannot crouch");
     Check(!StickActionFullTravel(-.3693f,true,.8f),"ordinary diagonal turn activated crouch");
