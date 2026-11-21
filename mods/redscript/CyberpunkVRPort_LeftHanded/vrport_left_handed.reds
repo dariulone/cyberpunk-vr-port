@@ -338,29 +338,23 @@ protected final const func CanEquipRequestedWeapon(scriptInterface: ref<StateGam
   return this.IsRightHandInUnequippedState(stateContext, true) && this.CanProcessEquip(stateContext, scriptInterface);
 }
 
-// ...AND A MELEE WEAPON GOES INTO ITS EQUIP CYCLE THERE. 2.5's EquipCycleInitDecisions.EnterCondition turns away every
-// melee weapon from the left hand's machine -- the game never has one there -- while a gun passes: a knife or a
-// katana drawn left-handed (the holster, the wheel, a slot key) became the left hand's active item and stayed out of
-// both slots, the holster's copy hidden as if it were in the hand: the weapon was nowhere (measured 2026-11-05: the
-// condition false for Preset_Knife_Default and the Pimp katana, true for the Overture; their gameplay restrictions
-// pass). A melee weapon alone in the left hand is let in on the same terms as one in the right: the restrictions.
+// The left equipment machine checks a weapon as the offhand of a pair. That excludes melee weapons
+// and, under DriverCombatFirearms, the Nomad passenger's quest revolver. Check a lone primary
+// against the game's primary-weapon restrictions before starting its normal left-hand equip cycle.
 @wrapMethod(EquipCycleInitDecisions)
 public final const func EnterCondition(const stateContext: ref<StateContext>, const scriptInterface: ref<StateGameScriptInterface>) -> Bool {
   let item: ItemID;
   let data: ref<EquipmentSystemPlayerData>;
-  if wrappedMethod(stateContext, scriptInterface) {
-    return true;
+  if VRLeftHanded() && this.IsLeftHandLogic(this.stateMachineInstanceData)
+    && VRLeftHandedWeapon.Alone(scriptInterface.executionOwner)
+    && !IsDefined(GameObject.GetRightActiveWeapon(scriptInterface.executionOwner)) {
+    item = this.GetSlotActiveItem(scriptInterface, this.stateMachineInstanceData);
+    data = EquipmentSystem.GetData(scriptInterface.executionOwner);
+    if IsDefined(data) && (WeaponObject.IsRanged(item) || WeaponObject.IsMelee(item)) {
+      return data.CheckWeaponAgainstGameplayRestrictions(item, true, false);
+    };
   };
-  if !VRLeftHanded() || !this.IsLeftHandLogic(this.stateMachineInstanceData) {
-    return false;
-  };
-  item = this.GetSlotActiveItem(scriptInterface, this.stateMachineInstanceData);
-  if !VRLeftHandedWeapon.Movable(item) || !WeaponObject.IsMelee(item)
-    || IsDefined(GameObject.GetRightActiveWeapon(scriptInterface.executionOwner)) {
-    return false;
-  };
-  data = EquipmentSystem.GetData(scriptInterface.executionOwner);
-  return IsDefined(data) && data.CheckWeaponAgainstGameplayRestrictions(item);
+  return wrappedMethod(stateContext, scriptInterface);
 }
 
 // THE UPPER BODY TAKES THE RIGHT SLOT FOR THE WEAPON IN HAND. One weapon out is singleWield only with it on
