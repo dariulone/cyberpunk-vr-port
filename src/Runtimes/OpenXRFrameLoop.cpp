@@ -2709,6 +2709,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                         }
                     }
 
+                    // Queue even a partial pair before releasing either image to the compositor.
+                    m_cmdList->Close();
+                    ID3D12CommandList* cmdLists[] = {m_cmdList};
+                    copyQueue->ExecuteCommandLists(1, cmdLists);
+                    XrStage(6);
+                    OrderRuntimeAfter(copyQueue);
+                    ++m_fenceValue;
+                    m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
+                    if (SUCCEEDED(fenceQueue->Signal(m_fence, m_fenceValue)))
+                        cvr::gpu::profile::Submitted(gpuProfile, fenceQueue, m_fence, m_fenceValue);
+                    capturedReadFence=m_fenceValue;
+
                     if (!copyReady) {
                         // An image released here may hold nothing of this frame: never reuse what is in the swapchains.
                         m_lastCopy.valid = false;
@@ -2733,27 +2745,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             }
                         }
 
-                        m_cmdList->Close();
-                        ID3D12CommandList* cmdLists[] = {m_cmdList};
-                        copyQueue->ExecuteCommandLists(1, cmdLists);
-                        XrStage(6);
-                        OrderRuntimeAfter(copyQueue);
-                        ++m_fenceValue;
-                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
-                        if (SUCCEEDED(fenceQueue->Signal(m_fence, m_fenceValue)))
-                            cvr::gpu::profile::Submitted(gpuProfile, fenceQueue, m_fence, m_fenceValue);
-                        capturedReadFence=m_fenceValue;
                     } else {
-                        m_cmdList->Close();
-                        ID3D12CommandList* cmdLists[] = {m_cmdList};
-                        copyQueue->ExecuteCommandLists(1, cmdLists);
-                        XrStage(6);
-                        OrderRuntimeAfter(copyQueue);
-                        ++m_fenceValue;
-                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
-                        if (SUCCEEDED(fenceQueue->Signal(m_fence, m_fenceValue)))
-                            cvr::gpu::profile::Submitted(gpuProfile, fenceQueue, m_fence, m_fenceValue);
-                        capturedReadFence=m_fenceValue;
 
                         bool releaseOk = true;
                         for (uint32_t eye = 0; eye < viewCountOutput; ++eye) {

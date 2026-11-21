@@ -365,13 +365,13 @@ static void ConfigurePreferredOpenXRRuntime() {
     }
 }
 
-static void LogDxgiAdapterForDevice(ID3D12Device* device) {
-    if (!device) return;
+static UINT LogDxgiAdapterForDevice(ID3D12Device* device) {
+    if (!device) return 0;
 
     IDXGIFactory4* factory = nullptr;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) || !factory) {
         Log("OpenXRManager: GPU adapter lookup failed (CreateDXGIFactory1).\n");
-        return;
+        return 0;
     }
 
     IDXGIAdapter1* adapter = nullptr;
@@ -379,7 +379,7 @@ static void LogDxgiAdapterForDevice(ID3D12Device* device) {
     if (FAILED(factory->EnumAdapterByLuid(luid, IID_PPV_ARGS(&adapter))) || !adapter) {
         factory->Release();
         Log("OpenXRManager: GPU adapter lookup failed (EnumAdapterByLuid).\n");
-        return;
+        return 0;
     }
 
     DXGI_ADAPTER_DESC1 desc{};
@@ -404,6 +404,7 @@ static void LogDxgiAdapterForDevice(ID3D12Device* device) {
 
     adapter->Release();
     factory->Release();
+    return desc.VendorId;
 }
 
 
@@ -1121,7 +1122,19 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
     }
 
     XrGraphicsRequirementsD3D12KHR reqs{XR_TYPE_GRAPHICS_REQUIREMENTS_D3D12_KHR};
-    pfnGetD3D12GraphicsRequirementsKHR(m_instance, m_systemId, &reqs);
+    const XrResult requirementsResult = pfnGetD3D12GraphicsRequirementsKHR(m_instance, m_systemId, &reqs);
+    if (XR_FAILED(requirementsResult) || !device || !queue) {
+        Log("OpenXRManager: cannot bind D3D12 graphics (requirements=%d device=%p queue=%p)\n",
+            requirementsResult, device, queue);
+        return false;
+    }
+    const LUID gameLuid = device->GetAdapterLuid();
+    if (gameLuid.HighPart != reqs.adapterLuid.HighPart || gameLuid.LowPart != reqs.adapterLuid.LowPart) {
+        Log("OpenXRManager: headset and game require different adapters (XR=%08X:%08X game=%08X:%08X)\n",
+            static_cast<unsigned>(reqs.adapterLuid.HighPart), reqs.adapterLuid.LowPart,
+            static_cast<unsigned>(gameLuid.HighPart), gameLuid.LowPart);
+        return false;
+    }
     Log("OpenXRManager: D3D12 graphics requirements minFeatureLevel=0x%X luid=(0x%08X,0x%08X)\n",
         reqs.minFeatureLevel,
         static_cast<unsigned>(reqs.adapterLuid.HighPart),
@@ -1132,7 +1145,11 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
     m_graphicsBinding.queue = queue;
     // The runtime's own queue (OpenXRManager.hpp, m_xrQueue): high priority, so its copies cut in front of the game's
     // long work instead of waiting behind it.
-    if (device && !m_xrQueue && !cvr::TestMarker("cvr_xr_game_queue.txt")) {
+    // xrWaitSwapchainImage guarantees access on the bound queue. Keeping the game's DIRECT queue
+    // on SteamVR/Radeon also orders inline and generated eye copies with the compositor's reads.
+    const bool radeonSteamVR = LogDxgiAdapterForDevice(device) == 0x1002 && IsRuntimeSteamVR();
+    if (radeonSteamVR) Log("OpenXRManager: SteamVR/Radeon uses the game DIRECT queue for the projection swapchains\n");
+    if (!radeonSteamVR && !m_xrQueue && !cvr::TestMarker("cvr_xr_game_queue.txt")) {
         D3D12_COMMAND_QUEUE_DESC desc{};
         desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
@@ -1148,8 +1165,6 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
             Log("OpenXRManager: no queue of its own for the runtime; it works on the game's\n");
         }
     }
-
-    LogDxgiAdapterForDevice(device);
 
     XrSessionCreateInfo sessionInfo{XR_TYPE_SESSION_CREATE_INFO};
     sessionInfo.next = &m_graphicsBinding;
