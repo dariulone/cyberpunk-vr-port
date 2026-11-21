@@ -1501,6 +1501,10 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     fFinisher->flags = flags; fFinisher->SetReturnType("Int32");
     fFinisher->AddParam("Bool", "active");
     rtti->RegisterFunction(fFinisher);
+    auto rangeTarget = RED4ext::CGlobalFunction::Create("VRWilsonRangeTarget", "VRWilsonRangeTarget", &VRWilsonRangeTarget);
+    rangeTarget->flags = flags;
+    rangeTarget->SetReturnType("NodeRef");
+    rtti->RegisterFunction(rangeTarget);
     auto fStory=RED4ext::CGlobalFunction::Create("VRStoryAttentionUpdate","VRStoryAttentionUpdate",&VRStoryAttentionUpdate);
     fStory->flags=flags;fStory->SetReturnType("Int32");fStory->AddParam("handle:gameObject","player");
     for(const char* name:{"scanStarted","scanDone","locomotion","tier","workspot","vehicle","choices","paused"})

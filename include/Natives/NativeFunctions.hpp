@@ -15,6 +15,7 @@
 // ================================================================================================
 
 #include <RED4ext/RED4ext.hpp>
+#include <RED4ext/NodeRef.hpp>
 #include <RED4ext/Scripting/Natives/Generated/Vector4.hpp>
 #include <RED4ext/Scripting/Natives/Generated/Quaternion.hpp>
 #include <RED4ext/Scripting/Natives/Transform.hpp>
@@ -248,6 +249,7 @@ void GetVRPhysicalCrouch(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*,
 void SetVRPhysicalCrouchFeedback(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void GetVRPhysicalCrouchCameraAnchor(RED4ext::IScriptable*, RED4ext::CStackFrame*, RED4ext::Vector4*, int64_t);
 void VRStoryAttentionUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
+void VRWilsonRangeTarget(RED4ext::IScriptable*, RED4ext::CStackFrame*, RED4ext::NodeRef*, int64_t);
 void VRManualClueUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame*, int32_t*, int64_t);
 void SetVRWeaponPoseState(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
 void SetVRWeaponRaiseTransition(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t);
