@@ -1,6 +1,7 @@
 #include "Framegen/Presenter.hpp"
 #include "Framegen/StatsOverlay.hpp"
 #include "Framegen/GpuTimer.hpp"
+#include "Framegen/Fsr3.hpp"
 #include "Framegen/InputCopy.hpp"
 #include "Render/StereoDepth.hpp"
 #include "Runtimes/DepthSwapchainImage.hpp"
@@ -147,6 +148,72 @@ struct ReplayGpu {
     std::function<void(ID3D12Fence*,uint64_t*)> fence;
 };
 int Replay(ReplayGpu&,const std::filesystem::path&,const std::filesystem::path&);
+void GpuFsr3(bool extrapolate,bool hardware) {
+    Gpu gpu(hardware);
+    Settings settings;
+    settings.enabled=true;
+    settings.backend=extrapolate ? Backend::Fsr3Extrapolation : Backend::Fsr3Interpolation;
+    SetSettings(settings);
+    Presenter presenter;
+    constexpr unsigned width=128,height=96;
+    for(unsigned n=1;n<=2;++n) {
+        Frame frame{};
+        frame.identity.serial=n;frame.identity.nativeFrame=n;frame.identity.origin=1;
+        frame.identity.capturedMs=30.0*n;frame.identity.stereo=frame.identity.inputs=true;
+        frame.lease=std::make_shared<ReadLease>();
+        ComPtr<ID3D12Resource> color[2];
+        for(unsigned eye=0;eye<2;++eye) {
+            frame.identity.pose[eye]=n;frame.pose[eye].orientation.w=1;
+            frame.pose[eye].position.x=.01f*n;
+            frame.fov[eye]={-.8f,.8f,.7f,-.7f};
+            auto input=std::make_shared<Inputs>();
+            input->width=input->motionWidth=width;input->height=input->motionHeight=height;
+            input->frameId=n;input->origin=1;input->hasDepth=input->hasMotion=true;
+            input->camera.inverted=true;input->camera.nearPlane=.1f;input->camera.farPlane=100;
+            input->camera.verticalFov=1.3f;input->camera.aspect=float(width)/height;
+            input->camera.forward[2]=1;input->camera.motionScale[0]=input->camera.motionScale[1]=1;
+            std::vector<uint32_t> pixels(width*height,0xff101010u);
+            std::vector<float> depth(width*height,.01f),motion(width*height*2);
+            const unsigned start=24+eye*32+n*6;
+            for(unsigned y=25;y<67;++y)for(unsigned x=start;x<start+24;++x) {
+                const auto i=y*width+x;pixels[i]=0xffeeeeee;depth[i]=.6f;motion[2*i]=-6.0f/width;
+            }
+            color[eye]=gpu.Texture(width,height,DXGI_FORMAT_R8G8B8A8_UNORM,D3D12_RESOURCE_STATE_COPY_DEST);
+            input->depth=gpu.Texture(width,height,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+            input->motion=gpu.Texture(width,height,DXGI_FORMAT_R32G32_FLOAT,D3D12_RESOURCE_STATE_COPY_DEST);
+            gpu.Upload(color[eye].Get(),pixels.data(),4,D3D12_RESOURCE_STATE_COPY_SOURCE);
+            gpu.Upload(input->depth.Get(),depth.data(),4,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            gpu.Upload(input->motion.Get(),motion.data(),8,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            frame.color[eye]=color[eye].Get();frame.inputs[eye]=std::move(input);
+        }
+        auto take=[&] {
+            auto result=presenter.Select(gpu.device.Get(),gpu.queue.Get(),frame,true,11.1);
+            cvr::fsr3::QueueWaitForLast(gpu.queue.Get());
+            return result;
+        };
+        auto accept=[&](const Selection& x) {gpu.Wait();presenter.Submitted(x,gpu.fence.Get(),gpu.value,true);};
+        auto selected=take();
+        if(n==1) {Check(!selected.synthetic,"first frame must prime");accept(selected);continue;}
+        if(extrapolate) {
+            Check(!selected.synthetic,"extrapolation delayed the real frame");accept(selected);selected=take();
+        }
+        Check(selected.synthetic,"FSR3 did not produce a stereo pair");
+        for(unsigned eye=0;eye<2;++eye) {
+            const auto pixels=gpu.Read(selected.frame.color[eye]);double sum=0;unsigned count=0;
+            for(unsigned x=0;x<width;++x)if(pixels[(40*width+x)*4]>120) {sum+=x;++count;}
+            Check(count>10,"generated object missing");
+            const double center=sum/count,realCenter=24+eye*32+n*6+11.5;
+            std::printf("FSR3 eye %u produced center %.2f, endpoint %.2f\n",eye,center,realCenter);
+            Check(extrapolate ? center>realCenter+.4 : center<realCenter-.4,"generated frame moved in the wrong direction");
+        }
+        accept(selected);
+        if(!extrapolate) {selected=take();Check(!selected.synthetic && selected.kind==Cadence::Next::PendingReal,
+            "missing real endpoint after FSR3 midpoint");accept(selected);}
+    }
+    presenter.Reset();settings.enabled=false;SetSettings(settings);
+    Check(cvr::fsr3::ReleaseResources(),"FSR3 still owns completed GPU work");
+}
+
 void GpuGeneration(bool nvidia,bool engineMotion=true,bool rgbaMotion=false,bool halfMotion=false,Backend backend=Backend::FidelityFX,int flowScale=50) {
     Gpu gpu(nvidia);Generator generator;Settings settings;settings.backend=nvidia?Backend::Nvidia:Backend::FidelityFX;settings.flowScale=flowScale;
     if(NgxBackend(backend))settings.backend=backend;
@@ -763,6 +830,9 @@ int main(int argc,char** argv) try {
         b.Transition={copied.depth.Get(),0,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_SOURCE};gpu.list->ResourceBarrier(1,&b);gpu.Execute();
         const auto values=gpu.Read(copied.depth.Get());float value{};std::memcpy(&value,values.data(),sizeof(value));Check(value==.25f,"depth plane values changed");
     } else if(test=="input_copy")GpuInputCopy();
+    else if(test=="fsr3_interpolation" || test=="fsr3_extrapolation" ||
+            test=="fsr3_interpolation_hw" || test=="fsr3_extrapolation_hw")
+        GpuFsr3(test.find("extrapolation")!=std::string::npos,test.ends_with("_hw"));
     else if(test=="gpu_fidelityfx_rgba16" || test=="gpu_nvidia_rgba16")GpuGeneration(test=="gpu_nvidia_rgba16",true,true);
     else if(test=="gpu_fidelityfx" || test=="gpu_nvidia")GpuGeneration(test=="gpu_nvidia");
     else if(test=="gpu_fidelityfx_half_motion" || test=="gpu_nvidia_half_motion")GpuGeneration(test=="gpu_nvidia_half_motion",true,false,true);

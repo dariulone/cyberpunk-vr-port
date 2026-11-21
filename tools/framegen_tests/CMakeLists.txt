@@ -7,6 +7,7 @@ set(root "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(CVR_SDK_BUILD "${root}/build/patchday/sdk25-build" CACHE PATH "Main build folder holding fidelityfx-native and dlss-sdk")
 set(sdk "${CVR_SDK_BUILD}/fidelityfx-native/sdk")
 add_executable(framegen_tests main.cpp replay.cpp
+    ${root}/src/Framegen/Fsr3.cpp ${root}/src/Framegen/Fsr3Dilate.cpp ${root}/src/Framegen/Fsr3Extrapolate.cpp
     ${root}/src/Framegen/InputCopy.cpp ${root}/src/Framegen/AnrFrameGen.cpp
     ${root}/src/Render/StereoDepth.cpp
     ${root}/src/Framegen/Framegen.cpp ${root}/src/Framegen/Generator.cpp ${root}/src/Framegen/DlssFrameGen.cpp ${root}/src/Framegen/FrameCapture.cpp
@@ -14,7 +15,9 @@ add_executable(framegen_tests main.cpp replay.cpp
     ${root}/src/Framegen/HardwareTelemetry.cpp ${root}/src/Core/Paths.cpp)
 target_compile_features(framegen_tests PRIVATE cxx_std_20)
 target_compile_definitions(framegen_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
-target_include_directories(framegen_tests PRIVATE ${root}/include ${root}/build/_deps/openxr-src/include
+find_path(CVR_OPENXR_INCLUDE openxr/openxr.h HINTS
+    "${CVR_SDK_BUILD}/_deps/openxr-src/include" "${root}/build/_deps/openxr-src/include" REQUIRED)
+target_include_directories(framegen_tests PRIVATE ${root}/include ${CVR_OPENXR_INCLUDE}
     ${sdk}/include ${root}/externals/nvidia-optical-flow)
 target_compile_options(framegen_tests PRIVATE /Zi)
 target_link_options(framegen_tests PRIVATE /DEBUG)
@@ -29,7 +32,7 @@ if(EXISTS "${dlss}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib")
         debug "${dlss}/lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib")
     target_compile_definitions(framegen_tests PRIVATE CVR_NATIVE_DLSSG=1)
 endif()
-foreach(case policy cadence presenter_timeline stereo_depth settings pacing phase_pacing cadence_lock metrics metrics_disabled debug_gate history gpu_fidelityfx gpu_fidelityfx_rgba16 input_copy gpu_fidelityfx_flow gpu_fidelityfx_half_motion gpu_fidelityfx_noflow overlay overlay_follow planar_depth gpu_timer hardware)
+foreach(case fsr3_interpolation fsr3_extrapolation policy cadence presenter_timeline stereo_depth settings pacing phase_pacing cadence_lock metrics metrics_disabled debug_gate history gpu_fidelityfx gpu_fidelityfx_rgba16 input_copy gpu_fidelityfx_flow gpu_fidelityfx_half_motion gpu_fidelityfx_noflow overlay overlay_follow planar_depth gpu_timer hardware)
     add_test(NAME framegen_${case} COMMAND framegen_tests ${case})
 endforeach()
 # Hardware NVIDIA OFA is exercised explicitly, never silently replaced with WARP.

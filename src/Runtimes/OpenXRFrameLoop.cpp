@@ -1,3 +1,4 @@
+#include "Framegen/Fsr3.hpp"
 #include "Runtimes/HapticRouting.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include "Runtimes/FingerGrip.hpp"
@@ -624,6 +625,7 @@ void OpenXRManager::PumpInlineFrame() {
         return;
     }
     FrameThreadMain();
+    if(m_framegen.WantsFsr3Cycle() && m_sessionRunning.load(std::memory_order_relaxed)) FrameThreadMain();
     ReleaseFrameLoop(FrameLoopOwner::Inline);
 }
 
@@ -2328,7 +2330,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     XrStage(4);
                     const double selectStart=XrDiagNowMs();
                     fgSelection=m_framegen.Select(m_d3dDevice,IsRuntimeSteamVR() && finishedCapture?RuntimeQueue():m_d3dQueue,std::move(fgFrame),
-                        !menuRectActive && m_sessionRunning.load(std::memory_order_relaxed));
+                        !menuRectActive && m_sessionRunning.load(std::memory_order_relaxed),
+                        double(frameState.predictedDisplayPeriod)*1e-6);
                     fgSelectMs=XrDiagNowMs()-selectStart;
                     fgSelected=true;
                     for(unsigned eye=0;eye<2;++eye) {
@@ -2712,6 +2715,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     // Queue even a partial pair before releasing either image to the compositor.
                     m_cmdList->Close();
                     ID3D12CommandList* cmdLists[] = {m_cmdList};
+                    if(fgSelected && cvr::fsr3::Enabled())cvr::fsr3::QueueWaitForLast(copyQueue);
                     copyQueue->ExecuteCommandLists(1, cmdLists);
                     XrStage(6);
                     OrderRuntimeAfter(copyQueue);

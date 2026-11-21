@@ -1,4 +1,5 @@
 #include "Framegen/Presenter.hpp"
+#include "Framegen/Fsr3.hpp"
 #include "Framegen/FrameCapture.hpp"
 #include "Utils/DebugGate.hpp"
 #include <algorithm>
@@ -30,6 +31,32 @@ XrPosef Middle(const XrPosef& a,const XrPosef& b) {
     if(norm>0) {q.x/=norm;q.y/=norm;q.z/=norm;q.w/=norm;}else q={0,0,0,1};
     return out;
 }
+XrQuaternionf Multiply(const XrQuaternionf& p,const XrQuaternionf& q) {
+    return {p.w*q.x+p.x*q.w+p.y*q.z-p.z*q.y, p.w*q.y-p.x*q.z+p.y*q.w+p.z*q.x,
+            p.w*q.z+p.x*q.y-p.y*q.x+p.z*q.w, p.w*q.w-p.x*q.x-p.y*q.y-p.z*q.z};
+}
+// b moved on past it by `f` of the step from a to b: position b + f(b - a), and the rotation from a to b applied
+// again, f of it, on top of b.
+XrPosef Ahead(const XrPosef& a,const XrPosef& b,float f) {
+    XrPosef out{};
+    out.position={b.position.x+(b.position.x-a.position.x)*f,b.position.y+(b.position.y-a.position.y)*f,
+                  b.position.z+(b.position.z-a.position.z)*f};
+    XrQuaternionf from=a.orientation;
+    if(from.x*b.orientation.x+from.y*b.orientation.y+from.z*b.orientation.z+from.w*b.orientation.w<0)
+        from={-from.x,-from.y,-from.z,-from.w};
+    auto step=Multiply(b.orientation,{-from.x,-from.y,-from.z,from.w});   // b = step * a
+    if(step.w<0)step={-step.x,-step.y,-step.z,-step.w};
+    const float s=std::sqrt((std::max)(0.0f,1.0f-step.w*step.w));
+    out.orientation=b.orientation;
+    if(s>1e-6f) {
+        const float half=std::acos((std::min)(1.0f,step.w))*f;
+        const float k=std::sin(half)/s;
+        auto& q=out.orientation=Multiply({step.x*k,step.y*k,step.z*k,std::cos(half)},b.orientation);
+        const float norm=std::sqrt(q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w);
+        if(norm>0) {q.x/=norm;q.y/=norm;q.z/=norm;q.w/=norm;}else q=b.orientation;
+    }
+    return out;
+}
 EyeCamera Camera(const XrPosef& pose,const XrFovf& fov) {
     EyeCamera c;const auto& q=pose.orientation;
     c.orientation[0]=q.x;c.orientation[1]=q.y;c.orientation[2]=q.z;c.orientation[3]=q.w;
@@ -47,9 +74,12 @@ bool SameProjection(const Frame& a,const Frame& b) {
     return true;
 }
 }
-Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame current,bool gameplay) {
+Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame current,bool gameplay,double displayPeriodMs) {
     generator.Poll();
+    fsr3::Poll();
     const auto settings=GetSettings();
+    if(settings.backend!=activeBackend) {Reset();activeBackend=settings.backend;}
+    if(!Fsr3Backend(activeBackend) || !settings.enabled) fsr3::ReleaseResources();
     const bool pairGap=primed && !cadence.Pending() && current.identity.inputs && !current.identity.reset &&
         current.identity.origin==previous.identity.origin && current.identity.serial>previous.identity.serial &&
         uint32_t(current.identity.nativeFrame-previous.identity.nativeFrame)>1 &&
@@ -70,7 +100,7 @@ Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame
         CaptureFrame(device,queue,current.color,current.inputs,cameras);
     }
     if(!settings.enabled || !gameplay) {
-        primed=false;previous={};generatedSerial=0;
+        primed=false;previous={};generatedSerial=predictNext=predictedSerial=0;
         PacingReady(false);
         if(generator.Reset()) {if(!DepthCaptureEnabled())ReleaseInputs();if(MetricsEnabled())SetVram(InputVram());}
         Status(settings.enabled ? "Paused in menus or untracked views" : "Disabled");return result;
@@ -79,8 +109,10 @@ Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame
         Reset();Status("External OFXR is loaded: disarm its tray and restart before native generation");return result;
     }
     if(!current.identity.inputs || !current.identity.stereo || !current.lease) {
-        primed=false;PacingReady(false);Status("Waiting for matching depth and motion vectors in both eyes");return result;
+        primed=false;predictNext=predictedSerial=0;PacingReady(false);Status("Waiting for matching depth and motion vectors in both eyes");return result;
     }
+    if(Fsr3Backend(activeBackend))
+        return SelectFsr3(device,queue,std::move(current),activeBackend,displayPeriodMs);
     if(current.identity.serial==generatedSerial)return result;
     const bool interpolate=primed && CanInterpolate(previous.identity,current.identity) && SameProjection(previous,current);
     if(primed && !interpolate && cvr::RuntimeDiagnosticsEnabled()) {
@@ -118,10 +150,70 @@ Selection Presenter::Select(ID3D12Device* device,ID3D12CommandQueue* queue,Frame
     previous.color[0]=previous.color[1]=nullptr;primed=true;
     return result;
 }
+Selection Presenter::SelectFsr3(ID3D12Device* device,ID3D12CommandQueue* producer,Frame current,
+                                Backend backend,double displayPeriodMs) {
+    const auto serial=current.identity.serial;
+    Selection result{current,cadence.Select(serial,false,false),{},false};
+    PublishActiveBackend(backend);
+    if(!fsr3::Enabled()) {Status(fsr3::GetStatus().text);PacingReady(false);return result;}
+
+    if(serial==generatedSerial) {
+        if(backend!=Backend::Fsr3Extrapolation || result.kind!=Cadence::Next::Repeat) return result;
+        if(predictNext==serial) {
+            predictNext=0;
+            if(fsr3::Generate(device,producer,current.color,current.inputs,serial,0,current.lease)) predictedSerial=serial;
+        }
+        if(predictedSerial==serial && fsr3::ShowGenerated()) {
+            for(unsigned eye=0;eye<2;++eye) {
+                result.frame.color[eye]=fsr3::Output(eye,serial);
+                result.frame.pose[eye]=predictedPose[eye];
+                result.frame.identity.pose[eye]=0;
+            }
+            result.synthetic=true;
+            result.generatedFrom=current.lease;
+        }
+        return result;
+    }
+
+    predictNext=predictedSerial=0;
+    const bool consecutive=primed && CanInterpolate(previous.identity,current.identity) && SameProjection(previous,current);
+    const double interval=consecutive ? current.identity.capturedMs-previous.identity.capturedMs : 0;
+    const bool fits=consecutive && interval>displayPeriodMs && interval>2*fsr3::GenerationMs();
+    if(backend==Backend::Fsr3Interpolation) {
+        // A new history starts with a real frame. Keep the matching endpoint pinned until xrEndFrame accepts it.
+        if(!consecutive) fsr3::ResetHistory();
+        if(!consecutive || fits) {
+            const bool made=fsr3::Generate(device,producer,current.color,current.inputs,serial,interval,current.lease);
+            if(made && fits && fsr3::ShowGenerated()) {
+                result.kind=Cadence::Next::Midpoint;
+                result.synthetic=true;
+                result.frame.identity.capturedMs=(previous.identity.capturedMs+current.identity.capturedMs)*.5;
+                for(unsigned eye=0;eye<2;++eye) {
+                    result.frame.color[eye]=fsr3::Output(eye,serial);
+                    result.frame.pose[eye]=Middle(previous.pose[eye],current.pose[eye]);
+                    result.frame.identity.pose[eye]=0;
+                }
+                pending=current;
+            }
+        }
+    } else if(fits) {
+        // Present the real capture now. Predict only if the next display cycle still has that capture.
+        for(unsigned eye=0;eye<2;++eye) predictedPose[eye]=Ahead(previous.pose[eye],current.pose[eye],.5f);
+        predictNext=serial;
+    }
+    primed=true;generatedSerial=serial;
+    previous.identity=current.identity;
+    for(unsigned eye=0;eye<2;++eye){previous.pose[eye]=current.pose[eye];previous.fov[eye]=current.fov[eye];}
+    const auto status=fsr3::GetStatus();
+    PacingReady(status.ready || (backend==Backend::Fsr3Extrapolation && fits));
+    Status(status.text,status.ready && !status.faulted);
+    return result;
+}
 void Presenter::Submitted(const Selection& result,ID3D12Fence* fence,uint64_t value,bool accepted,bool retainEndpoint) {
     if(result.frame.lease)result.frame.lease->fence=std::max(result.frame.lease->fence,value);
     if(result.generatedFrom)result.generatedFrom->fence=std::max(result.generatedFrom->fence,value);
     generator.ConsumerFence(fence,value);
+    if(Fsr3Backend(activeBackend))fsr3::ConsumerFence(fence,value);
     // A transient swapchain/submit failure must not discard B after its midpoint was accepted. Keep the pinned
     // endpoint for the next cycle; a recenter, menu transition or explicit Reset still invalidates it.
     if(!accepted) {
@@ -133,6 +225,8 @@ void Presenter::Submitted(const Selection& result,ID3D12Fence* fence,uint64_t va
     if(result.kind==Cadence::Next::PendingReal)pending={};
 }
 void Presenter::Reset() {
+    predictNext=predictedSerial=0;
+    if(Fsr3Backend(activeBackend)) {fsr3::ResetHistory();fsr3::ReleaseResources();}
     PacingReady(false);
     cadence.Reset();pending={};previous={};primed=false;generatedSerial=0;
     if(generator.Reset() && !DepthCaptureEnabled())ReleaseInputs();

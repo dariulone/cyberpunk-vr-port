@@ -28,12 +28,17 @@ struct Selection {
 };
 class Presenter {
 public:
-    Selection Select(ID3D12Device*,ID3D12CommandQueue*,Frame,bool gameplay);
+    Selection Select(ID3D12Device*,ID3D12CommandQueue*,Frame,bool gameplay,double displayPeriodMs=0);
     void Submitted(const Selection&,ID3D12Fence*,uint64_t,bool accepted,bool retainEndpoint=false);
     void Reset();
+    bool WantsFsr3Cycle() const {return (activeBackend==Backend::Fsr3Interpolation && Pending()) || predictNext!=0;}
     bool Pending() const {return cadence.Pending()!=0;}
     const Frame& PendingFrame() const {return pending;}
 private:
+    Selection SelectFsr3(ID3D12Device*,ID3D12CommandQueue*,Frame,Backend,double);
+    Backend activeBackend=Backend::Nvidia;
+    uint64_t predictNext{},predictedSerial{};
+    XrPosef predictedPose[2]{};
     Cadence cadence;
     Generator generator;
     Frame pending;

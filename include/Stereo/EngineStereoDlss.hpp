@@ -36,6 +36,13 @@ sl::Result EvaluateOriginal(sl::Feature, const sl::FrameToken&, const sl::BaseSt
 // The eye whose DLSS evaluate runs on this thread, inside Evaluate (0 left, 1 right); -1 outside one. Both eyes are
 // MAIN's view, so what runs under it (NGX's evaluate, Render/FoveatedDlss.cpp) tells them apart by this.
 int EvaluatingEye();
+// Where that eye is in the resources its evaluate hands NGX -- its output, depth and motion areas, in pixels of each
+// resource (the left eye's halves of the engine's, the right eye's copies at (0, 0)) -- and the motion scale its
+// DLSS was given. False outside an eye's evaluate. Render/NeuralRender.cpp works on the eye's areas by this.
+struct EyeArea { uint32_t left = 0, top = 0, width = 0, height = 0; };
+struct EyeAreas { EyeArea output, depth, motion; float motionScale[2]{}; };
+bool EvaluatingAreas(EyeAreas* out);
+
 // slDLSSSetOptions is only reachable through slGetFeatureFunction once the DLSS plugin is loaded: tried when the
 // Streamline hooks go in and again at evaluates until it succeeds.
 void InstallOptionsHook();

@@ -9,11 +9,13 @@ namespace cvr::framegen {
 // Nvidia: NVIDIA optical flow (OFA) + FidelityFX frame interpolation.
 // DlssG: native NVIDIA DLSS Frame Generation through NGX (RTX 40/50).
 // Anr: ANR FG (Apex Neural Rendering), a DLSS-G provider dll run through the DlssG path (Framegen/AnrFrameGen.hpp).
-enum class Backend:int { FidelityFX=0,Nvidia=1,DlssG=2,Anr=3 };
+enum class Backend:int { FidelityFX=0,Nvidia=1,DlssG=2,Anr=3,Fsr3Interpolation=4,Fsr3Extrapolation=5 };
+inline bool Fsr3Backend(Backend b) {return b==Backend::Fsr3Interpolation || b==Backend::Fsr3Extrapolation;}
 inline bool NgxBackend(Backend b) {return b==Backend::DlssG || b==Backend::Anr;}
 const char* BackendName(Backend);
 struct Settings {
     bool enabled=false,overlay=false,autoPace=true;
+    bool fsr3OpticalFlow=true,fsr3Show=true;
     // Real frames three display periods apart while the game cannot make two (CadenceLock). Off: always two, the
     // rate the headset's refresh was chosen for; a slow frame is absorbed by the XR side instead.
     bool cadenceLock=false;
