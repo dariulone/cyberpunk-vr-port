@@ -110,7 +110,7 @@ pressing its trigger. CyberFinger ignores the older F10 pointer-hand override.
 
 **Conversation choices:** **right stick up/down** selects the previous/next
 choice; **right trigger** confirms, regardless of weapon handedness. **Left
-stick still moves**, including click-to-sprint, and **right stick left/right
+stick still moves**, and **right stick left/right
 still turns** wherever the game permits movement. Only right-stick vertical
 actions (dash/dodge, crouch or pitch) and the right trigger's normal aim/fire
 action are reserved. Release/center those controls after the choices close
@@ -190,7 +190,10 @@ path can be checked.
 
 ## Buttons at a glance
 
-![CyberFinger physical controls and gameplay mapping](docs/controls/cyberfinger-controls.svg)
+![Left-handed CyberFinger controls. Hold the left stick fully forward to sprint. Tap and release its click to jump, or hold the right stick click for a charged jump.](docs/controls/cyberfinger-controls.svg)
+
+The figure shows the **sprint/jump update** with **Sprint** set to **Hold the left stick forward**.
+Earlier builds use left stick click for sprint and right stick click for jump.
 
 [Open the context-switching guide](docs/controls/cyberfinger-controls.html) locally
 in a browser for **Gameplay**, **Cyberpunk menus**, **VR menus / F10**,
@@ -204,8 +207,8 @@ The physical grip buttons are utilities. **Closing your fingers supplies grab.**
 
 | Control | Action with the left-handed preset |
 |---|---|
-| Left stick | Move; pushing fully forward does not start sprint |
-| Left stick click | Start sprint while moving; release the stick to stop |
+| Left stick | Move at partial travel. Hold fully forward for about 0.2 seconds to sprint |
+| Left stick click | Tap and release to jump on foot. Hold and push the right stick for a D-pad shortcut |
 | Right stick left/right | Turn; snap turning requires a full push, then return toward center |
 | Right stick up / down past 80% travel | Dash or dodge / toggle crouch; release to center between crouch toggles |
 | Right stick click | Jump; hold for charge jump where available |
@@ -223,9 +226,11 @@ The physical grip buttons are utilities. **Closing your fingers supplies grab.**
 | Right pink wrist | Open/close the world-space VR menu |
 | Close fingers near a target / open hand | Grab / release |
 
-Sprint starts after the click is released, so holding it for a cross-hand
-shortcut does not also sprint. Pushing the movement stick fully forward by
-itself only moves. Return the stick to center to stop sprinting.
+About three-quarters forward gives you ordinary movement, just as on Quest.
+The left click jumps on release so you can use a D-pad shortcut without jumping.
+For a jump on press or a charged jump, use the right stick click. On the
+sprint/jump build, **F10 > Controls > Sprint > Click the left stick** restores
+the click-to-sprint layout.
 
 **Taking and using objects:** on the hand opposite the movement stick, Trigger
 performs the primary **Take / Interact (X)** prompt and Grip performs the secondary
