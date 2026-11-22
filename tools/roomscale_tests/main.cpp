@@ -348,6 +348,19 @@ void VehicleReloadInput() {
     Check(!hold.Update(seat.exitOnX,true,1700,400),"Combat reload hold carried into ordinary seat exit");
     Check(hold.Update(seat.exitOnX,true,2100,400),"ordinary seat X hold stopped working");
     Check(!hold.Update(true,false,2200,400),"X release left exit held");
+
+    VehicleExitHold grip;
+    auto exitGrip=[&](bool allowed,bool held,uint64_t now){return grip.UpdateGrip(allowed,held,now,400);};
+    Check(!exitGrip(true,true,10) && !exitGrip(true,true,200),"Grip held on entry began an exit");
+    Check(!exitGrip(true,false,210) && !exitGrip(true,true,220) && !exitGrip(true,false,260),"Grip tap exited");
+    Check(!exitGrip(true,true,300) && !exitGrip(true,true,500) && !exitGrip(true,true,699),"Grip exited early");
+    Check(exitGrip(true,true,700) && exitGrip(true,true,720),"full Grip hold did not hold native exit");
+    Check(!exitGrip(false,true,735) && !exitGrip(true,true,750) && !exitGrip(true,true,950) &&
+          !exitGrip(true,true,1150),"Grip carried across a menu or seat change");
+    Check(!exitGrip(true,false,1160) && !exitGrip(true,true,1170) && !exitGrip(true,true,1600) &&
+          !exitGrip(true,true,1800) && !exitGrip(true,true,2000),"stale Grip exited after input resumed");
+    Check(!exitGrip(true,false,2010) && !exitGrip(true,true,2020) && !exitGrip(true,true,2220) &&
+          exitGrip(true,true,2420) && !exitGrip(true,false,2430),"fresh Grip failed after input resumed");
 }
 // The body follows the head CONTINUOUSLY: a slow head turn is a slow body turn, every frame, never a staircase of
 // catch-ups; the turn rate never jumps; after the turn the body comes round under the head and never past it.

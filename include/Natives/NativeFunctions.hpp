@@ -325,6 +325,7 @@ void VRGraspPin(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bo
 void VRGraspBlend(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRGraspClear(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRPromptPart(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::CName* aOut, int64_t a4);
+void VRCyberFingerHint(RED4ext::IScriptable*, RED4ext::CStackFrame*, RED4ext::CString*, int64_t);
 void VRBodySetVel(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, bool* aOut, int64_t a4);
 void VRBoneModelPos(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4);
 void VRBoneModelRot(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Quaternion* aOut, int64_t a4);
@@ -416,6 +417,7 @@ void VRIntroHum(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRReachAim(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRReachUse(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRHandHolds(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRAllowsGestureHolstering(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRCyberFingerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRCyberFingerCommand(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
 void VRCyberFingerConversation(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);

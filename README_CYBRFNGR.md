@@ -117,6 +117,24 @@ action are reserved. Release/center those controls after the choices close
 before they resume gameplay. Held controls on entry cannot select immediately.
 Ordinary nearby interaction prompts do not activate this dialogue layout.
 
+**CyberFinger button hints.** When the game is showing controller hints, supported
+HUD rows add the physical control in brackets after the action. In the driver's
+seat, look for **[Tap Left Menu]** to draw and **[Hold Left Grip 0.4 s]** to exit.
+On foot, quick reload shows **[Tap Right Black Wrist]** for a left-handed weapon
+and **[Tap Left Black Wrist]** for a right-handed weapon. Nearby primary and
+secondary choices name the Trigger or Grip on the hand opposite the movement
+stick. A selected dialogue choice names **Right Trigger** and, for multiple
+choices, **Right Stick Up/Down**.
+
+These labels use the active OpenXR bindings and the game's current action.
+The first version recognizes English SteamVR and CyberFinger control names.
+After using the desktop mouse or keyboard, move a CF stick to bring back the
+controller prompts.
+Keyboard prompts, unsupported actions, button combinations, and controls whose
+physical assignment SteamVR cannot confirm keep their usual hints. The original
+icons and hold indicators stay visible. This applies to the gameplay HUD and
+choice lists. A mod that draws its own interface supplies its own prompts.
+
 **HUD:** the main HUD and interaction panel are 25% larger by default. Hold
 **both Menu buttons for about half a second** to hide/show them; release both before
 repeating. Conversations, object interaction prompts (including the mirror),
@@ -217,7 +235,7 @@ The physical grip buttons are utilities. **Closing your fingers supplies grab.**
 | Right stick click | Jump; hold for charge jump where available |
 | Left trigger | Fire; throttle when driving without a drawn weapon |
 | Right trigger | Aim/block; brake when driving |
-| Left physical grip button | Toggle scanner in gameplay; secondary/context action in menus (X in native menus) |
+| Left physical grip button | On foot: toggle scanner. In a vehicle: hold 0.4 s to exit. In native menus: X / context action |
 | Right physical grip button | With fists/melee equipped: toggle fists ↔ equipped melee weapon; with a firearm: R3 slide release/rack. Secondary/context action in menus (X in native menus) |
 | Left Menu, tap / hold | Next weapon / weapon wheel in gameplay; Back/cancel on release in menus |
 | Right Menu, tap / hold | Inventory on release / operating-system cyberware after 0.65 s in gameplay; Back/cancel on release in menus |
@@ -375,10 +393,20 @@ panels. Keyboard text entry still uses the keyboard. See
   Menu. The mod's VR wheel is controlled by **Controls > VR weapon wheel on a held Y**.
 - **Holsters/support:** reach to a holster and close the drawing hand. To support
   a gun, bring the free hand to its support point and close it; open to release.
+  **Gesture holstering is off by default** on CyberFinger so reaching across to a
+  wrist button keeps your weapon equipped. To enable it, open **F10** or the
+  **VR menu > Settings**, then **Controls > General > CyberFinger gesture holstering**.
+  With it enabled, close the weapon hand at its holster to put it away. In simple
+  holster mode, reach within **12 cm** of a hip or shoulder. You can draw from
+  holsters with either setting.
 - **Reload:** tap the weapon-hand black wrist (left by default) to eject on weapons with physical reload
   support, grab the magazine
   with your free hand, move it out/in along the magazine well, and rack the slide
   as required. **Right physical grip** provides the R3 slide-release action.
+  On the **Militech Crusher**, an empty reload highlights the charging handle
+  after the magazine seats. Open your **free hand** (right for a left-handed V),
+  reach to the highlighted handle, close your fingers, pull back and open to
+  release. The free-hand Trigger also works there. A partial reload skips this step.
   Amber highlights indicate the magazine/slide needing attention.
   Tap the **other-hand black wrist** (right by default) for the game's quick
   reload; keyboard **R** also works. Hold that other-hand black button to heal.
@@ -405,8 +433,12 @@ panels. Keyboard text entry still uses the keyboard. See
   tracking; weapon-specific mechanics are detailed in the
   [main controls reference](README.md#controls).
 - **Driving:** close a hand near the wheel/handlebar to grab it, then steer with
-  your hands. Weapon-hand black hold now **pauses**, including in a vehicle;
-  it no longer exits the vehicle. Use the game's keyboard **F** exit control.
+  your hands. To **draw a weapon** from the driver's seat, **tap and release the
+  physical left Menu button** (the ring button). This sends the game's **Y**
+  action to enter vehicle combat when the game allows it. The default keyboard
+  equivalent is a tap of **Alt**. To **exit**, hold the **physical left Grip button** for **0.4 seconds**
+  while seated. Use the same left button with either weapon hand. The keyboard
+  shortcut is **F**. Holding the weapon-hand black wrist button pauses.
   Right stick click is A/handbrake and confirms vehicle dialogue.
   With a gun drawn, the firing trigger shoots and throttle latches; the left
   stick forward/back trims it.

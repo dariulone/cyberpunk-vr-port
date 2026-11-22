@@ -10,6 +10,10 @@
 #include "Core/LiveControls.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Natives/NativeFunctions.hpp"
+#include "Runtimes/CyberFingerHintBindings.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/CyberFingerMenuPolicy.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
 #include "Utils/DebugGate.hpp"
 #include "MinHook.h"
 
@@ -22,6 +26,7 @@
 #include <set>
 
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VehicleDialogConfirmOnA;   // src/Hooks/XInput.cpp
+extern "C" int32_t CyberpunkVR_VehicleExitHoldMs;
 
 namespace cvr::input {
 
@@ -141,6 +146,32 @@ bool UpdatePromptIcons(RED4ext::CGameApplication*) {
 }
 
 }  // namespace cvr::input
+
+void VRCyberFingerHint(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, RED4ext::CString* out, int64_t) {
+    RED4ext::CName action;
+    bool hold = false;
+    RED4ext::GetParameter(frame, &action);
+    RED4ext::GetParameter(frame, &hold);
+    ++frame->code;
+    if (!out) return;
+    using namespace cvr::cyberfinger;
+    *out = RED4ext::CString("");
+    if (!Enabled() || !g_liveControls.xrXInputHook || g_menuModeValue != 0) return;
+    const char* name = action.ToString();
+    if (!name) return;
+    HintLayout layout;
+    layout.sources = hintSources.load(std::memory_order_relaxed);
+    layout.leftWeapon = g_liveControls.xrLeftHanded != 0;
+    layout.leftMouse = MouseHand(layout.leftWeapon, g_liveControls.xrLeftHandedBindings) == 0;
+    layout.seated = g_isInVehicle;
+    layout.exitGrip = cvr::input::VehicleButtonPolicy(layout.seated, g_vehicleState.load()).exitOnX;
+    layout.driving = g_isDriving.load();
+    layout.vehicleFire = layout.driving && g_hasWeaponEquipped && g_liveControls.xrVehicleGunTrigger;
+    layout.dialogue = ConversationActive();
+    layout.interaction = InteractionActive();
+    layout.defaultExitTime = CyberpunkVR_VehicleExitHoldMs <= 0 || CyberpunkVR_VehicleExitHoldMs == 400;
+    *out = RED4ext::CString(ControlHint(name, hold, layout).c_str());
+}
 
 // VRPromptPart(part) -> CName: the icon part of the physical button that presses the pad button `part` names.
 void VRPromptPart(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, RED4ext::CName* aOut, int64_t) {

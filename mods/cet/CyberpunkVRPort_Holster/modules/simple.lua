@@ -25,6 +25,7 @@ local PROX_R           = 0.25
 local PROX_L           = 0.40
 local PROX_BACK        = 0.25   -- was 0.35: the over-shoulder anchor also caught a raised
                                 -- weapon-ready wrist at the waist/chest -> zone B misfires
+local CF_STOW_REACH = 0.12      -- wrist distance to the chosen holster anchor, metres
 local BACK_MARGIN      = 0.03   -- B must beat the right-hip distance by a clear margin
 local EQUIP_COOLDOWN_S = 0.6
 
@@ -168,6 +169,7 @@ function M.update(dt)
     -- exactly the "it equips again instead of putting away" the katana shows.
     local rightItem = TransactionSystem:GetItemInSlot(pl, left and WeaponLeftSlot or WeaponRightSlot)
     local hasWeapon = rightItem ~= nil
+    if hasWeapon and type(VRAllowsGestureHolstering) == "function" and not VRAllowsGestureHolstering() then return end
 
     -- shared[23]: 0/unset = immersive (classify by visual holster), 1 = simple slot mapping.
     -- (Inverted on the plugin side so the zero-initialised shared block defaults to immersive.)
@@ -182,6 +184,16 @@ function M.update(dt)
         -- is not worth that: put away first, then draw from the zone you want.
         spdlog.info(string.format("[Holster] simple grip zone=%s dR=%.2f dL=%.2f dB=%.2f hasWpn=%s",
             tostring(zone), dR, dL, dB, tostring(hasWeapon)))
+        if hasWeapon and type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled() then
+            local distance = zone == 'B' and dB or (zone == 'L' and dL or dR)
+            if distance > CF_STOW_REACH then return end
+            -- The drawing hand can close while the other hand is working a
+            -- magazine or the rack. That same squeeze must not also stow the gun.
+            local mod = GetMod('CyberpunkVRPort_Reload')
+            local reload = mod and mod.reload and mod.reload()
+            local support = left and 1 or 0
+            if reload and (reload.ownedHand == support or reload.rackReachHand == support) then return end
+        end
         if hasWeapon then
             local isMelee = (classify(TDBID.ToStringDEBUG(rightItem:GetItemID():GetTDBID())) == "melee")
             if isMelee then pl:VRHolsterMelee() else pl:VRUnequipWeapon() end

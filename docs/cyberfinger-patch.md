@@ -226,7 +226,7 @@ nearby-object gesture, not a menu click. These context changes require the
 matching plugin; the v2 raw SteamVR bindings are unchanged. Black-wrist raw
 actions are resolved by weapon hand before merging as named game actions, so
 optional face-button/stick mirroring cannot turn eject into weapon switch or
-reload into jump. Weapon-hand hold always pauses, including in vehicles.
+reload into jump. Weapon-hand hold always pauses, including in vehicles. Hold the physical left Grip button for 0.4 seconds to exit a vehicle with either weapon hand.
 See [the quick reference](../README_CYBRFNGR.md) for context-specific controls.
 
 The default leaves left pink for the SteamVR dashboard through its compositor

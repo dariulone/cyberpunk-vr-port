@@ -59,6 +59,7 @@ return {
         -- ON THE LEFT TRIGGER, not the grip: the grip near this gun is the
         -- two-hand hold on its magazine. The trigger is kept from the game (it is the aim) while the hand is on it.
         grabWith   = 'trigger',
+        cyberFingerRackGrip = true,  -- also offer a tracked grasp when a seated magazine needs chambering
         -- THE LEFT HAND OVER THE TOP, onto the handle on the left of the receiver. The wrist relative to the handle's
         -- slot in the weapon's frame, over the 13 frames the handle travels in each empty take (the two agree to
         -- 0.2 mm / 0.1 deg; 15 mm of spread within each, the hand riding a part that moves 70 mm).

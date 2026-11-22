@@ -2,6 +2,7 @@
 -- conversation controls. Non-CyberFinger controllers never enter this path.
 local controllers={}
 local meleeToggle=require('melee_toggle')
+local hudHints=require('hud_hints')
 local function visible(root)
   for _=1,32 do
     if not root then return true end
@@ -43,6 +44,7 @@ local function publishUi(enabled)
     end)
   end
   VRCyberFingerUiState(context,interaction)
+  return interaction
 end
 local function computer(enabled)
   if type(VRComputerUpdate)~='function' then return end
@@ -98,11 +100,12 @@ local function command(enabled)
     commandWarned=true;spdlog.error('[CyberFinger command] '..tostring(err))
   end
 end
-local function update()
+local function update(dt)
   if type(VRCyberFingerConversation)~="function" or type(VRCyberFingerEnabled)~="function" then return end
-  local enabled=VRCyberFingerEnabled();command(enabled);publishUi(enabled);computer(enabled)
+  local enabled=VRCyberFingerEnabled();command(enabled)
+  local interaction=publishUi(enabled);computer(enabled)
   pcall(function() meleeToggle.observe(enabled and Game.GetPlayer() or nil) end)
-  if not enabled then VRCyberFingerConversation(false);return end
+  if not enabled then VRCyberFingerConversation(false);hudHints.update(dt,false);return end
   local active=false
   pcall(function()
     local defs=GetAllBlackboardDefs().UIInteractions
@@ -114,6 +117,7 @@ local function update()
     end
   end)
   local action=VRCyberFingerConversation(active)
+  hudHints.update(dt,true,active or interaction)
   local names={[1]="ChoiceScrollUp",[2]="ChoiceScrollDown",[3]="ChoiceApply"}
   if active and names[action] and type(VRInteractionAction)=="function" then
     VRInteractionAction(CName.new(names[action]))
@@ -121,6 +125,7 @@ local function update()
 end
 registerForEvent("onUpdate",update)
 registerForEvent("onShutdown",function()
+  hudHints.update(0,false)
   controllers={};publishUi(false);computer(false)
   if type(VRCyberFingerConversation)=="function" then VRCyberFingerConversation(false) end
 end)

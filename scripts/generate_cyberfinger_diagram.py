@@ -22,7 +22,7 @@ names = ['STICK','TRIGGER','GRAB','MENU','BLACK WRIST','PINK WRIST']
 contexts = {
  'Gameplay': [
     ['Move. Hold fully forward 0.2 s to sprint. Click and release to jump.', 'Fire weapon.',
-     'Toggle scanner.', 'Tap: next weapon. Hold: weapon wheel.',
+     'Scanner on foot. Hold in vehicle: exit.', 'Tap: next weapon. Hold: weapon wheel.',
      'Tap: eject magazine. Hold: pause.', 'SteamVR dashboard.'],
     ['Turn. Up/down for dash/crouch. Click to jump, hold to charge.', 'Prompt: Take / Interact. Otherwise aim.',
      'Eat / use at prompts. Rack a gun or toggle fists / melee weapon.', 'Tap: inventory. Hold: OS cyberware.',

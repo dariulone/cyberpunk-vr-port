@@ -334,6 +334,9 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     handHolds->flags=flags;handHolds->AddParam("Int32","side");handHolds->SetReturnType("Bool");
     rtti->RegisterFunction(handHolds);
     auto cyberFinger=RED4ext::CGlobalFunction::Create("VRCyberFingerEnabled","VRCyberFingerEnabled",&VRCyberFingerEnabled);
+    auto gestureHolstering = RED4ext::CGlobalFunction::Create("VRAllowsGestureHolstering","VRAllowsGestureHolstering",&VRAllowsGestureHolstering);
+    gestureHolstering->flags = flags;
+    AddNative("VRAllowsGestureHolstering",gestureHolstering,"Bool",{});
     auto cfCommand=RED4ext::CGlobalFunction::Create("VRCyberFingerCommand","VRCyberFingerCommand",&VRCyberFingerCommand);
     cfCommand->flags=flags;cfCommand->SetReturnType("Int32");rtti->RegisterFunction(cfCommand);
     auto cfConversation=RED4ext::CGlobalFunction::Create("VRCyberFingerConversation","VRCyberFingerConversation",&VRCyberFingerConversation);
@@ -814,6 +817,9 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     auto fPPT = RED4ext::CGlobalFunction::Create("VRPromptPart", "VRPromptPart", &VRPromptPart);
     fPPT->flags = flags; fPPT->SetReturnType("CName"); fPPT->AddParam("CName", "part");
     rtti->RegisterFunction(fPPT);
+    auto cfHint = RED4ext::CGlobalFunction::Create("VRCyberFingerHint", "VRCyberFingerHint", &VRCyberFingerHint);
+    cfHint->flags = flags;
+    AddNative("VRCyberFingerHint", cfHint, "String", {{"CName", "action"}, {"Bool", "hold"}});
     auto fPMR = RED4ext::CGlobalFunction::Create("VRPalmModelRot", "VRPalmModelRot", &VRPalmModelRot);
     fPMR->flags = flags; fPMR->SetReturnType("Quaternion"); fPMR->AddParam("Int32", "right");
     rtti->RegisterFunction(fPMR);

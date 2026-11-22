@@ -1145,6 +1145,7 @@ local function grab(pl, held, real, side, drawSide)
   if inHand(nearest, held, real) then
     -- the weapon in hand at its own place: it goes home by itself -- the pair both, each from its own hand
     if not held[nearest.key] then return end   -- (the game is already taking it out of the hand)
+    if type(VRAllowsGestureHolstering) == "function" and not VRAllowsGestureHolstering() then return end
     stow(pl, nearest, side, real[nearest.key])
     local other = partnerOf(nearest)
     if other ~= nil and reachable(other) and real[other.key] ~= nil then

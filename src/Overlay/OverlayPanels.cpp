@@ -1213,7 +1213,12 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             }
 
             UI::Separator();
-            UI::TextUnformatted("Weapon holsters (reach + right grip)");
+            UI::TextUnformatted("Weapon holsters");
+            if (cvr::cyberfinger::Configured()) {
+                changed |= CheckboxInt("CyberFinger gesture holstering", &state.xrCyberFingerGestureHolstering);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("Close your weapon hand at a holster to put the weapon away. Drawing from holsters works with either setting.");
+            }
             changed |= CheckboxInt("Immersive holsters", &state.xrImmersiveHolsters);
             if (UI::IsItemHovered()) {
                 UI::SetTooltip(
@@ -1221,7 +1226,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                     "      pistols on the right hip, blades and clubs on the left hip,\n"
                     "      rifles and shotguns over the shoulders, knives on the chest.\n"
                     "      Reach for one and squeeze the grip to draw it (a blade at the\n"
-                    "      hip is pulled out along its handle); grip at its place to put it away.\n"
+                    "      hip is pulled out along its handle).\n"
                     "OFF - no weapons on the body, fixed slot per zone:\n"
                     "      over-shoulder = EquipmentSlot1, right hip = Slot2, left hip = Slot3.");
             }

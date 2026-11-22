@@ -1,6 +1,7 @@
 // The hand's reach in the game: the point the targeting looks at, and the interaction button the hand presses
 // (Natives/Reach.hpp).
 #include "Natives/Reach.hpp"
+#include "Core/LiveControls.hpp"
 #include "Natives/NativeFunctions.hpp"
 #include "Anim/HandGestures.hpp"
 #include "Anim/LeftHanded.hpp"
@@ -91,6 +92,10 @@ void VRHandHolds(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, 
 void VRCyberFingerEnabled(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
     ++frame->code;
     if (out) *out = cvr::cyberfinger::Enabled();
+}
+void VRAllowsGestureHolstering(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, bool* out, int64_t) {
+    ++frame->code;
+    if (out) *out = !cvr::cyberfinger::Enabled() || g_liveControls.xrCyberFingerGestureHolstering != 0;
 }
 void VRCyberFingerCommand(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_t* out,int64_t) {
     ++frame->code;const auto action=cvr::cyberfinger::TakeCommand();if(out)*out=static_cast<int32_t>(action);

@@ -1519,6 +1519,7 @@ local function yieldAll(weapon)
     end
     -- the slide and everything driven by it
     slideS.grabbed, slideS.releasing, slideS.hand, slideS.grip = false, false, nil, nil
+    slideS.wasOpenAtHandle, slideS.openAtHandle, slideS.input, M.rackReachHand = nil, nil, nil, nil
     slideS.userClosed, slideS.lockBase, slideS.tagged = false, nil, false
     slideS.ejectT, slideS.chaseV, slideS.rack, slideS.drain = nil, nil, 0, 0.0
     -- the game's reload chambers a manual action as it goes
@@ -1817,6 +1818,22 @@ function M.squeeze(how, h)
     return (GetVRSharedSlot(h == 0 and 155 or 49) or 0.0) > 0.5
 end
 
+-- Called only for the nearest in-range handle. A closed hand swept across it
+-- stays a support grip. Releasing the magazine must precede a new grasp.
+function M.slideInput(sc, hand, offerGrip)
+    if offerGrip then
+        M.rackReachHand = hand
+        if not M.squeeze('grip', hand) then
+            slideS.openAtHandle = hand
+        elseif slideS.wasOpenAtHandle == hand and not magS.gripLock then
+            return 'grip'
+        end
+    end
+    if (sc.grabWith == 'trigger' or not magS.gripLock) and M.squeeze(sc.grabWith, hand) then
+        return sc.grabWith or 'grip'
+    end
+end
+
 -- A TWO-HAND HOLD TAKEN AWAY. A weapon can be held in several places (TwoHandGrip.cpp, g_cand: the plain hold and
 -- `<weapon>@<where>` ones); `mag.holdAlt` names the one ON THE MAGAZINE -- the Crusher's @mag, index 1 -- and with the
 -- magazine out of the well that one has nothing to close on (with no magazine it must not hold on to the air),
@@ -1869,6 +1886,9 @@ function M.hatchParts(hc, p, st)
 end
 
 function M.frame(weapon, slotComp, holder, dt)
+    -- An open hand must have been at the handle on the preceding frame.
+    slideS.wasOpenAtHandle, slideS.openAtHandle = slideS.openAtHandle, nil
+    M.rackReachHand = nil
     if not havesNatives() then exitAt = 'natives'; return end
     dt = dt or 0.016
     magLitterSweep()
@@ -1917,6 +1937,7 @@ function M.frame(weapon, slotComp, holder, dt)
     local wkey = okId and tostring(wid) or '?'
     if wkey ~= slideS.weaponKey then
         slideS.weaponKey = wkey
+        slideS.wasOpenAtHandle, slideS.input = nil, nil
         slideS.chambered = true          -- a freshly drawn gun is treated as chambered
         slideS.ejectT, slideS.chaseV = nil, nil
         slideS.fired, slideS.ammoLast, slideS.firedAt, slideS.cycleHeld, slideS.racked, slideS.cycleHid = false, nil, nil, false, false, nil
@@ -2496,7 +2517,7 @@ function M.frame(weapon, slotComp, holder, dt)
             -- hands together at the grip, which is exactly the flip case -- and the pinch hand then stayed
             -- rotation-locked forever (the reported bug).
             local H = slideS.hand or free
-            if (not M.squeeze(sc.grabWith, H)) or slideS.trip then
+            if (not M.squeeze(slideS.input or sc.grabWith, H)) or slideS.trip then
                 slideS.grabbed, slideS.releasing, slideS.trip = false, true, nil  -- spring forward, NOT teleport
                 -- COMING OFF THE CATCH, the spring runs to CLOSED, not back to the catch. While the slide is held
                 -- back the rack is counted from the catch, so "rack = 0" means the catch -- and letting go simply
@@ -2758,6 +2779,9 @@ function M.frame(weapon, slotComp, holder, dt)
             slideS.ltNear = sc.grabWith == 'trigger' and free == aimHand()
                             and (slideS.grabbed or (best ~= nil and bestD <= (sc.previewRadius or 0.05)))
             if best and bestD <= (sc.previewRadius or 0.05) and not magNearer then
+                local offerGrip = sc.cyberFingerRackGrip and magS.state == 'in' and (magS.pending or 0) > 0
+                    and type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+                local input = M.slideInput(sc, free, offerGrip)
                 -- A HANDLE ON THE TRIGGER IS OFFERED TO THE TRIGGER FINGER, NOT TO THE HAND. The preview's fingers
                 -- are a claim on the hand, and the two-hand hold lets go of -- and spends the grip of -- any hand
                 -- the reload claims. A handle at the fore-end (the Copperhead's lever, the Umbra's, the
@@ -2766,7 +2790,7 @@ function M.frame(weapon, slotComp, holder, dt)
                 -- fought the slide; they are split, the slide on the trigger, the hold on the grip. So it is offered only while
                 -- the index finger is on the trigger -- a light touch shows it, the full press takes it -- and a
                 -- hand that only grips is the hold's.
-                if not (sc.grabWith == 'trigger'
+                if offerGrip or not (sc.grabWith == 'trigger'
                         and ((GetVRSharedSlot(free == 0 and 154 or 160) or 0.0) <= (sc.touchAt or 0.08))) then
                     fadeIn(free, best)                               -- the preview: fingers curl in over blendTime
                     magS.slideHasPose = true
@@ -2781,14 +2805,14 @@ function M.frame(weapon, slotComp, holder, dt)
                 -- straight on to the slide the instant the magazine was done, with the grip
                 -- still held. Now it is one lock for both parts, cleared by letting go.
                 -- (a part worked by the TRIGGER -- `grabWith` -- is not the grip's, so the grip's lock does not bind it)
-                if M.squeeze(sc.grabWith, free) and (sc.grabWith == 'trigger' or not magS.gripLock) then
+                if input then
                     -- GRAB, latching the hand (see the grabbed branch for why)
                     slideS.grabbed, slideS.releasing = true, false
-                    slideS.hand = free
+                    slideS.hand, slideS.input = free, input
                     slideS.grip = best
                     slideS.hrx, slideS.hry, slideS.hrz = hx, hy, hz  -- rack reference
                     -- ...and spend it, so the magazine cannot have it (a trigger has no grip to spend)
-                    if sc.grabWith ~= 'trigger' then magS.gripLock = true end
+                    if input ~= 'trigger' then magS.gripLock = true end
                     slideS.drain = 0.0                               -- a hand on it outranks a drain in progress
                     -- START FROM WHERE THE SLIDE IS. On the catch that is 40 mm back, not zero: writing zero here
                     -- is what snapped it shut the moment the grip closed.

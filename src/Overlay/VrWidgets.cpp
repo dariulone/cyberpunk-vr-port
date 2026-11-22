@@ -204,6 +204,11 @@ void DrawBindings(bool cyberfinger) {
             {"CLOSE FINGERS NEAR AN OBJECT","Grab; open to release. Menu gestures do not click."}
         };
         group("ON FOOT",foot,IM_ARRAYSIZE(foot));
+        static const Binding driving[]{
+            {"LEFT GRIP BUTTON","Hold to exit the vehicle (default 0.4 seconds)."},
+            {"CLOSE FINGERS AT THE WHEEL","Grab the wheel or handlebars to steer."}
+        };
+        group("DRIVING",driving,IM_ARRAYSIZE(driving));
         static const Binding menus[]{
             {"POINT + SAME-HAND TRIGGER","Select with either hand. Fingertip touch also works in the world-space VR menu."},
             {"LEFT STICK / RIGHT STICK","Navigate highlights / switch tabs. Right up/down scrolls VR lists."},

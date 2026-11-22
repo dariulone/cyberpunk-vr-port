@@ -645,6 +645,7 @@ void PollLiveControls() {
     int xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
     int xrSnapTurnYawIndex = g_liveControls.xrSnapTurnYawIndex >= 0 && g_liveControls.xrSnapTurnYawIndex <= 3 ? g_liveControls.xrSnapTurnYawIndex : 1;
     int xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
+    int xrCyberFingerGestureHolstering = g_liveControls.xrCyberFingerGestureHolstering;
     int xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
     int xrReloadGlow = g_liveControls.xrReloadGlow;
     int xrPhysicalBodyRotation = g_liveControls.xrPhysicalBodyRotation;
@@ -1603,6 +1604,11 @@ void PollLiveControls() {
             xrImmersiveHolsters = intValue;
             continue;
         }
+        if (sscanf_s(line, "xr_cyberfinger_gesture_holstering=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_cyberfinger_gesture_holstering = %d", &intValue) == 1) {
+            xrCyberFingerGestureHolstering = intValue;
+            continue;
+        }
         if (sscanf_s(line, "xr_body_hands_only=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_body_hands_only = %d", &intValue) == 1) {
             xrBodyHandsOnly = intValue;
@@ -1823,6 +1829,7 @@ void PollLiveControls() {
     g_liveControls.xrMonoDepthCapture = xrMonoDepthCapture != 0 ? 1 : 0;
     g_liveControls.xrSnapTurnYawIndex = (xrSnapTurnYawIndex >= 0 && xrSnapTurnYawIndex <= 3) ? xrSnapTurnYawIndex : 1;
     g_liveControls.xrImmersiveHolsters = xrImmersiveHolsters != 0 ? 1 : 0;
+    g_liveControls.xrCyberFingerGestureHolstering = xrCyberFingerGestureHolstering != 0 ? 1 : 0;
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
     g_liveControls.xrBodyHandsOnly = xrBodyHandsOnly != 0 ? 1 : 0;
     OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);
@@ -2184,6 +2191,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrMonoDepthCapture = g_liveControls.xrMonoDepthCapture;
     state.xrSnapTurnPulseMs = g_liveControls.xrSnapTurnPulseMs;
     state.xrImmersiveHolsters = g_liveControls.xrImmersiveHolsters;
+    state.xrCyberFingerGestureHolstering = g_liveControls.xrCyberFingerGestureHolstering;
     state.xrBodyHandsOnly = g_liveControls.xrBodyHandsOnly;
     state.xrReloadGlow = g_liveControls.xrReloadGlow;
     state.xrVehHeadOffsetX = g_liveControls.xrVehHeadOffsetX;
@@ -2557,6 +2565,7 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_mono_depth_capture=%d\n", state.xrMonoDepthCapture != 0 ? 1 : 0);
     fprintf(file, "xr_snap_turn_pulse_ms=%d\n", state.xrSnapTurnPulseMs > 0 ? state.xrSnapTurnPulseMs : 30);
     fprintf(file, "xr_immersive_holsters=%d\n", state.xrImmersiveHolsters != 0 ? 1 : 0);
+    fprintf(file, "xr_cyberfinger_gesture_holstering=%d\n", state.xrCyberFingerGestureHolstering != 0 ? 1 : 0);
     fprintf(file, "xr_body_hands_only=%d\n", state.xrBodyHandsOnly != 0 ? 1 : 0);
     fprintf(file, "xr_reload_glow=%d\n", state.xrReloadGlow != 0 ? 1 : 0);
     fprintf(file, "xr_veh_head_offset_x=%.4f\n", state.xrVehHeadOffsetX);
@@ -2710,6 +2719,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     g_liveControls.xrMonoDepthCapture = state->xrMonoDepthCapture != 0 ? 1 : 0;
     g_liveControls.xrSnapTurnPulseMs = state->xrSnapTurnPulseMs > 0 ? state->xrSnapTurnPulseMs : 30;
     g_liveControls.xrImmersiveHolsters = state->xrImmersiveHolsters != 0 ? 1 : 0;
+    g_liveControls.xrCyberFingerGestureHolstering = state->xrCyberFingerGestureHolstering != 0 ? 1 : 0;
     OpenXRManager::Get().SetImmersiveHolsters(g_liveControls.xrImmersiveHolsters);
     g_liveControls.xrBodyHandsOnly = state->xrBodyHandsOnly != 0 ? 1 : 0;
     OpenXRManager::Get().SetBodyHandsOnly(g_liveControls.xrBodyHandsOnly);

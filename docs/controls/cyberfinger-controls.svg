@@ -37,7 +37,7 @@
 <text x="56" y="876" class="key" id="">2  TRIGGER</text>
 <text x="56" y="904" class="label" id="action-0-1">Fire weapon.</text>
 <text x="56" y="952" class="key" id="">3  GRAB</text>
-<text x="56" y="980" class="label" id="action-0-2">Toggle scanner.</text>
+<text x="56" y="980" class="label" id="action-0-2">Scanner on foot. Hold in vehicle: exit.</text>
 <text x="56" y="1028" class="key" id="">4  MENU</text>
 <text x="56" y="1056" class="label" id="action-0-3">Tap: next weapon. Hold: weapon wheel.</text>
 <text x="56" y="1104" class="key" id="">5  BLACK WRIST</text>

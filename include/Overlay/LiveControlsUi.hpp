@@ -183,6 +183,7 @@ struct LiveControlsUiState {
     int xrLeftHandedBindings;
     int xrLadderAutoFinish;
     float xrLadderFinishDistance;
+    int xrCyberFingerGestureHolstering;
 };
 
 // Read-only snapshot for the compact ADS-camera diagnostic (dabinn, TofuExpress f8a827eb).

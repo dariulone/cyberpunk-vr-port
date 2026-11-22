@@ -347,10 +347,11 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
 
     if (!pState) return r;
     if (dwUserIndex != 0) return r;
-    if (g_liveControls.xrXInputHook == 0) { cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
+    static cvr::input::VehicleExitHold cfVehicleExit;
+    if (g_liveControls.xrXInputHook == 0) { cfVehicleExit={};cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
 
     VRControllerState vr{};
-    if (!OpenXRManager::Get().GetControllerState(&vr)) { cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
+    if (!OpenXRManager::Get().GetControllerState(&vr)) { cfVehicleExit={};cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
     vr.buttons |= static_cast<uint16_t>(CyberpunkVR_TestPadButtons & 0xFFFF);
     if (CyberpunkVR_TestPadButtons & 0x10000) vr.leftGrip = 1.f;
     if (CyberpunkVR_TestPadButtons & 0x20000) vr.rightGrip = 1.f;
@@ -466,6 +467,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         pState->Gamepad.wButtons &= static_cast<uint16_t>(~0x4000);
     }
     if(cvr::vrui::CapturesInput()){
+        cfVehicleExit={};
         pState->Gamepad={};g_lookStickX.store(0,std::memory_order_relaxed);
         cvr::swimming::ResetInput();cvr::ladder::ResetInput();
         for(int slot:{30,49,vrshared::kRightSecondaryBtn,vrshared::kLeftSecondaryBtn,vrshared::kRightStickClick,vrshared::kLeftGripPressed,vrshared::kRightTriggerAnalog,vrshared::kLeftTriggerAnalog})
@@ -551,7 +553,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // X AND B BOTH, and B is the correction: letting the raw B through in a car looked more
     // forgiving and was the opposite. B is ExitVehicle_Button, so a stray press ejects the
     // player from a moving car -- which reads as being thrown across the street, not as a
-    // button. Exit is a deliberate X press now, translated below; nothing else can eject.
+    // button. The deliberate exit hold is translated below.
     const bool keypadInput = cvr::input::KeypadInputActive();
     const bool gameplayScreen = (g_menuModeValue == 0) && !keypadInput;
     // The fingers follow grip, trigger and thumb in play, and in the lobby too: the main menu is a menu to the port,
@@ -589,6 +591,11 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // no weapon, no holster, and the VR menu's swipe is off in a braindance (Natives/VrMenu.cpp). The braindance
     // itself (InBraindance), not g_bdActive, which any scene that owns the camera raises.
     const bool inBraindance = InBraindance();
+    const uint64_t exitHoldMs=CyberpunkVR_VehicleExitHoldMs>0 ? uint64_t(CyberpunkVR_VehicleExitHoldMs) : 400;
+    const bool cfSeatInput=cfActive && vehicleButtons.exitOnX && gameplayScreen && !menuCapture &&
+        !uiPopupOpen && !cfComputer && !cvr::cfmenu::Current().active && !cvr::lobby::WorldShown() &&
+        !inBraindance && !g_bdActive.load(std::memory_order_relaxed);
+    const bool cfGripExit=cfVehicleExit.UpdateGrip(cfSeatInput,handInput.leftGrabButton,GetTickCount64(),exitHoldMs);
     if(cfComputer) {
         const bool valid=cfMouseHand?handInput.rightHandValid:handInput.leftHandValid;
         const float trigger=cfMouseHand?handInput.rightTrigger:handInput.leftTrigger;
@@ -1682,19 +1689,13 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         s_aWas = aDown;
     }
 
-    // X GETS YOU OUT OF THE CAR, HELD. The game has no pad binding for the exit except B
-    // (ExitVehicle_Button = IK_F + IK_Pad_B_CIRCLE), so the press is translated rather than rebound:
-    // X is held out of the merge above while mounted, and mirrored to B here.
-    //
-    // A HOLD, not a level mirror, and that is a correction rather than a refinement. ExitVehicle_Button
-    // carries no <hold> and no acceptedEvents in the game's mappings, so the vehicle state machine acts
-    // on the first frame it sees the action -- and at speed acting on it means throwing the player out
-    // of the car. Mirrored level, brushing X while driving ejected them into a ragdoll, which reads as
-    // a collision or physics bug and not as a button at all. Held, a stray tap costs nothing.
+    // Native B exits immediately. Require a deliberate hold of the physical
+    // left Grip on CyberFinger, or X on the other VR controllers.
     {
         static cvr::input::VehicleExitHold exitHold;
-        const uint64_t need=CyberpunkVR_VehicleExitHoldMs>0 ? uint64_t(CyberpunkVR_VehicleExitHoldMs) : 400;
-        if(exitHold.Update(vehicleButtons.exitOnX && gameplayScreen,(vr.buttons&0x4000)!=0,GetTickCount64(),need))
+        const bool exitOnX=exitHold.Update(!cfActive && vehicleButtons.exitOnX && gameplayScreen,
+                                           (vr.buttons&0x4000)!=0,GetTickCount64(),exitHoldMs);
+        if(exitOnX || cfGripExit)
             synthButtons |= 0x2000;   // XINPUT_GAMEPAD_B = ExitVehicle_Button
     }
     pState->Gamepad.wButtons |= synthButtons;

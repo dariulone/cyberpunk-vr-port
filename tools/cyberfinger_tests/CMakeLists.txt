@@ -21,6 +21,10 @@ add_executable(cyberfinger_melee_tests melee_input_test.cpp)
 target_include_directories(cyberfinger_melee_tests PRIVATE ../../include)
 target_compile_features(cyberfinger_melee_tests PRIVATE cxx_std_17)
 add_test(NAME cyberfinger_melee_input COMMAND cyberfinger_melee_tests)
+add_executable(cyberfinger_hint_tests hint_test.cpp)
+target_include_directories(cyberfinger_hint_tests PRIVATE ../../include)
+target_compile_features(cyberfinger_hint_tests PRIVATE cxx_std_20)
+add_test(NAME cyberfinger_hint_controls COMMAND cyberfinger_hint_tests)
 add_executable(cyberfinger_game_menu_tests game_menu_test.cpp ../../src/Runtimes/CyberFingerGameMenu.cpp)
 target_include_directories(cyberfinger_game_menu_tests PRIVATE ../../include ${OPENXR_INCLUDE_DIR})
 target_compile_features(cyberfinger_game_menu_tests PRIVATE cxx_std_20)
@@ -55,6 +59,8 @@ target_link_libraries(cyberfinger_adapters PRIVATE wrpuppets_fbt_ik RED4ext.SDK)
 # sufficient here; the test supplies LuaJIT's math.atan2 alias explicitly.
 set(LUA_SOURCE_DIR "" CACHE PATH "Official Lua source directory containing lua.c")
 if(LUA_SOURCE_DIR)
+    add_test(NAME cyberfinger_crusher_reload COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/crusher_reload_test.lua ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet)
     add_test(NAME cyberfinger_melee_strength COMMAND cyberfinger_lua
         ${CMAKE_CURRENT_LIST_DIR}/melee_strength_test.lua
         ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_Weapon/)
@@ -74,4 +80,7 @@ if(LUA_SOURCE_DIR)
     add_test(NAME cyberfinger_conversation_bridge COMMAND cyberfinger_lua
         ${CMAKE_CURRENT_LIST_DIR}/conversation_test.lua
         ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_CyberFinger/init.lua)
+    add_test(NAME cyberfinger_hud_hint_rows COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/hud_hints_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_CyberFinger/hud_hints.lua)
 endif()

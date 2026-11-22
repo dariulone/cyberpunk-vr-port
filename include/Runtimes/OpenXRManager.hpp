@@ -990,6 +990,9 @@ private:
     XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};
     cvr::cyberfinger::Actions m_cyberFingerActions{};
+    uint64_t m_nextHintBindingCheck{};
+    std::atomic<bool> m_hintBindingsChanged{true};
+    void RefreshCyberFingerHintBindings();
     XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
     XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
     // Latest controller snapshot, owned by the frame thread.

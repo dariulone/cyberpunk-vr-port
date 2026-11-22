@@ -1228,7 +1228,9 @@ void OpenXRManager::PollEvents() {
 
     XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
     while (xrPollEvent(m_instance, &event) == XR_SUCCESS) {
-        if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+        if (event.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+            m_hintBindingsChanged.store(true, std::memory_order_release);
+        } else if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* changed = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
             const XrSessionState previous = m_sessionState;
             m_sessionState = changed->state;

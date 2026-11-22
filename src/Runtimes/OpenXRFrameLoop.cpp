@@ -5,6 +5,7 @@
 #include "Core/LiveControls.hpp"
 #include "Runtimes/CyberFingerGameMenu.hpp"
 #include "Runtimes/CyberFingerMenuPolicy.hpp"
+#include "Runtimes/CyberFingerHintBindings.hpp"
 #include "Runtimes/CyberFingerUi.hpp"
 #include "Hooks/KeypadInput.hpp"
 #include "Natives/VrMenu.hpp"
@@ -564,6 +565,44 @@ extern "C" __declspec(dllexport) extern int CyberpunkVR_VrcamOwnLabel;
 // A doubled intro logo is a far smaller price. Left tunable for anyone who wants to try it on a
 // build where the second eye is solid.
 extern "C" __declspec(dllexport) float CyberpunkVR_FlatDistanceM = 0.0f;
+
+void OpenXRManager::RefreshCyberFingerHintBindings() {
+    using namespace cvr::cyberfinger;
+    uint32_t verified = 0;
+    const bool logOrigins = m_nextHintBindingCheck == 0 && cvr::RuntimeDiagnosticsEnabled();
+    auto check = [&](XrAction action, uint32_t expected) {
+        if (!action) return;
+        XrBoundSourcesForActionEnumerateInfo info{XR_TYPE_BOUND_SOURCES_FOR_ACTION_ENUMERATE_INFO};
+        info.action = action;
+        XrPath sources[16]{};
+        uint32_t count = 0;
+        if (XR_FAILED(xrEnumerateBoundSourcesForAction(m_session, &info, 16, &count, sources))) return;
+        for (uint32_t i = 0; i < count; ++i) {
+            XrInputSourceLocalizedNameGetInfo origin{XR_TYPE_INPUT_SOURCE_LOCALIZED_NAME_GET_INFO};
+            origin.sourcePath = sources[i];
+            uint32_t used = 0;
+            char hand[128]{}, component[512]{};
+            origin.whichComponents = XR_INPUT_SOURCE_LOCALIZED_NAME_USER_PATH_BIT;
+            if (XR_FAILED(xrGetInputSourceLocalizedName(m_session, &origin, sizeof(hand), &used, hand))) continue;
+            origin.whichComponents = XR_INPUT_SOURCE_LOCALIZED_NAME_COMPONENT_BIT;
+            if (XR_FAILED(xrGetInputSourceLocalizedName(m_session, &origin, sizeof(component), &used, component))) continue;
+            if (logOrigins) Log("[cyberfinger] HUD input 0x%x: %s / %s\n", expected, hand, component);
+            verified |= PhysicalHintSource(hand, component) & expected;
+        }
+    };
+    check(m_cyberFingerActions.weapon, LeftMenu);
+    check(m_cyberFingerActions.inventory, RightMenu);
+    check(m_cyberFingerActions.scanner, LeftGrip);
+    check(m_thumbstickClickAction, RightGrip);
+    check(m_primaryButtonAction, LeftBlack);
+    check(m_secondaryButtonAction, RightBlack);
+    check(m_menuButtonAction, LeftBlackHold);
+    check(m_cyberFingerActions.heal, RightBlackHold);
+    check(m_triggerAction, LeftTrigger | RightTrigger);
+    check(m_thumbstickAction, RightStick);
+    if (hintSources.exchange(verified) != verified || !m_nextHintBindingCheck)
+        Log("[cyberfinger] HUD hint source mask 0x%x\n", verified);
+}
 
 void OpenXRManager::PumpInlineFrame() {
     // When the dedicated submit thread owns the XR frame loop, the Present thread must
@@ -1601,6 +1640,16 @@ DWORD OpenXRManager::FrameThreadMain() {
                 }
                 cvr::cyberfinger::NoteBindingActivity(cfBound);
                 const bool cyberfinger=cvr::cyberfinger::Enabled();
+                if (cyberfinger) {
+                    const auto now = GetTickCount64();
+                    if (m_hintBindingsChanged.exchange(false, std::memory_order_acquire) || now >= m_nextHintBindingCheck) {
+                        RefreshCyberFingerHintBindings();
+                        m_nextHintBindingCheck = now + 5000;
+                    }
+                } else {
+                    m_nextHintBindingCheck = 0;
+                    cvr::cyberfinger::hintSources.store(0, std::memory_order_relaxed);
+                }
                 cvr::vrui::Tracking uiTracking{};
                 uiTracking.time=frameState.predictedDisplayTime;uiTracking.origin=GetTrackingOriginSerial();
                 uiTracking.head=location.pose;uiTracking.valid=headPoseLocated;
