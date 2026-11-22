@@ -963,7 +963,10 @@ bool OpenXRManager::ResubmitLastFrame(XrTime displayTime, bool& endAttempted) {
     if (!last.valid || last.localSpace != m_localSpace || last.viewCount > m_eyeSwapchains.size()) return false;
     // A second with no new frame is a stall, not a skipped cycle: held that long the picture would be
     // a frozen world, so the empty end -- what the runtime shows for "nothing" -- comes back.
-    constexpr XrTime kMaxHoldNs = 1000000000;
+    // TEN SECONDS, NOT ONE (#243). Under SteamVR + Steam Link an empty end is worse than a held picture: a run of
+    // them makes Steam Link reset the stream and SteamVR hide the session, and the headset then stays at ~1 picture a
+    // second until a save load. A held frame is reprojected with head tracking and recovers the moment new ones come.
+    constexpr XrTime kMaxHoldNs = 10000000000;
     if (displayTime - last.submittedAt > kMaxHoldNs) return false;
     for (uint32_t eye = 0; eye < last.viewCount; ++eye) {
         if (last.color[eye] != m_eyeSwapchains[eye].handle) return false;
@@ -2155,6 +2158,17 @@ DWORD OpenXRManager::FrameThreadMain() {
                             pick = &m_monoPreviousFrame;
                             captureRunning = false;
                             CyberpunkVR_XrCapturePrevious.fetch_add(1, std::memory_order_relaxed);
+                        } else {
+                            // THE GPU TWO FRAMES BEHIND (#243) -- the one before the previous, if finished
+                            // and not yet shown. Counted with the previous (capture_previous) so the probe sees it.
+                            const CapturedMonoFrame& older = m_monoOlderFrame;
+                            if (older.texture && older.serial != 0 && older.texture != m_monoCapturedFrame.texture &&
+                                older.texture != prev.texture && older.serial > m_lastSubmittedSerial &&
+                                m_captureFence->GetCompletedValue() >= older.captureFence) {
+                                pick = &m_monoOlderFrame;
+                                captureRunning = false;
+                                CyberpunkVR_XrCapturePrevious.fetch_add(1, std::memory_order_relaxed);
+                            }
                         }
                     } else if (finishedCapture && currentFg && CyberpunkVR_SteamVrFrameBuffer && m_captureFence) {
                         const CapturedMonoFrame& prev = m_monoPreviousFrame;

@@ -1226,6 +1226,11 @@ private:
     // the game's queue, while the GPU is still on that frame, so for most of every game frame it is not done there and a
     // cycle takes this one, finished, instead of none. Its pool slot is left alone while another is free.
     CapturedMonoFrame m_monoPreviousFrame;
+    // AND THE ONE BEFORE THAT (#243). With the GPU two or more game frames behind (GPU-bound, or after a menu
+    // left the game's queue deeper), the newest and the previous are BOTH still running on every display cycle; the
+    // cycle then resent the last frame for a second and after that went out EMPTY until a save load drained the queue.
+    // A third, older finished frame keeps real pictures flowing.
+    CapturedMonoFrame m_monoOlderFrame;
     cvr::framegen::Presenter m_framegen;
     cvr::depth::Renderer m_stereoDepth;
     cvr::framegen::StatsOverlay m_framegenOverlay;

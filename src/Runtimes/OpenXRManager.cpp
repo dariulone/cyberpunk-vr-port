@@ -664,6 +664,7 @@ void OpenXRManager::SetMonoSubmitEnabled(bool enabled) {
     m_monoCapturedFrame.hasView[0] = false;
     m_monoCapturedFrame.hasView[1] = false;
     m_monoPreviousFrame = CapturedMonoFrame{};
+    m_monoOlderFrame = CapturedMonoFrame{};
     m_depthSnapshotSerial = 0;
 }
 
@@ -2752,6 +2753,7 @@ void OpenXRManager::Shutdown() {
     m_monoCapturedFrame.hasView[0] = false;
     m_monoCapturedFrame.hasView[1] = false;
     m_monoPreviousFrame = CapturedMonoFrame{};
+    m_monoOlderFrame = CapturedMonoFrame{};
     m_depthSnapshotW = 0;
     m_depthSnapshotH = 0;
     m_depthSnapshotSerial = 0;

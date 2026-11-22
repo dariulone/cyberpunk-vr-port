@@ -288,6 +288,7 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
         m_monoCapturedFrame.hasView[0] = false;
         m_monoCapturedFrame.hasView[1] = false;
         m_monoPreviousFrame = CapturedMonoFrame{};
+        m_monoOlderFrame = CapturedMonoFrame{};
     }
 
     D3D12_HEAP_PROPERTIES heapProps{};
@@ -1003,15 +1004,19 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         std::lock_guard<std::mutex> lock(m_presentMutex);
         // On the runtime's own queue the frame before the newest is kept too (m_monoPreviousFrame): written over only
         // when no other slot is free, and then given up.
-        for(int pass=m_xrQueue?0:1;pass<2 && !snapshot;++pass)
+        // And the one before that (m_monoOlderFrame, #243), given up first: pass 0 keeps both, pass 1 only
+        // the previous, pass 2 neither.
+        for(int pass=m_xrQueue?0:2;pass<3 && !snapshot;++pass)
         for(uint32_t step=1;step<=uint32_t(kMonoSlots);++step) {
             const auto slot=(m_monoPoolSlot+step)%kMonoSlots;
             auto* candidate=m_monoPool[slot];
             if(candidate==m_monoCapturedFrame.texture)continue;
-            if(pass==0 && candidate==m_monoPreviousFrame.texture)continue;
+            if(pass<2 && candidate==m_monoPreviousFrame.texture)continue;
+            if(pass==0 && candidate==m_monoOlderFrame.texture)continue;
             if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
                 m_monoPoolSlot=slot;snapshot=candidate;
                 if(candidate==m_monoPreviousFrame.texture)m_monoPreviousFrame=CapturedMonoFrame{};
+                if(candidate==m_monoOlderFrame.texture)m_monoOlderFrame=CapturedMonoFrame{};
                 writeResources[0]=reinterpret_cast<uintptr_t>(candidate);break;
             }
         }
@@ -1216,11 +1221,13 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // just published does not pair with. Null when every one is in use.
     const auto takeEyeSlot = [&]() -> ID3D12Resource* {
         std::lock_guard<std::mutex> lock(m_presentMutex);
-        for(int pass=m_xrQueue?0:1;pass<2;++pass)
+        // The older frame's eye (#243) is kept in pass 0 as well, the previous one through pass 1.
+        for(int pass=m_xrQueue?0:2;pass<3;++pass)
         for(int step=1;step<=kVrcamEyeSlots;++step) {
             const auto slot=(m_vrcamEyeSlot+step)%kVrcamEyeSlots;
             if(m_vrcamEyePoolSerial[slot]==m_monoCapturedFrame.serial && m_monoCapturedFrame.serial)continue;
-            if(pass==0 && m_monoPreviousFrame.serial && m_vrcamEyePoolSerial[slot]==m_monoPreviousFrame.serial)continue;
+            if(pass<2 && m_monoPreviousFrame.serial && m_vrcamEyePoolSerial[slot]==m_monoPreviousFrame.serial)continue;
+            if(pass==0 && m_monoOlderFrame.serial && m_vrcamEyePoolSerial[slot]==m_monoOlderFrame.serial)continue;
             auto* candidate=m_vrcamEyePool[slot];
             if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
                 m_vrcamEyeSlot=slot;writeResources[1]=reinterpret_cast<uintptr_t>(candidate);
@@ -1822,8 +1829,11 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         // Publish the buffer we just filled as the current frame. This is the hand-off:
         // everything the consumer needs -- image, poses, fovs, serial -- becomes visible in
         // one locked step, and the buffer it was reading before stays untouched.
-        if (m_xrQueue && m_monoCapturedFrame.texture && m_monoCapturedFrame.texture != snapshot && m_monoCapturedFrame.serial)
+        if (m_xrQueue && m_monoCapturedFrame.texture && m_monoCapturedFrame.texture != snapshot && m_monoCapturedFrame.serial) {
+            // The previous moves back one (#243) (unless its slot is the one just written).
+            m_monoOlderFrame = m_monoPreviousFrame.texture != snapshot ? m_monoPreviousFrame : CapturedMonoFrame{};
             m_monoPreviousFrame = m_monoCapturedFrame;
+        }
         m_monoCapturedFrame.texture = snapshot;
         if (m_monoCapturedFrame.texture == snapshot) {
             m_monoCapturedFrame.serial = serial;
