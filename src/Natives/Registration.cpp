@@ -27,6 +27,15 @@ static void PublishVRHaptic(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, 
         cvr::psvr2::Haptics().Pulse(hand, std::clamp(amplitude * CyberpunkVR_HapticScale, 0.0f, 1.0f), duration);
 }
 
+// SetVRVehicleJolt(amount): the car body's jolt this frame, 0..1, from its own motion -- a bump, a landing, a crash
+// (CyberpunkVRPort_Driving/init.lua). Part of the game-event driving vibration (Runtimes/Haptics.cpp).
+static void PublishVRVehicleJolt(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, void*, int64_t) {
+    float amount = 0;
+    RED4ext::GetParameter(frame, &amount);
+    frame->code++;
+    cvr::haptics::SetVehicleJolt(amount);
+}
+
 
 
 #include "Fbt/Game/Natives.hpp"
@@ -126,6 +135,9 @@ RED4EXT_C_EXPORT void RED4EXT_CALL PostRegisterTypes() {
     haptic->flags = flags; haptic->AddParam("Int32", "hand");
     haptic->AddParam("Float", "amplitude"); haptic->AddParam("Int32", "durationMs");
     rtti->RegisterFunction(haptic);
+    auto jolt = RED4ext::CGlobalFunction::Create("SetVRVehicleJolt", "SetVRVehicleJolt", &PublishVRVehicleJolt);
+    jolt->flags = flags; jolt->AddParam("Float", "amount");
+    rtti->RegisterFunction(jolt);
 
     auto worldMarker=RED4ext::CGlobalFunction::Create("VRWorldMarkerAnchor","VRWorldMarkerAnchor",&VRWorldMarkerAnchor);
     worldMarker->flags=flags;worldMarker->AddParam("handle:inkWidget","widget");

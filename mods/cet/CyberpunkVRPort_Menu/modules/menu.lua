@@ -1649,7 +1649,7 @@ local function click(b, hand, x, y)
   S.lastClick = S.time
   S.clicks[#S.clicks + 1] = { t = S.time, group = b.group, key = b.key, x = b.x, y = b.y, view = b.view ~= nil }
   if #S.clicks > 8 then table.remove(S.clicks, 1) end
-  haptic(hand, HAPTIC_CLICK)
+  if not b.quiet then haptic(hand, HAPTIC_CLICK) end
   if b.group=="col" then b.pulseAt=S.time end
   local fx=S.pressFX and S.pressFX[hand];local cursor=S.cursors and S.cursors[hand]
   if fx and (x or cursor and cursor.x) then

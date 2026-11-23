@@ -421,6 +421,8 @@ KIND.B = function(c, f, ctx)
       txt:SetTintColor(K.color(hv and K.WHITE or K.CYAN))
     end)
     b.tip = f.tip
+    -- A panel button tagged "##quiet" makes its own vibration (the vibration tests): no click on top of it.
+    b.quiet = f.id:find("##quiet", 1, true) ~= nil
   end
 end
 

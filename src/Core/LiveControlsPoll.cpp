@@ -617,6 +617,7 @@ void PollLiveControls() {
     float xrOpenXrHapticGain = cvr::haptics::LegacyGain();
     float xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
     int xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
+    int xrVehicleHapticSource = cvr::haptics::VehicleSource();
     int xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
     int   xrHaptics = CyberpunkVR_Haptics;
     float xrHapticScale = CyberpunkVR_HapticScale;
@@ -1461,6 +1462,7 @@ void PollLiveControls() {
             xrOpenXrHapticGain = value; continue;
         }
         if (sscanf_s(line, "xr_vehicle_audio_channels = %d", &xrVehicleAudioChannels) == 1) continue;
+        if (sscanf_s(line, "xr_vehicle_haptic_source = %d", &xrVehicleHapticSource) == 1) continue;
         if (sscanf_s(line, "xr_vehicle_audio_require_grip = %d", &xrVehicleAudioRequireGrip) == 1) continue;
         if (sscanf_s(line, "xr_openxr_vehicle_haptic_gain = %f", &value) == 1) {
             xrOpenXrVehicleHapticGain = value; continue;
@@ -2152,6 +2154,7 @@ void PollLiveControls() {
     cvr::haptics::SetLegacyGain(xrOpenXrHapticGain);
     cvr::haptics::SetVehicleGain(xrOpenXrVehicleHapticGain);
     cvr::haptics::SetVehicleAudioChannels(xrVehicleAudioChannels);
+    cvr::haptics::SetVehicleSource(xrVehicleHapticSource);
     cvr::haptics::SetVehicleAudioRequireGrip(xrVehicleAudioRequireGrip != 0);
     CyberpunkVR_HapticScale    = (xrHapticScale < 0.0f) ? 0.0f : ((xrHapticScale > 2.0f) ? 2.0f : xrHapticScale);
     CyberpunkVR_PistolBackMul  = (xrPistolBack < 0.0f) ? 0.0f : ((xrPistolBack > 4.0f) ? 4.0f : xrPistolBack);
@@ -2312,6 +2315,7 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.xrOpenXrHapticGain = cvr::haptics::LegacyGain();
     state.xrOpenXrVehicleHapticGain = cvr::haptics::VehicleGain();
     state.xrVehicleAudioChannels = cvr::haptics::VehicleAudioChannels();
+    state.xrVehicleHapticSource = cvr::haptics::VehicleSource();
     state.xrVehicleAudioRequireGrip = cvr::haptics::VehicleAudioRequireGrip();
     state.xrHapticScale = CyberpunkVR_HapticScale;
     state.xrBreaststrokeSwim = g_liveControls.xrBreaststrokeSwim;
@@ -2650,6 +2654,8 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_openxr_haptic_gain=%.3f\n", cvr::haptics::LegacyGain());
     fprintf(file, "xr_openxr_vehicle_haptic_gain=%.3f\n", cvr::haptics::VehicleGain());
     fprintf(file, "xr_vehicle_audio_channels=%d\n", cvr::haptics::VehicleAudioChannels());
+    // The car's vibration: 0 = game events (its pad rumble and the car's jolts), 1 = the audio envelope, 2 = both.
+    fprintf(file, "xr_vehicle_haptic_source=%d\n", cvr::haptics::VehicleSource());
     fprintf(file, "xr_vehicle_audio_require_grip=%d\n", cvr::haptics::VehicleAudioRequireGrip());
     fprintf(file, "xr_haptics=%d\n", CyberpunkVR_Haptics);
     fprintf(file, "xr_haptic_scale=%.3f\n", CyberpunkVR_HapticScale);
@@ -2875,6 +2881,7 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     cvr::haptics::SetLegacyGain(state->xrOpenXrHapticGain);
     cvr::haptics::SetVehicleGain(state->xrOpenXrVehicleHapticGain);
     cvr::haptics::SetVehicleAudioChannels(state->xrVehicleAudioChannels);
+    cvr::haptics::SetVehicleSource(state->xrVehicleHapticSource);
     cvr::haptics::SetVehicleAudioRequireGrip(state->xrVehicleAudioRequireGrip);
     CyberpunkVR_HapticScale = std::isfinite(state->xrHapticScale) ? std::clamp(state->xrHapticScale, 0.0f, 2.0f) : 1.0f;
     g_liveControls.xrBreaststrokeSwim = state->xrBreaststrokeSwim != 0 ? 1 : 0;

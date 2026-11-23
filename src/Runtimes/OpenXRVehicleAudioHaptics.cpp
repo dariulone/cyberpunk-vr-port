@@ -99,12 +99,22 @@ void CaptureThread() {
         const double rate = static_cast<double>(format->nSamplesPerSec);
         const double hpAlpha = std::exp(-2.0 * kPi * 28.0 / rate);
         const double lpAlpha = 1.0 - std::exp(-2.0 * kPi * 320.0 / rate);
+        // THE EDGE DETECTOR FOLLOWS THE BAND'S LOUDNESS, NOT ITS WAVEFORM. It used to run a 0.26 ms
+        // envelope on the full-band signal and read it at a packet's last sample: that is the rectified
+        // waveform at a random phase, so any radio, music or dialogue made a 0.4-0.6 kick every packet --
+        // the car buzzed constantly. Now 15 ms against 350 ms on the 28-320 Hz band, the packet's peak.
+        const double fastAlpha = 1.0 - std::exp(-1.0 / (rate * 0.015));
+        const double slowAlpha = 1.0 - std::exp(-1.0 / (rate * 0.350));
         std::array<double, 2> previousInput{};
         std::array<double, 2> highPassed{};
         std::array<double, 2> lowPassed{};
         std::array<double, 2> smoothed{};
+        // The band's running level: a steady drone (cruising engine, the radio's bass) settles into it and
+        // is felt only as a faint hum; what rises above it (revs, a bump, a shift) is felt in full.
+        std::array<double, 2> baseline{};
         double fastEnvelope = 0.0;
         double slowEnvelope = 0.0;
+        bool primed = false;
         bool wasDriving = false;
         bool envelopeConfirmed = false;
 
@@ -125,10 +135,12 @@ void CaptureThread() {
                 if (FAILED(result)) break;
                 // Drain without filtering while on foot or muted. Never charge the render
                 // thread for audio work, and do not carry an old engine envelope into a car.
-                if (!g_isDriving.load(std::memory_order_relaxed) || VehicleGain() <= 0) {
+                if (!g_isDriving.load(std::memory_order_relaxed) || VehicleGain() <= 0 ||
+                    VehicleSource() == kVehicleSourceGame) {
                     captureClient->ReleaseBuffer(frames);
-                    previousInput = {}; highPassed = {}; lowPassed = {}; smoothed = {};
+                    previousInput = {}; highPassed = {}; lowPassed = {}; smoothed = {}; baseline = {};
                     fastEnvelope = slowEnvelope = 0;
+                    primed = false;
                     if (wasDriving) SetVehicleHaptics(0, 0);
                     wasDriving = false;
                     result = captureClient->GetNextPacketSize(&packetFrames);
@@ -137,6 +149,7 @@ void CaptureThread() {
                 }
                 const bool silent = (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
                 std::array<double, 2> energy{};
+                double edge = 0.0;
 
                 for (UINT32 frameIndex = 0; frameIndex < frames; ++frameIndex) {
                     std::array<double, 2> input{};
@@ -158,27 +171,36 @@ void CaptureThread() {
                         lowPassed[side] += lpAlpha * (highPassed[side] - lowPassed[side]);
                         energy[side] += lowPassed[side] * lowPassed[side];
                     }
-                    const double fullEnergy = std::max(std::abs(input[0]), std::abs(input[1]));
-                    fastEnvelope += 0.08 * (fullEnergy - fastEnvelope);
-                    slowEnvelope += 0.0012 * (fullEnergy - slowEnvelope);
+                    const double band = std::max(std::abs(lowPassed[0]), std::abs(lowPassed[1]));
+                    if (!primed) { fastEnvelope = slowEnvelope = band; primed = true; }
+                    fastEnvelope += fastAlpha * (band - fastEnvelope);
+                    slowEnvelope += slowAlpha * (band - slowEnvelope);
+                    edge = std::max(edge, fastEnvelope - slowEnvelope * 1.25);
                 }
                 captureClient->ReleaseBuffer(frames);
 
-                const bool driving = g_isDriving.load(std::memory_order_relaxed);
+                const bool driving = g_isDriving.load(std::memory_order_relaxed) &&
+                                     VehicleSource() != kVehicleSourceGame;
                 float vehicleGain = VehicleGain();
                 if (vehicleGain < 0.0f) vehicleGain = 0.0f;
                 if (vehicleGain > 2.0f) vehicleGain = 2.0f;
                 if (driving && vehicleGain > 0.0f && frames > 0) {
-                    // The low-band RMS is the sustained engine/road body. Fast-minus-slow is the
-                    // short shift/impact edge. This is the same evidence source as the PSVR2
-                    // bridge, reduced to an OpenXR amplitude envelope because Touch has no PCM.
-                    const double transient = std::clamp(
-                        (fastEnvelope - slowEnvelope * 1.12) * 12.0, 0.0, 1.0);
+                    // The low-band RMS is the sustained engine/road body, kept faint; its rise over
+                    // the running baseline is a rev or a rough road; fast-minus-slow is the short
+                    // shift/impact edge. This is the same evidence source as the PSVR2 bridge,
+                    // reduced to an OpenXR amplitude envelope because Touch has no PCM.
+                    const double transient = std::clamp((edge - 0.002) * 25.0, 0.0, 1.0);
+                    const double packetSeconds = static_cast<double>(frames) / rate;
+                    const double baseAlpha = 1.0 - std::exp(-packetSeconds / 2.0);
                     std::array<float, 2> output{};
                     for (size_t side = 0; side < 2; ++side) {
                         const double rms = std::sqrt(energy[side] / static_cast<double>(frames));
-                        const double engine = std::clamp((rms - 0.0012) / 0.032, 0.0, 1.0);
-                        double target = std::clamp(engine * 0.42 + transient * 0.68, 0.0, 0.90);
+                        if (baseline[side] <= 0.0) baseline[side] = rms;   // no surge for the car's first packet
+                        const double body = std::clamp((rms - 0.003) / 0.12, 0.0, 1.0);
+                        const double surge = std::clamp((rms - baseline[side] * 1.1) /
+                                                        std::max(0.015, baseline[side] * 0.6), 0.0, 1.0);
+                        baseline[side] += baseAlpha * (rms - baseline[side]);
+                        double target = std::clamp(body * 0.15 + surge * 0.35 + transient * 0.55, 0.0, 0.75);
                         target *= vehicleGain;
                         if (target > 1.0) target = 1.0;
                         const double smoothing = target > smoothed[side] ? 0.48 : 0.10;

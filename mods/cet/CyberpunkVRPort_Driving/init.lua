@@ -4,6 +4,7 @@
 local patch = nil
 local profileTime = 0.5
 local reportedError = false
+local reportedJolt = false
 local rates = {
     turnUpdateInputSlowChangeSpeed = 100.0,
     turnUpdateInputFastChangeSpeed = 100.0,
@@ -73,7 +74,50 @@ local function sendCabin(player, vehicle)
     SetVRWheelCabin(Vector4.new(x, y, z, 1.0), Quaternion.new(mi, mj, mk, mr))
 end
 
+-- THE CAR'S JOLTS, FOR THE DRIVING VIBRATION. The game's own rumble rarely fires and the audio cannot tell a road bump
+-- from the engine or the radio, so the car's body is measured instead: a bump or a landing is a spike in its vertical
+-- acceleration, a crash a sudden loss of speed. Hard braking stays under both. The level decays over ~90 ms, so a
+-- one-frame spike is a felt kick, and goes to the plugin every frame (SetVRVehicleJolt; it is added to the game's rumble).
+local BUMP_FROM, BUMP_SPAN = 3.0, 20.0      -- m/s^2 of vertical acceleration: felt from 3, full at 23
+local CRASH_FROM, CRASH_SPAN = 4.0, 10.0    -- m/s of speed lost within CRASH_WINDOW: felt from 4, full at 14
+local CRASH_WINDOW, DECAY = 0.2, 0.09
+local jolt = nil
+local function updateJolt(dt)
+    if type(SetVRVehicleJolt) ~= "function" then return end
+    local player = Game.GetPlayer()
+    local vehicle = player and player:GetMountedVehicle()
+    if not vehicle or not dt or dt <= 0 or dt > 0.1 then jolt = nil; return end
+    local id = tostring(vehicle:GetEntityID().hash)
+    local z = vehicle:GetWorldPosition().z
+    local okSpeed, current = pcall(function() return vehicle:GetCurrentSpeed() end)
+    local speed = okSpeed and type(current) == "number" and math.abs(current) or 0
+    if not jolt or jolt.id ~= id then
+        jolt = { id = id, z = z, vz = nil, level = 0, t = 0, speeds = {} }
+        return
+    end
+    jolt.t = jolt.t + dt
+    local vz = (z - jolt.z) / dt
+    jolt.z = z
+    if math.abs(vz) > 40 then jolt.vz = nil; jolt.speeds = {}; return end   -- a teleport, not a bump
+    local bump = 0
+    if jolt.vz then
+        local az = (vz - jolt.vz) / dt
+        bump = math.min(1, math.max(0, (math.abs(az) - BUMP_FROM) / BUMP_SPAN))
+    end
+    jolt.vz = vz
+    local speeds = jolt.speeds
+    speeds[#speeds + 1] = { t = jolt.t, v = speed }
+    while #speeds > 1 and jolt.t - speeds[1].t > CRASH_WINDOW do table.remove(speeds, 1) end
+    local fastest = speed
+    for _, s in ipairs(speeds) do fastest = math.max(fastest, s.v) end
+    local crash = math.min(1, math.max(0, (fastest - speed - CRASH_FROM) / CRASH_SPAN))
+    jolt.level = math.max(bump, crash, jolt.level * math.exp(-dt / DECAY))
+    SetVRVehicleJolt(jolt.level)
+end
+
 registerForEvent("onUpdate", function(dt)
+    local joltOk, joltErr = pcall(updateJolt, dt)
+    if not joltOk and not reportedJolt then print("[driving] vehicle jolt unavailable: " .. tostring(joltErr)); reportedJolt = true end
     local ok, err = pcall(function()
         local state = Game.GetVRWheelControlState()
         if state % 4 ~= 0 then

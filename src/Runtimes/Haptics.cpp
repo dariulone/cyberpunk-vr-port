@@ -89,6 +89,15 @@ Envelope   g_hand[2];            // 0 left, 1 right
 PulseRequest g_pulse[2];
 float g_vehicle[2]{};
 uint64_t g_vehicleMs = 0;
+// The game's motors hold until it sends the next level. A level older than this is let go, so a rumble the
+// game started and never stopped (a pause, a load) cannot run forever.
+constexpr uint64_t kGameRumbleHoldMs = 1000;
+float g_gameRumble[2]{};
+uint64_t g_gameRumbleMs = 0;
+std::atomic<int> g_vehicleSource{kVehicleSourceGame};
+// The car body's jolt (SetVehicleJolt), sent every frame while driving; stale after 100 ms like the audio.
+float g_jolt = 0;
+uint64_t g_joltMs = 0;
 std::atomic<float> g_legacyGain{1.25f};
 std::atomic<float> g_vehicleGain{1.0f};
 
@@ -143,11 +152,27 @@ void Queue(int row, int handMask, float mul) {
 void SetLegacyGain(float gain) { g_legacyGain.store(SafeGain(gain, 1.25f)); }
 float LegacyGain() { return g_legacyGain.load(); }
 static std::atomic<int> vehicleChannels{1};
-static std::atomic<bool> vehicleRequireGrip{false};
+// A hand off the wheel feels nothing of the car: the shake reaches the hands through the wheel.
+static std::atomic<bool> vehicleRequireGrip{true};
 void SetVehicleAudioChannels(int mode) { vehicleChannels.store(std::clamp(mode,0,3)); }
 int VehicleAudioChannels() { return vehicleChannels.load(); }
 void SetVehicleAudioRequireGrip(bool value) { vehicleRequireGrip.store(value); }
 bool VehicleAudioRequireGrip() { return vehicleRequireGrip.load(); }
+void SetVehicleSource(int source) {
+    g_vehicleSource.store(source == kVehicleSourceAudio || source == kVehicleSourceBoth ? source : kVehicleSourceGame);
+}
+int VehicleSource() { return g_vehicleSource.load(); }
+void SetGameRumble(float low, float high) {
+    std::lock_guard lock(g_lock);
+    g_gameRumble[0] = std::isfinite(low) ? std::clamp(low, 0.0f, 1.0f) : 0;
+    g_gameRumble[1] = std::isfinite(high) ? std::clamp(high, 0.0f, 1.0f) : 0;
+    g_gameRumbleMs = GetTickCount64();
+}
+void SetVehicleJolt(float amount) {
+    std::lock_guard lock(g_lock);
+    g_jolt = std::isfinite(amount) ? std::clamp(amount, 0.0f, 1.0f) : 0;
+    g_joltMs = GetTickCount64();
+}
 void SetVehicleGain(float gain) { g_vehicleGain.store(SafeGain(gain)); }
 float VehicleGain() { return g_vehicleGain.load(); }
 
@@ -166,8 +191,11 @@ void SetVehicleHaptics(float left, float right) {
 
 void Clear() {
     std::lock_guard lock(g_lock);
-    for (int hand = 0; hand < 2; ++hand) { g_hand[hand] = {}; g_pulse[hand] = {}; g_vehicle[hand] = 0; }
+    for (int hand = 0; hand < 2; ++hand) { g_hand[hand] = {}; g_pulse[hand] = {}; g_vehicle[hand] = 0; g_gameRumble[hand] = 0; }
+    g_jolt = 0;
+    g_joltMs = 0;
     g_vehicleMs = 0;
+    g_gameRumbleMs = 0;
 }
 
 void ShotForHand(int hand, float kick, bool supportHandOnGun) {
@@ -250,15 +278,33 @@ void Tick() {
                 const double left = static_cast<double>(e.end[started] - now) / static_cast<double>(QpcFreq());
                 if (left > 0.003) due[h] = { e.amp[started], static_cast<float>(left) };
             }
-            if (now >= e.done && VehicleGain() > 0 &&
-                VehicleFresh(g_isDriving.load(std::memory_order_relaxed), nowMs, g_vehicleMs)) {
-                const bool held = (h == 0 ? cvr::anim::g_wheelBlendLeft.load() : cvr::anim::g_wheelBlendRight.load()) > .01f;
-                float audio = g_vehicle[h];
+            // Combined: the game's rumble and the audio envelope add up, so the road and the engine keep going
+            // under a crash's kick instead of the louder one masking the other.
+            const int source = VehicleSource();
+            const bool driving = g_isDriving.load(std::memory_order_relaxed);
+            const bool gameFresh = source != kVehicleSourceAudio && driving && g_gameRumbleMs != 0 &&
+                                   nowMs >= g_gameRumbleMs && nowMs - g_gameRumbleMs <= kGameRumbleHoldMs;
+            const bool audioFresh = source != kVehicleSourceGame && VehicleFresh(driving, nowMs, g_vehicleMs);
+            // The car's own jolts (bumps, landings, crashes) are game events too: they go with the game's rumble.
+            const bool joltFresh = source != kVehicleSourceAudio && VehicleFresh(driving, nowMs, g_joltMs);
+            // THE DRIVING STRENGTH IS ITS OWN. The game's rumble and the jolts take "Driving vibration strength" here (the
+            // audio envelope already has it), and the whole only the master scale -- not the OpenXR gun/swing gain, which
+            // at 0.10 had turned a full crash into a 0.10 tick nobody felt (measured 2026-11-24).
+            const float drive = VehicleGain();
+            float level[2]{};
+            for (int side = 0; side < 2; ++side)
+                level[side] = std::min(1.0f, ((gameFresh ? g_gameRumble[side] : 0.0f) + (joltFresh ? g_jolt : 0.0f)) * drive +
+                                             (audioFresh ? g_vehicle[side] : 0.0f));
+            const bool fresh = gameFresh || audioFresh || joltFresh;
+            const bool held = (h == 0 ? cvr::anim::g_wheelBlendLeft.load() : cvr::anim::g_wheelBlendRight.load()) > .01f;
+            if (now >= e.done && VehicleGain() > 0 && fresh) {
+                float audio = level[h];
                 const int channels = VehicleAudioChannels();
-                if (channels == 1) audio = std::max(g_vehicle[0], g_vehicle[1]);
-                else if (channels == 2) audio = g_vehicle[0];
-                else if (channels == 3) audio = g_vehicle[1];
-                const float amplitude = VehicleAudioRequireGrip() && !held ? 0.0f : std::min(1.0f, audio * gain);
+                if (channels == 1) audio = std::max(level[0], level[1]);
+                else if (channels == 2) audio = level[0];
+                else if (channels == 3) audio = level[1];
+                const float amplitude = VehicleAudioRequireGrip() && !held ? 0.0f
+                                      : std::min(1.0f, audio * SafeGain(CyberpunkVR_HapticScale));
                 // The bridge v1 mailbox delivers one hand per frame. Cover two
                 // frames even at 30 FPS rather than alternating silent gaps.
                 if (amplitude > .01f) due[h] = {amplitude, HapticRoute().Toolkit() ? .090f : .045f};

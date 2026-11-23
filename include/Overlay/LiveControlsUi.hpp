@@ -135,7 +135,8 @@ struct LiveControlsUiState {
     float xrOpenXrHapticGain = 1.25f;
     float xrOpenXrVehicleHapticGain = 1.0f;
     int xrVehicleAudioChannels = 0;
-    bool xrVehicleAudioRequireGrip = false;
+    int xrVehicleHapticSource = 0;   // 0 game events (rumble and jolts), 1 the audio envelope, 2 both
+    bool xrVehicleAudioRequireGrip = true;
     int xrHaptics = 1;        // controller vibration (Runtimes/Haptics.cpp)
     float xrHapticScale = 1.0f;
     // Cutscene VRIK suspend (PR #40). The minimum GameplayTier at which the plugin fully suspends

@@ -35,6 +35,8 @@
 #include "Utils/StereoLog.hpp"
 #include "Stereo/VrcamConfig.hpp"   // vrcam.json access + CName hashing, shared with the launcher
 #include "Render/ColorBlit.hpp"   // HUD debug overlay on the mirror image
+#include "Anim/WheelGrab.hpp"     // WheelMountedBike: the exposure's vehicle meter
+extern bool g_isInVehicle;        // Core/VrCore.cpp: mounted to anything, passenger seats included
 #include <windows.h>
 #include <d3d12.h>
 #include <d3d11.h>
@@ -2402,6 +2404,18 @@ extern "C" __declspec(dllexport) float CyberpunkVR_ExposureLevelTime = 8.0f;
 // 0 = the sphere's mean light (the place); 1 = the view's cosine-weighted hemisphere (the light reaching the eye,
 // which under an overpass moves more with a head turn than the engine's meter does).
 extern "C" __declspec(dllexport) float CyberpunkVR_ExposureHemisphere = 0.0f;
+// IN A CAR THE PLACE IS THE CABIN. Seen from the seat, most of the sphere is the dash, the footwell, the seats and
+// the roof, and only the band at eye level looks out through the glass: the sphere's mean light is the interior's,
+// so the place was exposed for a dark room and the street through the windows burned out. The game's own
+// centre-weighted meter (mode 1, still with the slow adaptation) is what its vehicle cameras were tuned with --
+// but a headset's view is far taller than a monitor's, so even that meter took in mostly dash and roof (the street
+// came out right only with a side window filling the view): its low percentile is raised as well, below.
+// 0 = the environment everywhere, 1 = the game's meter while mounted in anything with a cabin (not a motorcycle),
+// 2 = in every vehicle. Leaving the vehicle starts the cells afresh, so the cabin is not carried onto the street.
+extern "C" __declspec(dllexport) uint32_t CyberpunkVR_ExposureVehicleMeter = 1;
+// In a cabin the histogram's low percentile is raised to this: the meter averages only the view's brightest 40 %
+// (up to the engine's high percentile), the glass rather than the dash and roof. The engine's own is 0.02.
+extern "C" __declspec(dllexport) float CyberpunkVR_ExposureVehicleLowPercentile = 0.6f;
 extern "C" __declspec(dllexport) float CyberpunkVR_ExposureGazeGain = 0.15f;        // the view's own difference taken...
 extern "C" __declspec(dllexport) float CyberpunkVR_ExposureGazeLimit = 0.3f;        // ...up to this many EV
 // [0] MAIN adaptation blocks tagged, [1] other adaptation blocks grown untagged, [2] adaptation blocks on the
@@ -2414,7 +2428,7 @@ namespace {
 constexpr uint32_t kExpoEnvTag = 0x41734532u;   // asym_expo_shaders.py ENV_MAGIC
 constexpr uint32_t kExpoAccTag = 0x41734533u;   // asym_expo_shaders.py ENV_ACC_MAGIC
 constexpr uint32_t kExpoAdaptBytes = 56, kExpoAdaptEnvBytes = 112, kExpoEnvBytes = 96;
-struct ExpoEnvClock { LARGE_INTEGER last{}; float position[3]{}; bool have = false; } g_expo_env;
+struct ExpoEnvClock { LARGE_INTEGER last{}; float position[3]{}; bool have = false; bool cabin = false; } g_expo_env;
 // The view's scene camera descriptor (Render/ViewCameraLayout.hpp): position in 1/131072 units, orientation
 // quaternion (x, y, z, w) at +16; the
 // camera's right, forward and up are its +X, +Y and +Z.
@@ -2476,6 +2490,22 @@ bool expo_env_write(uint32_t size, const void* src, bool cbPath, uint8_t* out, u
     __try { memcpy(out, src, size); }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     *ship = kExpoAdaptEnvBytes;
+    const uint32_t vehicleMeter = CyberpunkVR_ExposureVehicleMeter;
+    const bool cabin = g_isInVehicle && (vehicleMeter >= 2 || (vehicleMeter == 1 && !cvr::anim::WheelMountedBike()));
+    // Row 0.w and row 1.x are the histogram's low and high percentiles (measured 0.02 / 0.97): the meter averages
+    // the pixels between them. In a cabin, only the brighter part of the view -- the street through the glass --
+    // sets the exposure, so the dash and a black roof filling the lower and upper halves of a headset's tall view
+    // no longer push it up (a side window filling the view already metered right, 2026-11-23).
+    if (cabin) {
+        float low = 0.0f, high = 0.0f;
+        memcpy(&low, out + 12, sizeof(low));
+        memcpy(&high, out + 16, sizeof(high));
+        const float want = CyberpunkVR_ExposureVehicleLowPercentile;
+        if (std::isfinite(want) && std::isfinite(high) && std::isfinite(low) && want > low) {
+            const float raised = std::min(want, high - 0.05f);
+            if (raised > low) memcpy(out + 12, &raised, sizeof(raised));
+        }
+    }
     if (t_view_side != 0 || !CyberpunkVR_ExposureMemory.load(std::memory_order_relaxed)) { ++CyberpunkVR_DebugExpoEnv[1]; return true; }
     float position[3]{}, forward[3]{};
     if (!expo_env_camera(t_current_node_view, position, forward)) { ++CyberpunkVR_DebugExpoEnv[5]; return true; }
@@ -2488,8 +2518,10 @@ bool expo_env_write(uint32_t size, const void* src, bool cbPath, uint8_t* out, u
     float moved = 0.0f;
     for (int i = 0; i < 3; ++i) moved += (position[i] - clock.position[i]) * (position[i] - clock.position[i]);
     moved = std::sqrt(moved);
-    // A pause (loading, a menu) or a jump (teleport, fast travel) starts the cells afresh.
-    const bool reset = !clock.have || !(dt >= 0.0 && dt <= 2.0) || !(moved <= 30.0f);
+    const bool leftCabin = clock.cabin && !cabin;
+    clock.cabin = cabin;
+    // A pause (loading, a menu), a jump (teleport, fast travel) or stepping out of a cabin starts the cells afresh.
+    const bool reset = !clock.have || !(dt >= 0.0 && dt <= 2.0) || !(moved <= 30.0f) || leftCabin;
     clock.last = now;
     memcpy(clock.position, position, sizeof(position));
     clock.have = true;
@@ -2510,7 +2542,8 @@ bool expo_env_write(uint32_t size, const void* src, bool cbPath, uint8_t* out, u
     if (!std::isfinite(limit) || limit < 0.0f) limit = 0.0f;
     float lean = CyberpunkVR_ExposureHemisphere;
     if (!std::isfinite(lean)) lean = 0.0f;
-    const uint32_t mode = (CyberpunkVR_ExposureMemoryMode & 255u) | (uint32_t(std::lround(std::clamp(lean, 0.0f, 1.0f) * 255.0f)) << 8);
+    const uint32_t baseMode = cabin && (CyberpunkVR_ExposureMemoryMode & 255u) == 0 ? 1u : (CyberpunkVR_ExposureMemoryMode & 255u);
+    const uint32_t mode = baseMode |(uint32_t(std::lround(std::clamp(lean, 0.0f, 1.0f) * 255.0f)) << 8);
     const float row4[4] = {forward[0], forward[1], forward[2], rate};
     float row5[4] = {fade, gain, limit * 0.69314718f, 0.0f};
     memcpy(&row5[3], &mode, sizeof(mode));

@@ -49,6 +49,16 @@ void SetVehicleAudioChannels(int mode);
 int VehicleAudioChannels();
 void SetVehicleAudioRequireGrip(bool enabled);
 bool VehicleAudioRequireGrip();
+// What the car's vibration follows: 0 game events, the default -- the game's own pad rumble and the car's jolts
+// (SetVehicleJolt); 1 the audio-derived engine/road envelope (Runtimes/OpenXRVehicleAudioHaptics.cpp); 2 both, added.
+inline constexpr int kVehicleSourceGame = 0, kVehicleSourceAudio = 1, kVehicleSourceBoth = 2;
+void SetVehicleSource(int source);
+int VehicleSource();
+// The game's pad motors (Hooks/GameRumble.cpp), 0..1: low = the heavy left motor, high = the light right one.
+void SetGameRumble(float low, float high);
+// The car body's jolt, 0..1 (a bump, a landing, a crash), from its motion each frame (CyberpunkVRPort_Driving):
+// felt with the game's rumble, both hands alike.
+void SetVehicleJolt(float amount);
 void Clear();
 
 // A scripted event on the hands in handMask.

@@ -1421,22 +1421,27 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             changed |= widgets::SliderFloat("Vibration strength", &state.xrHapticScale, 0.0f, 2.0f, "%.2fx");
             {
                 if (!cvr::haptics::HapticRoute().Toolkit())
-                    changed |= widgets::SliderFloat("OpenXR gun/swing/road gain", &state.xrOpenXrHapticGain, 0.0f, 2.0f, "%.2fx");
+                    changed |= widgets::SliderFloat("OpenXR gun/swing gain", &state.xrOpenXrHapticGain, 0.0f, 2.0f, "%.2fx");
                 bool vehicleAudio=state.xrOpenXrVehicleHapticGain>0;
-                if(UI::Checkbox("Driving road/engine haptics", &vehicleAudio)) {
+                if(UI::Checkbox("Driving vibration", &vehicleAudio)) {
                     state.xrOpenXrVehicleHapticGain=vehicleAudio?1.0f:0.0f;changed=true;
                 }
-                changed |= widgets::SliderFloat("Driving road/engine strength", &state.xrOpenXrVehicleHapticGain, 0.0f, 2.0f, "%.2fx");
-                changed |= widgets::Combo("Driving audio channels", &state.xrVehicleAudioChannels,
-                    "Stereo\0Stronger channel to both hands\0Left audio to both hands\0Right audio to both hands\0");
-                changed |= UI::Checkbox("Driving audio only while each hand holds wheel/handlebar", &state.xrVehicleAudioRequireGrip);
-                UI::TextWrapped("Unchecked: road/engine rumble continues with hands off while driving. Uses the active Toolkit or OpenXR output. Toolkit full-game audio above is independent; leave it off if you only want driving rumble.");
-                if (UI::IsItemHovered()) UI::SetTooltip("Earlier fork's 28-320 Hz road/engine envelope, only while driving.\n"
-                    "Default output audio (including music/other apps) can contribute. Zero disables vehicle rumble only.");
+                changed |= widgets::Combo("Driving vibration from", &state.xrVehicleHapticSource,
+                    "Game rumble (crashes, landings, impacts)\0Audio (engine and road sound)\0Combined (game rumble and audio)\0");
+                if (UI::IsItemHovered()) UI::SetTooltip("Game rumble: the vibration the game sends a gamepad, and the car's bumps, landings and crashes.\n"
+                    "Audio: the 28-320 Hz band of everything playing (including music and other apps).\n"
+                    "Combined: both at once, added together.");
+                changed |= widgets::SliderFloat("Driving vibration strength", &state.xrOpenXrVehicleHapticGain, 0.0f, 2.0f, "%.2fx");
+                changed |= widgets::Combo("Driving vibration hands", &state.xrVehicleAudioChannels,
+                    "Each side to its hand\0Stronger side to both hands\0Left side to both hands\0Right side to both hands\0");
+                changed |= UI::Checkbox("Driving vibration only while each hand holds wheel/handlebar", &state.xrVehicleAudioRequireGrip);
+                UI::TextWrapped("Checked (default): only a hand on the wheel or handlebar feels the car. Unchecked: both hands feel it while driving. A VR controller has one vibration motor, so the game's heavy and light motors are combined into one strength per hand. Uses the active Toolkit or OpenXR output. Toolkit full-game audio above is independent; leave it off if you only want driving vibration.");
             }
-            if (UI::Button("Test left vibration")) cvr::haptics::Play(cvr::haptics::kBeltTouch, cvr::haptics::kLeft);
+            // ##quiet: the VR menu gives these no click vibration of its own, which went to the pressing hand
+            // and made "Test left" pressed with the right hand shake both (CyberpunkVRPort_Menu/modules/settings.lua).
+            if (UI::Button("Test left vibration##quiet")) cvr::haptics::Play(cvr::haptics::kBeltTouch, cvr::haptics::kLeft);
             UI::SameLine();
-            if (UI::Button("Test right vibration")) cvr::haptics::Play(cvr::haptics::kBeltTouch, cvr::haptics::kRight);
+            if (UI::Button("Test right vibration##quiet")) cvr::haptics::Play(cvr::haptics::kBeltTouch, cvr::haptics::kRight);
             UI::EndDisabled();
             UI::Separator();
 
