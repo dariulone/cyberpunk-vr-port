@@ -112,6 +112,12 @@ struct RrOptionSet { sl::DLSSDOptions values; uint32_t viewport = 0; bool valid 
 
 std::recursive_mutex mutex;
 cvr::gpu::IdleDlssContext originalContext;
+// THE EYES' FEATURES AFTER A FALLBACK. When the eyes' evaluates keep failing -- out of video memory, Streamline's
+// eWarnOutOfVRAM (39) -- DLSS (or RR) goes back to the engine's one evaluate over both eyes, which recreates the
+// engine's own feature at the full width. The eyes' features (one per eye, Streamline keeps each until it is freed)
+// and the right eye's copies stayed allocated beside it, so a fallback made by a full GPU made it fuller still. They
+// are freed once the engine's evaluate has worked and no recorded work still uses them. [0] DLSS, [1] RR.
+cvr::gpu::IdleDlssContext eyeContexts[2];
 std::atomic<bool> lifecycleHooksReady{false};
 std::atomic<bool> optionsIntercepted{false};
 bool originalReclaimed=false;
@@ -725,6 +731,7 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
     CyberpunkVR_DebugEngineStereoDlssJitter[4] = jitterX;
     CyberpunkVR_DebugEngineStereoDlssJitter[5] = jitterY;
     sl::Result worst = sl::Result::eOk;
+    eyeContexts[rr ? 1 : 0].Used(static_cast<ID3D12GraphicsCommandList*>(commandList), GetTickCount64());
     for (int step = 0; step < 2; ++step) {
         const int eye = (mode & 1) ? 1 - step : step;
         if (eye == 1 && (mode & 4)) continue;
@@ -880,6 +887,36 @@ bool Evaluate(sl::Feature feature, const sl::FrameToken& frame, const sl::BaseSt
     return true;
 }
 
+// Called with the lock held, after the engine's own evaluate worked (THE EYES' FEATURES AFTER A FALLBACK, above).
+static void ReclaimEyes() {
+    if(!freeResources)return;
+    const uint64_t now=GetTickCount64();
+    for(unsigned k=0;k<2;++k) {
+        if((k ? CyberpunkVR_EngineStereoRrPerEye : CyberpunkVR_EngineStereoDlssPerEye).load(std::memory_order_relaxed))continue;
+        auto& context=eyeContexts[k];
+        context.SplitSucceeded();
+        if(!context.Ready(now))continue;
+        sl::Result results[2]{};
+        for(unsigned eye=0;eye<2;++eye) {
+            const sl::ViewportHandle handle(k ? kRrEyeViewport[eye] : kEyeViewport[eye]);
+            results[eye]=freeResources(k ? sl::kFeatureDLSS_RR : sl::kFeatureDLSS,handle);
+            if(k)eyeRrOptions[eye].valid=false;else eyeOptions[eye].valid=false;
+        }
+        context.Released();
+        // The copies serve both features: kept while the other one still evaluates per eye. Each recording keeps
+        // its own reference to what it used, so only the cache's is released here.
+        const bool otherPerEye=(k ? CyberpunkVR_EngineStereoDlssPerEye : CyberpunkVR_EngineStereoRrPerEye).load(std::memory_order_relaxed);
+        unsigned released=0;
+        if(!otherPerEye)for(auto& eye:copies)for(auto& c:eye) {
+            if(c.resource){c.resource->Release();++released;}
+            if(c.staging)c.staging->Release();
+            c=EyeCopy{};
+        }
+        Log("[engine-stereo-dlss] %s per eye is off: the eyes' features freed (%d/%d) and %u eye copies released\n",
+            k ? "Ray Reconstruction" : "DLSS",int(results[0]),int(results[1]),released);
+    }
+}
+
 sl::Result EvaluateOriginal(sl::Feature feature,const sl::FrameToken& frame,const sl::BaseStructure* const* inputs,
                             uint32_t count,void* list,EvaluateFn evaluate) {
     std::lock_guard lock(mutex);
@@ -900,7 +937,12 @@ sl::Result EvaluateOriginal(sl::Feature feature,const sl::FrameToken& frame,cons
             }
         }
     }
-    return evaluate(feature,frame,inputs,count,list);
+    const auto result=evaluate(feature,frame,inputs,count,list);
+    if(result==sl::Result::eOk && (feature==sl::kFeatureDLSS || feature==sl::kFeatureDLSS_RR)) {
+        uint32_t viewport=UINT32_MAX;
+        if(FindViewport(inputs,count,&viewport)>=0 && viewport==0)ReclaimEyes();
+    }
+    return result;
 }
 
 int EvaluatingEye() { return evaluatingEye; }

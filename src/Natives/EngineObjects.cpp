@@ -428,7 +428,8 @@ struct ExposureSetting {
     float before = 0.0f;
 };
 std::mutex g_exposureLock;
-std::vector<ExposureSetting> g_exposure;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::vector<ExposureSetting>& g_exposure = *new std::vector<ExposureSetting>();
 float g_exposureOffset = 0.0f;
 
 RED4ext::CProperty* Property(RED4ext::CClass* type, const char* name) {

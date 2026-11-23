@@ -36,6 +36,7 @@
 #include "Render/StereoDescriptorAudit.hpp"
 #include "Render/StereoGpuProbe.hpp"
 #include "Render/StereoSceneState.hpp"
+#include "Render/VramCensus.hpp"
 #include <wrl/client.h>
 #include <memory>
 #include <algorithm>
@@ -147,7 +148,12 @@ void patch_descriptor_heap_size() {
 // the allocator still makes anything over half a block committed itself, and render-target / depth / UAV
 // textures stay committed (their own flag test, untouched). Only the compare's immediate changes -- a stale or
 // half-written value is still a valid threshold -- and the original bytes are checked first.
-extern "C" __declspec(dllexport) volatile int CyberpunkVR_StreamingPlaced=1;   // on by default (measured, above)
+// xr_streaming_placed in vrport.ini: 0 = the engine's policy, 1 = always placed (default), 2 = auto -- placed while
+// the process is under 85 % of its local budget, the engine's own (committed, freed on stream-out) from there until
+// it is back under 75 %. Auto was the default for one test build: on a 10 GB card over a long drive (2026-11-23) the
+// process kept growing past the budget after it switched to committed, so packing was not what grew it, while the
+// game's committed creations rose from ~50 to ~3,900 a minute (~3 ms of CPU each, above).
+extern "C" __declspec(dllexport) volatile int CyberpunkVR_StreamingPlaced=1;   // 0 off, 1 on (default), 2 auto
 extern "C" __declspec(dllexport) volatile uint32_t CyberpunkVR_StreamingPlacedState=0;   // 1 applied, 2 restored, 0xFFFFFFFF bytes differ
 static void ApplyStreamingPlaced(bool on){
     struct Site{uint32_t rva;uint8_t opcode[2];size_t opcodeBytes;uint32_t original,raised;};
@@ -176,9 +182,9 @@ static void ApplyStreamingPlaced(bool on){
     log("[creation] streaming-placed %s: texture limit 0x%X texels, buffer limit 0x%X bytes",on?"on":"off",
         on?sites[0].raised:sites[0].original,(on?sites[1].raised:sites[1].original)+1);
 }
-static void PollStreamingPlaced(){
+static void SetStreamingPlaced(bool on){
     static std::atomic<int> applied{0};
-    const int wanted=CyberpunkVR_StreamingPlaced?1:0;
+    const int wanted=on?1:0;
     int seen=applied.load(std::memory_order_relaxed);
     if(seen!=wanted && applied.compare_exchange_strong(seen,wanted))ApplyStreamingPlaced(wanted!=0);
 }
@@ -249,19 +255,23 @@ static void NoteCreationStack(bool placed,const D3D12_RESOURCE_DESC* d,const D3D
 // committed creation and every 16384th submission (~17 s) -- memory pressure, and whether placing streamed
 // resources into the allocator's blocks (below) makes the process hold more.
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_VideoMemoryMB[2]{};   // last local usage, peak
-static void LogVideoMemory(ID3D12Device* device,const char* when,uint64_t count){
+static bool QueryVideoMemory(ID3D12Device* device,DXGI_QUERY_VIDEO_MEMORY_INFO* local,DXGI_QUERY_VIDEO_MEMORY_INFO* shared){
     static Microsoft::WRL::ComPtr<IDXGIAdapter3> adapter=[&]{
         Microsoft::WRL::ComPtr<IDXGIFactory4> factory;Microsoft::WRL::ComPtr<IDXGIAdapter3> a;
         if(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))factory->EnumAdapterByLuid(device->GetAdapterLuid(),IID_PPV_ARGS(&a));
         return a;}();
-    if(!adapter)return;
+    if(!adapter || FAILED(adapter->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_LOCAL,local)) ||
+       FAILED(adapter->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL,shared)))return false;
+    CyberpunkVR_VideoMemoryMB[0]=local->CurrentUsage>>20;
+    for(auto peak=CyberpunkVR_VideoMemoryMB[1].load();(local->CurrentUsage>>20)>peak &&
+        !CyberpunkVR_VideoMemoryMB[1].compare_exchange_weak(peak,local->CurrentUsage>>20);){}
+    return true;
+}
+static void LogVideoMemory(ID3D12Device* device,const char* when,uint64_t count){
+    if(!cvr::RuntimeDiagnosticsEnabled())return;
     DXGI_QUERY_VIDEO_MEMORY_INFO local{},shared{};
-    adapter->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_LOCAL,&local);
-    adapter->QueryVideoMemoryInfo(0,DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL,&shared);
-    CyberpunkVR_VideoMemoryMB[0]=local.CurrentUsage>>20;
-    for(auto peak=CyberpunkVR_VideoMemoryMB[1].load();(local.CurrentUsage>>20)>peak &&
-        !CyberpunkVR_VideoMemoryMB[1].compare_exchange_weak(peak,local.CurrentUsage>>20);){}
-    if(cvr::RuntimeDiagnosticsEnabled())log("[creation] video memory after %llu %s: local %llu / %llu MB budget, non-local %llu / %llu MB; "
+    if(!QueryVideoMemory(device,&local,&shared))return;
+    log("[creation] video memory after %llu %s: local %llu / %llu MB budget, non-local %llu / %llu MB; "
         "since launch %llu graphics pipelines, %llu with a mesh shader",
         static_cast<unsigned long long>(count),when,static_cast<unsigned long long>(local.CurrentUsage>>20),
         static_cast<unsigned long long>(local.Budget>>20),static_cast<unsigned long long>(shared.CurrentUsage>>20),
@@ -280,6 +290,50 @@ static void NoteSubmitVideoMemory(ID3D12CommandQueue* queue){
     if(n%16384)return;
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     if(SUCCEEDED(queue->GetDevice(IID_PPV_ARGS(&device))))LogVideoMemory(device.Get(),"submissions",n);
+}
+// Once a second of submissions: the process's video memory against its budget, which AUTO streaming-placed
+// follows (above); once a minute, always (not only with diagnostics), a line to the log, so a long session shows
+// whether the process grows, whether it spills into system memory (non-local) and who was creating resources.
+static void PollStreamingPlaced(ID3D12CommandQueue* queue){
+    const int mode=CyberpunkVR_StreamingPlaced;
+    if(mode!=2)SetStreamingPlaced(mode!=0);
+    static std::atomic<uint64_t> nextPoll{};
+    const uint64_t now=GetTickCount64();
+    uint64_t due=nextPoll.load(std::memory_order_relaxed);
+    if(now<due || !nextPoll.compare_exchange_strong(due,now+1000,std::memory_order_relaxed))return;
+    // Only the thread that won the exchange runs on, at most once a second: the statics below are its own.
+    Microsoft::WRL::ComPtr<ID3D12Device> device;
+    if(!queue || FAILED(queue->GetDevice(IID_PPV_ARGS(&device))))return;
+    DXGI_QUERY_VIDEO_MEMORY_INFO local{},shared{};
+    if(!QueryVideoMemory(device.Get(),&local,&shared))return;
+    const double use=local.Budget ? double(local.CurrentUsage)/double(local.Budget) : 0.0;
+    static bool placedAuto=true;
+    if(mode==2) {
+        if(placedAuto && use>0.85) {
+            placedAuto=false;
+            log("[vram] %llu of %llu MB budget (%.0f%%): streamed resources back to the engine's own (committed) allocations",
+                static_cast<unsigned long long>(local.CurrentUsage>>20),static_cast<unsigned long long>(local.Budget>>20),use*100);
+        } else if(!placedAuto && use<0.75) {
+            placedAuto=true;
+            log("[vram] %llu of %llu MB budget (%.0f%%): streamed resources placed into the allocator's blocks again",
+                static_cast<unsigned long long>(local.CurrentUsage>>20),static_cast<unsigned long long>(local.Budget>>20),use*100);
+        }
+        SetStreamingPlaced(placedAuto);
+    }
+    static uint64_t nextLog{};
+    static uint64_t last[12]{};
+    if(now<nextLog)return;
+    const bool first=nextLog==0;nextLog=now+60000;
+    uint64_t counts[12];for(unsigned i=0;i<12;++i)counts[i]=CyberpunkVR_CreationCounts[i].load(std::memory_order_relaxed);
+    const auto delta=[&](unsigned i){return static_cast<unsigned long long>(counts[i]-last[i]);};
+    log("[vram] local %llu / %llu MB (%.0f%%, peak %llu), non-local %llu MB; streaming placed %s (setting %d); %s "
+        "committed %llu (%llu MB; game %llu, port %llu), placed %llu (%llu MB; game %llu, port %llu)",
+        static_cast<unsigned long long>(local.CurrentUsage>>20),static_cast<unsigned long long>(local.Budget>>20),use*100,
+        static_cast<unsigned long long>(CyberpunkVR_VideoMemoryMB[1].load()),static_cast<unsigned long long>(shared.CurrentUsage>>20),
+        CyberpunkVR_StreamingPlacedState==1?"on":"off",mode,first?"since launch":"last minute",
+        delta(0),delta(1)>>20,delta(9),delta(8),delta(2),delta(3)>>20,delta(11),delta(10));
+    std::memcpy(last,counts,sizeof(last));
+    cvr::vram_census::Log(local.CurrentUsage,shared.CurrentUsage);
 }
 static void CountCreation(size_t i,uint64_t bytes=0,const void* caller=nullptr){
     CyberpunkVR_CreationCounts[i].fetch_add(1,std::memory_order_relaxed);
@@ -551,7 +605,7 @@ static void STDMETHODCALLTYPE Hook_ExecuteCommandLists(
     CyberpunkVR_EclTiming[1].fetch_add(n,std::memory_order_relaxed);
     const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
     const auto original=command_queue_original_execute(self);if(!original)return;
-    PollStreamingPlaced();
+    PollStreamingPlaced(self);
     NoteSubmitVideoMemory(self);
     cvr::list_audit::Execute(self,n,lists);
     cvr::stereo::constants::ObserveQueueApi(self);
@@ -1236,6 +1290,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommittedResource(
         CountCreation(0,allocationBytes,_ReturnAddress());
         NoteVideoMemory(self);
         if(CyberpunkVR_CreationStacks)NoteCreationStack(false,d,hp,allocationBytes);
+        if(d)cvr::vram_census::ResourceCreated(static_cast<ID3D12Resource*>(*out),*d,hp?hp->Type:D3D12_HEAP_TYPE_DEFAULT,allocationBytes,false,_ReturnAddress());
         NoteCommittedResource(static_cast<ID3D12Resource*>(*out),d,st);
     }
     return hr;
@@ -1249,6 +1304,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommittedResource1(ID3D12Device4* se
         CountCreation(0,allocationBytes,_ReturnAddress());
         NoteVideoMemory(self);
         if(CyberpunkVR_CreationStacks)NoteCreationStack(false,desc,heap,allocationBytes);
+        if(desc)cvr::vram_census::ResourceCreated(static_cast<ID3D12Resource*>(*out),*desc,heap?heap->Type:D3D12_HEAP_TYPE_DEFAULT,allocationBytes,false,_ReturnAddress());
         NoteCommittedResource(static_cast<ID3D12Resource*>(*out),desc,state);}
     return result;
 }
@@ -1267,6 +1323,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreatePlacedResource(
             if(heap){const auto hd=heap->GetDesc();props=hd.Properties;}
             NoteCreationStack(true,d,&props,allocationBytes);
         }
+        if(d && heap)cvr::vram_census::ResourceCreated(static_cast<ID3D12Resource*>(*out),*d,heap->GetDesc().Properties.Type,allocationBytes,true,_ReturnAddress());
         if(d)cvr::cascades::ResourceCreated(static_cast<ID3D12Resource*>(*out),heap,off,allocationBytes);
         cvr::stereo::constants::ObserveResourceApi(static_cast<ID3D12Resource*>(*out));
         cvr::stereo::constants::RegisteredResourceCreated(static_cast<ID3D12Resource*>(*out),true,heap,off,allocationBytes,st);
@@ -1276,6 +1333,23 @@ static HRESULT STDMETHODCALLTYPE Hook_CreatePlacedResource(
         buf_note_created(*out, d);
         if (d) cvr::diagnostics::ObserveResourceCreation(static_cast<ID3D12Resource*>(*out), *d);
     }
+    return hr;
+}
+
+// ID3D12Device slot 28 CreateHeap and ID3D12Device4 slot 54 CreateHeap1: the allocator's blocks, which the placed
+// resources above live in -- counted by the VRAM census (Render/VramCensus.hpp) until they are destroyed.
+using PFN_CreateHeap = HRESULT (STDMETHODCALLTYPE*)(ID3D12Device*,const D3D12_HEAP_DESC*,REFIID,void**);
+using PFN_CreateHeap1 = HRESULT (STDMETHODCALLTYPE*)(ID3D12Device4*,const D3D12_HEAP_DESC*,ID3D12ProtectedResourceSession*,REFIID,void**);
+static PFN_CreateHeap g_orig_CreateHeap = nullptr;
+static PFN_CreateHeap1 g_orig_CreateHeap1 = nullptr;
+static HRESULT STDMETHODCALLTYPE Hook_CreateHeap(ID3D12Device* self,const D3D12_HEAP_DESC* desc,REFIID riid,void** out) {
+    const HRESULT hr=g_orig_CreateHeap(self,desc,riid,out);
+    if(SUCCEEDED(hr) && out && *out && riid==__uuidof(ID3D12Heap))cvr::vram_census::HeapCreated(static_cast<ID3D12Heap*>(*out),_ReturnAddress());
+    return hr;
+}
+static HRESULT STDMETHODCALLTYPE Hook_CreateHeap1(ID3D12Device4* self,const D3D12_HEAP_DESC* desc,ID3D12ProtectedResourceSession* session,REFIID riid,void** out) {
+    const HRESULT hr=g_orig_CreateHeap1(self,desc,session,riid,out);
+    if(SUCCEEDED(hr) && out && *out && riid==__uuidof(ID3D12Heap))cvr::vram_census::HeapCreated(static_cast<ID3D12Heap*>(*out),_ReturnAddress());
     return hr;
 }
 
@@ -2186,6 +2260,15 @@ void patch_device_descriptor_slot(void* device) {
     }
     log("[sightaxis] buffer-address map hooked dev=%p", device);
     {
+        DWORD protection{};
+        if(VirtualProtect(&vt[28],sizeof(void*),PAGE_READWRITE,&protection)) {
+            g_orig_CreateHeap=reinterpret_cast<PFN_CreateHeap>(vt[28]);
+            InterlockedExchangePointer(reinterpret_cast<void* volatile*>(&vt[28]),reinterpret_cast<void*>(&Hook_CreateHeap));
+            DWORD ignored{};VirtualProtect(&vt[28],sizeof(void*),protection,&ignored);
+            log("[vram-census] CreateHeap hooked dev=%p",device);
+        }
+    }
+    {
         Microsoft::WRL::ComPtr<ID3D12Device4> device4;
         if(SUCCEEDED(static_cast<ID3D12Device*>(device)->QueryInterface(IID_PPV_ARGS(&device4)))){
             auto** table=*reinterpret_cast<void***>(device4.Get());DWORD protection{};
@@ -2194,6 +2277,11 @@ void patch_device_descriptor_slot(void* device) {
                 InterlockedExchangePointer(reinterpret_cast<void* volatile*>(table+53),reinterpret_cast<void*>(&Hook_CreateCommittedResource1));
                 DWORD ignored{};VirtualProtect(table+53,sizeof(void*),protection,&ignored);
                 log("[single-pass] CreateCommittedResource1 hooked dev=%p",device4.Get());
+            }else ReadObservationUnavailable();
+            if(VirtualProtect(table+54,sizeof(void*),PAGE_READWRITE,&protection)){
+                g_orig_CreateHeap1=reinterpret_cast<PFN_CreateHeap1>(table[54]);
+                InterlockedExchangePointer(reinterpret_cast<void* volatile*>(table+54),reinterpret_cast<void*>(&Hook_CreateHeap1));
+                DWORD ignored{};VirtualProtect(table+54,sizeof(void*),protection,&ignored);
             }else ReadObservationUnavailable();
         }
     }

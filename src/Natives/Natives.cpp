@@ -270,7 +270,8 @@ void IsVRHandLinked(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
     if (aOut) *aOut = (g_pSharedHands != nullptr);
 }
 
-static RED4ext::WeakHandle<RED4ext::IScriptable> g_rightHandEntity;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+static RED4ext::WeakHandle<RED4ext::IScriptable>& g_rightHandEntity = *new RED4ext::WeakHandle<RED4ext::IScriptable>();
 
 void SetVRRightHandEntity(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, void* aOut, int64_t a4) {
     RED4ext::Handle<RED4ext::IScriptable> ent;

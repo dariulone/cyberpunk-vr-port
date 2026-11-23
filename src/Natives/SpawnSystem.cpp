@@ -87,10 +87,12 @@ struct SpawnSystem : RED4ext::game::IGameSystem {
     uint32_t listener = 0;
 };
 
-RED4ext::TTypedClass<SpawnSystem> g_type("VRPortSpawnSystem");
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+RED4ext::TTypedClass<SpawnSystem>& g_type = *new RED4ext::TTypedClass<SpawnSystem>("VRPortSpawnSystem");
 RED4ext::CClass* SpawnSystem::GetNativeType() { return &g_type; }
 
-Handle<RED4ext::IScriptable> g_instance;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+Handle<RED4ext::IScriptable>& g_instance = *new Handle<RED4ext::IScriptable>();
 
 RED4ext::GameInstance* Game() {
     auto* engine = RED4ext::CGameEngine::Get();

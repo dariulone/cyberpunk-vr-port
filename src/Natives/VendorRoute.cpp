@@ -24,17 +24,21 @@ QueueFn originalQueue{};
 std::atomic<ULONGLONG> heartbeat{};
 std::atomic<bool> installed{},hasPending{},watchdogRegistered{};
 std::mutex mutex;
-WeakHandle<IScriptable> uiSystem;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+WeakHandle<IScriptable>& uiSystem = *new WeakHandle<IScriptable>();
 struct Request {
     WeakHandle<IScriptable> owner;
     Handle<IScriptable> event,panel;
     ULONGLONG captured{};
     void* queue{};
 };
-Request pending;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+Request& pending = *new Request();
 // The mirror request the world editor took: kept until it ends, so the game's own editor can still be given it.
-Request mirrorRequest;
-Handle<IScriptable> mirrorPanel;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+Request& mirrorRequest = *new Request();
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+Handle<IScriptable>& mirrorPanel = *new Handle<IScriptable>();
 void* mirrorInstance{};
 // Raw pointers only: the layer owns its menu instance and the instance owns its scenario.
 // 2.5 SwitchToScenario handler 27B3558 reads the instance at inkMenuLayer +0x168.

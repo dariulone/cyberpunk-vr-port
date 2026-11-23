@@ -94,7 +94,8 @@ struct Mask {
         : widget(value), wantedVisible(value->visible), originalAffectsLayout(value->affectsLayoutWhenHidden),channel(group) {}
 };
 using MaskSet = std::vector<std::shared_ptr<Mask>>;
-std::unordered_map<ink::Widget*, std::shared_ptr<Mask>> masks;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::unordered_map<ink::Widget*, std::shared_ptr<Mask>>& masks = *new std::unordered_map<ink::Widget*, std::shared_ptr<Mask>>();
 std::atomic<std::shared_ptr<const MaskSet>> publishedMasks;
 uint64_t generation = 0;
 ink::Widget* lastRoot = nullptr;
@@ -235,8 +236,12 @@ struct UpkeepSubtitle {
     float x = 0, y = 0, width = 0, height = 0;   // the authored crop the root had when first seen
     int8_t wasActive = -1;
 };
-std::vector<UpkeepRoot> upkeepRoots, pendingRoots;
-std::vector<UpkeepSubtitle> upkeepSubtitles, pendingSubtitles;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::vector<UpkeepRoot>& upkeepRoots = *new std::vector<UpkeepRoot>();
+std::vector<UpkeepRoot>& pendingRoots = *new std::vector<UpkeepRoot>();
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::vector<UpkeepSubtitle>& upkeepSubtitles = *new std::vector<UpkeepSubtitle>();
+std::vector<UpkeepSubtitle>& pendingSubtitles = *new std::vector<UpkeepSubtitle>();
 bool pendingScan = false;
 
 void Invalidate(ink::Widget* widget) { reinterpret_cast<InvalidateFn>(base+0x2805fc)(widget); }   // FlagForVisualInvalidation
@@ -250,7 +255,8 @@ void Invalidate(ink::Widget* widget) { reinterpret_cast<InvalidateFn>(base+0x280
 // thread at the frame submit (sub_1403D6D84), where the previous frame's render has finished and the next
 // one has not started; they reach the HUD a frame later, which a repaint every frame does not show. Without
 // a frame submit since the last update (menus, loading), the update runs them itself.
-std::vector<Handle<ink::Widget>> repaints;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::vector<Handle<ink::Widget>>& repaints = *new std::vector<Handle<ink::Widget>>();
 DWORD repaintThread = 0;
 void FlushRepaints(size_t stat) {
     for (auto& widget : repaints) if (widget) Invalidate(widget.GetPtr());

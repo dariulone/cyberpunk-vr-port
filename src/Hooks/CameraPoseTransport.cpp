@@ -164,7 +164,8 @@ thread_local const ExternalSelection* t_externalRtt{};
 std::mutex s_externalMainMutex;
 ExternalViewLease<ExternalSelection> s_externalMain;
 ExternalViewLease<ExternalSelection> s_aimMain;
-cvr::WeakObjectSlot<RED4ext::WeakHandle<RED4ext::ISerializable>> s_externalVrcam;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+cvr::WeakObjectSlot<RED4ext::WeakHandle<RED4ext::ISerializable>>& s_externalVrcam = *new cvr::WeakObjectSlot<RED4ext::WeakHandle<RED4ext::ISerializable>>();
 void ObserveExternalVrcam(uintptr_t component) {
     // Only called with the live argument of the engine's RTT callbacks.
     if(!component)return;

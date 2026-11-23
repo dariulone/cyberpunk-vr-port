@@ -152,7 +152,8 @@ bool ReadManifest() {
 
 std::vector<ResourcePath> g_factories;
 // Animation setups by the entity template path, or by FNV1a64(component name, template path) for one component.
-std::unordered_map<uint64_t, std::vector<RED4ext::anim::AnimSetupEntry>> g_animations;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::unordered_map<uint64_t, std::vector<RED4ext::anim::AnimSetupEntry>>& g_animations = *new std::unordered_map<uint64_t, std::vector<RED4ext::anim::AnimSetupEntry>>();
 
 // A patch resource, loaded when one of its targets is first requested and held for the session: a few small
 // resources, needed again by every load of their targets.

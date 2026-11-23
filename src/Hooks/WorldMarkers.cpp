@@ -107,10 +107,12 @@ bool Enabled() {
 template<class T> T& At(void* p,size_t offset) { return *reinterpret_cast<T*>(static_cast<uint8_t*>(p)+offset); }
 struct RootDepth { WeakHandle<ink::Widget> root; float inverseDepth{}; uint64_t stamp{}; MarkerScale scale; bool inheritDepth{}; SourceProjection source{}; MarkerAnchor anchor{}; Vector2 savedCachePivot{}; bool ownsCachePivot{}; bool hidden{}; };
 std::shared_mutex rootsMutex;
-std::unordered_map<ink::Widget*,RootDepth> roots;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::unordered_map<ink::Widget*,RootDepth>& roots = *new std::unordered_map<ink::Widget*,RootDepth>();
 struct ProjectionOwner { WeakHandle<IScriptable> projection; WeakHandle<ink::Widget> widget; uint64_t stamp{}; };
 std::mutex projectionMutex;
-std::unordered_map<void*,ProjectionOwner> projectionOwners;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::unordered_map<void*,ProjectionOwner>& projectionOwners = *new std::unordered_map<void*,ProjectionOwner>();
 thread_local float paintDepth=0;
 thread_local uintptr_t paintOwner=0;
 thread_local unsigned offscreenPass=0;
@@ -674,7 +676,8 @@ struct PrimitivePool { uintptr_t data{}; std::vector<MarkerOwner> depths; uint64
 struct PrimitiveDepthEntry { void* owner{}; MarkerOwner marker; };
 std::mutex primitiveMutex;
 std::unordered_map<void*,PrimitivePool> pools;
-std::unordered_map<void*,PrimitiveDepthEntry> primitives;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::unordered_map<void*,PrimitiveDepthEntry>& primitives = *new std::unordered_map<void*,PrimitiveDepthEntry>();
 void ForgetPoolRecords(void* owner,const PrimitivePool& pool) {
     for(size_t i=0;i<pool.depths.size();++i) {
         const auto it=primitives.find(reinterpret_cast<void*>(pool.data+i*0x130));

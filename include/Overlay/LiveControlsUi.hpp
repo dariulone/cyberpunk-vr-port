@@ -51,6 +51,8 @@ struct LiveControlsUiState {
     cvr::vrs::Settings vrs{};
     cvr::hidden_area::Settings hiddenArea{};
     int monoCascades=1;
+    int streamingPlaced=1;   // xr_streaming_placed: 0 engine allocations, 1 placed, 2 auto by video memory
+    int vramCensus=1;        // xr_vram_census: live video memory by kind and call site to the log (Render/VramCensus.hpp)
     int monoMode=0;          // xr_mono_mode: one picture for both eyes (Stereo/EngineStereo.hpp)
     int afw=0;               // xr_afw: the eyes in turn, PureDark's frame warp makes the other (Render/Afw.hpp)
     int osr=0;               // xr_osr: the eyes in turn, the port's OSR makes the other (Render/Osr.hpp)

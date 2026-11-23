@@ -38,7 +38,8 @@ struct Surface {
     bool armed{},ready{};
 };
 std::mutex mutex;
-std::unordered_map<WorldWidgetComponent*,std::shared_ptr<Surface>> surfaces;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+std::unordered_map<WorldWidgetComponent*,std::shared_ptr<Surface>>& surfaces = *new std::unordered_map<WorldWidgetComponent*,std::shared_ptr<Surface>>();
 std::unordered_map<ID3D12CommandList*,std::vector<std::shared_ptr<Surface>>> recorded;
 std::atomic<bool> installed{false},observing{false},tracked{false};
 using AddFn=char(*)(void*,void*);

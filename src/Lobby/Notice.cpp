@@ -114,7 +114,8 @@ const Player& Settings() {
 
 // The ink settings as they loaded and the logo loop they named, till the game has booted.
 std::mutex g_mutex;
-RED4ext::WeakHandle<RED4ext::ISerializable> g_inkSettings;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+RED4ext::WeakHandle<RED4ext::ISerializable>& g_inkSettings = *new RED4ext::WeakHandle<RED4ext::ISerializable>();
 RED4ext::ResourcePath g_logo;
 bool g_booted = false;
 

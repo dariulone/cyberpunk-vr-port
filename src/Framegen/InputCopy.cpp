@@ -1,4 +1,7 @@
 #include "Framegen/InputCopy.hpp"
+#include <atomic>
+
+extern void Log(const char*,...);
 
 namespace cvr::framegen {
 namespace {
@@ -46,7 +49,12 @@ bool CopyInput(ID3D12GraphicsCommandList* list,const InputTag& tag,Inputs& out) 
         d.DepthOrArraySize=1;d.MipLevels=1;d.Format=format;d.SampleDesc.Count=1;
         D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;
         ComPtr<ID3D12Resource> created;
-        if(FAILED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&created))))return false;
+        if(const HRESULT hr=device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_PPV_ARGS(&created));FAILED(hr)) {
+            // Without its copy the eye's inputs never complete and generation waits at zero.
+            static std::atomic<unsigned> reported{};
+            if(reported.fetch_add(1)<16)Log("[framegen] input %s copy %ux%u could not be created: 0x%08X\n",tag.type==0?"depth":"motion",width,height,unsigned(hr));
+            return false;
+        }
         target=created;target->SetName(tag.type==0 ? L"CVR_Framegen_Depth" : L"CVR_Framegen_Motion");
         if(!out.readyFence && FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&out.readyFence))))return false;
     } else Barrier(list,target.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_COPY_DEST);

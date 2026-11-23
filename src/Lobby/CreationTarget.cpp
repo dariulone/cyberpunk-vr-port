@@ -21,7 +21,8 @@ namespace {
 constexpr uintptr_t kSystemVtable = 0x36B6280;  // gameuiCharacterCustomizationSystem
 constexpr size_t kTarget = 0x108;               // WeakHandle: the puppet the options go onto
 
-RED4ext::WeakHandle<RED4ext::ISerializable> g_gameTarget;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+RED4ext::WeakHandle<RED4ext::ISerializable>& g_gameTarget = *new RED4ext::WeakHandle<RED4ext::ISerializable>();
 bool g_swapped = false;
 
 uint8_t* System() {

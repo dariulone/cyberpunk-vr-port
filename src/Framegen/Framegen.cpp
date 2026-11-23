@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+extern void Log(const char*,...);
 extern "C" {
 __declspec(dllexport) char CyberpunkVR_FramegenReport[2048]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FramegenReportSeq{};
@@ -201,7 +202,15 @@ void ResetStatistics() {
     std::lock_guard lock(mutex);ClearMetricsLocked();
 }
 void Status(const char* text,bool active) {
-    std::lock_guard lock(mutex);stats.active=active;std::snprintf(stats.status,sizeof(stats.status),"%s",text);
+    std::lock_guard lock(mutex);stats.active=active;
+    // Every change to the log, so a session shows when and why generation stopped (the overlay only shows the
+    // latest). Priming and generating alternate after every skipped pair: only the way into and out of them is.
+    static char logged[sizeof(stats.status)]{};
+    const auto normal=[](const char* s){return std::strncmp(s,"Generating",10)==0 || std::strncmp(s,"Priming",7)==0;};
+    if(text && std::strncmp(logged,text,sizeof(logged)-1)!=0 && !(normal(text) && normal(logged))) {
+        Log("[framegen] status: %s\n",text);std::snprintf(logged,sizeof(logged),"%s",text);
+    }
+    std::snprintf(stats.status,sizeof(stats.status),"%s",text);
 }
 void OnRealFrame(uint64_t serial,double now) {
     if(!MetricsEnabled())return;std::lock_guard lock(mutex);if(!settings.overlay || !serial || serial==lastReal)return;

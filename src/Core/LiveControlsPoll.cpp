@@ -37,6 +37,7 @@
 #include "Runtimes/FingerGrip.hpp"   // xr_grip_from_fingers, live
 namespace overlay { extern bool g_drawBarrelCross; }
 #include "Render/PhysicalOpticsShaders.hpp"
+#include "Render/VramCensus.hpp"
 #include "Overlay/LauncherDialog.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/RuntimeFovCorrection.hpp"
@@ -100,6 +101,9 @@ extern "C" float GetHmdTrackingSmooth(); extern "C" void SetHmdTrackingSmooth(fl
 // src/Stereo/Grading.cpp for the offsets and what each one measured. Live, because the bisect belongs to
 // whoever is looking at the picture.
 extern "C" __declspec(dllexport) extern uint32_t CyberpunkVR_GradeMirrorMask;
+// xr_streaming_placed: 0 the engine's streaming allocations, 1 placed into the allocator's blocks, 2 auto by video
+// memory (Stereo/DeviceHooks.cpp).
+extern "C" __declspec(dllexport) extern volatile int CyberpunkVR_StreamingPlaced;
 // The extra environment-handle slots: nine 8-byte fields in the graph context laid out as three
 // elements of stride 0x3A0 -- the shape of a blended area-params list, and hdrLut/ldrLut ride in one
 // of them. One bit per slot, 0 by default: refcounted handles, so a wrong one can kill the process.
@@ -479,6 +483,8 @@ void PollLiveControls() {
     cvr::vrs::Settings vrs{};
     cvr::hidden_area::Settings hiddenArea{};
     uint32_t monoCascades=CyberpunkVR_MonoCascades.load(std::memory_order_relaxed);
+    int streamingPlaced=CyberpunkVR_StreamingPlaced;
+    int vramCensus=cvr::vram_census::Enabled()?1:0;
     int monoMode=CyberpunkVR_MonoMode;
     int afw=CyberpunkVR_Afw==cvr::afw::kModeAfw;
     int osr=CyberpunkVR_Afw==cvr::afw::kModeOsr;
@@ -790,6 +796,8 @@ void PollLiveControls() {
         if (cvr::vrs::ParseSetting(line,vrs)) continue;
         if (cvr::hidden_area::ParseSetting(line,hiddenArea)) continue;
         if(sscanf_s(line,"xr_mono_cascades = %d",&intValue)==1){monoCascades=intValue!=0;continue;}
+        if(sscanf_s(line,"xr_streaming_placed = %d",&intValue)==1){streamingPlaced=std::clamp(intValue,0,2);continue;}
+        if(sscanf_s(line,"xr_vram_census = %d",&intValue)==1){vramCensus=intValue!=0;continue;}
         if(sscanf_s(line,"xr_mono_mode = %d",&intValue)==1){monoMode=intValue!=0;continue;}
         if(sscanf_s(line,"xr_afw = %d",&intValue)==1){afw=intValue!=0;continue;}
         if(sscanf_s(line,"xr_osr = %d",&intValue)==1){osr=intValue!=0;continue;}
@@ -1860,6 +1868,8 @@ void PollLiveControls() {
     cvr::vrs::SetSettings(vrs);
     cvr::hidden_area::SetSettings(hiddenArea);
     CyberpunkVR_MonoCascades.store(monoCascades,std::memory_order_relaxed);
+    CyberpunkVR_StreamingPlaced=streamingPlaced;
+    cvr::vram_census::SetEnabled(vramCensus!=0);
     cvr::engine_stereo::ApplyMonoMode(monoMode!=0);
     // on or off takes effect at the next launch (Stereo/EngineStereo.hpp RestartPending), AFW <-> OSR at once
     CyberpunkVR_Afw=cvr::afw::ModeOf(afw!=0,osr!=0);
@@ -2265,6 +2275,8 @@ LiveControlsUiState MakeLiveControlsUiState() {
     state.vrs=cvr::vrs::GetSettings();
     state.hiddenArea=cvr::hidden_area::GetSettings();
     state.monoCascades=int(CyberpunkVR_MonoCascades.load(std::memory_order_relaxed));
+    state.streamingPlaced=CyberpunkVR_StreamingPlaced;
+    state.vramCensus=cvr::vram_census::Enabled()?1:0;
     state.monoMode=CyberpunkVR_MonoMode!=0;
     state.afw=CyberpunkVR_Afw==cvr::afw::kModeAfw;
     state.osr=CyberpunkVR_Afw==cvr::afw::kModeOsr;
@@ -2394,6 +2406,8 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     cvr::vrs::WriteSettings(file,state.vrs);
     cvr::hidden_area::WriteSettings(file,state.hiddenArea);
     std::fprintf(file,"xr_mono_cascades=%d\n",state.monoCascades?1:0);
+    std::fprintf(file,"xr_streaming_placed=%d\n",std::clamp(state.streamingPlaced,0,2));
+    std::fprintf(file,"xr_vram_census=%d\n",state.vramCensus?1:0);
     std::fprintf(file,"xr_mono_mode=%d\n",state.monoMode?1:0);
     std::fprintf(file,"xr_afw=%d\n",state.afw?1:0);
     std::fprintf(file,"xr_osr=%d\n",state.osr?1:0);
@@ -2788,6 +2802,8 @@ extern "C" void SetLiveControlsUiState(const LiveControlsUiState* state, int per
     cvr::vrs::SetSettings(state->vrs);
     cvr::hidden_area::SetSettings(state->hiddenArea);
     CyberpunkVR_MonoCascades.store(state->monoCascades?1:0,std::memory_order_relaxed);
+    CyberpunkVR_StreamingPlaced=std::clamp(state->streamingPlaced,0,2);
+    cvr::vram_census::SetEnabled(state->vramCensus!=0);
     cvr::engine_stereo::ApplyMonoMode(state->monoMode!=0);
     CyberpunkVR_Afw=cvr::afw::ModeOf(state->afw!=0,state->osr!=0);
     if(cvr::afw::Launch())cvr::afw::SetMode(CyberpunkVR_Afw);

@@ -10,6 +10,7 @@
 #include "Utils/TestMarker.hpp"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <vector>
 
@@ -89,7 +90,11 @@ struct Texture {
         D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;
         d.DepthOrArraySize=1;d.MipLevels=1;d.Format=f;d.SampleDesc.Count=1;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         D3D12_HEAP_PROPERTIES p{};p.Type=D3D12_HEAP_TYPE_DEFAULT;
-        if(FAILED(device->CreateCommittedResource(&p,D3D12_HEAP_FLAG_NONE,&d,initial,nullptr,IID_PPV_ARGS(&resource))))return false;
+        if(const HRESULT hr=device->CreateCommittedResource(&p,D3D12_HEAP_FLAG_NONE,&d,initial,nullptr,IID_PPV_ARGS(&resource));FAILED(hr)) {
+            static std::atomic<unsigned> reported{};
+            if(reported.fetch_add(1)<16)Log("[framegen] %ls %ux%u could not be created: 0x%08X\n",name,w,h,unsigned(hr));
+            return false;
+        }
         format=f;state=initial;width=w;height=h;bytes=device->GetResourceAllocationInfo(0,1,&d).SizeInBytes;
         resource->SetName(name);return true;
     }
@@ -289,7 +294,7 @@ struct Generator::Impl {
     };
     std::array<Work,3> work;
     std::unique_ptr<Eye> eyes[2];
-    Settings settings;unsigned cursor{};bool failed{};
+    Settings settings;unsigned cursor{};bool failed{};uint64_t failedAt{};
     struct Signature {uint64_t width{};uint32_t height{},renderWidth{},renderHeight{},motionWidth{},motionHeight{};bool inverted{},infinite{},jittered{};} signatures[2];
     bool Idle() const {
         if(fence && fence->GetCompletedValue()<value)return false;
@@ -625,10 +630,25 @@ bool Generator::Generate(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Re
     PublishActiveBackend(effective.backend);
     if(impl && (impl->device.Get()!=device || impl->queue.Get()!=queue || !impl->Compatible(colors,inputs,effective))) {if(!Reset())return false;reset=true;}
     if(impl)impl->RetireTiming();
-    if(impl && impl->failed) {Status("Backend failed; toggle generation off/on or change the backend");return false;}
+    // A FAILED BACKEND IS TRIED AGAIN. A creation or dispatch that fails -- most often the GPU's memory full after a
+    // load or a menu rebuilt the backend -- used to leave generation at zero until it was toggled or the resolution
+    // changed. Now the backend is rebuilt every 5 s once the GPU is done with it, as memory frees up.
+    if(impl && impl->failed) {
+        const uint64_t now=GetTickCount64();
+        if(!impl->failedAt) {impl->failedAt=now;Log("[framegen] backend failed; retried every 5 s\n");}
+        if(now-impl->failedAt<5000 || !Reset()) {Status("Backend failed; retrying every 5 s");return false;}
+        static unsigned retries{};
+        if(++retries<=16 || retries%60==0)Log("[framegen] backend retry %u\n",retries);
+        reset=true;
+    }
     if(!impl) {
         impl=std::make_unique<Impl>();
-        if(!impl->Create(device,queue,colors,inputs,effective)) {impl->failed=true;Status("Framegen backend initialization failed");return false;}
+        if(!impl->Create(device,queue,colors,inputs,effective)) {
+            impl->failed=true;impl->failedAt=GetTickCount64();
+            Log("[framegen] backend initialization failed (%ux%u eyes); retried in 5 s\n",
+                unsigned(colors[0]->GetDesc().Width),colors[0]->GetDesc().Height);
+            Status("Framegen backend initialization failed");return false;
+        }
         reset=true;
     }
     const auto result=impl->Generate(colors,inputs,frameMs,reset,frameId);

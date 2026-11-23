@@ -59,7 +59,8 @@ struct CursorState {
     uint64_t device{};
 };
 std::mutex cursorMutex;
-CursorState cursorState;
+// Never destroyed: released at process exit it would call into the engine after it is gone (crash on quit, 2026-11-23).
+CursorState& cursorState = *new CursorState();
 
 bool Visible(Handle<ink::Widget> widget) {
     for (int i=0; widget && i<24; ++i) {
