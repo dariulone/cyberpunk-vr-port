@@ -75,6 +75,8 @@ inline std::string ControlHint(std::string_view action, bool hold, const HintLay
     auto trigger = [&](bool left) { return left ? button(LeftTrigger,"Left Trigger") : button(RightTrigger,"Right Trigger"); };
     auto grip = [&](bool left) { return left ? button(LeftGrip,"Left Grip") : button(RightGrip,"Right Grip"); };
     auto back = [&] { return either(LeftMenu,RightMenu,"Either Menu","Left Menu","Right Menu"); };
+    if (s.context == MenuContext::ShardReader && (action == "cancel" || action == "close_popup"))
+        return grip(false);
     if (s.menu) {
         if (action == "back" || action == "cancel" || action == "CloseMenuSingleKey" ||
             action == "UI_Cancel" || action == "UI_Exit" || action == "UI_smart_frame_close") return back();

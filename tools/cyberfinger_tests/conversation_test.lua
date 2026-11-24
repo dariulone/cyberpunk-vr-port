@@ -5,9 +5,12 @@ local hubs = {choiceHubs={}}
 local prompt={active=false,choices={}}
 local uiState,uiPrompt
 function VRCyberFingerUiState(context,interaction) uiState,uiPrompt=context,interaction end
-local initialized,uninitialized={},{}
+local initialized,uninitialized,closing={},{},{}
 function ObserveAfter(class,method,fn) initialized[class]=fn end
-function ObserveBefore(class,method,fn) uninitialized[class]=fn end
+function ObserveBefore(class,method,fn)
+  if method=='OnUninitialize' then uninitialized[class]=fn
+  elseif method=='Close' then closing[class]=fn end
+end
 function registerForEvent(name,fn) events[name]=fn end
 function VRCyberFingerEnabled() return enabled end
 function VRCyberFingerConversation(active) calls[#calls+1]=active;return nextAction end
@@ -29,11 +32,18 @@ prompt.active=false;events.onUpdate();assert(not uiPrompt,'expired prompt retain
 local shown=true
 local root={IsVisible=function() return shown end,GetOpacity=function() return 1 end,GetParentWidget=function() return nil end}
 local controller={GetRootWidget=function() return root end}
-for _,row in ipairs({{'WorldMapMenuGameController',1},{'questLogV2GameController',2},{'FrameSwitcherMenuGameController',3}}) do
+for _,row in ipairs({{'WorldMapMenuGameController',1},{'questLogV2GameController',2},{'FrameSwitcherMenuGameController',3},{'ShardNotificationController',4}}) do
   initialized[row[1]](controller);events.onUpdate();assert(uiState==row[2],'menu context not published')
   shown=false;events.onUpdate();assert(uiState==0,'invisible controller retained context');shown=true
   uninitialized[row[1]](controller);events.onUpdate();assert(uiState==0,'closed context retained')
 end
+initialized.questLogV2GameController(controller)
+initialized.ShardNotificationController(controller)
+events.onUpdate();assert(uiState==4,'journal underneath a shard took the close button')
+enabled=false;events.onUpdate();assert(uiState==0,'shard captured a non-CF controller')
+enabled=true;uninitialized.ShardNotificationController(controller)
+events.onUpdate();assert(uiState==2,'closing the shard lost the journal underneath')
+uninitialized.questLogV2GameController(controller)
 prompt.choices={}
 hubs={choiceHubs={{id=7,choices={1,2}}}}
 for i,name in ipairs({'ChoiceScrollUp','ChoiceScrollDown','ChoiceApply'}) do
@@ -92,6 +102,30 @@ inMenu=true;menuCommand=5;events.onUpdate();inMenu=false;assert(gearToggles==1,'
 paused=true;menuCommand=3;events.onUpdate();assert(cyberwareCalls==1,'OS action leaked through pause');paused=false
 inMenu=true;menuCommand=1;events.onUpdate();assert(inventoryCalls==1,'command replaced an active game menu');inMenu=false
 enabled=false;menuCommand=1;events.onUpdate();enabled=true;events.onUpdate();assert(inventoryCalls==1,'command leaked across controller change')
+
+local closeCount=0
+local function newShard()
+  return {GetRootWidget=function() return root end, Close=function(self)
+    closing.ShardNotificationController(self)
+    closeCount=closeCount+1
+  end}
+end
+paused,inMenu=true,true
+initialized.questLogV2GameController(controller)
+local first,second=newShard(),newShard()
+initialized.ShardNotificationController(first);events.onUpdate()
+initialized.ShardNotificationController(second);menuCommand=7;events.onUpdate()
+assert(closeCount==0 and uiState==4,'a queued press dismissed a replacement shard')
+shown=false;menuCommand=7;events.onUpdate()
+assert(closeCount==0,'a hidden reader received Close')
+shown=true;events.onUpdate()
+menuCommand=7;events.onUpdate()
+assert(closeCount==1 and uiState==2,'Grip failed to dismiss the paused reader over the journal')
+menuCommand=7;events.onUpdate()
+assert(closeCount==1 and uiState==2,'a stale request dismissed another UI')
+initialized.ShardNotificationController(first);events.onUpdate()
+enabled=false;menuCommand=7;events.onUpdate();enabled=true
+assert(closeCount==1,'a disabled controller closed the reader')
 
 enabled=true;Game.GetBlackboardSystem=function() error('game unloading') end
 events.onUpdate();assert(not calls[#calls],'unloading retained dialogue capture')

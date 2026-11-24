@@ -57,7 +57,7 @@ void Hands(const cvr::vrui::Tracking& value,bool enabled) {
     const bool journal=context==cvr::cyberfinger::MenuContext::Journal;
     if(map || journal)hand=value.preferLeft?0:1;
     tracking=value;snapshot.active=true;snapshot.tick=now;snapshot.head=value.head.position;
-    const bool list=context==cvr::cyberfinger::MenuContext::General;
+    const bool list=context==cvr::cyberfinger::MenuContext::General || context==cvr::cyberfinger::MenuContext::ShardReader;
     const auto& right=value.hands[1];
     const auto& stick=map?value.hands[hand]:right;
     const bool validStick=stick.valid && std::isfinite(stick.stickX) && std::isfinite(stick.stickY);

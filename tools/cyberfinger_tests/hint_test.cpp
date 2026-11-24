@@ -73,6 +73,8 @@ int main() {
     for (bool left : {false,true}) {
         s.leftWeapon = left;
         s.menu = true;
+        s.context = MenuContext::ShardReader;
+        check(ControlHint("cancel",false,s) == "Right Grip");
         s.context = MenuContext::Map;
         check(ControlHint("world_map_menu_zoom_in",false,s) == (left ? "Left Stick Up" : "Right Stick Up"));
         check(ControlHint("world_map_menu_jump_to_player",false,s) == (left ? "Right Trigger" : "Left Trigger"));

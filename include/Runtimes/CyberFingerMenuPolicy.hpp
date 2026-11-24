@@ -115,6 +115,29 @@ public:
         return buttons;
     }
 };
+// A shard can open over gameplay or a native menu. Reserve its closing press
+// through release, even if the widget disappears while the button is down.
+struct ShardCloseGrip {
+    bool armed{};
+    bool claimed{};
+
+    bool Update(bool reader, bool active, bool down) {
+        if (!active) {
+            armed = false;
+        } else if (!down) {
+            armed = reader;
+            claimed = false;
+        } else if (reader) {
+            claimed = true;
+            const bool pressed = armed;
+            armed = false;
+            return pressed;
+        } else {
+            armed = false;
+        }
+        return false;
+    }
+};
 // One menu button: tap opens inventory; hold activates cyberware. No simultaneous
 // grip/stick/finger gesture, and a context change cancels the pending tap.
 class MenuTapHold {

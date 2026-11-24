@@ -21,6 +21,16 @@ int main()try {
     s=menu.Step(true,-1,0,1,false,true,630);
     Check(DirectionButton(s.direction)==4 && s.tab==1 && s.grabMask==2,"right back and left navigation");
     NativeMenuButtons native;
+    ShardCloseGrip reader;
+    Check(!reader.Update(false,true,true) && !reader.claimed,"ordinary Grip was claimed");
+    Check(!reader.Update(true,true,true) && reader.claimed,"holding Grip opened and immediately dismissed a shard");
+    Check(!reader.Update(true,true,false) && !reader.claimed,"release was a close press");
+    Check(reader.Update(true,true,true) && reader.claimed,"fresh physical Right Grip did not close the shard");
+    Check(!reader.Update(true,true,true) && reader.claimed,"holding Grip sent another close during the popup animation");
+    Check(!reader.Update(false,true,true) && reader.claimed,"dismissal leaked a held Grip into gameplay");
+    Check(!reader.Update(false,true,false) && !reader.claimed,"reader kept Grip after release");
+    reader.Update(true,true,false);
+    Check(!reader.Update(true,false,true) && !reader.Update(true,true,true),"tracking recovery closed the reader");
     Check(native.Step(true,false,true,true)==0,"held entry activated native menu");
     Check(native.Step(false,false,false,false)==0,"entry release generated Back");
     Check(native.Step(false,false,true,false)==0x4000,"left Grab is not X");

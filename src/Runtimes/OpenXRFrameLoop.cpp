@@ -1746,7 +1746,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // D-PAD chord state (left hand is processed first, right second):
                 // HOLD the LEFT stick click, pick the direction with the RIGHT stick.
                 bool leftStickClicked  = false;
-                bool leftClickValid = false;
+                bool stickClickActive[2]{};
                 bool dpadUsedThisFrame = false;
                 bool triangleShift = false;
                 XrVector3f scannerHand{};
@@ -1997,7 +1997,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         gi.subactionPath = m_handPaths[i];
                         XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
                         const bool active=XR_SUCCEEDED(xrGetActionStateBoolean(m_session, &gi, &st)) && st.isActive;
-                        if(i==0 && a==m_thumbstickClickAction)leftClickValid=active;
+                        if (a == m_thumbstickClickAction) stickClickActive[i] = active;
                         if(active)return st.currentState != XR_FALSE;
                         return false;
                     };
@@ -2121,6 +2121,22 @@ DWORD OpenXRManager::FrameThreadMain() {
                     m_sessionRunning);
                 cvr::vrui::SetExternalCapture(cvr::modui::CapturesInput());
                 if(cvr::vrui::ConsumeHudToggle())cvr::cyberfinger::ToggleHud();
+                // A shard can also be opened outside native menu mode.
+                // Give F10/CET their raw Grip first. Remove the reader's press from
+                // both the gameplay R3 alias and the native menu's secondary action.
+                static cvr::cyberfinger::ShardCloseGrip shardGrip;
+                if (cyberfinger) {
+                    const bool reader=cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::ShardReader &&
+                        !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons();
+                    const bool valid=stickClickActive[1] && syncRes==XR_SUCCESS && m_sessionState==XR_SESSION_STATE_FOCUSED;
+                    if (shardGrip.Update(reader,valid,ctrl.rightGrabButton))
+                        cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::CloseShard);
+                    if (shardGrip.claimed) {
+                        ctrl.rightGrabButton=false;
+                        ctrl.buttons &= static_cast<uint16_t>(~0x0080u);
+                        uiTracking.hands[1].grip=0;
+                    }
+                } else shardGrip={};
                 cvr::cfmenu::Hands(uiTracking,menuRectActive && !cvr::vrui::CapturesInput() &&
                     !cvr::vrmenu::CapturesButtons());
                 static cvr::input::ScannerClick scannerClick;
@@ -2129,7 +2145,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 const double scannerDt=scannerTick && inputTick>=scannerTick ? double(inputTick-scannerTick) : 0;
                 scannerTick=inputTick;
                 const bool scannerEnabled=!cyberfinger && CyberpunkVR_ScannerGesture!=0 && gameplayInputActive &&
-                    XR_SUCCEEDED(syncRes) && leftClickValid &&
+                    XR_SUCCEEDED(syncRes) && stickClickActive[0] &&
                     g_liveControls.xrXInputHook!=0 && g_menuModeValue==0 &&
                     !cvr::lobby::WorldShown() && !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons() &&
                     !uiTracking.hands[1].stickClick;
@@ -2200,7 +2216,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         ctrl.buttons |= 0x0040;   // XINPUT_GAMEPAD_LEFT_THUMB
                         InterlockedIncrement(&CyberpunkVR_LeftStickClicks);
                     }
-                    const bool jumpAllowed=cfJumpMode && !claimed && leftClickValid && syncRes==XR_SUCCESS &&
+                    const bool jumpAllowed=cfJumpMode && !claimed && stickClickActive[0] && syncRes==XR_SUCCESS &&
                         m_sessionState==XR_SESSION_STATE_FOCUSED && inputPresentation==cvr::capture::Presentation::Scene &&
                         GetMenuMode()==0 && !cvr::lobby::WorldShown() && !cvr::input::KeypadInputActive() &&
                         !cvr::input::ComputerInputActive() && !cvr::cyberfinger::ConversationActive() &&

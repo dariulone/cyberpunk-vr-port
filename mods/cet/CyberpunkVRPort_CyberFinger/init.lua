@@ -1,6 +1,8 @@
 -- A live choice hub, not merely looking at a generic interaction prompt, owns
 -- conversation controls. Non-CyberFinger controllers never enter this path.
 local controllers={}
+local shardContext = 4
+local publishedShard
 local meleeToggle=require('melee_toggle')
 local hudHints=require('hud_hints')
 local function visible(root)
@@ -14,11 +16,15 @@ end
 registerForEvent("onInit",function()
   hudHints.init()
   for _,entry in ipairs({{1,'WorldMapMenuGameController'},{2,'questLogV2GameController'},
-    {2,'questLogGameController'},{3,'FrameSwitcherMenuGameController'}}) do
+    {2,'questLogGameController'},{3,'FrameSwitcherMenuGameController'},{shardContext,'ShardNotificationController'}}) do
     local id,class=entry[1],entry[2]
     pcall(function()
       ObserveAfter(class,'OnInitialize',function(this) controllers[id]=this end)
-      ObserveBefore(class,'OnUninitialize',function(this) if controllers[id]==this then controllers[id]=nil end end)
+      local function forget(this)
+        if controllers[id]==this then controllers[id]=nil end
+      end
+      ObserveBefore(class,'OnUninitialize',forget)
+      if id==shardContext then ObserveBefore(class,'Close',forget) end
     end)
   end
 end)
@@ -28,7 +34,7 @@ local function publishUi(enabled)
   if enabled then
     -- A live visible controller, refreshed each frame. Closing/reloading or
     -- losing the script expires the native lease rather than sticking in UI.
-    for id=1,3 do
+    for id=1,shardContext do
       pcall(function()
         local c=controllers[id];local root=c and c:GetRootWidget()
         if root and visible(root) then context=id end
@@ -45,6 +51,7 @@ local function publishUi(enabled)
     end)
   end
   VRCyberFingerUiState(context,interaction)
+  publishedShard = context==shardContext and controllers[shardContext] or nil
   return interaction
 end
 local function computer(enabled)
@@ -78,6 +85,16 @@ local function command(enabled)
   local action=VRCyberFingerCommand() -- consume once, including while disabled
   if not enabled or action==0 then return end
   local ok,err=pcall(function()
+    if action==7 then
+      -- The reader can pause gameplay or sit over the journal. Only dismiss
+      -- the same visible popup that owned Grip when we published its context.
+      local reader=controllers[shardContext]
+      if reader and reader==publishedShard then
+        local root=reader:GetRootWidget()
+        if root and visible(root) then reader:Close() end
+      end
+      return
+    end
     local player=Game.GetPlayer();if not player then return end
     if Game.GetSystemRequestsHandler():IsGamePaused() then return end
     local defs=GetAllBlackboardDefs().UI_System

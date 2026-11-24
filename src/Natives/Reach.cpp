@@ -198,7 +198,13 @@ void VRCyberFingerSetOffensiveMode(RED4ext::IScriptable*,RED4ext::CStackFrame* f
     cvr::cyberfinger::SetOffensiveMode(enabled);
 }
 void VRCyberFingerCommand(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_t* out,int64_t) {
-    ++frame->code;const auto action=cvr::cyberfinger::TakeCommand();if(out)*out=static_cast<int32_t>(action);
+    ++frame->code;
+    using namespace cvr::cyberfinger;
+    auto action = TakeCommand();
+    if (action == Command::CloseShard &&
+        (Context() != MenuContext::ShardReader || cvr::vrui::CapturesInput() || cvr::vrmenu::CapturesButtons()))
+        action = Command::None;
+    if (out) *out = static_cast<int32_t>(action);
 }
 void VRCyberFingerConversation(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_t* out,int64_t) {
     bool visible=false;RED4ext::GetParameter(frame,&visible);++frame->code;
@@ -207,5 +213,8 @@ void VRCyberFingerConversation(RED4ext::IScriptable*,RED4ext::CStackFrame* frame
 void VRCyberFingerUiState(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,void*,int64_t) {
     int32_t context=0;bool interaction=false;
     RED4ext::GetParameter(frame,&context);RED4ext::GetParameter(frame,&interaction);++frame->code;
-    cvr::cyberfinger::UiTick(static_cast<cvr::cyberfinger::MenuContext>(std::clamp(context,0,3)),interaction);
+    using cvr::cyberfinger::MenuContext;
+    const auto menu = context >= 0 && context <= static_cast<int>(MenuContext::ShardReader)
+        ? static_cast<MenuContext>(context) : MenuContext::General;
+    cvr::cyberfinger::UiTick(menu,interaction);
 }
