@@ -41,7 +41,7 @@ struct LiveControlsUiState {
     float xrHudBrightness = 1.0f;
     float xrHudShadow = 1.0f;
     float xrHudGlow = 1.0f;
-    int xrFingerBones = 0;           // xr_finger_bones: finger tracking, V's fingers follow the tracked ones (on: next start)
+    int xrFingerBones = 0;           // xr_finger_bones: finger tracking, V's fingers follow the tracked ones (live)
     int xrGripFromFingers = 0;       // xr_grip_from_fingers: with it, the grip input from the fingers' position
     int xrFingerSpreadOn = 1;        // xr_finger_spread_enabled: the fingers also spread sideways (off: they only bend)
     float xrFingerSpread = 1.0f;     // xr_finger_spread: how far the fingers spread sideways, 0 = off
@@ -131,6 +131,11 @@ struct LiveControlsUiState {
     int xrPhysicalCrouch;
     float xrPhysicalCrouchDepth;
     int xrAsymProjection = 1; // 1 = each eye renders its own off-centre lens window (CyberpunkVR_AsymProjection)
+    int xrPsvr2HapticBackend = 2; // 0 OpenXR, 1 prefer Toolkit, 2 auto; startup detection
+    float xrOpenXrHapticGain = 1.25f;
+    float xrOpenXrVehicleHapticGain = 1.0f;
+    int xrVehicleAudioChannels = 0;
+    bool xrVehicleAudioRequireGrip = false;
     int xrHaptics = 1;        // controller vibration (Runtimes/Haptics.cpp)
     float xrHapticScale = 1.0f;
     // Cutscene VRIK suspend (PR #40). The minimum GameplayTier at which the plugin fully suspends
@@ -143,6 +148,10 @@ struct LiveControlsUiState {
     float xrVehHeadOffsetX;
     float xrVehHeadOffsetY;
     float xrVehHeadOffsetZ;
+    // The same on a motorcycle, used instead of the car's trio while a bike is mounted; zero by default.
+    float xrBikeHeadOffsetX;
+    float xrBikeHeadOffsetY;
+    float xrBikeHeadOffsetZ;
     // ---- DRIVING: hands on the wheel ----------------------------------------------------------
     // 1 (default) = while driving, bringing a hand to where the driving animation holds the wheel and
     // squeezing that grip hands the arm back to the animation (hand on the wheel, native finger curl);
@@ -152,12 +161,28 @@ struct LiveControlsUiState {
     float xrWheelRadius;
     // The VR menu's grip swipe (1 = on); L3 + R3 always opens it.
     int xrMenuGesture = 1;
+    int xrVrInterface = 1;
+    int xrHandPhysics = 1;
     // The port's weapon wheel on a held Y (1 = on); off, the game's own.
     int xrVrWeaponWheel = 1;
+    // Hands and arms stop at the body, each other and the world (1 = on); and in a vehicle.
+    int xrHandCollision = 1;
+    int xrHandCollisionVehicle = 1;
+    // An empty hand shoves loose objects (1 = on).
+    int xrHandPush = 1;
+    int xrFingerContact = 0;   // unused, see LiveControls.hpp
+    int xrPropGrab = 1;
+    int xrDebugView = 0;
+    int xrCarryPicture = 1;
+    float xrCarryLead = 0.03f;
+    float xrContactMargin = 0.01f;
+    int xrWheelAnywhere = 1;
     // Controller tilt that means full lock, degrees. 90 (default) = hands vertical, the 1:1 reading of
     // a real wheel; lower = the same wrist movement steers more. The deadzone is the tilt around
     // centre that steers nothing: 1.5 (default) only swallows tremor.
     float xrWheelSteerMaxDeg;
+    float xrBikeBarLockDeg;
+    float xrBikeBodyLean;
     float xrWheelSteerDeadDeg;
     int xrWheelPrediction;
     float xrWheelPredictionMs;

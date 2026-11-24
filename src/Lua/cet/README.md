@@ -29,8 +29,9 @@ Changes to the copied files themselves, each for the same reason -- nothing of t
   replaces only when no other host has (an installed CET hooks it at its start: the entry is then a jump); CET's
   hooks on the script log natives replace them outright and are not carried;
 - `scripting.log` and `gamelog.log` are written to `log\lua\`;
+- every log (`CreateLogger`) is rotated at launch: one session a file, the two before kept as `.1` and `.2`;
 - an exception out of the Lua side (`LuaVM`'s `Guarded`) stops the host, logged, instead of reaching the game;
-- `LuaVM::Update` is timed, and `ScriptStore` times each mod's onUpdate: a summary every 30 s in the plugin's log;
+- `LuaVM::Update` is timed, and `ScriptStore` times each mod's onUpdate: a summary every 30 s in the plugin's log with the launcher's DEBUG box ticked;
   with CVR_LUA_PROFILE in the game's environment, LuaJIT's sampling profiler runs too (`src/Lua/Profiler.cpp`,
   started by `LuaVM::PostInitializeMods`, the running mod set by `ScriptStore`) and its hottest lines join the summary;
 - `LuaVM::Draw` is called by the plugin's overlay only while the overlay is open (CET draws every frame; every

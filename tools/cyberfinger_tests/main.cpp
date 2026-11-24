@@ -1,6 +1,7 @@
 #include "Core/LiveControls.hpp"
 #include "Runtimes/ProximityGrip.hpp"
 #include "Runtimes/CyberFingerInput.hpp"
+#include "Hooks/AnalogStick.hpp"
 #include "Runtimes/FingerGrip.hpp"
 #include "Fbt/Game/Trackers.hpp"
 #include "Fbt/Game/ExtendedBody.hpp"
@@ -245,6 +246,25 @@ void Body() {
     Check(!ApplyChest(sk, pose, lower, upper, chest, head), "absent tracker overrides spine");
 }
 
+void Locomotion() {
+    using namespace cvr::input;
+    using cvr::cyberfinger::UsesLeftStickJump;
+    Check(UsesLeftStickJump(true,false,0) && !UsesLeftStickJump(true,false,1),"CyberFinger sprint mode did not route click");
+    Check(!UsesLeftStickJump(false,false,0) && !UsesLeftStickJump(true,true,0),"non-CyberFinger or vehicle click became jump");
+    for (bool analog : {false,true}) {
+        Check(!AtFullTravel(.75f,analog,.9f) && AtFullTravel(1.f,analog,.9f) &&
+              !AtFullTravel(-1.f,analog,.9f),"forward sprint threshold changed");
+    }
+    cvr::cyberfinger::LeftStickJump jump;
+    auto tick = [&](bool down, uint64_t ms, bool allowed=true) { return jump.Update(allowed,down,ms); };
+    Check(!tick(true,0) && !tick(false,10),"held at startup jumped");
+    Check(!tick(true,20) && tick(false,40) && tick(false,90) && !tick(false,125),"tap missed a game poll or stuck");
+    Check(!tick(true,130) && !tick(true,160,false) && !tick(true,200) && !tick(false,210),"D-pad chord also jumped");
+    Check(!tick(true,220) && !tick(false,240,false) && !tick(false,250),"menu or vehicle release jumped");
+    Check(!tick(true,260) && tick(false,280) && !tick(false,290,false) && !tick(false,300),"jump leaked into UI");
+    Check(!tick(true,310) && tick(false,320) && !tick(true,350) && tick(false,360),"second tap lost its edge");
+}
+
 void StickSteps() {
     cvr::fbt::game::StickGait gait;
     Vec3 player{}, feet[2]{{-.1f,0,0},{.1f,0,0}};
@@ -288,7 +308,7 @@ int main() try {
     Check(!StickActionFullTravel(-.85f,true,.9f),"custom CF threshold ignored");
     Check(!StickActionFullTravel(std::numeric_limits<float>::quiet_NaN(),true,.8f),"invalid axis activated crouch");
     Check(SanitizeStickActionThreshold(.1f)==.8f && SanitizeStickActionThreshold(1.f)==.8f,"unsafe CF threshold accepted");
-    Grabs(); Buttons(); Handedness(); Body();
+    Grabs(); Buttons(); Handedness(); Body(); Locomotion();
     std::cout << "PASS grab loss/release/rearm, optional actions, both weapon hands and mirror modes, 8 roles, 25 limb directions, chest/head targets and fallback\n";
     return 0;
 } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

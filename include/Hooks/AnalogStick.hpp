@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace cvr::input {
 inline float StickDeadzone(float value) {
@@ -26,4 +27,21 @@ inline bool AtFullTravel(float value,bool analog,float fullInput,bool negative=f
     if(negative)value=-value;
     return analog?value>=StickFullInput(fullInput):value>.90f;
 }
+// ONE PRESS PER PUSH. A stick held at its stop becomes a single short button press, re-armed only once
+// the stick comes back under half travel in the same direction. The game's ToggleCrouch reacts to a tap
+// alone (inputContexts.xml gives it no hold timeout), so a level-held R3 did nothing past a quick flick.
+// A stick still held when a blocking context (the scanner's zoom, a device screen) ends must come back
+// first, or leaving that context would press by itself.
+struct StickPulse {
+    bool armed=true;
+    uint64_t until=0;
+    bool Update(bool atStop,float travel,uint64_t nowMs,uint32_t pulseMs,bool allowed) {
+        if(atStop) {
+            if(armed && allowed)until=nowMs+pulseMs;
+            armed=false;
+        } else if(!(travel>=.5f)) armed=true;
+        if(!allowed)until=0;
+        return nowMs<until;
+    }
+};
 }

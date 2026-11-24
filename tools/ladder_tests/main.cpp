@@ -207,6 +207,16 @@ void MeasuredTop() {
     Check(g.SetTopRails(rail,{1,0,0},{0,-1,0},{0,0,1}),"finisher at the measured top refused");
     Check(Closest(g,{0,-.025f,10.4f}).distance>.11f,"a rung above the ladder's top accepted");
 }
+void MasterGate() {
+    Check(!GripEnabled(false,true),"master off left ladder grip enabled");
+    Check(!GripEnabled(true,false),"ladder-specific off ignored");
+    Check(GripEnabled(true,true),"enabled ladder grip rejected");
+    Rig r;r.Grab();r.f.tracking[0].z-=.1f;Check(r.Tick()>0,"test has no pull");
+    Check(r.Tick(GripEnabled(false,true))==0,"master off retained climb axis");
+    Check(!r.climb.Held(0),"master off retained hand lock");
+    Check(r.Tick(GripEnabled(true,true))==0 && !r.climb.Held(0),"reenabled with held grip auto-attached");
+    r.f.grip[0]=0;r.Tick();r.Grab();
+}
 int main(int argc,char** argv) {
     const std::string test=argc>1?argv[1]:"";
     if(test=="geometry")GeometryTest();else if(test=="top_exit")TopExit();else if(test=="wrist_lock")WristLock();
@@ -215,6 +225,7 @@ int main(int argc,char** argv) {
     else if(test=="auto_finish")AutoFinish();else if(test=="finger_settings")FingerSettings();
     else if(test=="directions")Directions();else if(test=="two_hands")TwoHands();
     else if(test=="release")Release();else if(test=="discontinuities")Discontinuities();else if(test=="closed_loop")ClosedLoop();
+    else if(test=="master_gate")MasterGate();
     else if(test=="state")State();else return 2;
     std::cout<<"PASS "<<test<<'\n';return 0;
 }

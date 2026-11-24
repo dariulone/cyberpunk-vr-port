@@ -107,6 +107,10 @@ public:
         // 1 = the panel bends with `curvature` above: the engine's own values, which the in-eye block no
         // longer carries once the port zeroed them (CyberpunkVR_HudEngineCurvature).
         float panelEngineCurve = 0.0f;
+        // Vehicle-only luminous map projection: transparent backdrop and perspective into the windshield.
+        float windshieldMap = 0.0f;
+        // ...the map's share of the canvas height; the quest text, unwarped, under it.
+        float windshieldSplit = 1.0f;
     };
 
     // Full composite: scene + HUD -> dstColor (which must be in RENDER_TARGET). Unlike

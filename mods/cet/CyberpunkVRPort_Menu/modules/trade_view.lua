@@ -20,8 +20,18 @@ local function blueprint(kit,parent,x,y,color)
   K.text(b,5,0,109,30,tr(kit,"ЧЕРТЁЖ","BLUEPRINT"),20,color,"right")
 end
 local function state(kit)
-  local g=C.state(kit);g.trade=g.trade or {ctx=D.open(),filter="all",quantity=1,comparison=true,sorts={sell="QualityAsc",buy="QualityAsc"}}
+  local g=C.state(kit);g.trade=g.trade or {ctx=D.open(),filter="all",quantity=1,comparison=true,sorts={sell="QualityAsc",buy="QualityAsc"},marked={}}
+  g.trade.marked=g.trade.marked or {}
   return g.trade
+end
+-- the favourite mark, a five-pointed star outline (the backpack's: the menu's fonts have no star glyph)
+local function star(p,cx,cy,r,color,alpha,width)
+  local pts={}
+  for i=0,9 do
+    local a=math.rad(-90+i*36);local rr=i%2==0 and r or r*.45
+    pts[#pts+1]={cx+rr*math.cos(a),cy+rr*math.sin(a)}
+  end
+  for i=1,10 do local a,b=pts[i],pts[i%10+1];U.line(p,a[1],a[2],b[1],b[2],color,alpha or 1,width or 2) end
 end
 local function action(kit,p,x,y,w,ru,en,fn,enabled,key)
   local b=U.action(kit,p,kit.P1X,x,y,w,tr(kit,ru,en),fn,enabled);b.key=key;return b
@@ -48,18 +58,24 @@ function V.draw(kit,p,p2)
   end
   s.stamp=D.signature(visit);s.poll=kit.S.time
   U.comparison(kit,p,H,s.comparison,function() s.comparison=not s.comparison;C.redraw(kit) end,"tradeComparison")
-  local filters={{"all","ВСЁ","ALL"},{"weapon","ОРУЖИЕ","WEAPONS"},{"clothing","ОДЕЖДА","CLOTHING"},{"mods","МОДИФИКАЦИИ","MODS"},{"consumable","РАСХОДНИКИ","CONSUMABLES"},{"other","ДРУГОЕ","OTHER"}}
+  -- ranged and melee weapons each in a tab (issue #221)
+  local filters={{"all","ВСЁ","ALL"},{"ranged","ОГНЕСТРЕЛЬНОЕ","RANGED"},{"melee","ХОЛОДНОЕ","MELEE"},{"clothing","ОДЕЖДА","CLOTHING"},{"mods","МОДИФИКАЦИИ","MODS"},{"consumable","РАСХОДНИКИ","CONSUMABLES"},{"other","ДРУГОЕ","OTHER"}}
+  if s.filter=="weapon" then s.filter="all" end
   for i,f in ipairs(filters) do
-    local x=24+(i-1)*290;local on=s.filter==f[1]
-    local bg=K.roundFill(p,x,105,278,60,on and K.YELLOW or K.NAVY,on and .12 or .18,4)
-    local label=K.text(p,x,105,278,60,tr(kit,f[2],f[3]),25,on and K.YELLOW or K.TEXT,"center")
-    local b=kit.button("p1",kit.at(kit.P1X,kit.P1Y),x,105,278,60,function()
+    local x=24+(i-1)*248;local on=s.filter==f[1]
+    local bg=K.roundFill(p,x,105,238,60,on and K.YELLOW or K.NAVY,on and .12 or .18,4)
+    local label=K.text(p,x,105,238,60,tr(kit,f[2],f[3]),23,on and K.YELLOW or K.TEXT,"center")
+    local b=kit.button("p1",kit.at(kit.P1X,kit.P1Y),x,105,238,60,function()
       s.filter=f[1];s.selected=nil;s.confirm=nil;C.state(kit).resetList=true;C.redraw(kit)
     end,function(h) bg:SetTintColor(K.color((h or on) and K.YELLOW or K.NAVY));label:SetTintColor(K.color((h or on) and K.YELLOW or K.TEXT));bg:SetOpacity(h and .18 or on and .12 or .18) end);b.key="tradeFilter:"..f[1]
   end
   K.text(p,24,180,820,60,tr(kit,"ВАШИ ПРЕДМЕТЫ","YOUR ITEMS").."  /  "..#s.snapshot.sell,31,K.CYAN)
   K.text(p,920,180,820,60,K.clip(s.snapshot.name~="" and s.snapshot.name or tr(kit,"ПРОДАВЕЦ","VENDOR"),25).."  /  €$ "..s.snapshot.vendorMoney,31,K.YELLOW)
   K.rect(p,882,180,1,840,K.CYAN,.22)
+  -- SELECTION on the sell side, as in the backpack: mark any number of your items and sell them at once (issue #221)
+  local sb=U.action(kit,p,kit.P1X,24,252,240,s.multi and tr(kit,"ГОТОВО","DONE") or tr(kit,"ВЫДЕЛЕНИЕ","SELECT"),function()
+    s.multi=not s.multi;s.marked={};s.batchArmed=nil;s.selected=nil;s.confirm=nil;C.redraw(kit)
+  end,true,56,24);sb.key="tradeMulti"
   local function grid(side,x)
     local rows,shown={},s.sorted[side]
     Sort.control(kit,p,s,"tradeSort:"..side,x+528,256,244,s.sorts[side],function(value)
@@ -71,7 +87,9 @@ function V.draw(kit,p,p2)
       rows[#rows+1]={h=200,build=function(c,it,view)
         for i,v in ipairs(group) do
           local xx=(i-1)*404;local width=392;local col=colors[v.quality] or K.CYAN
-          local bg=K.roundFill(c,xx,4,width,185,col,.045,4);local edge=K.cutFrame(c,xx,4,width,185,s.selected==v.key and K.YELLOW or K.CYAN,.35,10,1)
+          local marking=s.multi and side=="sell";local marked=marking and s.marked[v.key]
+          local bg=K.roundFill(c,xx,4,width,185,col,marked and .13 or .045,4)
+          local edge=K.cutFrame(c,xx,4,width,185,(marked or s.selected==v.key) and K.YELLOW or K.CYAN,marked and 1 or .35,10,marked and 3 or 1)
           K.rect(c,xx+2,8,5,177,col,1)
           U.picture(kit,c,xx+14,v.recipe and 44 or 20,width-28,v.recipe and 80 or 104,v.image)
           if v.recipe then blueprint(kit,c,xx+width-150,10,col) end
@@ -80,10 +98,20 @@ function V.draw(kit,p,p2)
           K.text(c,xx+230,158,147,28,v.quantity>1 and ("x"..v.quantity) or v.buyback and tr(kit,"ВЫКУП","BUYBACK") or "",23,K.GREY,"right")
           if v.equipped then U.line(c,xx+width-34,15,xx+width-26,23,K.CYAN,1,3);U.line(c,xx+width-26,23,xx+width-12,8,K.CYAN,1,3) end
           if v.new then K.image(c,xx+12,10,9,9,K.ATLAS.phone,"circle",K.CYAN,1) end
+          -- favourite, iconic (issue #221): the backpack's star, and the word in yellow
+          if v.favorite then star(c,xx+36,24,10,K.YELLOW,1,2) end
+          if v.iconic then K.text(c,xx+width-196,4,150,30,tr(kit,"КУЛЬТОВОЕ","ICONIC"),19,K.YELLOW,"right") end
+          if marking then
+            -- the selection box, ticked when marked
+            K.cutFrame(c,xx+width-52,44,34,34,marked and K.YELLOW or K.CYAN,marked and 1 or .6,5,2)
+            if marked then U.line(c,xx+width-45,61,xx+width-38,69,K.YELLOW,1,4);U.line(c,xx+width-38,69,xx+width-25,51,K.YELLOW,1,4) end
+          end
           local b=kit.button("p1",kit.at(view.x,it.y,view),xx,4,width,185,function()
+            if marking then s.marked[v.key]=not s.marked[v.key] or nil;s.batchArmed=nil;C.redraw(kit);return end
+            if s.multi then return end   -- the vendor's side waits while your items are being marked
             s.selected=v.key;s.quantity=1;s.confirm=nil;I.inspect(s.ctx,v);C.redraw(kit)
           end,function(on)
-            bg:SetTintColor(K.color(on and K.YELLOW or col));bg:SetOpacity(on and .13 or .045);K.tint(edge,(on or s.selected==v.key) and K.YELLOW or K.CYAN,on and 1 or .35)
+            bg:SetTintColor(K.color(on and K.YELLOW or col));bg:SetOpacity((on or marked) and .13 or .045);K.tint(edge,(on or marked or s.selected==v.key) and K.YELLOW or K.CYAN,(on or marked) and 1 or .35)
             if on then s.hover=v.key;s.hoverAt=kit.S.time elseif s.hover==v.key then s.hover=nil;s.hoverAt=kit.S.time end
           end);b.key="tradeItem:"..v.key
         end
@@ -93,9 +121,40 @@ function V.draw(kit,p,p2)
     C.list(kit,host,"p1",side=="sell" and "p1" or "p2",kit.P1X+x,320,850,rows,645,s.offsets and s.offsets[side]):enableMask()
   end
   grid("sell",10);grid("buy",906)
-  local selected=s.snapshot.byKey[s.selected]
+  local selected=not s.multi and s.snapshot.byKey[s.selected] or nil
   s.quote=nil
-  if selected then
+  if s.multi then
+    -- the marked items: how many, what they fetch, and one sale for all of them confirmed by a second press
+    local list,pieces,total,iconic,equipped={},0,0,0,0
+    for _,v in ipairs(s.snapshot.sell) do   -- every tab's marks, not only the one shown
+      if s.marked[v.key] then
+        list[#list+1]=v;pieces=pieces+v.quantity;total=total+v.price*v.quantity
+        if v.iconic then iconic=iconic+1 end
+        if v.equipped then equipped=equipped+1 end
+      end
+    end
+    for key in pairs(s.marked) do if not s.snapshot.byKey[key] then s.marked[key]=nil end end
+    local armed=s.batchArmed and kit.S.time-s.batchArmed<3
+    K.text(p,26,1037,1710,47,#list>0 and (tr(kit,"Выбрано: ","Selected: ")..#list..(pieces>#list and ("  ("..tr(kit,"шт. ","pcs ")..pieces..")") or "").."  ·  €$ "..total) or tr(kit,"Отметьте предметы для продажи","Mark the items to sell"),32,#list>0 and K.YELLOW or K.GREY)
+    action(kit,p,24,1110,200,"ВСЁ","ALL",function()
+      for _,v in ipairs(s.sorted.sell) do if not v.equipped and not v.favorite then s.marked[v.key]=true end end
+      s.batchArmed=nil;C.redraw(kit)
+    end,#s.sorted.sell>0,"tradeMarkAll")
+    action(kit,p,236,1110,200,"СНЯТЬ","NONE",function() s.marked={};s.batchArmed=nil;C.redraw(kit) end,#list>0,"tradeMarkNone")
+    local ru,en="ПРОДАТЬ ВЫБРАННОЕ  €$ "..total,"SELL SELECTED  €$ "..total
+    if armed then ru,en="ПОДТВЕРДИТЬ ПРОДАЖУ ("..#list..")","CONFIRM SALE ("..#list..")" end
+    action(kit,p,900,1110,850,ru,en,function()
+      if s.pending then return end
+      if not (s.batchArmed and kit.S.time-s.batchArmed<3) then s.batchArmed=kit.S.time;C.redraw(kit);return end
+      s.batchArmed=nil
+      local items,skipped,earned=D.sellMany(s.ctx,kit.vendorSession(),list)
+      kit.toast(tr(kit,"Продано: ","Sold: ")..items.."  €$ "..earned..(skipped>0 and (tr(kit,", пропущено: ",", skipped: ")..skipped) or ""))
+      s.marked={};if items>0 then s.pending={at=kit.S.time,stamp=s.stamp} end;C.redraw(kit)
+    end,#list>0 and not s.pending,"tradeSellMarked")
+    if armed and (iconic>0 or equipped>0) then
+      K.text(p,450,1100,440,100,(iconic>0 and (tr(kit,"Культовых: ","Iconic: ")..iconic) or "")..(iconic>0 and equipped>0 and "; " or "")..(equipped>0 and (tr(kit,"экипированные останутся: ","equipped stay: ")..equipped) or ""),24,K.YELLOW,nil,true)
+    end
+  elseif selected then
     local quote=D.quote(s.ctx,visit,selected,s.quantity)
     s.quote=quote
     local name=(selected.recipe and tr(kit,"ЧЕРТЁЖ · ","BLUEPRINT · ") or "")..selected.name
@@ -175,7 +234,12 @@ end
 function V.beforeBuild(kit)
   local g=C.state(kit);local s=g.trade
   if s then
-    s.offsets=not g.resetList and {sell=kit.S.views.p1 and kit.S.views.p1.offset,buy=kit.S.views.p2 and kit.S.views.p2.offset} or nil
+    -- THE SCROLL SURVIVES A SALE (issue #221): a transaction's refresh first builds the panel without its lists
+    -- (loading), and the views read then are empty; the offsets taken before it stand until there are lists again
+    if g.resetList then s.offsets=nil
+    elseif kit.S.views.p1 or kit.S.views.p2 then
+      s.offsets={sell=kit.S.views.p1 and kit.S.views.p1.offset,buy=kit.S.views.p2 and kit.S.views.p2.offset}
+    end
     if s.resetSide then s.offsets=s.offsets or {};s.offsets[s.resetSide]=0;s.resetSide=nil end
     s.tipHost=nil;s.tips={}
   end

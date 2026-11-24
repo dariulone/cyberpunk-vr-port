@@ -67,6 +67,11 @@
 #include "Anim/VrikHook.hpp"
 #include "Anim/CharacterRig.hpp"
 #include "Anim/FaceTracking.hpp"
+#include "Anim/MirrorPose.hpp"
+#include "Anim/MirrorArms.hpp"
+#include "Anim/HandGesturePose.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/FingerGrip.hpp"
 #include "Anim/Cyberware.hpp"
 #include "Anim/SkeletonPolicy.hpp"
 #include "Anim/WeaponAim.hpp"
@@ -120,8 +125,8 @@ bool VRIK_PlayerBindingChanged() {
 // VRIK solves ever reaches it, and the player's own first-person body has no head to show anyway.
 //
 // While a double is bound (VRMirrorDouble, from CET), every player pass -- VRIK already written into it -- is
-// cached, and every pass of the double's root rig takes the cached LOCAL transforms of the bones whose names
-// both rigs share. The double then stands in the reflection with the tracked arms and the head turned where the
+// cached, and the double receives joint motion relative to the two rigs' reference poses. Its own face, joint
+// spacing and deformation bones are evaluated by the game. It stands with tracked arms and the head turned where the
 // headset looks, and its head mesh is the one drawn. VRIK is not suspended for the scene while the double is
 // bound (VRIK_EffectiveCutsceneSuspendTier), otherwise there would be no tracked pose to copy.
 //
@@ -137,13 +142,21 @@ bool VRIK_PlayerBindingChanged() {
 // pending copy is published when the next batch starts (the gap the VRIK batch clock uses): the double always takes
 // the pose the player's batch ended with, one batch late.
 extern "C" __declspec(dllexport) extern float CyberpunkVR_VrikBatchGapMs;
+extern "C" int CyberpunkVR_FingerBones;
 namespace {
 SRWLOCK s_mirrorLock=SRWLOCK_INIT;
 std::atomic<int> s_mirrorActive{0};
 std::atomic<uintptr_t> s_mirrorTrackA{0},s_mirrorTrackB{0};
-uintptr_t s_mirrorObject=0,s_mirrorPlayerRig=0;
+PlayerBinding s_mirrorDoubleKey{}, s_mirrorPlayerKey{};
 uint32_t s_mirrorBones=0;                       // the double's root rig, bones
-int16_t s_mirrorMap[VRIK_MAX_BONES];            // double bone -> player bone, -1 = no bone of that name
+cvr::mirror::Joint s_mirrorMap[VRIK_MAX_BONES]; // keyed by destination bone index
+struct MirrorArm {
+    cvr::mirror::ArmChain player, reflection;
+    std::array<int, std::size(cvr::gestures::NativeFist)> fingers{};
+    bool matchingHand = false;
+};
+MirrorArm s_mirrorArms[2];
+unsigned s_mirrorPoseHands{}, s_mirrorPendingHands{};
 alignas(16) uint8_t s_mirrorPose[VRIK_MAX_BONES*48];
 uint32_t s_mirrorPoseBones=0;                   // player bones published; 0 = nothing published yet
 alignas(16) uint8_t s_mirrorPending[VRIK_MAX_BONES*48];
@@ -157,11 +170,11 @@ double MirrorQpcMs(int64_t ticks) {
 
 void MirrorDoubleClear() {
     cvr::face::ClearMirror();
-    s_mirrorActive.store(0,std::memory_order_release);
     AcquireSRWLockExclusive(&s_mirrorLock);
+    s_mirrorActive.store(0,std::memory_order_release);
     s_mirrorTrackA.store(0,std::memory_order_relaxed);
     s_mirrorTrackB.store(0,std::memory_order_relaxed);
-    s_mirrorObject=s_mirrorPlayerRig=0;
+    s_mirrorDoubleKey = s_mirrorPlayerKey = {};
     s_mirrorBones=0;
     s_mirrorPoseBones=0;
     s_mirrorPendingBones=0;
@@ -176,18 +189,100 @@ uintptr_t MirrorTrackA(RED4ext::anim::AnimatedObject* object) {
     } __except(EXCEPTION_EXECUTE_HANDLER) {return 0;}
 }
 
-// Names are CName hashes, 8 bytes each. Returns the number of double bones that found a player bone.
-int MirrorBuildMap(const uint64_t* doubleNames,uint32_t doubleBones,const uint64_t* playerNames,uint32_t playerBones) {
+void ReadMirrorRest(const PlayerBinding& binding, cvr::mirror::Rest* out) {
+    const auto* parents = reinterpret_cast<const int16_t*>(binding.parents);
+    const auto* reference = reinterpret_cast<const uint8_t*>(binding.reference);
+    for (uint32_t i = 0; i < binding.bones; ++i) {
+        const int p = parents[i];
+        out[i] = p < -1 || p >= static_cast<int>(i) ? cvr::mirror::Rest{} :
+            cvr::mirror::ReadRest(reference + i * 48, p < 0 ? nullptr : &out[p]);
+    }
+}
+
+bool BindMirrorFingers(MirrorArm& arm, int side, const PlayerBinding& dbl, const PlayerBinding& player) {
+    if (!arm.player.count || !arm.reflection.count) return false;
+    const auto* names = reinterpret_cast<const RED4ext::CName*>(dbl.names);
+    const auto* parents = reinterpret_cast<const int16_t*>(dbl.parents);
+    const auto* sourceParents = reinterpret_cast<const int16_t*>(player.parents);
+    const auto* reference = reinterpret_cast<const uint8_t*>(dbl.reference);
+    const auto* sourceReference = reinterpret_cast<const uint8_t*>(player.reference);
+    std::array<int, 5> last;
+    last.fill(arm.reflection.bones[0]);
+    // NativeFist lists each digit from its metacarpal to its tip, in the same
+    // order used to pose the player's fingers. Require the entire hand to match.
+    for (size_t k = 0; k < arm.fingers.size(); ++k) {
+        const auto& digit = cvr::gestures::NativeFist[k];
+        char name[48];
+        std::snprintf(name, sizeof(name), "%s%s", side ? "Right" : "Left", digit.suffix);
+        const RED4ext::CName wanted(name);
+        const auto* found = std::find(names, names + dbl.bones, wanted);
+        if (found == names + dbl.bones) return false;
+        const int i = static_cast<int>(found - names), j = s_mirrorMap[i].source;
+        const int parent = last[digit.group];
+        if (j < 0 || parents[i] != parent || sourceParents[j] != s_mirrorMap[parent].source) return false;
+        cvr::mirror::Local a, b;
+        std::memcpy(&a, sourceReference + j*sizeof(a), sizeof(a));
+        std::memcpy(&b, reference + i*sizeof(b), sizeof(b));
+        if (!cvr::mirror::MatchingFingerFrames(a, b, parent == arm.reflection.bones[0])) return false;
+        arm.fingers[k] = last[digit.group] = i;
+    }
+    return true;
+}
+
+unsigned TrackedMirrorHands() {
+    if (g_VRBind != 4 || !CyberpunkVR_FingerBones || !cvr::cyberfinger::Enabled()) return 0;
+    float curl[5];
+    unsigned hands = 0;
+    for (int side = 0; side < 2; ++side)
+        if (s_mirrorArms[side].matchingHand && cvr::fingergrip::TrackedCurl(side, curl)) hands |= 1u << side;
+    return hands;
+}
+
+int MirrorBuildMap(const PlayerBinding& dbl, const PlayerBinding& player) {
+    // Binding holds the exclusive mirror lock. Keep the potentially large rest
+    // poses off the animation thread and out of the per-pass hot path.
+    static cvr::mirror::Rest from[VRIK_MAX_BONES], to[VRIK_MAX_BONES];
+    auto* names = reinterpret_cast<const RED4ext::CName*>(dbl.names);
+    auto* sourceNames = reinterpret_cast<const RED4ext::CName*>(player.names);
+    auto* parents = reinterpret_cast<const int16_t*>(dbl.parents);
+    auto* sourceParents = reinterpret_cast<const int16_t*>(player.parents);
     int mapped=0;
     __try {
-        for(uint32_t i=0;i<doubleBones;++i) {
-            s_mirrorMap[i]=-1;
-            const uint64_t h=doubleNames[i];
-            if(!h)continue;
-            // Same rig family first: the bone is usually at the same index.
-            if(i<playerBones && playerNames[i]==h) {s_mirrorMap[i]=static_cast<int16_t>(i);++mapped;continue;}
-            for(uint32_t j=0;j<playerBones;++j) {
-                if(playerNames[j]==h) {s_mirrorMap[i]=static_cast<int16_t>(j);++mapped;break;}
+        ReadMirrorRest(player, from);
+        ReadMirrorRest(dbl, to);
+        for(uint32_t i=0; i<dbl.bones; ++i) {
+            s_mirrorMap[i] = {};
+            if (!to[i].valid) continue;
+            const char* name = names[i].ToString();
+            const auto motion = cvr::mirror::MotionFor(name ? name : "");
+            if (motion == cvr::mirror::Motion::Native) continue;
+            for (uint32_t j = 0; j < player.bones; ++j) {
+                if (!from[j].valid || names[i] != sourceNames[j]) continue;
+                const int targetParent = parents[i], sourceParent = sourceParents[j];
+                if ((targetParent < 0) != (sourceParent < 0) ||
+                    (targetParent >= 0 && names[targetParent] != sourceNames[sourceParent])) continue;
+                s_mirrorMap[i] = cvr::mirror::Bind(j, motion, from[j], to[i]);
+                ++mapped;
+                break;
+            }
+        }
+        for (int side = 0; side < 2; ++side) {
+            const RED4ext::CName hand(side ? "RightHand" : "LeftHand");
+            const RED4ext::CName fore(side ? "RightForeArm" : "LeftForeArm");
+            const RED4ext::CName arm(side ? "RightArm" : "LeftArm");
+            s_mirrorArms[side] = {};
+            for (uint32_t i = 0; i < dbl.bones; ++i) {
+                if (names[i] != hand || s_mirrorMap[i].source < 0) continue;
+                const int elbow = parents[i];
+                if (elbow < 0 || names[elbow] != fore || s_mirrorMap[elbow].source < 0) continue;
+                const int upper = parents[elbow];
+                if (upper < 0 || names[upper] != arm || s_mirrorMap[upper].source < 0) continue;
+                s_mirrorArms[side] = {
+                    cvr::mirror::ArmPath(sourceParents, player.bones, s_mirrorMap[i].source,
+                                         s_mirrorMap[elbow].source, s_mirrorMap[upper].source),
+                    cvr::mirror::ArmPath(parents, dbl.bones, i, elbow, upper)};
+                s_mirrorArms[side].matchingHand = BindMirrorFingers(s_mirrorArms[side], side, dbl, player);
+                break;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {return -1;}
@@ -213,15 +308,19 @@ void VRIK_MirrorDoublePass(uint8_t* boneBuf,uintptr_t trackBuf,uint32_t slots) {
         LARGE_INTEGER now;QueryPerformanceCounter(&now);
         AcquireSRWLockExclusive(&s_mirrorLock);
         __try {
+            if (!s_mirrorActive.load(std::memory_order_relaxed) || s_mirrorPlayerKey.bones != static_cast<uint32_t>(n) ||
+                (trackBuf != s_mirrorPlayerKey.trackA && trackBuf != s_mirrorPlayerKey.trackB)) return;
             const bool newBatch=s_mirrorLastPassQpc==0 ||
                 MirrorQpcMs(now.QuadPart-s_mirrorLastPassQpc)>CyberpunkVR_VrikBatchGapMs;
             s_mirrorLastPassQpc=now.QuadPart;
             if(newBatch && s_mirrorPendingBones>0) {
                 std::memcpy(s_mirrorPose,s_mirrorPending,static_cast<size_t>(s_mirrorPendingBones)*48);
                 s_mirrorPoseBones=s_mirrorPendingBones;
+                s_mirrorPoseHands=s_mirrorPendingHands;
             }
             std::memcpy(s_mirrorPending,boneBuf,static_cast<size_t>(n)*48);
             s_mirrorPendingBones=static_cast<uint32_t>(n);
+            s_mirrorPendingHands=TrackedMirrorHands();
         } __finally {ReleaseSRWLockExclusive(&s_mirrorLock);}
         CyberpunkVR_DebugMirrorDouble[2].fetch_add(1,std::memory_order_relaxed);
         return;
@@ -233,11 +332,24 @@ void VRIK_MirrorDoublePass(uint8_t* boneBuf,uintptr_t trackBuf,uint32_t slots) {
     AcquireSRWLockShared(&s_mirrorLock);
     __try {
         const uint32_t bones=s_mirrorBones,cached=s_mirrorPoseBones;
-        if(bones>0 && cached>0 && slots>=bones) {
+        const bool stillBound = trackBuf && (trackBuf == s_mirrorTrackB.load(std::memory_order_relaxed) ||
+            trackBuf == s_mirrorTrackA.load(std::memory_order_relaxed));
+        if(stillBound && bones>0 && cached>0 && slots>=bones) {
             for(uint32_t i=0;i<bones;++i) {
-                const int j=s_mirrorMap[i];
+                const int j=s_mirrorMap[i].source;
                 if(j<0 || static_cast<uint32_t>(j)>=cached || cvr::face::PreserveMirrorBone(i))continue;
-                std::memcpy(boneBuf+static_cast<size_t>(i)*48,s_mirrorPose+static_cast<size_t>(j)*48,48);
+                cvr::mirror::Apply(s_mirrorMap[i], s_mirrorPose+static_cast<size_t>(j)*48,
+                    boneBuf+static_cast<size_t>(i)*48);
+            }
+            for (int side = 0; side < 2; ++side) {
+                const auto& arm = s_mirrorArms[side];
+                const bool tracked = (s_mirrorPoseHands & (1u << side)) != 0;
+                if (!cvr::mirror::PlaceWrist(arm.player, s_mirrorPose, arm.reflection, boneBuf, tracked) || !tracked)
+                    continue;
+                for (int i : arm.fingers) {
+                    const int j = s_mirrorMap[i].source;
+                    cvr::mirror::CopyFingerRotation(s_mirrorPose + j*48, boneBuf + i*48);
+                }
             }
             written=true;
         }
@@ -271,6 +383,7 @@ void VRMirrorDouble(RED4ext::IScriptable*,RED4ext::CStackFrame* aFrame,bool* aOu
     }
     const uintptr_t trackA=(flags&1) ? MirrorTrackA(object):0;
     const uintptr_t trackB=dbl.trackB;
+    player.trackA=MirrorTrackA(playerObject);
     const bool sharedWithPlayer=(trackA && (trackA==g_PlayerTrackBufA || trackA==g_PlayerTrackBufB)) ||
         (trackB && (trackB==g_PlayerTrackBufA || trackB==g_PlayerTrackBufB));
     if(!trackB || sharedWithPlayer) {
@@ -278,19 +391,22 @@ void VRMirrorDouble(RED4ext::IScriptable*,RED4ext::CStackFrame* aFrame,bool* aOu
         return;
     }
     cvr::face::BindMirror(reinterpret_cast<RED4ext::ent::Entity*>(entity.instance));
-    if(s_mirrorActive.load(std::memory_order_acquire) && s_mirrorObject==dbl.object && s_mirrorPlayerRig==player.rig &&
+    AcquireSRWLockExclusive(&s_mirrorLock);
+    if(s_mirrorActive.load(std::memory_order_acquire) && s_mirrorDoubleKey==dbl && s_mirrorPlayerKey==player &&
         s_mirrorTrackB.load(std::memory_order_relaxed)==trackB && s_mirrorTrackA.load(std::memory_order_relaxed)==trackA) {
+        ReleaseSRWLockExclusive(&s_mirrorLock);
         if(aOut)*aOut=true;
         return;
     }
-    AcquireSRWLockExclusive(&s_mirrorLock);
-    const int mapped=MirrorBuildMap(reinterpret_cast<const uint64_t*>(dbl.names),dbl.bones,
-        reinterpret_cast<const uint64_t*>(player.names),player.bones);
+    const int mapped=MirrorBuildMap(dbl,player);
+    s_mirrorPoseBones=0;
+    s_mirrorPendingBones=0;
+    s_mirrorLastPassQpc=0;
+    s_mirrorBones=mapped>0 ? dbl.bones : 0;
+    s_mirrorActive.store(mapped>0,std::memory_order_release);
     if(mapped>0) {
-        s_mirrorBones=dbl.bones;
-        s_mirrorObject=dbl.object;
-        s_mirrorPlayerRig=player.rig;
-        s_mirrorPoseBones=0;
+        s_mirrorDoubleKey=dbl;
+        s_mirrorPlayerKey=player;
         s_mirrorTrackA.store(trackA,std::memory_order_relaxed);
         s_mirrorTrackB.store(trackB,std::memory_order_relaxed);
     }
@@ -303,7 +419,6 @@ void VRMirrorDouble(RED4ext::IScriptable*,RED4ext::CStackFrame* aFrame,bool* aOu
     CyberpunkVR_DebugMirrorDouble[5].store(static_cast<uint64_t>(mapped),std::memory_order_relaxed);
     CyberpunkVR_DebugMirrorDouble[6].store(dbl.bones,std::memory_order_relaxed);
     CyberpunkVR_DebugMirrorDouble[0].fetch_add(1,std::memory_order_relaxed);
-    s_mirrorActive.store(1,std::memory_order_release);
     if(aOut)*aOut=true;
 }
 
@@ -361,7 +476,9 @@ static int ArmPlayerLocked() {
     // match, fall back to the shortest name containing the needles (so we get the
     // hand root, not a finger like "RightHandThumb1").
     auto* metaRig = animObj->metaRig;
-    if (metaRig && std::strcmp(ClassifyQword(reinterpret_cast<uint64_t>(metaRig)), "HEAP") == 0)
+    // The rig comes from the player's typed AnimatedObject; low Windows allocations are valid too.
+    // Keep the address-range heuristic for untyped scans, and check this known object's memory directly.
+    if (VRIK_IsReadable(metaRig, sizeof(*metaRig)))
     {
         const uint32_t boneCount = metaRig->boneNames.Size();
         if (boneCount > 0 && boneCount < 8192)

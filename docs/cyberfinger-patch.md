@@ -189,9 +189,9 @@ describe movement with the gun holstered. See the
 
 | Physical control | Action to bind | Result |
 |---|---|---|
-| Left stick axes | Thumbstick, left | Move; full forward does not start sprint |
+| Left stick axes | Thumbstick, left | Move at partial travel. Hold fully forward briefly to sprint |
 | Right stick axes | Thumbstick, right | Turn; up dash, down crouch |
-| Left stick click | Thumbstick Click, left | Click to sprint until the stick is released; hold remains a D-pad modifier |
+| Left stick click | Thumbstick Click, left | Tap and release to jump on foot. Hold with a right-stick direction for the D-pad |
 | Right stick click | Primary Button (A/X), right | Jump/confirm; hold supports charge jump |
 | Left trigger | Trigger, left | With a gun on foot or driving, aim for a right-handed weapon or fire for a left-handed weapon. While driving unarmed, sound the horn for RH or draw for LH |
 | Right trigger | Trigger, right | With a gun on foot or driving, fire for a right-handed weapon or aim for a left-handed weapon. While driving unarmed, draw for RH or sound the horn for LH |

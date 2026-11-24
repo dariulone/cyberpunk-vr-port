@@ -4,6 +4,7 @@
 // Where the projection block is committed. Historically called the "unifix" site.
 
 #include "Core/VrCoreShared.hpp"
+#include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Core/Telemetry.hpp"
 #include "Hooks/Hook.hpp"
@@ -52,7 +53,7 @@ extern "C" void __fastcall OnUnifixHookCallback(void* projectionData, void* rend
         bool shouldLog = false;
         if (rbxNonZero && !s_seenNonZeroRbx) { s_seenNonZeroRbx = true; shouldLog = true; }
         if (g_unifixHits <= 5) shouldLog = true;
-        if ((g_unifixHits % 600) == 0) shouldLog = true;
+        if ((g_unifixHits % 600) == 0 && cvr::RuntimeDiagnosticsEnabled()) shouldLog = true;
 
         if (shouldLog) {
             Log("Unifix: hits=%llu r13zero=%d rbxZero=%d\n",

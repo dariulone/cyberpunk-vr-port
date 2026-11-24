@@ -27,7 +27,7 @@ Vec s_handWorld[2]{};
 bool IsFresh(uint64_t now) { return Fresh(s_player,cvr::roomscale::PlayerIdentity(),s_stamp,now,s_detailed); }
 bool ContextAllowed() {
     const int tier=g_sceneTier.load(std::memory_order_relaxed);
-    return g_liveControls.xrLadderGripClimb!=0 && !g_isInVehicle && g_menuModeValue==0 &&
+    return GripEnabled(g_liveControls.xrHandPhysics!=0,g_liveControls.xrLadderGripClimb!=0) && !g_isInVehicle && g_menuModeValue==0 &&
         !DeviceCamActive() && !g_bdActive.load(std::memory_order_relaxed) &&
         !g_uiPopupOpen.load(std::memory_order_relaxed) && !OverlayIsVisible() && tier>0 && tier<4;
 }

@@ -17,6 +17,7 @@ extern void Log(const char*,...);
 namespace cvr::framegen {
 namespace {
 using Microsoft::WRL::ComPtr;
+dlssg::Provider ProviderOf(Backend b) {return b==Backend::Anr ? dlssg::Provider::Anr : dlssg::Provider::Nvidia;}
 constexpr auto kRead=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 constexpr auto kUav=D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 constexpr auto kCopy=D3D12_RESOURCE_STATE_COPY_SOURCE;
@@ -162,6 +163,9 @@ struct Eye {
     // DLSS-G: one NGX feature per eye, a typed copy of a typeless capture, and the camera NGX's
     // history was last fed with.
     dlssg::FeaturePtr dlss;Texture backbuffer;
+    // ANR FG reads the depth and the motion vectors in COPY_DEST, the state Streamline hands DLSS-G its copies in
+    // (OptiScaler's provider proxy passes the game's through): our own copies, kept in that state.
+    Texture anrDepth,anrMotion;
     CameraData previousCamera{};bool hasPreviousCamera{};
     uint32_t width{},height{},renderWidth{},renderHeight{},flowWidth{},flowHeight{},current{};
     bool opticalFlow=true;
@@ -183,7 +187,7 @@ struct Eye {
         }
         renderWidth=std::min(inputs.width,inputs.motionWidth);renderHeight=std::min(inputs.height,inputs.motionHeight);camera=inputs.camera;
         mode=settings.backend;
-        if(mode==Backend::DlssG) {
+        if(NgxBackend(mode)) {
             if(!output.Create(device,width,height,DXGI_FORMAT_R8G8B8A8_UNORM,L"CVR_FG_Output",kCopy))return false;
             // NGX views the backbuffer in its own format, which a typeless capture does not have.
             return desc.Format!=DXGI_FORMAT_R8G8B8A8_TYPELESS ||
@@ -233,7 +237,7 @@ struct Eye {
         return !nvidia || !opticalFlow || nv.Create(device,queue,fence,packed,rawFlow,settings.quality);
     }
     uint64_t Bytes() const {
-        uint64_t bytes=0;for(const auto* t:{&packed[0],&packed[1],&rawFlow,&flow,&scd,&depth,&motion,&previousDepth,&output,&preparedDepth,&preparedMotion,&backbuffer})bytes+=t->bytes;
+        uint64_t bytes=0;for(const auto* t:{&packed[0],&packed[1],&rawFlow,&flow,&scd,&depth,&motion,&previousDepth,&output,&preparedDepth,&preparedMotion,&backbuffer,&anrDepth,&anrMotion})bytes+=t->bytes;
         if(dlss)bytes+=dlssg::Bytes(*dlss);
         FfxEffectMemoryUsage usage{};
         if(fiCreated && ffxFrameInterpolationContextGetGpuMemoryUsage(const_cast<FfxFrameInterpolationContext*>(&fi),&usage)==FFX_OK)bytes+=usage.totalUsageInBytes;
@@ -335,7 +339,7 @@ struct Generator::Impl {
             eyes[eye]=std::make_unique<Eye>();
             if(!eyes[eye]->Create(d,q,fence.Get(),colors[eye],*inputs[eye],s))return false;
         }
-        return mode!=Backend::DlssG || CreateDlssFeatures(inputs);
+        return !NgxBackend(mode) || CreateDlssFeatures(inputs);
     }
     // NGX records the features' creation into a command list; it runs before the first pair.
     bool CreateDlssFeatures(const std::shared_ptr<const Inputs> (&inputs)[2]) {
@@ -345,14 +349,27 @@ struct Generator::Impl {
         for(unsigned i=0;i<2 && created;++i) {
             auto& eye=*eyes[i];const auto& input=*inputs[i];
             eye.dlss=dlssg::Create(w.list.Get(),eye.width,eye.height,input.width,input.height,DXGI_FORMAT_R8G8B8A8_UNORM,
-                input.motion->GetDesc().Format,DXGI_FORMAT_R32_FLOAT);
+                input.motion->GetDesc().Format,DXGI_FORMAT_R32_FLOAT,ProviderOf(mode));
             created=eye.dlss!=nullptr;
         }
         const bool submitted=Submit(w.list.Get(),w);
-        if(!created)Status("DLSS Frame Generation could not create its features");
+        if(!created)Status(mode==Backend::Anr?"ANR FG could not create its features":"DLSS Frame Generation could not create its features");
         return created && submitted;
     }
     bool RecordDlss(ID3D12GraphicsCommandList* list,Eye& eye,ID3D12Resource* color,const Inputs& inputs,bool reset) {
+        ID3D12Resource* depth=inputs.depth.Get();ID3D12Resource* motion=inputs.motion.Get();
+        if(eye.mode==Backend::Anr) {
+            const auto copy=[&](Texture& own,ID3D12Resource*& source,const wchar_t* name) {
+                const auto d=source->GetDesc();
+                if(!own.resource || own.width!=d.Width || own.height!=d.Height || own.format!=d.Format) {
+                    own={};
+                    if(!own.Create(device.Get(),uint32_t(d.Width),d.Height,d.Format,name,D3D12_RESOURCE_STATE_COPY_DEST))return false;
+                }
+                Barrier(list,source,kRead,kCopy);list->CopyResource(own.resource.Get(),source);Barrier(list,source,kCopy,kRead);
+                source=own.resource.Get();return true;
+            };
+            if(!copy(eye.anrDepth,depth,L"CVR_FG_AnrDepth") || !copy(eye.anrMotion,motion,L"CVR_FG_AnrMotion"))return false;
+        }
         ID3D12Resource* backbuffer=color;
         if(eye.backbuffer.resource) {
             eye.backbuffer.To(list,D3D12_RESOURCE_STATE_COPY_DEST);list->CopyResource(eye.backbuffer.resource.Get(),color);
@@ -360,7 +377,7 @@ struct Generator::Impl {
         } else Barrier(list,color,kCopy,kRead);
         eye.output.To(list,kUav);
         // Every real frame is evaluated, resets included: NGX keeps the previous backbuffer itself.
-        dlssg::Evaluation e{};e.backbuffer=backbuffer;e.depth=inputs.depth.Get();e.motion=inputs.motion.Get();e.output=eye.output.resource.Get();
+        dlssg::Evaluation e{};e.backbuffer=backbuffer;e.depth=depth;e.motion=motion;e.output=eye.output.resource.Get();
         e.width=eye.width;e.height=eye.height;e.depthWidth=inputs.width;e.depthHeight=inputs.height;
         e.motionWidth=inputs.motionWidth;e.motionHeight=inputs.motionHeight;e.camera=&inputs.camera;
         e.reset=reset || !eye.hasPreviousCamera;e.previous=e.reset?nullptr:&eye.previousCamera;
@@ -486,11 +503,11 @@ struct Generator::Impl {
            FAILED(w.finishAllocator->Reset()) || FAILED(w.finish->Reset(w.finishAllocator.Get(),nullptr)))return false;
         w.descriptors=0;w.inputs[0]=inputs[0];w.inputs[1]=inputs[1];
         auto* list=w.list.Get();if(timed)list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_TIMESTAMP,cursor*4);
-        if(mode==Backend::DlssG) {
+        if(NgxBackend(mode)) {
             w.finish->Close();
             for(unsigned i=0;i<2;++i) {
                 if(!RecordDlss(list,*eyes[i],colors[i],*inputs[i],reset)) {
-                    failed=true;Status("DLSS Frame Generation evaluation failed");Submit(list,w);return false;
+                    failed=true;Status(mode==Backend::Anr?"ANR FG evaluation failed":"DLSS Frame Generation evaluation failed");Submit(list,w);return false;
                 }
             }
             if(timed) {
@@ -603,7 +620,7 @@ bool Generator::Generate(ID3D12Device* device,ID3D12CommandQueue* queue,ID3D12Re
     CaptureFrame(device,queue,colors,inputs,cameras);
     Settings effective=settings;
     // DLSS-G needs an RTX 40/50 and the SDK in this build; FidelityFX runs anywhere.
-    if(effective.backend==Backend::DlssG && !dlssg::Available(device))effective.backend=Backend::FidelityFX;
+    if(NgxBackend(effective.backend) && !dlssg::Available(device,ProviderOf(effective.backend)))effective.backend=Backend::FidelityFX;
     if(effective.backend==Backend::Nvidia && (!effective.flowScale || !NvidiaOpticalFlow(device)))effective.backend=Backend::FidelityFX;
     PublishActiveBackend(effective.backend);
     if(impl && (impl->device.Get()!=device || impl->queue.Get()!=queue || !impl->Compatible(colors,inputs,effective))) {if(!Reset())return false;reset=true;}

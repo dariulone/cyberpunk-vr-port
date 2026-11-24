@@ -492,7 +492,7 @@ end
 local function showEntity(e, on)
   local n = 0
   pcall(function()
-    for _, comp in ipairs(e:GetComponents()) do
+    for _, comp in ipairs(Game.VREntityComponents(e)) do
       if comp:IsA(CName.new("entIVisualComponent")) or comp:IsA(CName.new("entLightComponent")) then
         comp:Toggle(on)
         n = n + 1
@@ -518,7 +518,7 @@ local function hideReal(k, obj)
     S.hiddenReal[k] = rec
   end
   pcall(function()
-    for _, comp in ipairs(obj:GetComponents()) do
+    for _, comp in ipairs(Game.VREntityComponents(obj)) do
       if (comp:IsA(CName.new("entIVisualComponent")) or comp:IsA(CName.new("entLightComponent"))) and comp:IsEnabled() then
         rec.components[tostring(Game.VRComponentKey(comp))] = true
         comp:Toggle(false)
@@ -531,7 +531,7 @@ unhideReal = function(rec, obj)
   pcall(function()
     if not obj or obj:GetEntityID().hash ~= rec.id.hash then obj = Game.FindEntityByID(rec.id) end
     if not obj then return end
-    for _, comp in ipairs(obj:GetComponents()) do
+    for _, comp in ipairs(Game.VREntityComponents(obj)) do
       if rec.components[tostring(Game.VRComponentKey(comp))] then comp:Toggle(true) end
     end
   end)
@@ -541,7 +541,7 @@ end
 local function hideKept(e)
   local names = {}
   pcall(function()
-    for _, comp in ipairs(e:GetComponents()) do
+    for _, comp in ipairs(Game.VREntityComponents(e)) do
       if (comp:IsA(CName.new("entIVisualComponent")) or comp:IsA(CName.new("entLightComponent"))) and comp:IsEnabled() then
         names[NameToString(comp:GetName())] = true
         comp:Toggle(false)
@@ -553,7 +553,7 @@ end
 
 local function showKept(e, names)
   pcall(function()
-    for _, comp in ipairs(e:GetComponents()) do
+    for _, comp in ipairs(Game.VREntityComponents(e)) do
       if names[NameToString(comp:GetName())] then comp:Toggle(true) end
     end
   end)
@@ -570,7 +570,7 @@ end
 local function root(e)
   local r = e:FindComponentByName(CName.new("entPlaceholderComponent"))
   if r ~= nil then return r end
-  for _, c in ipairs(e:GetComponents() or {}) do
+  for _, c in ipairs(Game.VREntityComponents(e) or {}) do
     if c:IsA(CName.new("entIPlacedComponent")) and c.parentTransform == nil then
       if r ~= nil then return nil end
       r = c
@@ -1508,13 +1508,21 @@ end
 
 -- THE HANDS: the drawing hand takes and puts back every weapon but the pair's left (right) gun, which is the other
 -- hand's. One pull at a time; while it lasts the other hand only takes its gun of the pair.
-local function hand(pl, held, real, dt)
+local function hand(pl, held, real, dt, enabled)
   local drawSide = drawLeft() and 0 or 1
   local grips, edges = {}, {}
   for side = 0, 1 do
     local g = (GetVRSharedSlot(gripSlot(side == 0)) or 0) > 0.5
     grips[side], edges[side] = g, g and not S.gripPrev[side]
     S.gripPrev[side] = g
+  end
+  -- Sample even while suspended: neither a held press nor a missed release
+  -- may be carried across a scene, mode switch, or player detach.
+  if not enabled then
+    S.returnBlade=nil
+    releaseScabbard()
+    if S.pull ~= nil then endPull(S.copies[S.pull.key]) end
+    return
   end
   local docked
   if dt and dt>0.25 then S.returnBlade=nil end
@@ -1565,9 +1573,9 @@ function H.update(dt, enabled)
   S.cooldown = math.max(0, S.cooldown - dt)
   releaseTick()
   local pl = Game.GetPlayer()
-  if pl == nil then S.returnBlade=nil; releaseScabbard() return end
+  if pl == nil then hand(nil, nil, nil, dt, false) return end
   local es, pd = playerData(pl)
-  if pd == nil then S.returnBlade=nil; releaseScabbard() return end
+  if pd == nil then hand(pl, nil, nil, dt, false) return end
   local held, real, hands, secondary = inHands(pl, pd)
   S.scene = sceneNow(S.t)
   local mask = P.holsterTypes()
@@ -1583,13 +1591,7 @@ function H.update(dt, enabled)
     katanaButtons(pl,hands,secondary,real,enabled)
   end
   settleShells()
-  if enabled and not S.scene then
-    hand(pl, held, real, dt)
-  else
-    S.returnBlade=nil
-    releaseScabbard()
-    if S.pull ~= nil then endPull(S.copies[S.pull.key]) end
-  end
+  hand(pl, held, real, dt, enabled and not S.scene)
   graspTick(dt)
 end
 

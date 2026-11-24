@@ -108,6 +108,35 @@ struct CombatSticks {
     }
 };
 
+// The left stick doubles as a D-pad modifier. Decide on release, and stretch a
+// tap across several XR frames so a slower game poll can see the jump.
+inline bool UsesLeftStickJump(bool cyberFinger, bool inVehicle, int sprintMode) {
+    return cyberFinger && !inVehicle && sprintMode != 1;
+}
+
+class LeftStickJump {
+    bool ready = false, pending = false;
+    uint64_t until = 0;
+public:
+    bool Update(bool allowed, bool down, uint64_t now) {
+        if (!allowed) {
+            ready = pending = false;
+            until = 0;
+            return false;
+        }
+        if (down) {
+            if (ready) pending = true;
+            ready = false;
+            until = 0;
+        } else {
+            if (pending) until = now + 80;
+            ready = true;
+            pending = false;
+        }
+        return now < until;
+    }
+};
+
 // SteamVR's binding editor can assign CyberFinger's extra buttons to these actions.
 // They deliberately have no Index default: that profile has no equivalent buttons.
 struct Actions {

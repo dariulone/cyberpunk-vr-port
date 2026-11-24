@@ -1,6 +1,7 @@
 #include "Utils/DebugGate.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
+#include "Render/LoadingCapture.hpp"
 // openxr_capture.cpp - mono frame + depth capture and submit-resource setup.
 // Split verbatim from openxr_manager.cpp (OpenXRManager methods). Shared module
 // state/helpers via openxr_internal.h (inline).
@@ -27,6 +28,9 @@ extern "C" int CyberpunkVR_BindPoseToImage;
 #include <utility>
 #include <chrono>
 #include <thread>
+#include <condition_variable>
+#include <deque>
+#include <array>
 #include <memory>
 #include <algorithm>
 #include <dxgi1_4.h>
@@ -189,6 +193,7 @@ bool OpenXRManager::EnsureMenuWindow(const D3D12_RESOURCE_DESC& backBufferDesc) 
     const D3D12_RESOURCE_DESC have = m_menuWindow ? m_menuWindow->GetDesc() : D3D12_RESOURCE_DESC{};
     if (!m_menuWindow || have.Width != backBufferDesc.Width || have.Height != backBufferDesc.Height ||
         have.Format != backBufferDesc.Format) {
+        m_loadingArtworkReady = false;
         if (m_menuWindow) { m_menuWindow->Release(); m_menuWindow = nullptr; }
         D3D12_RESOURCE_DESC d{};
         d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -274,7 +279,7 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
 
         // The pool owns the references now; m_monoCapturedFrame.texture just points at
         // whichever pool entry currently holds the newest frame.
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < kMonoSlots; ++i) {
             if (m_monoPool[i]) { m_monoPool[i]->Release(); m_monoPool[i] = nullptr; }
         }
         m_monoCapturedFrame.texture = nullptr;
@@ -284,14 +289,15 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
         m_monoCapturedFrame.serial = 0;
         m_monoCapturedFrame.hasView[0] = false;
         m_monoCapturedFrame.hasView[1] = false;
+        m_monoPreviousFrame = CapturedMonoFrame{};
     }
 
     D3D12_HEAP_PROPERTIES heapProps{};
     heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-    ID3D12Resource* created[3] = {};
+    ID3D12Resource* created[kMonoSlots] = {};
     auto captureDesc = sourceDesc;
     captureDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < kMonoSlots; ++i) {
         if (FAILED(m_d3dDevice->CreateCommittedResource(
                 &heapProps,
                 D3D12_HEAP_FLAG_NONE,
@@ -308,7 +314,7 @@ bool OpenXRManager::EnsureMonoCaptureResource(const D3D12_RESOURCE_DESC& sourceD
 
     {
         std::lock_guard<std::mutex> lock(m_presentMutex);
-        for (int i = 0; i < 3; ++i) m_monoPool[i] = created[i];
+        for (int i = 0; i < kMonoSlots; ++i) m_monoPool[i] = created[i];
         m_monoPoolSlot = 0;
         m_monoCapturedFrame.texture = m_monoPool[0];
         m_monoCapturedFrame.width = width;
@@ -811,8 +817,64 @@ extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_Deb
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapFenceWaits   = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapFenceUsSum   = 0;
 extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_DebugCapFenceUsMax   = 0;
+// WHEN EACH CAPTURE IS DONE ON THE GPU (RuntimeDiagnostics only): serial, capture ms, GPU-complete ms, fence value.
+// One watcher thread waits on the capture fence in submission order; with the XR cycle trace it tells a frame the
+// game delivered late from one the GPU finished late from one the XR thread did not take.
+extern "C" __declspec(dllexport) double CyberpunkVR_CaptureDoneTrace[4096][4] = {};
+extern "C" __declspec(dllexport) std::atomic<unsigned long long> CyberpunkVR_CaptureDoneCount = 0;
+namespace {
+struct CaptureWatch {
+    struct Item {
+        Microsoft::WRL::ComPtr<ID3D12Fence> fence;   // held: a session restart may release the port's own reference
+        std::array<double, 4> row{};
+    };
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<Item> pending;
+    HANDLE event = nullptr;
+    bool started = false;
+};
+CaptureWatch g_captureWatch;
+void WatchCapture(ID3D12Fence* fence, uint64_t serial, double captureMs, uint64_t value) {
+    if (!cvr::RuntimeDiagnosticsEnabled() || !fence) return;
+    std::lock_guard lock(g_captureWatch.mutex);
+    if (!g_captureWatch.started) {
+        g_captureWatch.event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!g_captureWatch.event) return;
+        g_captureWatch.started = true;
+        std::thread([] {
+            for (;;) {
+                CaptureWatch::Item item;
+                {
+                    std::unique_lock wait(g_captureWatch.mutex);
+                    g_captureWatch.wake.wait(wait, [] { return !g_captureWatch.pending.empty(); });
+                    item = std::move(g_captureWatch.pending.front());
+                    g_captureWatch.pending.pop_front();
+                }
+                const auto value = static_cast<uint64_t>(item.row[3]);
+                bool done = false;
+                for (int tries = 0; tries < 10 && !done; ++tries) {
+                    const auto completed = item.fence->GetCompletedValue();
+                    if (completed == UINT64_MAX) break;   // device removed
+                    done = completed >= value;
+                    if (!done && SUCCEEDED(item.fence->SetEventOnCompletion(value, g_captureWatch.event)))
+                        WaitForSingleObject(g_captureWatch.event, 100);
+                }
+                if (!done) continue;
+                item.row[2] = XrDiagNowMs();
+                const auto n = CyberpunkVR_CaptureDoneCount.load(std::memory_order_relaxed);
+                std::memcpy(CyberpunkVR_CaptureDoneTrace[n % 4096], item.row.data(), sizeof(item.row));
+                CyberpunkVR_CaptureDoneCount.store(n + 1, std::memory_order_release);
+            }
+        }).detach();
+    }
+    if (g_captureWatch.pending.size() < 64)
+        g_captureWatch.pending.push_back({fence, {static_cast<double>(serial), captureMs, 0.0, static_cast<double>(value)}});
+    g_captureWatch.wake.notify_one();
+}
+}
 
-ID3D12Resource* OpenXRManager::AcquireCapturedVrcamLocked(uint64_t serial,uint32_t maxReuse,
+ID3D12Resource* OpenXRManager::AcquireCapturedVrcamLocked(uint64_t serial,cvr::capture::Presentation presentation,uint32_t maxReuse,
         XrPosef* pose,XrFovf* fov,uint64_t* poseId,bool* reused) {
     int best=-1;
     uint64_t bestSerial=0;
@@ -821,7 +883,7 @@ ID3D12Resource* OpenXRManager::AcquireCapturedVrcamLocked(uint64_t serial,uint32
         auto* source=m_vrcamEyePool[i];
         if(!source || !sourceSerial || sourceSerial>serial || !m_vrcamEyeLabels[i].valid ||
            m_captureLeases.Writing(reinterpret_cast<uintptr_t>(source)))continue;
-        if(!cvr::capture::CanPair(m_monoCapturedFrame.presentation,m_vrcamEyeLabels[i].presentation,
+        if(!cvr::capture::CanPair(presentation,m_vrcamEyeLabels[i].presentation,
             serial,sourceSerial,maxReuse))continue;
         if(sourceSerial>bestSerial) { best=i;bestSerial=sourceSerial; }
     }
@@ -878,12 +940,15 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     const bool engineStereo = cvr::engine_stereo::Enabled() && sourceDesc.Width >= 2;
     const bool split = engineStereo && !menuOpen;
     const bool squeeze = engineStereo && menuOpen && !cvr::engine_stereo::LoadingSideBySide();
-    // A loading screen outside the main menu is hung in the void before the player (Render/LoadingScreen.hpp): both
-    // eyes are the dark with the window's picture on a screen in the space, each seen through its own eye. So is the
-    // boot's screen, the intro's notice (Lobby/Intro.hpp): where the intro will play, from the first frame it is up
-    // until the intro takes it over -- its last picture standing in once the screen has closed.
+    // A save load supplies a flat artwork texture for a compositor quad. The boot notice
+    // includes the intro caption and is still rendered through each eye.
     const auto notice = cvr::lobby::intro::Boot();
-    const bool loadingInSpace = notice.shown || (engineStereo && cvr::lobby::LoadingInSpace());
+    const bool gameLoading = engineStereo && cvr::lobby::LoadingInSpace();
+    const bool loadingPanel = !notice.shown && (gameLoading ||
+        (engineStereo && m_loadingPanelActive && cvr::lobby::WaitingForReturnLobby()));
+    m_loadingPanelActive = loadingPanel;
+    const bool loadingInSpace = notice.shown || loadingPanel;
+    if (!loadingPanel) m_loadingArtworkReady = false;
     if (!loadingInSpace || notice.shown != m_loadingScreenIsNotice) m_loadingScreen.End();
     m_loadingScreenIsNotice = notice.shown;
     D3D12_RESOURCE_DESC eyeDesc = sourceDesc;
@@ -916,8 +981,11 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // 2026-10-30). The picture copied last stands in for it, and until there is one the screen is not shown.
     float loadingUv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
     float loadingAspect = 16.0f / 9.0f;
-    bool loadingWindow = false;   // MAIN's eye got the loading screen: the other eye gets it too
-    const bool loadingCopy = notice.shown ? notice.live : loadingInSpace && !cvr::engine_stereo::WorldDrawn();
+    bool loadingWindow = false;   // the snapshot contains the selected load or notice presentation
+    const bool loadingWorldDrawn = cvr::engine_stereo::WorldDrawn();
+    // During the handoff the backbuffer may already hold the stereo hall or the menu.
+    // Keep the last mono artwork until the lobby can actually be shown.
+    const bool loadingCopy = notice.shown ? notice.live : gameLoading && !loadingWorldDrawn;
     if (loadingInSpace) {
         const float windowW = static_cast<float>(sourceDesc.Width), windowH = static_cast<float>(sourceDesc.Height);
         const float designW = (std::min)(windowW, windowH * 16.0f / 9.0f);
@@ -942,12 +1010,17 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     uint64_t previousSerial = 0;
     {
         std::lock_guard<std::mutex> lock(m_presentMutex);
-        for(uint32_t step=1;step<=3;++step) {
-            const auto slot=(m_monoPoolSlot+step)%3;
+        // On the runtime's own queue the frame before the newest is kept too (m_monoPreviousFrame): written over only
+        // when no other slot is free, and then given up.
+        for(int pass=m_xrQueue?0:1;pass<2 && !snapshot;++pass)
+        for(uint32_t step=1;step<=uint32_t(kMonoSlots);++step) {
+            const auto slot=(m_monoPoolSlot+step)%kMonoSlots;
             auto* candidate=m_monoPool[slot];
             if(candidate==m_monoCapturedFrame.texture)continue;
+            if(pass==0 && candidate==m_monoPreviousFrame.texture)continue;
             if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
                 m_monoPoolSlot=slot;snapshot=candidate;
+                if(candidate==m_monoPreviousFrame.texture)m_monoPreviousFrame=CapturedMonoFrame{};
                 writeResources[0]=reinterpret_cast<uintptr_t>(candidate);break;
             }
         }
@@ -1042,7 +1115,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // eyes share (a menu's, the loading screen's) the curtain alone.
     const bool introOverlay = m_introOverlay.Begin(cvr::lobby::Curtain(), headCenters[mainEyeIndex]);
     const bool introPicture = split || (!engineStereo && !menuOpen);
-    if (introOverlay) {
+    if (introOverlay && !loadingPanel) {
         XrPosef seen[2] = {poses[0], poses[1]};
         {
             std::lock_guard submissionLock(cvr::camera::ImageSubmissionMutex());
@@ -1109,16 +1182,22 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         blit[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
         blit[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
         m_captureCmdList->ResourceBarrier(2, blit);
-        if (loadingInSpace) {
-            if (notice.shown) {
-                static const cvr::loading::Placement kNotice{cvr::lobby::intro::kNoticeDistance, 0.0f,
-                                                             cvr::lobby::intro::kNoticeWidth, 0.8f,
-                                                             &cvr::lobby::notice::Word(),
-                                                             &cvr::lobby::intro::Heading()};
-                m_loadingScreen.Begin(headCenters[mainEyeIndex], kNotice, notice.opacity);
+        if (loadingPanel) {
+            // Once the world resumes, the window can contain two world/UI
+            // composites. Hold the last mono artwork across those presents.
+            if (loadingCopy || m_loadingArtworkReady) {
+                squeezed = loadingWindow = m_menuBlit->RecordBlit(m_captureCmdList, m_menuWindow, snapshot,
+                    loadingUv[0], loadingUv[1], loadingUv[2], loadingUv[3]);
             } else {
-                m_loadingScreen.Begin(headCenters[mainEyeIndex]);
+                // Until this load has artwork, publish a dark panel. A menu
+                // from before the load may still occupy the window texture.
+                squeezed = loadingWindow = m_loadingScreen.Clear(m_d3dDevice, m_captureCmdList, snapshot,
+                    sourceDesc.Format, {0, 0, static_cast<LONG>(eyeDesc.Width), static_cast<LONG>(eyeDesc.Height)});
             }
+        } else if (notice.shown) {
+            static const cvr::loading::Placement kNotice{cvr::lobby::intro::kNoticeDistance, 0.0f,
+                cvr::lobby::intro::kNoticeWidth, 0.8f, &cvr::lobby::notice::Word(), &cvr::lobby::intro::Heading()};
+            m_loadingScreen.Begin(headCenters[mainEyeIndex], kNotice, notice.opacity);
             if (loadingCopy) m_loadingScreen.Hold();
             squeezed = loadingWindow = m_loadingScreen.Record(m_d3dDevice, m_captureCmdList, snapshot, sourceDesc.Format,
                 {0, 0, static_cast<LONG>(eyeDesc.Width), static_cast<LONG>(eyeDesc.Height)}, poses[mainEyeIndex],
@@ -1128,6 +1207,12 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         }
         for (auto& barrier : blit) std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
         m_captureCmdList->ResourceBarrier(2, blit);
+    }
+    if (loadingPanel && !loadingWindow) {
+        // A rejected panel capture must never publish a half-window of the world.
+        m_captureCmdList->Close();
+        snapshot->Release();
+        return false;
     }
     if (!squeezed) {
         if (engineStereo) CopyEyeHalf(m_captureCmdList, snapshot, backBuffer, halfX(mainEyeIndex), uint32_t(eyeDesc.Width), eyeDesc.Height);
@@ -1152,9 +1237,11 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // just published does not pair with. Null when every one is in use.
     const auto takeEyeSlot = [&]() -> ID3D12Resource* {
         std::lock_guard<std::mutex> lock(m_presentMutex);
+        for(int pass=m_xrQueue?0:1;pass<2;++pass)
         for(int step=1;step<=kVrcamEyeSlots;++step) {
             const auto slot=(m_vrcamEyeSlot+step)%kVrcamEyeSlots;
             if(m_vrcamEyePoolSerial[slot]==m_monoCapturedFrame.serial && m_monoCapturedFrame.serial)continue;
+            if(pass==0 && m_monoPreviousFrame.serial && m_vrcamEyePoolSerial[slot]==m_monoPreviousFrame.serial)continue;
             auto* candidate=m_vrcamEyePool[slot];
             if(m_captureLeases.BeginWrite(reinterpret_cast<uintptr_t>(candidate))) {
                 m_vrcamEyeSlot=slot;writeResources[1]=reinterpret_cast<uintptr_t>(candidate);
@@ -1240,9 +1327,8 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // Skipping it leaves both eyes on the backbuffer snapshot, i.e. the menu, mono -- which is
     // what a mono surface should look like.
     if (loadingWindow) {
-        // The loading screen for the other eye: the same window, hung in the same place, seen through that eye. Its
-        // slot is written through the 8-bit view the window was copied in (the frame's encoding, as MAIN's eye).
-        if (CyberpunkVR_StereoSubmit && CopyFamily(sourceDesc.Format) == 1 && eyeW && eyeH &&
+        // Only the boot notice needs a second projected eye. Save loads share the quad's single subimage.
+        if (!loadingPanel && CyberpunkVR_StereoSubmit && CopyFamily(sourceDesc.Format) == 1 && eyeW && eyeH &&
             EnsureVrcamEyeTexture(eyeW, eyeH, DXGI_FORMAT_R8G8B8A8_TYPELESS)) {
             ID3D12Resource* const eyeSlotTex = takeEyeSlot();
             if (!eyeSlotTex) { m_captureCmdList->Close();snapshot->Release();return false; }
@@ -1677,7 +1763,7 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
     // Filter each owned real capture once. Framegen and every later repeat see
     // the same filtered endpoint; generated images never run through CAS again.
     const float casAmount = GetVrSharpmix();
-    if (casAmount > 0.0f) {
+    if (casAmount > 0.0f && !loadingPanel) {
         if (!m_sharpenPass) m_sharpenPass = std::make_unique<SharpenPass>();
         for (auto* color : {snapshot, vrcamEyeCaptured ? m_vrcamEyePool[m_vrcamEyeSlot] : nullptr}) {
             if (!color) continue;
@@ -1686,6 +1772,9 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                 m_sharpenPass->RecordSharpen(m_captureCmdList, color, color, GetVrSharpness(), casAmount);
         }
     }
+    cvr::loading::diagnostic::Record(m_d3dDevice, m_captureCmdList, backBuffer, snapshot,
+        m_captureFence, m_captureFenceValue + 1,
+        {serial, loadingWindow && !notice.shown, loadingCopy, loadingWorldDrawn, mainEyeIndex});
     m_captureCmdList->Close();
     ID3D12CommandList* cmdLists[] = {m_captureCmdList};
     XrPosef capturedPoses[2]={poses[0],poses[1]};
@@ -1731,7 +1820,21 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
                 CVR_DIAGNOSTIC(CyberpunkVR_PoseIdImageGeneration[eye].store(0,std::memory_order_relaxed));
             }
         }
+        // The runtime's queue may still be reading what this capture writes (an image whose read is retired but not
+        // finished, m_retiredCaptureReads): the game's queue waits for those reads on the GPU. They are short copies
+        // submitted a display period or more ago, so this rarely waits at all.
+        if (m_xrQueue && m_fence) {
+            uint64_t pending = 0;
+            {
+                std::lock_guard<std::mutex> lock(m_presentMutex);
+                for (const auto& read : m_retiredCaptureReads)
+                    for (const auto written : writeResources)
+                        if (written && written == reinterpret_cast<uintptr_t>(read.resource) && read.fence > pending) pending = read.fence;
+            }
+            if (pending && m_fence->GetCompletedValue() < pending) m_d3dQueue->Wait(m_fence, pending);
+        }
         m_d3dQueue->ExecuteCommandLists(1,cmdLists);
+        if (loadingPanel && loadingCopy) m_loadingArtworkReady = true;
         ++m_captureFenceValue;
         m_captureAllocatorFence[m_captureAllocatorIndex] = m_captureFenceValue;
         if (SUCCEEDED(m_d3dQueue->Signal(m_captureFence,m_captureFenceValue)))
@@ -1743,10 +1846,14 @@ bool OpenXRManager::CaptureMonoPresentedFrame(ID3D12Resource* backBuffer, const 
         // Publish the buffer we just filled as the current frame. This is the hand-off:
         // everything the consumer needs -- image, poses, fovs, serial -- becomes visible in
         // one locked step, and the buffer it was reading before stays untouched.
+        if (m_xrQueue && m_monoCapturedFrame.texture && m_monoCapturedFrame.texture != snapshot && m_monoCapturedFrame.serial)
+            m_monoPreviousFrame = m_monoCapturedFrame;
         m_monoCapturedFrame.texture = snapshot;
         if (m_monoCapturedFrame.texture == snapshot) {
             m_monoCapturedFrame.serial = serial;
             m_monoCapturedFrame.captureMs = XrDiagNowMs();
+            m_monoCapturedFrame.captureFence = m_captureFenceValue;
+            WatchCapture(m_captureFence, serial, m_monoCapturedFrame.captureMs, m_captureFenceValue);
             // A frame hung with a screen in the dark is dark already, with the screen in it.
             m_monoCapturedFrame.dark = loadingDark && !loadingWindow;
             // The boot's notice in the dark: both eyes are submitted with the turn it was drawn for.

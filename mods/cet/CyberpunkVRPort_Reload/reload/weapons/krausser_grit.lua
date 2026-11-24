@@ -67,8 +67,8 @@ return {
         enabled    = true,
         slot       = 'vrp_mag_slot',
         which      = 0,
-        -- the shared 5-bone rig's layout: index 1 is the gun's own magazine, index 2 the one in the hand
-        showTrack  = 1,
+        -- Source rig track showMagazine; VRRigTrackWrite resolves the destination slot itself.
+        showTrack  = 0,
         mesh       = 'ep1\\weapons\\firearms\\handgun\\krausser_grit\\entities\\meshes\\w_handgun__krausser_grit__mag_std_01.mesh',
         entity     = 'base\\vrport\\vrp_mag_grit.ent',
         holdSlot   = 'WeaponLeft', holdSlotRight = 'WeaponRight',

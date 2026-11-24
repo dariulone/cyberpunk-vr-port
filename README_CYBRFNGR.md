@@ -11,6 +11,11 @@ here is a Quest Pro over Steam Link, an AMD RX 7900 XT and optional eight-tracke
 
 [Next-session TODO and installation status](docs/cyberfinger-session-todo.md).
 
+This branch integrates upstream **0.2.45**. See the
+[merge report](docs/upstream-0.2.45-integration.md) for improvements, compatibility
+decisions, build checks and the headset test checklist. The merged package was
+installed for testing on 2026-11-15; the original `main` checkout remains unchanged.
+
 ### CyberFinger controls
 
 [See the illustrated controls for each context.](#buttons-at-a-glance)
@@ -207,16 +212,13 @@ SteamVR must be running for this VR setup. Omitting it is not the mod's flat-mod
 switch. A side-by-side desktop mirror is normal; the headset should show an
 immersive scene during gameplay.
 
-**Loading screens:** loading a save, starting a game, fast travel and checkpoint
-reloads already have a stationary panel for the game's loading artwork/progress
-display. It opens ahead of your gaze, about **3 m away**, and stays in that place
-as you move your head. The loading correction keeps that panel submitted during
-long loading pauses and prevents an older gameplay view appearing in the other
-eye. **Saved-game loading still needs an in-headset retest.** This uses a separate
-loading renderer from the interactive Esc/map panels. An in-world scene cut does not itself switch gameplay into a
-panel; transition videos may need separate handling. If a loading screen fills
-your view or follows your head, note which transition produced it so its render
-path can be checked.
+**Loading a save in VR.** The November 18 integration build gives both eyes one
+OpenXR panel about **3 m ahead**. You can turn your head and look away from it.
+The artwork can pause near the end of a load while the desktop switches back
+to stereo. Loading a save has been confirmed in the Quest Pro. On **Esc → Exit
+to Main Menu**, the port holds the artwork on the same panel until the lobby
+is ready. The return trip still needs an in-headset retest with the correction.
+[Loading investigation](docs/loading-transition-investigation.md)
 
 ## Buttons at a glance
 
@@ -310,10 +312,12 @@ The game chooses the action for the active screen, equipment and vehicle. Native
 To switch among all the diagrams offline, open the [controller guide](docs/controls/cyberfinger-controls.html) in a browser.
 
 About three-quarters forward gives you ordinary movement, just as on Quest.
-The left click jumps on release so you can use a D-pad shortcut without jumping.
-For a jump on press or a charged jump, use the right stick click. On the
-sprint/jump build, **F10 > Controls > Sprint > Click the left stick** restores
-the click-to-sprint layout.
+For finer walking speeds, enable **Analog movement** under **F10 > Controls**.
+Ease back from full forward to stop requesting sprint. The left click jumps on
+release so you can use a D-pad shortcut without jumping. For a jump on press
+or a charged jump, use the right stick click.
+To use the older click-to-sprint layout, choose **F10 > Controls > Sprint >
+Click the left stick**. The right stick still handles jump in that layout.
 
 **Taking and using objects:** on the hand opposite the movement stick, Trigger
 performs the primary **Take / Interact (X)** prompt and Grip performs the secondary
@@ -482,6 +486,16 @@ panels. Keyboard text entry still uses the keyboard. See
 - **Return the second katana.** With melee gesture holstering enabled, bring your **right hand** to the top of the **right-hip scabbard** as if bracing it. You can keep the first katana in that hand. Bring your closed **left hand** to the opening and open it while your right hand is still there. The second katana goes back and your left hand is free. With left-hand swords, swap sides.
 - **Put away.** In the default layout, take your left hand off the hilt. With the sword clear of your hip, close your left hand on the scabbard first. Bring your closed right hand to the opening, then **open just your right hand**. V puts the katana away and plays the return sound. You can keep your left hand closed. If you carry the sword in your left hand, swap hands. Moving away before release cancels the return.
 - **Tutorial cards:** Text tutorials such as Songbird’s Relic perk-tree introduction open on a floating panel in front of you. Turn your head to read across the panel. The game’s usual Continue action dismisses it. Tutorials with pictures or video use the game’s presentation.
+- **Hide holstered weapons on V.** Tap the right pink wrist button, open the VR
+  menu's **Inventory**, then select **HOLSTERS: SHOWN** to switch to **HOLSTERS:
+  HIDDEN**. You can still draw from the same places. To remove just the sword
+  from your body, select the holster badge beside its weapon slot and choose
+  **NOT CARRIED**. Turning off **Immersive holsters** under **F10 > Controls**
+  also hides the weapons and switches drawing to fixed weapon-slot zones.
+- **Remove the grenade belt.** With a save loaded, press **Scroll Lock** (the
+  VR port's Lua overlay key on this setup). In **VR tactical belt**, uncheck
+  **keep it equipped**, then scroll down and select **take off** beside
+  **equip now**. Press **Scroll Lock** again to close the overlay and save.
 - **Physical reload:** reach with the hand opposite the weapon. Open your fingers,
   then close them at the highlighted part. Reload with your **left hand** for a
   right-handed gun or your **right hand** for a left-handed gun.
@@ -535,10 +549,7 @@ panels. Keyboard text entry still uses the keyboard. See
   tracking; weapon-specific mechanics are detailed in the
   [main controls reference](README.md#controls).
 - **Driving:** close a hand near the wheel/handlebar to grab it, then steer with
-  your hands. To **draw a weapon** from the driver's seat, **tap and release the
-  physical left Menu button** (the ring button). This sends the game's **Y**
-  action to enter vehicle combat when the game allows it. The default keyboard
-  equivalent is a tap of **Alt**. To **exit**, hold the **physical left Grip button** for **0.4 seconds**
+  your hands. To **exit**, hold the **physical left Grip button** for **0.4 seconds**
   while seated. Use the same left button with either weapon hand. The keyboard
   shortcut is **F**. Holding the left black wrist button pauses.
   Right stick click applies the handbrake. During driver dialogue, use right stick up/down to highlight a choice, then press either Trigger or click the right stick to confirm.
@@ -626,6 +637,25 @@ in mirrors**. It is off by default. Enable it, activate an apartment mirror, the
 smile, blink, open your mouth and look around with your eyes. Mouth, blinking,
 eye direction and eyebrows have separate toggles; eyebrows default to off.
 
+At a mirror you activate with **Look in the mirror**, the reflection follows
+your head, hands and body using its own proportions. This applies at H10,
+Judy's apartment, the Afterlife and other interactive mirrors. Body tracking
+also works with facial tracking turned off.
+
+Hold your hands about shoulder-width apart and reach forward. Each reflected
+wrist follows the corresponding tracked wrist in depth and side to side.
+The elbow bends to reach the target within V's arm length. With CyberFinger
+active and finger tracking enabled, hold a palm open and curl just the index
+finger. On a matching hand rig, the reflection copies the palm orientation and
+each finger joint from V's first-person hand. You can also cross your wrists.
+
+The Corpo restroom and Nomad garage opening sequences use the game's scripted
+poses. The figure in the VR character creator uses a separate photo-mode model.
+Inventory and Photo Mode are also outside the interactive mirror feature.
+To check a difference in your V's appearance, compare the same outfit and a
+neutral expression in inventory, at an interactive mirror, and in the scene
+where you first noticed it.
+
 **Status:** you confirmed V's visible mirror facial animation works on
 2026-11-14. Tracking-loss recovery, reopening mirrors, save reloads and other
 head rigs remain in the [test checklist](docs/cyberfinger-session-todo.md).
@@ -671,14 +701,40 @@ validation details are in [Quest Pro face tracking](docs/quest-pro-face-tracking
 
    Your physical sensors are at waist, chest, thighs, ankles and upper arms.
    Assign the **computed joints** above, not raw thigh/upper-arm sensor locations.
+   If SteamVR tracks all eight but Cyberpunk reports `0 tracker(s) known to the runtime`,
+   open **SteamVR Settings**, show **Advanced Settings**, then enable
+   **SlimeVR > Compatibility Mode**. Exit the game, restart SteamVR, reconnect
+   the headset and relaunch Cyberpunk. This driver-wide setting exposes the
+   Vive tracker profile used by Cyberpunk's OpenXR input. The individual
+   body roles should now show `active=1` and valid poses in
+   `red4ext/plugins/cyberpunkvrport/log/cyberpunkvrport.log` before calibration.
+   [SlimeVR driver setting](https://github.com/SlimeVR/SlimeVR-OpenVR-Driver/pull/75/files)
 3. Load a save. In **F10 > Controls > Full-Body Tracking**, enable **SlimeVR chest,
    knees and elbows**, legs, spine/head and arms.
-4. Choose **Calibrate full-body tracking** with waist, both feet and chest active:
-   - Look ahead at the horizon line; press both triggers.
-   - Release the triggers, stand straight with arms down, look down; press both.
-   - Face the cross in a T-pose, align the markers and hold until the countdown ends.
-5. Test your legs, lean and elbows before playing. Recalibrate if the chest was
-   absent during calibration. Missing optional joints fall back to ordinary IK.
+4. Cyberpunk reuses your last full-body calibration when you load a save with
+   your trackers on. For the first calibration, or if V's pose looks off after
+   moving a strap or resetting the floor, open **F10 > Controls > Full-Body
+   Tracking**. With waist, both feet and chest active,
+   choose **Calibrate full-body tracking**. The settings panel closes so you
+   can see the horizon line and the cross in the headset.
+   - Stand upright with your feet side by side, slightly apart, and face the
+     same way as your feet. Look straight ahead. When the horizon line turns
+     green, squeeze both triggers together.
+   - Release both triggers. Keep your feet planted, relax your arms at your
+     sides, and look down at your trackers. Squeeze both triggers together again.
+   - Stay where you are and face the cross. It shows your pose like a mirror.
+     Look level with your head centered over your feet so the top dot turns
+     green. Extend both arms straight out to your sides at shoulder height,
+     in line with your shoulders. When the head dot and both hand dots are
+     green, hold that T-pose for **four seconds**. A green **4, 3, 2, 1**
+     appears above the top ring. Keep your head level while it counts down.
+     This step finishes automatically. A yellow dot means you are close. If a dot leaves green,
+     the countdown restarts.
+5. Test your legs, lean and elbows before playing. The mod saves your measurements
+   in `red4ext/plugins/cyberpunkvrport/config/fbt_calibration.ini`. An interrupted
+   recalibration keeps your previous measurements. Files from older builds restore
+   your height, measured arms and recorded tracker offsets. To add the chest mount
+   to an older file, recalibrate once with the chest tracker active.
 
 With calibrated feet, **F10 > Controls > Full-Body Tracking > Animate feet during stick movement**
 is on by default. Keep your feet planted and walk, strafe or run with the movement stick to see V
@@ -814,19 +870,25 @@ redscript are needed only if your other mods require them.
 
 ### Install from this checkout
 
-For the older 0.2.3 wrist-r4 build in this checkout, close Cyberpunk and run
-the following from its repository root in PowerShell. The portable ZIP above
-contains the newer 0.2.45 integration build.
+The original 0.2.45 integration package is also available in this checkout.
+The portable ZIP above includes the later sprint/jump and calibration updates.
+To install the original package, close Cyberpunk and run these commands from
+this repository's root in PowerShell.
 
 ```powershell
-.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4 -WeaponHand Right -WhatIf
-.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4 -WeaponHand Right
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.45-cyberfinger-upstream -WeaponHand Right -WhatIf
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.45-cyberfinger-upstream -WeaponHand Right
 ```
 
 Without `-Package`, `install_cyberfinger.cmd` prepares/builds/packages the source;
 that needs Git, CMake and Visual Studio C++ build tools. Optional arguments:
 `-WeaponHand Right`, `-NoSlimeVR`, and `-GameRoot "D:\Games\Cyberpunk 2077"`.
 Omit `-WeaponHand Right` from both examples to use the installer's left-handed/eight-role preset.
+For this upstream upgrade, install the complete matching package: the physics
+hands assets, Lua/redscript files and bundled redscript 0.5.32 compiler changed
+alongside the DLL. The source preparation script downloads the pinned 0.2.45
+assets and backs up an older packed archive before replacing it. Other mods'
+standalone redscript installations remain separate.
 The installer seeds missing HUD keys from the captured preset; use
 `-ResetHudDefaults` only when you want to replace existing HUD tuning too.
 SteamVR driver updates and their bindings are installed separately; restart SteamVR afterwards.

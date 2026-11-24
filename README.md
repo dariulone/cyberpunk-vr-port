@@ -61,9 +61,10 @@ For launch steps, physical controls and troubleshooting, use the
   head-locked window. World markers retain their native depth and are projected
   separately for each eye. Popups that lay one flat picture over the frame
   (phone, radio, vehicle list, messages, shards) no longer double it.
-- **Native VR frame generation** with game motion vectors and depth: NVIDIA DLSS
-  Frame Generation through the game's own `nvngx_dlssg.dll` (the default),
-  FidelityFX with or without optical flow, and NVIDIA OFA + FidelityFX, with
+- **Native VR frame generation** with game motion vectors and depth: NVIDIA OFA + FidelityFX (the default;
+  plain FidelityFX where NVIDIA's optical flow is not available), FidelityFX with or without optical flow,
+  NVIDIA DLSS Frame Generation through the game's own `nvngx_dlssg.dll`, and ANR FG (Apex Neural Rendering's
+  model as a DLSS-G provider, beta, any recent NVIDIA, AMD or Intel GPU), with
   adaptive pacing and a performance overlay. Inputs come from DLSS, DLAA, native
   TAA, FSR 2, FSR 3, FSR 4 and XeSS; on non-NVIDIA GPUs optical flow falls back to
   FidelityFX. Ray-tracing motion formats and live RT changes are supported. CAS
@@ -71,8 +72,9 @@ For launch steps, physical controls and troubleshooting, use the
   frames. CAS defaults to off and is bypassed automatically while game DLAA is active.
 - **Upscalers per eye.** FSR 3, FSR 3.1/4 and XeSS get a context per eye, so
   neither eye accumulates the other's history (blur and an IPD-wide ghost).
-- **Optional GPU savers**: fixed foveated DLSS, fixed peripheral VRS, a
-  hidden-area mask for the lens edges, and sun shadows rendered once for both eyes.
+- **Optional GPU savers**: fixed foveated DLSS, fixed peripheral VRS and sun shadows rendered once for both
+  eyes. (The hidden-area mask for the lens edges is no longer offered in the settings; `xr_hidden_area` in
+  `vrport.ini` still turns it on.)
 - **Experimental eye-tracked foveation** for Quest Pro through OpenXR, including
   AMD VRS and native stereo. Enable it under General, immediately below fixed
   foveation; unavailable or stale gaze restores full quality. See
@@ -116,6 +118,11 @@ For launch steps, physical controls and troubleshooting, use the
 - **Full-body tracking** (optional) — three Vive Trackers (roles Waist, Left Foot,
   Right Foot in SteamVR) drive V's legs, hips and spine, calibrated in game; setup
   in [src/Fbt/Game/README.md](src/Fbt/Game/README.md).
+- **Physics hands** (on by default, *Hand physics* in the launcher and the settings): each hand is a PhysX body
+  steered to the controller, so it stops at walls and tables instead of passing through, pushes loose things and
+  V's own body away, and its fingers lie on what they touch. The hands take hold of props, people and dead bodies
+  (a part grasped by its own shape and carried with its weight, two hands on one body), pull loot, climb ledges,
+  move a person's hair, and ride with the player in a vehicle.
 - **Roomscale movement, bending and hybrid body rotation** with paired headset,
   camera and avatar poses, anatomical shoulder reach and preserved foot contacts.
 - **Gesture swimming and grip-based ladder climbing**, including water-aware
@@ -237,7 +244,7 @@ For launch steps, physical controls and troubleshooting, use the
 Cyber Engine Tweaks, ArchiveXL, TweakXL, Input Loader, Codeware and redscript are not needed: the plugin runs the
 port's Lua mods itself (CET's scripting core, inside the plugin), mounts the port's archive and applies its
 manifest, writes its TweakDB records, merges its input bindings, has its own natives for what the scripts used
-Codeware for, and carries redscript's script compiler, built from redscript's sources, for a game without redscript
+Codeware for, and carries redscript's script compiler (the released 0.5.32, built from redscript's sources) for a game without redscript
 (docs/native-frameworks-plan-20261030.md). Other mods of yours may still need them; with CET installed it runs its
 own mods beside the plugin's, and with redscript installed its compiler compiles the port's scripts too. The port
 works with or without them.
@@ -345,10 +352,10 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | Right stick **fully up** | **Dash** (dodge, direction from the left stick) — once per push |
 | Right stick **fully down** | **Crouch** (R3) |
 | Right thumb **click** | **Slide release** — racks the weapon (physical reload) |
-| Left hand to your **left ear** + **left grip** | **Scanner**, *toggled* — squeeze to open, squeeze again to close |
+| Left hand to your **left ear** + **left stick click (L3)** | **Scanner**, *toggled* — click to open, click again to close (always the physical left hand, also left-handed) |
 | Right trigger / Left trigger | Fire / Aim (left trigger is also melee block) |
 | Right grip | Hand-to-holster equip / unequip; melee power modifier |
-| Left grip | **Grab the magazine** during a reload (at the ear it is the scanner) |
+| Left grip | **Grab the magazine** during a reload |
 | **L3 + R3, held 0.5 s** | Open / close the VR menu |
 | **L3 + left Grip, held 0.5 s** | Activate the cyberware operating system (Sandevistan, Berserk, overclock) in gameplay |
 | Left stick **up / down, to the stop** | Page the quickhack list *while the scanner is open* |
@@ -364,6 +371,18 @@ VR controller input is merged into the native CP2077 gamepad, so the in-game
 | Left trigger held + right grip, throw, open the grip | **Physical throw** of a throwable melee weapon |
 | Squat in the room | Crouch (physical crouch; the right stick still works) |
 
+**Hand collision** (*Avatar → Hand collision*): the drawn hands and arms stop at the
+body, at each other and at people, empty hands stop at walls, furniture and props, and a
+ranged weapon stops at walls and furniture by the outline of its own meshes: the wrist
+and the support hand are pushed out of the surface, and the shot keeps its direction. An
+empty hand clear of the body also shoves loose objects (*Hands push loose objects*). A
+hand closed on the gun as its support is not stopped at all. It moves the arm's target and
+nothing else, so your real hand keeps going and nothing gets pushed.
+A hand that holds a cigarette or the wheel is left alone, and seated only the body and
+the other hand stop it (*Hand collision in vehicles*).
+
+**Touching things** (*Avatar*): a hand gives a loose object its own speed while it presses on it. *Pick up small objects* takes anything loose up to 30 kg with the grip, and the weight tells: one hand lifts about 6 kg, two hands about 30, a heavy thing lags behind the hand, and a second hand on it is drawn on it. What a hand woke goes back to rest after lying still for 3 seconds. The other hand can take hold as well, and letting go of the first then hands it over. Letting go throws it with the swing and the wrist's turn. A thing held by its own body is seated in the hand for the grasp its shape and the hand's approach make, and the fingers close on it; fingers do not otherwise stop at surfaces. *Carried objects stick to the hand* draws a carried thing on the hand in the same frame while its body follows in the physics, and back on the body against a wall. *Carried objects lead the hand* sets how far ahead its body is put. *Distance kept from surfaces* keeps hands off meshes larger than their collision. A gun in the hand goes where the controller puts it: a wall does not stop it. Loot, food and drink lying about, pointed at up to 6 m, are ringed and outlined; a grip closed on one marks it, and a flick back brings it to the hand. Loose objects do not come this way. Food and drink come first: gripped they stay in the hand, go into the inventory at the hip, are eaten or drunk at the mouth, and go back where they lay if let go elsewhere. A hand opens at what it could take, and a heavy thing slows the player. *Show collision shapes and rays* draws, for finding faults, the hands' and people's capsules, every ray, and the real collision shapes PhysX has within 2 m of the hands. A hand can take a living person by an arm, a leg, the head or the chest, and what it holds follows within what that part can do. A hand on a car's wheel (*Hold a car's wheel anywhere on the rim*) stays where it took hold and turns with the drawn wheel. No grenade comes off the belt while seated.
+
 Steam Frame uses the native `XR_VALVE_frame_controller_interaction` profile when
 available. Right A/B/X/Y, left D-pad, left View, right Menu and both bumpers map
 to the matching gamepad controls. Grips retain the port's VR gestures. Touch
@@ -374,7 +393,7 @@ pages the quickhack list (below the stop it still walks, so you can read and mov
 **X** applies the selected hack, the **right trigger** tags the target instead of
 firing, the **right stick click** changes the tab and **left trigger + right stick**
 zooms. The list used to sit on X and Y, which meant reaching across the face buttons
-with the hand that is already holding a grip at your ear — the very reach a one-hand
+with the hand that is already at your ear — the very reach a one-hand
 scanner exists to avoid.
 
 B is the port's only while a weapon is actually in your hand, because a magazine
@@ -443,7 +462,7 @@ General, Framegen, HUD, Controls, Stereo, Avatar, Driving and Bindings.
 - **General** — world scale, IPD scale, stereo separation, VR menu FOV and quad
   size, motion prediction, reuse-last-clean-frame, pose pair-lock, and the head
   offset (X right / Y forward / Z up), with a second set that applies only in a
-  vehicle.
+  car and a third only on a motorcycle (*Controls → Driving*).
 - **Fixed Foveated DLSS** in General — Off, Quality, Balanced and Performance,
   with independent center width and height from 20–100% of each eye image.
   The center follows the game's DLSS/DLAA settings; the profile controls the
@@ -452,8 +471,7 @@ General, Framegen, HUD, Controls, Stereo, Avatar, Driving and Bindings.
   Requires NVIDIA RTX and DLSS. No additional runtime or eye tracker
   is needed. The boundary preview marks the central region.
 - Also in **General** — CAS sharpening, shared sun shadows, scope lens
-  stabilization, variable rate shading for the periphery and the hidden-area mask
-  for the lens edges.
+  stabilization and variable rate shading for the periphery.
 - **Controls** — decoupled weapon aim and its laser dot, locomotion source
   (Game / HMD / left hand / right hand), snap turn and angle, immersive holsters,
   controller vibration and its strength, physical crouch and its depth, the
@@ -489,7 +507,7 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 | `CyberpunkVRPort_WristHud` | Lua | The living tattoo readout on the left forearm |
 | `CyberpunkVRPort_ForceFPP` | Lua | Camera bridge: publishes scene, device and UI state to the camera director (legacy folder name) |
 | `CyberpunkVRPort_Reload` | Lua | The physical reload — thirteen per-weapon configs, the magazine, the slide, the revolver cylinder |
-| `CyberpunkVRPort_HandCollision` | Lua | Hand / finger / weapon push-out. **Off since 0.1.2** (`COLL_ON = false`) — the body capsules came back out of the archive after a vehicle launched the player |
+| `CyberpunkVRPort_HandCollision` | Lua | Hand / finger / weapon push-out and the empty hands' stop at the world, by moving the arm targets. The body capsules' physics stays off since a vehicle launched the player |
 | `CyberpunkVRPort_Crosshair` | Lua | Hides the game's own crosshair while decoupled VR aim is on |
 | `CyberpunkVRPort_Holster` | Lua + reds | Hand-to-holster equip/unequip (immersive / simple); immersive mode hangs every equipped weapon on the body (blades on the left hip, drawn with a pull-out; pistols, long guns and knives by their place lists) and hides the copy the moment the weapon is in hand |
 | `CyberpunkVRPort_HandsOnly` | Lua | "Hands only": the body and clothes hidden, the arms swapped for copies cut and closed at the wrists (`tools/hands_only`) |
@@ -567,9 +585,17 @@ possible — nobody is forcing you to do it.
   open VR frame-generation research used as a reference for the native implementation.
 - **[satyaloka93](https://github.com/satyaloka93)** — PlayStation VR2 support (controls,
   haptics, Sense input), frame generation and stereo DLSS work, the aiming dot in both
-  eyes under engine stereo.
+  eyes under engine stereo, configurable OpenXR / Toolkit haptics with per-hand feedback, and scope
+  DLSS / Ray Reconstruction kept apart from the eyes' with full-resolution optics.
 - **[Syncher-source](https://github.com/Syncher-source)** — finger tracking from OpenXR
   hand tracking, full-body tracking with Vive trackers, the HUD kept in front of the
   world and out of the hands' way, automatic recentering when the headset is put back on.
 - **[EffinexX](https://github.com/EffinexX)** — the arm launcher's aim dot, lock-on
-  markers for every smart weapon, the overlay's input capture with a resting grip.
+  markers for every smart weapon, the overlay's input capture with a resting grip, motorcycle
+  steering with the bars and body lean, and the triggers and scanner reaching the game in camera
+  takeovers and the sniper nest.
+- **[Louspirit](https://github.com/Louspirit)** — B toggles the equipped arm cyberware from empty hands.
+- **[ElvioRibeiro](https://github.com/ElvioRibeiro)** — the VRIK hands no longer freeze with low Windows
+  memory allocations.
+- **[Apex Neural Rendering](https://github.com/apex-compute/ANR)** — the ANR FG frame generation model,
+  shipped unchanged beside the plugin.

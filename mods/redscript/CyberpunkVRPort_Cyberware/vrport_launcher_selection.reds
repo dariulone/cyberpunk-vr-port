@@ -1,5 +1,15 @@
 // The launcher occupies the native fourth, cyberware slot in the weapon cycle.
 // It remains a LEFT-hand launcher: no record/category mutation or fake gun.
+@addField(PlayerPuppet)
+public let vrArmBLauncherPending: Bool;
+
+@addMethod(PlayerPuppet)
+public final const func VRArmBLauncherAllowed() -> Bool {
+  let tag: CName;
+  let restrictions: array<CName> = [n"NoWeapons", n"NoArmsCW", n"NoCombat", n"Melee", n"Fists", n"OneHandedFirearms", n"DriverCombatFirearms", n"DriverCombatBikeWeapons"];
+  for tag in restrictions { if StatusEffectSystem.ObjectHasStatusEffectWithTag(this, tag) { return false; }; };
+  return !PlayerGameplayRestrictions.IsHotkeyRestricted(this.GetGame(), EHotkey.RB);
+}
 @addMethod(EquipmentSystemPlayerData)
 private final const func VrInstalledLauncher() -> ItemID {
   let item = this.GetActiveItem(gamedataEquipmentArea.ArmsCW);
@@ -75,7 +85,8 @@ public final func GetItemIDfromEquipmentManipulationAction(action: EquipmentMani
   };
   if this.vrCyberwareHandlingRequest && IsDefined(player) && ItemID.IsValid(item) && !this.IsEquipmentManipulationAnUnequipRequest(action) {
     if WeaponObject.IsOfType(item, gamedataItemType.Cyb_Launcher) {
-      player.vrLauncherSelectedAsWeapon = NotEquals(action, EquipmentManipulationAction.RequestLeftHandCyberware);
+      player.vrLauncherSelectedAsWeapon = NotEquals(action, EquipmentManipulationAction.RequestLeftHandCyberware) || player.vrArmBLauncherPending;
+      player.vrArmBLauncherPending = false;
       if player.vrLauncherSelectedAsWeapon { player.vrLauncherFromWeaponCycle = true; };
     } else {
       if !this.CheckCyberwareItemForActivatedAction(item) {

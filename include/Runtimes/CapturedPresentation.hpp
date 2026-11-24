@@ -5,6 +5,13 @@ namespace cvr::capture {
 // Travels with the pixels under the capture lock. Live game/menu flags may
 // already describe a different frame when the XR thread submits this one.
 enum class Presentation : uint8_t { Scene, Menu, Loading, Notice, Dark };
+enum class LobbyReturn { Idle, Waiting, ClearOnce, Ready };
+
+constexpr LobbyReturn ObserveReturn(LobbyReturn state, bool covered) {
+    if (state == LobbyReturn::Idle || state == LobbyReturn::Ready) return state;
+    if (covered) return LobbyReturn::Waiting;
+    return state == LobbyReturn::ClearOnce ? LobbyReturn::Ready : LobbyReturn::ClearOnce;
+}
 constexpr Presentation Classify(bool menu, bool loadingScreen, bool notice, bool dark) {
     if (loadingScreen) return notice ? Presentation::Notice : Presentation::Loading;
     if (dark) return Presentation::Dark;
@@ -12,6 +19,11 @@ constexpr Presentation Classify(bool menu, bool loadingScreen, bool notice, bool
 }
 constexpr bool IsLoading(Presentation kind) {
     return kind==Presentation::Loading || kind==Presentation::Notice || kind==Presentation::Dark;
+}
+constexpr bool CanGenerate(Presentation selected, Presentation newest) {
+    // The runtime queue may select an older completed capture. Do not carry a
+    // pending generated scene endpoint across a newly published menu/load.
+    return selected==Presentation::Scene && newest==Presentation::Scene;
 }
 constexpr bool CanHold(Presentation kind, int64_t ageNs) {
     // A loading pause can last seconds. Its stationary screen/black curtain

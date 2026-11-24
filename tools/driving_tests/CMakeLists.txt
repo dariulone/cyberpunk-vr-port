@@ -1,24 +1,27 @@
 cmake_minimum_required(VERSION 3.24)
 project(DrivingTests LANGUAGES CXX)
 enable_testing()
+set(OPENXR_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../build/_deps/openxr-src/include" CACHE PATH "OpenXR headers")
+set(RED4EXT_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../externals/RED4ext.SDK/include" CACHE PATH "RED4ext SDK headers")
+set(IMGUI_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../build/_deps/imgui-src" CACHE PATH "ImGui sources")
 add_executable(driving_tests main.cpp)
 add_executable(driving_offsets offsets.cpp)
 target_include_directories(driving_offsets PRIVATE ../../include)
 target_compile_features(driving_offsets PRIVATE cxx_std_20)
 target_compile_features(driving_tests PRIVATE cxx_std_20)
-target_include_directories(driving_tests PRIVATE ../../include ../../build/_deps/openxr-src/include)
+target_include_directories(driving_tests PRIVATE ../../include ${OPENXR_INCLUDE_DIR})
 if(MSVC)
     target_compile_options(driving_tests PRIVATE /W4 /permissive-)
 endif()
-foreach(case grab_offset one_hand two_hands handoff lock_reversal tracking_loss rate_matrix deadzone extended_travel gamepad_range
-             tracked_head_motion tracked_roundtrip tracked_lifetime tracked_freeze prediction_constant prediction_stop_reverse
+foreach(case grab_offset one_hand one_hand_top two_hands handoff lock_reversal tracking_loss rate_matrix deadzone extended_travel gamepad_range
+             tracked_head_motion handlebar tracked_roundtrip tracked_lifetime tracked_freeze prediction_constant prediction_stop_reverse
              prediction_boundaries prediction_freshness prediction_tracking prediction_jitter prediction_model)
     add_test(NAME driving_${case} COMMAND driving_tests ${case})
 endforeach()
 add_executable(driving_grab_tests grab.cpp ../../src/Anim/WheelGrab.cpp)
 target_compile_features(driving_grab_tests PRIVATE cxx_std_20)
-target_include_directories(driving_grab_tests PRIVATE ../../include ../../externals/RED4ext.SDK/include
-    ../../externals/minhook/include ../../build/_deps/openxr-src/include ../../build/_deps/imgui-src)
+target_include_directories(driving_grab_tests PRIVATE ../../include ${RED4EXT_INCLUDE_DIR}
+    ../../externals/minhook/include ${OPENXR_INCLUDE_DIR} ${IMGUI_SOURCE_DIR})
 target_compile_definitions(driving_grab_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
 target_compile_options(driving_grab_tests PRIVATE /Gy /Gw /permissive-)
 target_link_options(driving_grab_tests PRIVATE /OPT:REF /OPT:ICF /INCREMENTAL:NO)

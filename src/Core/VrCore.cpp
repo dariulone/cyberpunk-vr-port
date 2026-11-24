@@ -115,6 +115,8 @@ bool ChooseDesktopForThisLaunch() {
         while (fgets(line, sizeof(line), file)) {
             if (sscanf_s(line, "xr_runtime = %d", &value) == 1) g_liveControls.xrRuntime = ClampRuntimeMode(value);
             if (sscanf_s(line, "xr_lobby = %d", &value) == 1) cvr::lobby::SetEnabled(value != 0);
+            if (sscanf_s(line, "xr_vr_interface = %d", &value) == 1) g_liveControls.xrVrInterface = value != 0;
+            if (sscanf_s(line, "xr_hand_physics = %d", &value) == 1) g_liveControls.xrHandPhysics = value != 0;
         }
         fclose(file);
     }
@@ -218,6 +220,16 @@ extern "C" void SetLauncherCustomResolution(int on) {
 
 // The VR lobby (xr_lobby in vrport.ini): the main menu shown in its own world. The launcher closes before the main
 // menu opens, so a change takes effect in this launch.
+extern "C" int GetLauncherInterface() { return g_liveControls.xrVrInterface != 0; }
+extern "C" void SetLauncherInterfaceAndPersist(int on) {
+    g_liveControls.xrVrInterface = on != 0;
+    PersistLiveControlsUiState(MakeLiveControlsUiState());
+}
+extern "C" int GetLauncherHandPhysics() { return g_liveControls.xrHandPhysics != 0; }
+extern "C" void SetLauncherHandPhysicsAndPersist(int on) {
+    g_liveControls.xrHandPhysics = on != 0;
+    PersistLiveControlsUiState(MakeLiveControlsUiState());
+}
 extern "C" int GetLauncherLobby() {
     return cvr::lobby::Enabled() ? 1 : 0;
 }

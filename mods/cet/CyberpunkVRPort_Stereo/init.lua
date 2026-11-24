@@ -81,11 +81,26 @@ end)
 Stereo.gc = { stepKB = 16, stepMaxKB = 1024, restGrowth = 0, menuStepKB = 192 }
 local gcResumeAt, gcLastKB = nil, nil
 
+local gcUiDefs
+local function menuForGc()
+    local requests = Game.GetSystemRequestsHandler()
+    if not requests or requests:IsPreGame() or requests:IsGamePaused() then return true end
+    -- The hub also uses time dilation, so IsGamePaused alone is not the menu's lifecycle signal.
+    gcUiDefs = gcUiDefs or Game.GetAllBlackboardDefs().UI_System
+    local board = Game.GetBlackboardSystem():Get(gcUiDefs)
+    return not board or board:GetBool(gcUiDefs.IsInMenu)
+end
+
 local function paceGc()
+    -- In-game map/settings keep IsPreGame false, but the host's world-tick wait may not run. Keep stepping
+    -- here instead of leaving the stopped collector to that wait's catch-up path. Read the current UI/pause
+    -- before VrcamSel.tick; an unavailable state also keeps collection on this safe path.
+    local ok, inMenu = pcall(menuForGc)
+    local menuGc = not ok or inMenu
     -- IN THE GAME THE PLUGIN'S LUA HOST PACES IT (src/Lua/HostGc.cpp): its steps run while the game thread waits
     -- for the world tick, off the frame's path, and only the finalizers run before onUpdate. The menus keep the
     -- pacing below (VRLuaHostGc(false)).
-    if type(VRLuaHostGc) == "function" and VRLuaHostGc(not VrcamSel.preGame) then
+    if type(VRLuaHostGc) == "function" and VRLuaHostGc(not menuGc) then
         gcLastKB, gcResumeAt = nil, nil
         return
     end
@@ -97,8 +112,7 @@ local function paceGc()
         if heap < gcResumeAt then collectgarbage("stop") return end
         gcResumeAt = nil
     end
-    -- The menu as the VRCAM selector saw it last frame (it asks the game every frame).
-    local step = VrcamSel.preGame and cfg.menuStepKB or cfg.stepKB
+    local step = menuGc and cfg.menuStepKB or cfg.stepKB
     if grown > step then step = math.min(grown, cfg.stepMaxKB) end
     local finished = collectgarbage("step", step)
     collectgarbage("stop")

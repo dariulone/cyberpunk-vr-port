@@ -1,5 +1,6 @@
 #include "Core/Paths.hpp"
 #include "Hooks/BodyHeading.hpp"
+#include "Hooks/ScannerGesture.hpp"
 #include "Utils/DebugGate.hpp"
 // CharacterRig -- the solve for the PLAYER'S OWN bones.
 //
@@ -23,6 +24,7 @@
 #include "Anim/LadderFingerTuning.hpp"
 #include "Anim/LadderRungPose.hpp"
 #include "Anim/LeftHanded.hpp"
+#include "Utils/SharedSlots.hpp"
 #include "Camera/NeckCameraMount.hpp"
 // The elbow-policy flag lives with the other live controls.
 #include "Camera/CameraState.hpp"
@@ -34,6 +36,9 @@
 #include <vector>
 #include <cstring>
 #include <mutex>
+#include "Natives/FrameOrderProbe.hpp"
+#include "Natives/PhysHands.hpp"
+#include "Natives/HeldGripPose.hpp"
 
 static inline void VRIK_QuatExtractTwist(const float* q,const float* axis,float* outT);
 
@@ -251,6 +256,7 @@ bool cvr::camera::ReadNeckCameraEyeOffset(AnchorVector* offset) {
 void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* reference,int referenceCount,bool female) {
     using namespace cvr::vrik;
     count=std::clamp(count,0,VRIK_MAX_BONES);
+    g_VRBodyFemale=female ? 1:0;   // the physics hands' skin (Natives/HandSkin.hpp) is a woman's or a man's
     g_VRCyberwareFamily=0;
     for(int i=0;i<count;++i)if(names[i]) {
         if(EqualBoneName(names[i],"l_plate_up_a"))g_VRCyberwareFamily=1;
@@ -470,8 +476,13 @@ void VRIK_ConfigureRigPolicy(const char* const* names,int count,const uint8_t* r
             if(names[chain]) { strcat_s(ancestors,names[chain]);strcat_s(ancestors," < "); }
             chain=g_VRBoneParent[chain];
         }
-        Log("[fbt-calib] reference hold: %d bones under Hips, %d fppCamera bones kept in place; camera chain: %s\n",
-            held,kept,ancestors);
+        // Once per distinct result: the rig is rebuilt on every rebind (loads, scenes, mirrors), the same each time.
+        static int lastHeld=-1,lastKept=-1;
+        if(held!=lastHeld || kept!=lastKept || cvr::RuntimeDiagnosticsEnabled()) {
+            lastHeld=held;lastKept=kept;
+            Log("[fbt-calib] reference hold: %d bones under Hips, %d fppCamera bones kept in place; camera chain: %s\n",
+                held,kept,ancestors);
+        }
         // V's skeleton for offline IK tools: roles, then every bone's reference pose. Once per rig
         // and size per session: the game binds V's first-person body (~295 bones) and the full rig with the face (~620)
         // in turn, so each gets its own file, fbt_rig_<male|female>_<bones>.txt.
@@ -697,6 +708,7 @@ void VRIK_PublishNativeCyberwarePose(uint8_t* buffer,uint64_t graph) {
         for(int k=0;k<4;++k)g_VRFKSnapRot[i][k]=g_fkRot[i][k];
     }
     g_VRFKSnapCount=count;
+    cvr::frameorder::Note('K');
 }
 
 // FK walk length: only the prefix of the rig the solver actually reads
@@ -1471,10 +1483,127 @@ static float WristHeldEase(int side) {
     QueryPerformanceCounter(&now);QueryPerformanceFrequency(&freq);
     const float dt=s_at[side] ? static_cast<float>(static_cast<double>(now.QuadPart-s_at[side])/static_cast<double>(freq.QuadPart)) : 0.f;
     s_at[side]=now.QuadPart;
-    const float want=g_VRHandRotLockOn[side] ? 1.f : 0.f;
+    const float want=(g_VRHandRotLockOn[side] || cvr::physhands::HoldsBody(side)) ? 1.f : 0.f;
     const float step=std::clamp(dt,0.f,.05f)/.15f;
     s_ease[side]+=std::clamp(want-s_ease[side],-step,step);
     return s_ease[side];
+}
+
+// THE WRIST'S RANGE. A hand is drawn with the controller's turn wherever the solve put the forearm, so a hand held at a
+// wall while the controller goes on, or a body pivoting on a table's edge, could bend the wrist past any wrist
+// (2026-11-08: "the hand turns over far past what a wrist does"). The turn of the hand against the forearm, from the rig's
+// own straight wrist, is split into its twist about the forearm (the forearm's to carry) and its swing, and the swing
+// held inside an ellipse: flexion 75 deg, extension 70, toward the thumb 25, toward the little finger 35. The axes come
+// from the reference hand: the forearm's line into it, across the knuckles, and the palm's normal on the side the
+// fingers close to (the rig's finger flexion, as Anim/GraspPose.cpp finds it).
+// OFF BY DEFAULT: the forearm here is the arm solve's guess (the elbow is not tracked), not the player's forearm, so a
+// wrist the player really holds within its range read as out of it against the guessed forearm -- mostly sideways, where
+// the guess is worst -- and the hand was drawn turned away from the controller. HIGGS has no wrist limit at all; Bonelab's
+// (a ConfigurableJoint, +-90 deg) is against its physical forearm, which follows the tracked hand, so a real wrist never
+// reaches it. The physics hands' body still stops a hand turned into the world. 1 turns the range back on.
+extern "C" __declspec(dllexport) int CyberpunkVR_WristRange = 0;
+struct WristFrame { uint64_t revision = ~0ull; bool ok = false; float straight[4], along[3], across[3], palm[3]; };
+static WristFrame s_wristFrame[2];
+static bool VRIK_WristFrameOf(int side, int foreIdx, int handIdx, WristFrame& w) {
+    if (w.revision == s_rigRevision) return w.ok;
+    w.revision = s_rigRevision;
+    w.ok = false;
+    const int index1 = VRIK_LadderFingerBone(side, 6), middle1 = VRIK_LadderFingerBone(side, 7),
+              little1 = VRIK_LadderFingerBone(side, 9), middle2 = VRIK_LadderFingerBone(side, 12);
+    for (int b : {foreIdx, handIdx, index1, middle1, little1, middle2})
+        if (b < 0 || b >= g_VRBoneCount || b >= VRIK_MAX_BONES || !s_referenceValid[b]) return false;
+    const float* H = s_referenceModelRot[handIdx];
+    float invF[4], invH[4];
+    VRIK_QuatConj(s_referenceModelRot[foreIdx], invF);
+    VRIK_QuatConj(H, invH);
+    VRIK_QuatMul(invF, H, w.straight);
+    VRIK_QuatNorm(w.straight);
+    float a[3], d[3], t[3], n[3];
+    for (int k = 0; k < 3; ++k) {
+        a[k] = s_referenceModelPos[handIdx][k] - s_referenceModelPos[foreIdx][k];
+        d[k] = s_referenceModelPos[middle1][k] - s_referenceModelPos[handIdx][k];
+        t[k] = s_referenceModelPos[index1][k] - s_referenceModelPos[little1][k];
+    }
+    if (VRIK_Norm3(a) < 1e-4f || VRIK_Norm3(d) < 1e-4f) return false;
+    const float td = t[0] * d[0] + t[1] * d[1] + t[2] * d[2];
+    for (int k = 0; k < 3; ++k) t[k] -= td * d[k];
+    if (VRIK_Norm3(t) < 1e-4f) return false;
+    n[0] = d[1] * t[2] - d[2] * t[1]; n[1] = d[2] * t[0] - d[0] * t[2]; n[2] = d[0] * t[1] - d[1] * t[0];
+    if (VRIK_Norm3(n) < 1e-4f) return false;
+    // the side the fingers close to: the middle finger's proximal phalanx turned about its own -Z takes its next joint there
+    {
+        const float* m = s_referenceModelRot[middle1];
+        float invM[4], rel[3], local[3], moved[3], out[3];
+        VRIK_QuatConj(m, invM);
+        for (int k = 0; k < 3; ++k) rel[k] = s_referenceModelPos[middle2][k] - s_referenceModelPos[middle1][k];
+        VRIK_QuatRotateVec(invM, rel, local);
+        moved[0] = local[1]; moved[1] = -local[0]; moved[2] = 0;   // (-Z) x local
+        VRIK_QuatRotateVec(m, moved, out);
+        if (out[0] * n[0] + out[1] * n[1] + out[2] * n[2] < 0) for (int k = 0; k < 3; ++k) n[k] = -n[k];
+    }
+    // all three in the hand's own frame, the swing axes square to the forearm's line
+    VRIK_QuatRotateVec(invH, a, w.along);
+    float tl[3], nl[3];
+    VRIK_QuatRotateVec(invH, t, tl);
+    VRIK_QuatRotateVec(invH, n, nl);
+    for (float* v : {tl, nl}) {
+        const float da = v[0] * w.along[0] + v[1] * w.along[1] + v[2] * w.along[2];
+        for (int k = 0; k < 3; ++k) v[k] -= da * w.along[k];
+        if (VRIK_Norm3(v) < 1e-4f) return false;
+    }
+    std::copy_n(tl, 3, w.across);
+    std::copy_n(nl, 3, w.palm);
+    w.ok = true;
+    return true;
+}
+static void VRIK_HoldWristRange(int side, int foreIdx, int handIdx, const float* foreModel, float* handModel) {
+    WristFrame& w = s_wristFrame[side];
+    if (!CyberpunkVR_WristRange || !VRIK_WristFrameOf(side, foreIdx, handIdx, w)) return;
+    constexpr float kDeg = 0.01745329f;
+    float invF[4], rel[4], invS[4], D[4];
+    VRIK_QuatConj(foreModel, invF);
+    VRIK_QuatMul(invF, handModel, rel);
+    VRIK_QuatConj(w.straight, invS);
+    VRIK_QuatMul(invS, rel, D);
+    VRIK_QuatNorm(D);
+    if (D[3] < 0) for (float& c : D) c = -c;
+    // twist about the forearm's line, and the swing that is left (D = swing * twist)
+    const float p = D[0] * w.along[0] + D[1] * w.along[1] + D[2] * w.along[2];
+    float twist[4] = {w.along[0] * p, w.along[1] * p, w.along[2] * p, D[3]};
+    const float tn = std::sqrt(twist[0] * twist[0] + twist[1] * twist[1] + twist[2] * twist[2] + twist[3] * twist[3]);
+    if (tn < 1e-6f) return;
+    for (float& c : twist) c /= tn;
+    float invT[4], swing[4];
+    VRIK_QuatConj(twist, invT);
+    VRIK_QuatMul(D, invT, swing);
+    VRIK_QuatNorm(swing);
+    if (swing[3] < 0) for (float& c : swing) c = -c;
+    const float sn = std::sqrt(swing[0] * swing[0] + swing[1] * swing[1] + swing[2] * swing[2]);
+    if (sn < 1e-6f) return;
+    const float angle = 2.0f * std::atan2(sn, swing[3]);
+    float v[3] = {swing[0] / sn * angle, swing[1] / sn * angle, swing[2] / sn * angle};
+    // about `across` +: the fingers go away from the palm's side (extension); about `palm` +: toward the thumb
+    float flex = -(v[0] * w.across[0] + v[1] * w.across[1] + v[2] * w.across[2]);
+    float dev = v[0] * w.palm[0] + v[1] * w.palm[1] + v[2] * w.palm[2];
+    const float flexLim = (flex > 0 ? 75.0f : 70.0f) * kDeg, devLim = (dev > 0 ? 25.0f : 35.0f) * kDeg;
+    const float e = (flex / flexLim) * (flex / flexLim) + (dev / devLim) * (dev / devLim);
+    if (e <= 1.0f) return;
+    const float k = 1.0f / std::sqrt(e);
+    flex *= k;
+    dev *= k;
+    float nv[3];
+    for (int c = 0; c < 3; ++c) nv[c] = -w.across[c] * flex + w.palm[c] * dev;
+    const float na = std::sqrt(nv[0] * nv[0] + nv[1] * nv[1] + nv[2] * nv[2]);
+    float held[4] = {0, 0, 0, 1};
+    if (na > 1e-6f) {
+        const float h = std::sin(0.5f * na) / na;
+        held[0] = nv[0] * h; held[1] = nv[1] * h; held[2] = nv[2] * h; held[3] = std::cos(0.5f * na);
+    }
+    float D2[4], R2[4];
+    VRIK_QuatMul(held, twist, D2);
+    VRIK_QuatMul(w.straight, D2, R2);
+    VRIK_QuatMul(foreModel, R2, handModel);
+    VRIK_QuatNorm(handModel);
 }
 
 void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
@@ -1529,8 +1658,9 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
     // A hand closed on something: the two-hand hold's support hand, or a wrist the reload has locked to a grip.
     // (The support hand is the right one while the weapon is in the left hand, Anim/LeftHanded.cpp.)
     const bool support=isLeft!=cvr::anim::WeaponInLeftHand();
+    const bool heldBody=cvr::physhands::HoldsBody(isLeft ? 0 : 1);
     const bool grip=CyberpunkVR_GripReach!=0 &&
-        ((support && CyberpunkVR_TwoHandActive!=0) || g_VRHandRotLockOn[isLeft ? 0 : 1]!=0);
+        ((support && CyberpunkVR_TwoHandActive!=0) || g_VRHandRotLockOn[isLeft ? 0 : 1]!=0 || heldBody);
     g_VRIKGrip[sideJ]=grip;
     const bool girdle=VRIK_ReachGirdle(boneBuf,upperIdx,targetModel,bodyUp,bodyFwd,upLen+foreLen,isLeft,ladderReach,grip);
     if(girdle) {
@@ -2198,8 +2328,15 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
         }
     }
 
-    // Hand orientation written local to the new forearm.
-    VRIK_WriteLocalRot(boneBuf, handIdx, newForeModel, handModelRot);
+    // Hand orientation written local to the new forearm, inside a wrist's range -- but not a hand on a weapon or locked to
+    // a grip: there the hand is the aim, and the forearm is the one that gives.
+    {
+        float handHeld[4] = {handModelRot[0], handModelRot[1], handModelRot[2], handModelRot[3]};
+        if (!g_hasWeaponEquipped && !grip) VRIK_HoldWristRange(isLeft ? 0 : 1, foreIdx, handIdx, newForeModel, handHeld);
+        VRIK_WriteLocalRot(boneBuf, handIdx, newForeModel, handHeld);
+        // the farthest the hand pin below puts the hand from this shoulder: both segments at their stretch caps
+        cvr::physhands::NoteForearm(isLeft ? 0 : 1, elbowW, targetModel, handHeld, shP, 1.15f * (upLen + foreLen));
+    }
 
     // HAND PIN (hand == target EXACTLY: the hand is the gizmo, the rest adapts).
     // The two-bone solve lands short whenever the avatar arm and the real reach disagree; instead
@@ -2218,7 +2355,9 @@ void VRIK_SolveArm(uint8_t* boneBuf, int upperIdx, int foreIdx, int handIdx,
             // what the caps leave between the wrist and its target -- the thorax turn's input (VRIK_GripTorso)
             g_VRIKShort[sideJ] = rl - hi;
             CyberpunkVR_DebugGripShortMm[sideJ] = (rl - hi) * 1000.0f;
-            if (cl < lo) cl = lo; if (cl > hi) cl = hi;
+            // The weighted body is already driven to this wrist's grip point. A second positional cap
+            // would separate the fingers from the part whenever wrist rotation changes the elbow solve.
+            cl = cvr::held_grip::PinnedForearmLength(cl, lo, hi, heldBody);
             float pin[3] = { elbowW[0]+rel[0]*(cl/rl), elbowW[1]+rel[1]*(cl/rl), elbowW[2]+rel[2]*(cl/rl) };
             VRIK_WriteLocalPos(boneBuf, handIdx, elbowW, newForeModel, pin);
             std::copy_n(pin, 3, g_VRIKHandPin[sideJ]);
@@ -2292,8 +2431,19 @@ volatile int   g_VRHandRawValid[2]    = { 0, 0 };
 // depends on the previous frame's clamp, which is a feedback loop that shakes the hand in a cluster of capsules.
 volatile float g_VRHandRawRot[2][4]   = { {0.0f,0.0f,0.0f,1.0f}, {0.0f,0.0f,0.0f,1.0f} };
 
+// Per hand: the script's stop (model x y z, valid), the target as drawn (model x y z), whether the wrist is claimed.
+extern "C" __declspec(dllexport) volatile float CyberpunkVR_DebugHandStop[2][8] = {};
+
 void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
     if (side < 0 || side > 1 || !target) return;
+    // THE WRIST A SCRIPT CLAIMED (shared slot 162: the reload's slide glue and magazine magnet, a holster's hold, the
+    // grenade's pin): its stop is drawn even with the hand's own body on. The body's place is where the hand starts
+    // from, the script's stop is where it goes (the pull below), its rotation lock kept over the body's turn. Left to
+    // the body the hand hung wherever that was, and the slide's glue did nothing (2026-11-11).
+    const float ownedSlot = g_pSharedHands ? g_pSharedHands[vrshared::kReloadOwnedHand] : -1.0f;
+    const bool claimed = ownedSlot > -0.5f && int(ownedSlot + 0.5f) == side;
+    const bool scanner = cvr::input::scannerHandPhysics.ScannerActive();
+    const bool slowPhysics = cvr::input::scannerHandPhysics.Active();
     // published unconditionally, so the loop has a target even while no hold is active
     g_VRHandRawModel[side][0] = target[0];
     g_VRHandRawModel[side][1] = target[1];
@@ -2301,7 +2451,7 @@ void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
     if (handRot) {
         for (int k = 0; k < 4; ++k) g_VRHandRawRot[side][k] = handRot[k];
         // the reload grip's wrist lock: the solve gets the recorded orientation instead of the controller's
-        if (g_VRHandRotLockOn[side]) {
+        if ((!slowPhysics || (claimed && !scanner)) && g_VRHandRotLockOn[side]) {
             handRot[0] = g_VRHandRotLock[side][0];
             handRot[1] = g_VRHandRotLock[side][1];
             handRot[2] = g_VRHandRotLock[side][2];
@@ -2309,6 +2459,34 @@ void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
         }
     }
     g_VRHandRawValid[side] = 1;
+    // Keep raw tracking and the next physics target live, but never draw a slowed physics body.
+    // Explicit reload/magazine ownership survives non-scanner slow motion; scanner releases all contacts.
+    if (slowPhysics && (scanner || !claimed)) {
+        g_VRHandStopValid[side] = g_VRHandRotLockOn[side] = 0;
+        if (handRot) cvr::physhands::NoteTarget(side, target, handRot);
+        for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][4 + k] = target[k];
+        CyberpunkVR_DebugHandStop[side][3] = CyberpunkVR_DebugHandStop[side][7] = 0.f;
+        return;
+    }
+    // THE HAND'S OWN BODY (Natives/PhysHands.cpp): tracking goes to it, and the drawn hand comes back from where PhysX has
+    // it. While it does, the script's stops are not added on top: the body already met whatever they would.
+    if (handRot) {
+        cvr::physhands::NoteTarget(side, target, handRot);
+        if (!slowPhysics && cvr::physhands::Adjust(side, target, handRot)) {
+            if (!(claimed && g_VRHandStopValid[side])) {
+                for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][4 + k] = target[k];
+                CyberpunkVR_DebugHandStop[side][3] = g_VRHandStopValid[side] ? 1.f : 0.f;
+                CyberpunkVR_DebugHandStop[side][7] = claimed ? 1.f : 0.f;
+                return;
+            }
+            if (g_VRHandRotLockOn[side])
+                for (int k = 0; k < 4; ++k) handRot[k] = g_VRHandRotLock[side][k];
+        }
+    }
+    for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][k] = g_VRHandStopModel[side][k];
+    CyberpunkVR_DebugHandStop[side][3] = g_VRHandStopValid[side] ? 1.f : 0.f;
+    CyberpunkVR_DebugHandStop[side][7] = claimed ? 1.f : 0.f;
+    for (int k = 0; k < 3; ++k) CyberpunkVR_DebugHandStop[side][4 + k] = target[k];
     if (!g_VRHandStopValid[side]) return;
     const float d[3] = { g_VRHandStopModel[side][0] - target[0],
                          g_VRHandStopModel[side][1] - target[1],
@@ -2320,6 +2498,7 @@ void VRIK_ApplyHandStop(int side, float* target, float* handRot) {
     target[0] += d[0] * k;
     target[1] += d[1] * k;
     target[2] += d[2] * k;
+    for (int i = 0; i < 3; ++i) CyberpunkVR_DebugHandStop[side][4 + i] = target[i];
 }
 
 void VRIK_BuildHandTarget(const float* shoulderModelPos,

@@ -2,12 +2,17 @@
 // RenderDoc capture of the main menu (composition shader a4dc07ba..., the dispatch before the final copy).
 #include "Lobby/MenuLobby.hpp"
 #include "Lobby/CompositionBlock.hpp"
+#include "Runtimes/CapturedPresentation.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/DetourRegistry.hpp"
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/GameEngine.hpp>
 #include <RED4ext/Scripting/Natives/inkLayer.hpp>
+#include <RED4ext/Scripting/Natives/inkControllerProcessor.hpp>
+#include <RED4ext/Scripting/Natives/Generated/ink/IWidgetController.hpp>
+#include <RED4ext/Scripting/Natives/inkWidget.hpp>
+#include <RED4ext/Scripting/Utils.hpp>
 #include <d3d12.h>
 #include <windows.h>
 #include <algorithm>
@@ -80,6 +85,8 @@ constexpr ULONGLONG kCurtainUnanswered = 20000;
 std::atomic<float> g_curtain{1.0f};
 std::atomic<bool> g_curtainAnswered{false};
 std::atomic<ULONGLONG> g_menuUpTick{0};
+using cvr::capture::LobbyReturn;
+std::atomic<LobbyReturn> g_return{LobbyReturn::Idle};
 constexpr ULONGLONG kLeavingMax = 5000;
 std::atomic<ULONGLONG> g_leavingTick{0};
 
@@ -329,9 +336,51 @@ bool WorldShown() {
     return g_forced && Active() && GetTickCount64() - g_composedTick.load(std::memory_order_relaxed) < 500;
 }
 
+// Called by the lobby script's game-thread update. These are the same two
+// foreground loading controllers checked by the port's VRCAM selector.
+static bool LoadingWidgetVisible() {
+    auto* layer = FindInkLayer("inkLoadingLayer");
+    if (!layer || !layer->active || !layer->controllerProcessor) return false;
+    for (const auto& controller : layer->controllerProcessor->controllers) {
+        if (!controller) continue;
+        auto* type = controller->GetType();
+        const auto name = type->GetName();
+        if (name != RED4ext::CName("inkInitialLoadingControllerSupervisor") &&
+            name != RED4ext::CName("inkFastTravelLoadingControllerSupervisor")) continue;
+        auto* getRoot = type->GetFunction("GetRootWidget");
+        if (!getRoot || !getRoot->returnType || !getRoot->returnType->type) continue;
+        const auto result = getRoot->returnType->type->GetName();
+        RED4ext::Handle<RED4ext::ink::Widget> widget;
+        if (result == RED4ext::CName("whandle:inkWidget")) {
+            RED4ext::WeakHandle<RED4ext::ink::Widget> weak;
+            if (RED4ext::ExecuteFunction(controller.GetPtr(), getRoot, &weak)) widget = weak.Lock();
+        } else if (result == RED4ext::CName("handle:inkWidget")) {
+            RED4ext::ExecuteFunction(controller.GetPtr(), getRoot, &widget);
+        }
+        for (unsigned depth = 0; widget && depth < 64; ++depth) {
+            if (!widget->visible || widget->opacity <= 0.0f) break;
+            auto parent = widget->parentWidget.Lock();
+            if (!parent) return true;
+            widget = std::move(parent);
+        }
+    }
+    return false;
+}
+
+bool WaitingForReturnLobby() {
+    if (!Active() || !CyberpunkVR_LoadingInSpace) return false;
+    const auto start = g_menuUpTick.load(std::memory_order_relaxed);
+    if (!start || GetTickCount64() - start > kCurtainUnanswered) return false;
+    auto state = g_return.load(std::memory_order_acquire);
+    if (state == LobbyReturn::Idle)
+        g_return.compare_exchange_strong(state, LobbyReturn::Waiting, std::memory_order_acq_rel);
+    return state != LobbyReturn::Ready;
+}
+
 void NoteMainMenu() {
     // The eyes shut till the lobby is up -- not for one held up while it is (the new game's screens walked).
     if (engine_stereo::MainMenusUp() <= 1) {
+        g_return.store(LobbyReturn::Idle, std::memory_order_release);
         g_curtain.store(1.0f, std::memory_order_relaxed);
         g_curtainAnswered.store(false, std::memory_order_relaxed);
     }
@@ -381,6 +430,13 @@ float Curtain() {
 }
 
 void SetCurtain(float closure) {
+    const auto state = g_return.load(std::memory_order_acquire);
+    if (state == LobbyReturn::Waiting || state == LobbyReturn::ClearOnce) {
+        const bool waitingForWorld = CyberpunkVR_LobbyCompose &&
+            (g_composedTick.load(std::memory_order_relaxed) < g_menuUpTick.load(std::memory_order_relaxed));
+        g_return.store(cvr::capture::ObserveReturn(state, closure >= 1.0f || waitingForWorld || LoadingWidgetVisible()),
+                       std::memory_order_release);
+    }
     g_curtain.store(std::clamp(closure, 0.0f, 1.0f), std::memory_order_relaxed);
     g_curtainAnswered.store(true, std::memory_order_relaxed);
     g_curtainTick.store(GetTickCount64(), std::memory_order_relaxed);

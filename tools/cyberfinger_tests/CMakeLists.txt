@@ -13,6 +13,12 @@ target_include_directories(cyberfinger_tests PRIVATE ../../include ${OPENXR_INCL
 target_compile_features(cyberfinger_tests PRIVATE cxx_std_17)
 target_link_libraries(cyberfinger_tests PRIVATE wrpuppets_fbt_ik)
 add_test(NAME cyberfinger_policy_and_ik COMMAND cyberfinger_tests)
+add_executable(fbt_profile_tests calibration_profile_test.cpp ../../src/Fbt/Game/CalibrationProfile.cpp)
+target_include_directories(fbt_profile_tests PRIVATE ../../include)
+target_compile_features(fbt_profile_tests PRIVATE cxx_std_17)
+target_compile_definitions(fbt_profile_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(fbt_profile_tests PRIVATE wrpuppets_fbt_ik)
+add_test(NAME fbt_calibration_persistence COMMAND fbt_profile_tests)
 add_executable(cyberfinger_menu_tests menu_test.cpp)
 target_include_directories(cyberfinger_menu_tests PRIVATE ../../include)
 target_compile_features(cyberfinger_menu_tests PRIVATE cxx_std_17)
@@ -61,6 +67,9 @@ set(LUA_SOURCE_DIR "" CACHE PATH "Official Lua source directory containing lua.c
 if(LUA_SOURCE_DIR)
     add_test(NAME cyberfinger_crusher_reload COMMAND cyberfinger_lua
         ${CMAKE_CURRENT_LIST_DIR}/crusher_reload_test.lua ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet)
+    add_test(NAME cyberfinger_stock_arm_shortcut COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/arm_shortcut_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_ArmCyberwareB/init.lua)
     add_test(NAME cyberfinger_melee_strength COMMAND cyberfinger_lua
         ${CMAKE_CURRENT_LIST_DIR}/melee_strength_test.lua
         ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_Weapon/)

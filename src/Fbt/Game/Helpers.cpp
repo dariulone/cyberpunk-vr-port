@@ -242,7 +242,8 @@ void LoadCyberpunkFont(ImGuiIO& io) {
 }
 
 void DrawFbtCalibrationHelpers() {
-    if (!cvr::fbt::game::Calibrating()) return;
+    const int step = cvr::fbt::game::CalibrationStep();
+    if (!step) return;
     VrikFbtReference ref{};
     if (!VRIK_ReadFbtReference(&ref) || !CyberpunkVR_PlayerEntityValid) return;
     const bool engineStereo = cvr::engine_stereo::Enabled();
@@ -276,24 +277,23 @@ void DrawFbtCalibrationHelpers() {
         Rotate(entityQuat, model, out);
         for (int k = 0; k < 3; ++k) out[k] += entityPos[k];
     };
-    const int step = cvr::fbt::game::CalibrationStep();
     const std::string stepText = cvr::fbt::game::StepText(step);
     const std::string refusal = cvr::fbt::game::RefusalText();   // a pull not taken: why, under the instruction
-    const float* boneModel[cvr::trackers::kRoleCount] = {ref.hipsPos, ref.footPos[0], ref.footPos[1]};
-    float tracker[cvr::trackers::kRoleCount][3]{}, bone[cvr::trackers::kRoleCount][3]{};
+    float tracker[cvr::trackers::kRoleCount][3]{};
     bool have[cvr::trackers::kRoleCount]{};
-    for (int r = 0; r < cvr::trackers::kRoleCount; ++r) {
-        cvr::trackers::Pose p{};
-        have[r] = cvr::trackers::Read(static_cast<cvr::trackers::Role>(r), &p);
-        toWorld(p.pos, tracker[r]);
-        boneWorld(boneModel[r], bone[r]);
-    }
     float hand[2][3]{};
     bool haveHand[2]{};
-    for (int h = 0; h < 2; ++h) {
-        cvr::trackers::Pose p{};
-        haveHand[h] = cvr::trackers::ReadHand(h, &p);
-        toWorld(p.pos, hand[h]);
+    if (step == 2) {
+        for (int r = 0; r < cvr::trackers::kRoleCount; ++r) {
+            cvr::trackers::Pose p{};
+            have[r] = cvr::trackers::Read(static_cast<cvr::trackers::Role>(r), &p);
+            if (have[r]) toWorld(p.pos, tracker[r]);
+        }
+        for (int h = 0; h < 2; ++h) {
+            cvr::trackers::Pose p{};
+            haveHand[h] = cvr::trackers::ReadHand(h, &p);
+            if (haveHand[h]) toWorld(p.pos, hand[h]);
+        }
     }
     // Step 3's cross: STAGE points -> head-relative (the headset in STAGE, located with the devices) -> the world.
     cvr::fbt::game::CrossView cross{};
@@ -347,7 +347,17 @@ void DrawFbtCalibrationHelpers() {
             }
         }
         if (step == 2) {
-            for (int r = 0; r < cvr::trackers::kRoleCount; ++r) if (have[r]) Line(dl, v, eye, tracker[r], bone[r]);
+            // All tracked roles have dots. Only the three body calibration
+            // anchors have reference bones for alignment lines.
+            auto drawLink = [&](cvr::trackers::Role role, const float (&model)[3]) {
+                if (!have[role]) return;
+                float bone[3];
+                boneWorld(model, bone);
+                Line(dl, v, eye, tracker[role], bone);
+            };
+            drawLink(cvr::trackers::kWaist, ref.hipsPos);
+            drawLink(cvr::trackers::kLeftFoot, ref.footPos[0]);
+            drawLink(cvr::trackers::kRightFoot, ref.footPos[1]);
             for (int r = 0; r < cvr::trackers::kRoleCount; ++r) if (have[r]) Ball(dl, v, eye, tracker[r]);
         }
         if (step == 2)

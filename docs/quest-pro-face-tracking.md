@@ -52,8 +52,10 @@ bones. It resolves CName hashes from the current solver rig and validates the
 facial setup's track ranges. Controlled tracks and their matching lip-sync
 contributions are adjusted in a private, aligned input copy, then passed to the
 original solver. That preserves the game's corrective/inbetween machinery.
-The existing mirror body-copy pass preserves facial solver bones by name while
-this binding is active; head, neck and root continue using body tracking.
+The mirror receives head, neck, limb and finger rotations relative to its own
+reference pose. Its pelvis and root receive displacement from rest. The game
+retains the reflection's joint spacing, scale, and facial and muscle poses.
+This also applies when Quest Pro facial tracking is off.
 
 This is a version-specific engine integration. Currently supported executable:
 

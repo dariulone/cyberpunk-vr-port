@@ -75,6 +75,9 @@ void InitRuntimePaths() {
     g_liveControls.xrVehHeadOffsetX = 0.0f;
     g_liveControls.xrVehHeadOffsetY = 0.0f;
     g_liveControls.xrVehHeadOffsetZ = 0.0f;
+    g_liveControls.xrBikeHeadOffsetX = 0.0f;
+    g_liveControls.xrBikeHeadOffsetY = 0.0f;
+    g_liveControls.xrBikeHeadOffsetZ = 0.0f;
 
     // DRIVING. Wheel grab ON. 0.28 m is a hand-sized reach around the animated wheel pose -- wide
     // enough that you do not have to hunt for a wheel you cannot see, tight enough that a hand
@@ -83,6 +86,8 @@ void InitRuntimePaths() {
     g_liveControls.xrWheelRadius = 0.28f;
     // 90 deg = hands vertical is full lock, the 1:1 reading of a real wheel.
     g_liveControls.xrWheelSteerMaxDeg = cvr::anim::WheelFullLockDefault;
+    g_liveControls.xrBikeBarLockDeg = cvr::anim::BikeBarLockDefault;
+    g_liveControls.xrBikeBodyLean = cvr::anim::BikeBodyLeanDefault;
     // 1.5 deg of deadzone: enough to swallow tremor, small enough that the wheel does not feel dead
     // off centre. Every degree here is a degree the car ignores.
     g_liveControls.xrWheelSteerDeadDeg = 0.0f;
@@ -211,6 +216,8 @@ void EnsureLiveControlFileExists() {
     fprintf(file, "xr_depth_submit=1\n");
     fprintf(file, "xr_movement_control=0\n");
     fprintf(file, "xr_disable_mouse_y=1\n");
+    fprintf(file, "xr_vr_interface=1\n");
+    fprintf(file, "xr_hand_physics=1\n");
     fprintf(file, "xr_xinput_hook=1\n");
     fprintf(file, "xr_snap_turn=0\n");
     fprintf(file, "xr_snap_turn_angle_deg=30\n");

@@ -196,6 +196,13 @@ void SolveLowerBody(uint8_t* boneBuf, const float camModelPos[3], const float ca
         cvr::trackers::Read(roles[i], &p);
         devices[slots[i]] = ToRoom(p.stageValid, p.stage);
     }
+    // A saved profile can be present on a headset-only launch. Wait for a calibrated body tracker.
+    if (!(c.valid[kCalWaist] && devices[kCalWaist].valid) &&
+        !devices[kCalLeftFoot].valid && !devices[kCalRightFoot].valid) {
+        g.gait = {};
+        g_eyeZOn.store(false, std::memory_order_relaxed);
+        return;
+    }
     const bool bothFeetLive = devices[kCalLeftFoot].valid && devices[kCalRightFoot].valid;
     // The time step from the high-resolution clock (GetTickCount64 ticks every 10-16 ms: at 90 fps many steps read 0,
     // which the filter takes as a restart and passes the raw pose through -- raw and filtered frames alternating).

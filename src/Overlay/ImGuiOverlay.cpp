@@ -723,7 +723,7 @@ void OverlayRender(IDXGISwapChain* swapChain) {
     ImGui::NewFrame();
 
     if(!g_menuVisible){
-        if(!luaVr){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();}
+        if(!luaVr){DrawHandLocatorOverlay();DrawDebugView();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();}
         cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);
         if(luaVr)g_luaUiInput.Finish(cvr::cyberfinger::Enabled()
             ? "Trigger: click    Grip: context / move strip    Laser stick: scroll    Other stick: tabs    Menu: back"

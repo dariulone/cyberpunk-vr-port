@@ -25,7 +25,7 @@ void DrawSettingsSection() {
             if (UI::Button("Step 2: arms down, look down, then press both triggers (press to cancel)")) CancelCalibration();
             if (UI::IsItemHovered()) UI::SetTooltip("Release both triggers, take the pose, then pull both together.");
         } else {
-            if (UI::Button("Step 3: face the cross: head on its top, arms straight out along its arms, until the countdown ends (press to keep V's arms)")) CancelCalibration();
+            if (UI::Button("Step 3: face the cross: head on its top, arms straight out along its arms, until the countdown ends (press to keep V's arms)")) FinishWithDefaultArms();
             if (UI::IsItemHovered()) UI::SetTooltip("Stand facing the cross; the dots turn green on their marks, then the countdown runs.");
         }
         bool legs = LegsEnabled();

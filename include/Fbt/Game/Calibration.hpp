@@ -12,32 +12,25 @@
 //     mark restarts it; cancelling keeps V's arms.
 // V is held in its reference pose meanwhile. The result is logged ([fbt-calib]) and saved to fbt_calibration.ini.
 // The triggers still reach the game.
-#include "Fbt/FbtCalibration.hpp"
+#include "Fbt/Game/CalibrationProfile.hpp"
 #include "Fbt/Game/Trackers.hpp"
 #include <openxr/openxr.h>
 #include <string>
 
 namespace cvr::fbt::game {
 
-using Calibration = wrpuppets::fbt::Calibration;
 // In game only: not in the main menu's lobby, which has a setup of its own (the weapon hand, its T-pose, the height),
 // and needs a player (a loaded save). StartCalibration refuses otherwise.
 bool CalibrationAvailable();
 void StartCalibration();
 void CancelCalibration();
+void FinishWithDefaultArms();
 bool Calibrating();
 int CalibrationStep();   // 0 off, 1 head, 2 body, 3 arms (the T-pose on the cross)
 constexpr float kCalibrationLevelDeg = 8.0f;   // step 1: the gaze within this of level
 // Each frame, from the controller loop: the raw trigger value per hand (0 left, 1 right).
 void NoteTrigger(int hand, float value);
-// The calibration captured in this session (none until then: the belt and the foot straps move between sessions,
-// so a saved one would be wrong; fbt_calibration.ini is only a record).
-struct ChestCalibration {
-    bool valid = false;
-    unsigned revision = 0;
-    wrpuppets::fbt::Vec3 offset;
-    wrpuppets::fbt::Quat rotationInverse, referenceRotation;
-};
+// The last accepted calibration, restored from the plugin config folder on first use.
 bool ReadCalibration(Calibration* out, ChestCalibration* chest = nullptr);
 // V's skeleton (from the rig file) and the calibrator on it; false until V's rig has loaded. Render/pose threads:
 // the objects are replaced only when V's body type changes.

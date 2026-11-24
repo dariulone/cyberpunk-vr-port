@@ -25,7 +25,9 @@ local function item(ctx,visit,raw,side,quantity,buyback,available)
   v.recipe=v.ui:IsRecipe()
   v.price=(side=="sell" or buyback) and visit.manager:GetSellingPrice(v.id) or visit.manager:GetBuyingPrice(v.id)
   v.iconic=v.ui:IsIconic();v.favorite=v.ui:IsPlayerFavourite()
-  v.category=v.ui:IsWeapon() and "weapon" or v.ui:IsClothing() and "clothing" or v.ui:IsPart() and "mods"
+  -- ranged and melee weapons in tabs of their own (issue #221)
+  v.melee=v.ui:IsWeapon() and raw:HasTag(CName.new("MeleeWeapon")) or false
+  v.category=v.ui:IsWeapon() and (v.melee and "melee" or "ranged") or v.ui:IsClothing() and "clothing" or v.ui:IsPart() and "mods"
     or RPGManager.GetItemCategory(v.id)==gamedataItemCategory.Consumable and "consumable" or "other"
   return v
 end
@@ -123,6 +125,29 @@ function D.transact(ctx,visit,v,quantity,confirmed)
   elseif v.buyback then visit.manager:BuybackItemFromVendor(quote.raw,quantity)
   else visit.manager:BuyItemFromVendor(quote.raw,quantity) end
   return true
+end
+-- SEVERAL AT ONCE (the sell side's selection, issue #221): whole stacks, in the order given, as far as the vendor's
+-- money goes. Equipped and protected items (favourites, inhalers, injectors, grenades) are left where they are. Each
+-- sale is a queued MarketSystem request, so the vendor's money is counted down here rather than read back (the read
+-- lags a tick). Returns the stacks sold, the ones left, the eurodollars and the pieces.
+function D.sellMany(ctx,visit,list)
+  local p=Game.GetPlayer();local eq=EquipmentSystem.GetInstance(p)
+  local money=MarketSystem.GetVendorMoney(visit.vendor)
+  local items,skipped,earned,pieces=0,0,0,0
+  for _,v in ipairs(list) do
+    local quote=v.side=="sell" and D.quote(ctx,visit,v,1) or {allowed=false}
+    if not quote.allowed or not quote.raw or eq:IsEquipped(p,v.id) then skipped=skipped+1
+    else
+      local q=quote.raw:GetQuantity()
+      if quote.price>0 then q=math.min(q,math.floor(money/quote.price)) end
+      if q<1 then skipped=skipped+1
+      else
+        visit.manager:SellItemToVendor(quote.raw,q)
+        money=money-quote.price*q;earned=earned+quote.price*q;items=items+1;pieces=pieces+q
+      end
+    end
+  end
+  return items,skipped,earned,pieces
 end
 function D.signature(visit)
   return tostring(visit.manager:GetLocalPlayerCurrencyAmount())..":"..tostring(MarketSystem.GetVendorMoney(visit.vendor))..":"..tostring(Game.GetPlayer().curInventoryWeight)

@@ -95,6 +95,24 @@ extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawW
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawWritesPlayer;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugHeadingLedComps;
 
+// WHERE THE GAME'S PRESENT WAITS INSIDE OnPresent, accumulated microseconds per phase, with RuntimeDiagnostics on
+// only: 0 hand lock, 1 FlushHandsToShared, 2 view lock, 3 render pose lock, 4 mono capture, 5 foveated/VRS ticks,
+// 6 main HUD capture (with the optics probe), 7 the other HUD channels. A lock wait here is the XR thread holding it.
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_OnPresentPhaseUs[8]{};
+namespace {
+uint64_t PhaseStart() {
+    if (!cvr::RuntimeDiagnosticsEnabled()) return 0;
+    LARGE_INTEGER t{}; QueryPerformanceCounter(&t); return static_cast<uint64_t>(t.QuadPart);
+}
+void PhaseEnd(unsigned index, uint64_t start) {
+    if (!start) return;
+    static const uint64_t frequency = [] { LARGE_INTEGER f{}; QueryPerformanceFrequency(&f); return static_cast<uint64_t>(f.QuadPart); }();
+    LARGE_INTEGER t{}; QueryPerformanceCounter(&t);
+    CyberpunkVR_OnPresentPhaseUs[index].fetch_add((static_cast<uint64_t>(t.QuadPart) - start) * 1000000 / frequency,
+        std::memory_order_relaxed);
+}
+}
+
 void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     // [HANDS] Shared Memory Output
     static HANDLE s_hMapFile = NULL;
@@ -107,7 +125,9 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         }
     }
     if (s_pSharedHands) {
+        const uint64_t handWait = PhaseStart();
         std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_handMutex));
+        PhaseEnd(0, handWait);
         // Slot [32]: VR hand-tracking request for the RED4ext plugin (set from the overlay menu).
         s_pSharedHands[32] = static_cast<float>(m_vrHandTrackingMode.load(std::memory_order_relaxed));
         s_pSharedHands[58] = static_cast<float>(m_weaponAimEnable.load(std::memory_order_relaxed)); // weapon-aim enable
@@ -228,7 +248,9 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     // before the CCT/animation tick from the very head sample used by physics.
     // FlushHandsToShared checks that ownership under its mutex, so Present
     // cannot replace the tick's packet with a differently timed XR head cache.
+    const uint64_t flushPhase = PhaseStart();
     FlushHandsToShared();
+    PhaseEnd(1, flushPhase);
 
     // VRIK RATE CENSUS -- the skeleton's update rate, which is not the present rate.
     //
@@ -481,7 +503,9 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     XrFovf monoCapturedFovs[2]{};
     bool monoCapturedViews[2] = {};
     if (monoEnabled) {
+        const uint64_t viewWait = PhaseStart();
         std::lock_guard<std::mutex> viewLock(m_viewMutex);
+        PhaseEnd(2, viewWait);
         if (m_views.size() >= 2) {
             float fovWidth = static_cast<float>(desc.BufferDesc.Width);
             float fovHeight = static_cast<float>(desc.BufferDesc.Height);
@@ -494,7 +518,9 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
             XrPosef renderHeadPose{};
             renderHeadPose.orientation.w = 1.0f;
             {
+                const uint64_t renderWait = PhaseStart();
                 std::lock_guard<std::mutex> renderLock(m_renderPoseMutex);
+                PhaseEnd(3, renderWait);
                 uint32_t renderedSeq = GetRenderedCameraSeq();
                 int idx = renderedSeq % 256;
                 
@@ -696,8 +722,10 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
     }
     bool monoCaptureOk = false;
     if (monoEnabled && backBuffer) {
+        const uint64_t capturePhase = PhaseStart();
         monoCaptureOk = CaptureMonoPresentedFrame(backBuffer, resourceDesc, s_presentCount,
             monoCapturedPoses,monoCapturedFovs,monoCapturedViews,monoCapturedCenters);
+        PhaseEnd(4, capturePhase);
         if (!monoCaptureOk && (s_presentCount % 300) == 1) {
             Log("OpenXRManager: Mono capture failed. serial=%llu views=(%d,%d)\n",
                 static_cast<unsigned long long>(s_presentCount),
@@ -706,13 +734,20 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
         }
     }
 
+    const uint64_t tickPhase = PhaseStart();
     cvr::foveated::Tick(m_d3dDevice,m_d3dQueue);
     cvr::vrs::Tick(m_d3dDevice,m_d3dQueue);
+    PhaseEnd(5, tickPhase);
+    const uint64_t hudPhase = PhaseStart();
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue);
+    PhaseEnd(6, hudPhase);
+    const uint64_t channelPhase = PhaseStart();
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::Interaction);
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::Basilisk);
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::Surveillance);
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::HitMarker);
+    cvr::hud::Capture(m_d3dDevice,m_d3dQueue,cvr::hud::Channel::VehicleMinimap);
+    PhaseEnd(7, channelPhase);
 
     std::unique_lock<std::mutex> presentLock(m_presentMutex);
         if (m_lastPresentedBackBuffer) {

@@ -1,5 +1,78 @@
 # CyberFinger / Quest Pro: resume here
 
+## Current build (2026-11-18)
+
+Loading a saved game was confirmed in the Quest Pro over Steam Link. The
+remaining headset check is **Esc → Exit to Main Menu**. Watch the artwork as
+the lobby loads. It should stay on the anchored panel and give way to the
+immersive lobby. The [investigation](loading-transition-investigation.md)
+includes the captured transition and the handoff correction.
+
+V's mirror proportions improved in the headset. The recorded reflection had
+both wrists crossed and pulled back toward the chest. Both wrists now reach
+their tracked targets to within 1 mm in offline replay of all 16 captured pose
+pairs. In the headset, check hands shoulder-width apart about 40 cm forward,
+then cross them and turn each wrist. A separate CyberFinger correction copies
+the tracked palm orientation and finger rotations on compatible mirror rigs.
+Compare an open palm and a slowly curling index first in front of you, then
+beside the reflection. Log which view shows any remaining twist.
+
+The Nov 18 23:15 crash dump shows an access violation in the game's renderer.
+Both hands had reported optical tracking. The last run ended before a paired
+finger recording, so the connection between the crash and hand tracking is
+unconfirmed.
+
+## Earlier loading pixel diagnostic (2026-11-16)
+
+User confirmed HUD hide/show, fists/melee toggle and native Esc-menu laser work
+in the merged candidate. Save-load transitions still flicker. A complete live
+recording found Loading presentation active continuously, no empty ends, and a
+ready anchored panel. This does not establish that the submitted pixels were
+correct. See the [investigation and next step](loading-transition-investigation.md).
+
+A one-shot image capture build is installed with a verified backup. Only the
+plugin DLL changed, plus an empty `log/loading-capture.request` to arm the next
+load. Five settings/CET files were independently hash-checked unchanged. All 26
+overlay/loading checks and the Release build passed. No rendering fix is claimed.
+
+Current DLL: `91D18B8EBA9150013D83E0DB46D08754A33E8EEE5887FB5C55FBB0D187E16B40`.
+Matching DLL/PDB: `build/loading-diagnostic/package/`. Backup:
+`build/roomscale-plugin-deploy-20261116-004900/`. The prior installed merge's
+symbols are retained in `build/loading-diagnostic/installed-symbols/` for the
+state recording. Do not use those old symbols against the new diagnostic DLL.
+
+Pending user action: launch from GOG and load one save (headset can stay off).
+Then inspect `log/loading-capture/<pid>-<tick>/` for paired window/VR-eye PPMs
+and `frames.jsonl`. The marker is consumed once, and recording stops after that
+load or 60 samples. This work stays on `integration/upstream-0.2.45`; original
+`main` remains unchanged.
+
+## Installed: upstream 0.2.45 integration candidate (2026-11-15)
+
+The user requested a parallel integration branch, then asked to install the
+merged candidate for testing. Worktree: `build/upstream-integration` under the
+original checkout; branch `integration/upstream-0.2.45`. Original `main` remains
+at `af74b88c`. See the [integration report](upstream-0.2.45-integration.md) for
+upstream improvements, compatibility decisions and validation.
+
+- Full Release build, 155 controller/render/UI checks and 15 installer scenarios
+  passed. Two NVIDIA-only framegen tests cannot run on this AMD machine.
+- The complete port plus installed script mods compile with both compilers,
+  with no errors or warnings.
+- Full package installed: 181 changed files, independently hash-verified.
+- VR/CyberFinger/FBT settings and CET bindings are unchanged; CET and the
+  SteamVR driver were not replaced.
+- Package: `dist/CyberpunkVRPort-0.2.45-cyberfinger-upstream` in this worktree.
+- Backup: `build/cyberfinger-install-backups/aaf21d0e41b34e3296f106000ddb0c52/`.
+- DLL SHA256: `7D78E81EA2856E16C29ABE0797F492CE9ABF9FAB76E5CEA9F71EE7B8328E1A55`.
+- Matching symbols: original checkout's `build/up245/bin/red4ext/plugins/cyberpunkvrport/Release/`.
+
+User has since confirmed HUD toggle, melee toggle and Esc-menu laser. Loading
+stereo still needs correction (see current diagnostic status above). Broader
+combat/physical grabs and a performance benefit remain unconfirmed.
+The historical installed loading-r1 notes below describe the pre-merge build;
+do not use its DLL/PDB layouts against the newly installed candidate.
+
 ## Installed: save-load flicker correction (2026-11-15)
 
 User clarified the failure: loading a saved game shows the transition on the

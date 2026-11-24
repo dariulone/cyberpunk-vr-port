@@ -117,12 +117,19 @@ function M.update(dt,player,weapon,position,forward,origin,diag,supportSide,fist
     -- success of a queued game attack. One whoosh per stroke/reversal.
     if canStrike and clock>=s.mute and soundSpeed>=tuning.whooshSpeed and s.soundArmed and clock-s.lastSound>=.12 then
         player:VRMeleeWhoosh(weapon,soundSpeed>=tuning.fastSpeed,strongAttack(weapon,offhand,input[1].z>.5))
-        -- No haptic for a stroke through the air: a blade that meets nothing gives the hand nothing back. The hand
-        -- feels the hit (kMeleeHit), the block and the parry.
+        pcall(function()
+            local amplitude=.45+(.85-.45)*math.min(1,math.max(0,(soundSpeed-tuning.whooshSpeed)/3))
+            SetVRHapticPulse(Game.VRWeaponInLeftHand() and 0 or 1,amplitude,45)
+        end)
         s.soundArmed=false;s.lastSound=clock
         diag.whooshes=(diag.whooshes or 0)+1
     end
     local active=s.episode and clock<=(s.liveUntil or -1)
+    if active and speed>=tuning.swingSpeed and clock-(s.lastHaptic or -10)>=.12 then
+        s.lastHaptic=clock
+        -- As in PR96, this is swing feedback, not confirmed collision telemetry.
+        pcall(function() SetVRHapticPulse(Game.VRWeaponInLeftHand() and 0 or 1,1.0,90) end)
+    end
     if not active then s.episode=false end
     if not offhand or active then
         player:VRMeleeSweepHit(weapon,position,tip,previous.position,previous.tip,fist and .09 or .22,not active)

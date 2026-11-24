@@ -381,6 +381,7 @@ extern volatile float     g_VRIKDbgClav[2][8];
 extern volatile float     g_VRIKDbgChestTgt[3];
 extern int16_t            g_VRBoneParent[VRIK_MAX_BONES]; // metaRig parent index per bone
 extern volatile int       g_VRBoneCount;           // bone count (0 = not resolved)
+extern volatile int       g_VRBodyFemale;          // V's body: 1 a woman's, 0 a man's, -1 not known yet (the rig policy)
 extern volatile int       g_VRFKCount;             // solver-touched bone prefix (0 = full count)
 extern volatile int       g_VRRightUpperArmIdx;    // RightArm  (shoulder joint / upper-arm start)
 extern volatile int       g_VRRightForeArmIdx;     // RightForeArm (elbow)

@@ -1,6 +1,9 @@
 #include "Render/ColorBlit.hpp"
 #include <string>
 #include <algorithm>
+#include <map>
+#include <mutex>
+#include <tuple>
 
 #include <cstdio>
 #include <cstring>
@@ -140,6 +143,8 @@ cbuffer Params : register(b0) {
     float  panelShadow;
     float  panelGlow;
     float  panelEngineCurve;
+    float  windshieldMap;
+    float  windshieldSplit;
 };
 
 // The engine's per-frame constants; frameConst[0].x is the time the flicker runs on. Taking it
@@ -163,6 +168,43 @@ struct VSOut {
 
 float4 PSMain(VSOut input) : SV_Target {
     float2 uv = input.uv;
+    if(windshieldMap > 0.5) {
+        const float split=clamp(windshieldSplit,0.05,1.0);
+        if(uv.y > split) {
+            // The quest text under the map: straight, in its own colours, with a dark rim around the letters (the
+            // brightest of eight texels 2 px away) so they read over a bright street; no box around them.
+            const float4 texel=g_hud.SampleLevel(g_linear,uv,0.0);
+            const float brightest=max(texel.r,max(texel.g,texel.b));
+            const float alpha=smoothstep(0.02,0.18,brightest)*0.97;
+            const float2 px=2.0/float2(targetW,targetH);
+            float rim=0.0;
+            [unroll] for(int i=0;i<8;++i) {
+                const float a=6.2831853*float(i)/8.0;
+                const float3 t=g_hud.SampleLevel(g_linear,uv+float2(cos(a),sin(a))*px,0.0).rgb;
+                rim=max(rim,smoothstep(0.02,0.18,max(t.r,max(t.g,t.b))));
+            }
+            const float backing=0.6*rim*step(split+px.y,uv.y);
+            return float4(texel.rgb/max(brightest,0.001)*alpha*panelBrightness,alpha+backing*(1.0-alpha));
+        }
+        // The map in the top `split` of the canvas, `my` its own height. An inverse trapezoid warp: distant streets
+        // converge while nearby streets remain readable. Keep the native route and markers, but replace the dark map
+        // backing with a frosted one rather than projecting an opaque screen.
+        const float my=uv.y/split;
+        const float halfWidth=lerp(0.30,0.49,my);
+        const float2 mapUV=float2((uv.x-0.5)/(2.0*halfWidth)+0.5,my);
+        const float inside=step(0.0,mapUV.x)*step(mapUV.x,1.0);
+        const float4 texel=g_hud.SampleLevel(g_linear,float2(mapUV.x,my*split),0.0);
+        const float brightest=max(texel.r,max(texel.g,texel.b));
+        const float edge=smoothstep(0.0,0.045,my)*smoothstep(0.0,0.045,1.0-my);
+        const float alpha=smoothstep(0.010,0.09,brightest)*0.95*edge*inside;
+        const float3 light=lerp(float3(0.20,0.88,0.90),texel.rgb/max(brightest,0.001),0.48);
+        // Frosted combiner behind the symbols, soft on every side, as on a real HUD.
+        const float soft=smoothstep(0.0,0.07,mapUV.x)*smoothstep(0.0,0.07,1.0-mapUV.x)*
+            smoothstep(0.0,0.10,my)*smoothstep(0.0,0.10,1.0-my);
+        const float backing=0.5*soft*inside;
+        const float3 frost=float3(0.02,0.06,0.07)*backing;
+        return float4((light*alpha+frost*(1.0-alpha))*panelBrightness,alpha+backing*(1.0-alpha));
+    }
 
     float2 tgt = float2(targetW, targetH);
     bool cbOk = all(abs(hudConst[16].zw - tgt) < 1.0);
@@ -184,8 +226,9 @@ float4 PSMain(VSOut input) : SV_Target {
     float  kBloomL  = cbOk ? hudConst[5].y  : bloomLod;
     float  kVideo   = cbOk ? hudConst[1].z  : 1.0;
     if(layerOnly > 0.5) {kShadowS*=panelShadow;kGlow*=panelGlow;kBloomG*=panelGlow;}
-    // The in-eye block's bend is zeroed under the asymmetric projection; the panel keeps the engine's.
-    if(layerOnly > 0.5 && panelEngineCurve > 0.5) kCurve = curvature;
+    // The in-eye block's bend is zeroed under the asymmetric projection. The panel is flat unless asked to bend with
+    // the engine's values (Render/HudPanel.cpp, CyberpunkVR_HudPanelCurve): the live block may still carry them.
+    if(layerOnly > 0.5) kCurve = panelEngineCurve > 0.5 ? curvature : float2(0.0, 0.0);
 
     // Bisection switches -- see HudParams::debugMode.
     int   dbg    = (int)(debugMode + 0.5);
@@ -317,7 +360,18 @@ float4 PSMain(VSOut i) : SV_Target {
 }
 )";
 
+// ONE COMPILE PER SHADER FOR THE PROCESS. The sources are constants, so the bytecode is too; every ColorBlit (one per
+// HUD slot, the mirror, the menu...) used to compile its own, on the thread that presents: the HUD's slots are remade
+// when the minimap's canvas changes size, which it does on getting into a car and out of it, and the compiles alone
+// were two or three 90-100 ms frames each time (2026-11-14, hitch_profiler: D3DCompile under cvr::hud::Capture).
 bool CompileShader(const char* src, const char* entry, const char* target, ComPtr<ID3DBlob>& out) {
+    static std::mutex cacheMutex;
+    static std::map<std::tuple<const char*, std::string, std::string>, ComPtr<ID3DBlob>> cache;
+    const auto key = std::make_tuple(src, std::string(entry), std::string(target));
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        if (auto it = cache.find(key); it != cache.end()) { out = it->second; return true; }
+    }
     UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
     ComPtr<ID3DBlob> errors;
     HRESULT hr = D3DCompile(src, std::strlen(src), nullptr, nullptr, nullptr,
@@ -329,6 +383,8 @@ bool CompileShader(const char* src, const char* entry, const char* target, ComPt
             errors ? static_cast<const char*>(errors->GetBufferPointer()) : "");
         return false;
     }
+    std::lock_guard<std::mutex> lock(cacheMutex);
+    cache.emplace(key, out);
     return true;
 }
 }
@@ -381,7 +437,10 @@ bool ColorBlit::EnsureInitialized(ID3D12Device* device,
         default:
             break;
     }
-    if (m_device.Get() == device && m_colorFormat == colorFormat && m_width == width && m_height == height && m_pso) {
+    // The size is the viewport and the draws' parameters only: the root signatures, pipelines and heaps stay.
+    if (m_device.Get() == device && m_colorFormat == colorFormat && m_pso) {
+        m_width = width;
+        m_height = height;
         return true;
     }
 
