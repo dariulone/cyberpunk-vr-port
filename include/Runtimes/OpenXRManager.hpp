@@ -78,6 +78,7 @@ struct VRControllerState {
     // Physical CyberFinger buttons, independent of finger-derived world grabs.
     bool     leftGrabButton=false,rightGrabButton=false;
     bool     leftMenuButton=false,rightMenuButton=false; // physical, before gameplay tap/hold conversion
+    uint64_t cameraExitUntil = 0; // StopDeviceControl pulse from physical Right Menu
     bool     leftStickButton=false,rightStickButton=false;
     bool     leftHandValid  = false;
     bool     rightHandValid = false;

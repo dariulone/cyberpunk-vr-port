@@ -1700,12 +1700,14 @@ DWORD OpenXRManager::FrameThreadMain() {
                 const bool gameplayInputActive = (GetInputActionsEnabled() != 0) && (m_thumbstickAction != XR_NULL_HANDLE);
                 VRControllerState ctrl{};
                 bool cfBound=false;
+                bool cfRightMenuActive=false;
                 if(gameplayInputActive && syncRes==XR_SUCCESS) {
                     ctrl.cyberFingerButtons=m_cyberFingerActions.Buttons([&](XrAction action) {
                         XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};gi.action=action;
                         XrActionStateBoolean value{XR_TYPE_ACTION_STATE_BOOLEAN};
                         if(XR_FAILED(xrGetActionStateBoolean(m_session,&gi,&value)))return false;
                         cfBound|=value.isActive!=0;
+                        if (action == m_cyberFingerActions.inventory) cfRightMenuActive = value.isActive != 0;
                         return value.isActive && value.currentState;
                     });
                 }
@@ -2189,15 +2191,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                     ctrl.buttons &= static_cast<uint16_t>(~0x000f); // no D-pad from the same chord
                 }
 
-                // CF has no comfortable grip+stick chord. Tap the right Menu
-                // button for inventory; hold it for OS cyberware instead.
-                static cvr::cyberfinger::MenuTapHold cfMenuButton;
+                static cvr::cyberfinger::RightMenuButton cfMenuButton;
                 const auto cfNow=GetTickCount64();
-                const bool cfMenuAllowed=cyberfinger && gameplayInputActive && GetMenuMode()==0 &&
+                const bool cfMenuAllowed=cyberfinger && cfRightMenuActive &&
+                    m_sessionState==XR_SESSION_STATE_FOCUSED && GetMenuMode()==0 &&
                     !cvr::input::ComputerInputActive() && !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons();
-                const auto cfMenu=cfMenuButton.Step((ctrl.cyberFingerButtons&0x0020)!=0,cfMenuAllowed,cfNow);
-                if(cfMenu.tap)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Inventory);
-                if(cfMenu.hold)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Cyberware);
+                const bool inCamera=cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::SurveillanceCamera;
+                const bool cameraBlocked=inCamera && (ctrl.leftMenuButton || menuRectActive ||
+                    g_uiPopupOpen.load(std::memory_order_relaxed) || cvr::input::KeypadInputActive());
+                const auto cfMenu=cfMenuButton.Step(ctrl.rightMenuButton,cfMenuAllowed && !cameraBlocked,inCamera,cfNow);
+                ctrl.cameraExitUntil=cfMenu.cameraExitUntil;
+                if(cfMenu.inventory)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Inventory);
+                if(cfMenu.cyberware)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Cyberware);
                 // Native menu actions are delivered once by the game-thread Lua
                 // bridge. Start/Back vary with the game's controller scheme.
                 if(cyberfinger)ctrl.cyberFingerButtons&=static_cast<uint16_t>(~0x0020u);

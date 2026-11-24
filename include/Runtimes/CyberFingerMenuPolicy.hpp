@@ -154,6 +154,26 @@ public:
         return {};
     }
 };
+// Both shortcuts start with a fresh press in their own context. Exit on release
+// so a second Menu button can still claim a held press for the HUD chord.
+class RightMenuButton {
+    MenuTapHold gameplay;
+    MenuBackButton camera;
+    uint64_t exitUntil{}, last{};
+public:
+    struct Result { bool inventory{}, cyberware{}; uint64_t cameraExitUntil{}; };
+    Result Step(bool down, bool allowed, bool inCamera, uint64_t now) {
+        const auto shortcut = gameplay.Step(down, allowed && !inCamera, now);
+        if (!allowed || !inCamera || (last && now - last > 250)) {
+            camera = {};
+            exitUntil = 0;
+        } else if (camera.Step(false, down)) {
+            exitUntil = now + 70; // XInput polls independently of OpenXR.
+        }
+        last = now;
+        return {shortcut.tap, shortcut.hold, exitUntil};
+    }
+};
 // The XInput hook and the reload script poll on different clocks. Hold the result
 // briefly so each sees the tap or hold once even when it misses the first poll.
 class FirearmGrip {

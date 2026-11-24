@@ -66,6 +66,28 @@ int main()try {
     button.Step(true,true,900);
     Check(!button.Step(true,true,1700).hold,"pause counted as deliberate hold");
     Check(!button.Step(false,true,1710).tap,"pause replayed inventory tap");
+    RightMenuButton rightMenu;
+    rightMenu.Step(false,true,false,10);
+    rightMenu.Step(true,true,false,20);
+    Check(!rightMenu.Step(true,true,true,30).cameraExitUntil,"held Menu exited on camera entry");
+    Check(!rightMenu.Step(false,true,true,40).cameraExitUntil,"pre-takeover press exited camera on release");
+    for (uint64_t now=50; now<=850; now+=100) {
+        const auto held=rightMenu.Step(true,true,true,now);
+        Check(!held.inventory && !held.cyberware && !held.cameraExitUntil,"held camera Menu fired a shortcut");
+    }
+    auto released=rightMenu.Step(false,true,true,860);
+    Check(released.cameraExitUntil>860 && !released.inventory && !released.cyberware,"camera Menu missed exit");
+    Check(rightMenu.Step(false,true,true,880).cameraExitUntil==released.cameraExitUntil,"exit pulse repeated");
+    Check(!rightMenu.Step(false,true,false,890).cameraExitUntil,"exit leaked back into gameplay");
+    rightMenu.Step(true,true,false,900);
+    Check(rightMenu.Step(false,true,false,910).inventory,"inventory failed after camera exit");
+    rightMenu.Step(false,true,true,920);
+    rightMenu.Step(true,true,true,930);
+    rightMenu.Step(true,false,true,940);
+    Check(!rightMenu.Step(false,true,true,950).cameraExitUntil,"capture or tracking loss turned into exit");
+    rightMenu.Step(true,true,true,960);
+    rightMenu.Step(true,true,false,970);
+    Check(!rightMenu.Step(false,true,false,980).inventory,"camera press opened inventory after external exit");
     ToggleButton scanner;
     Check(!scanner.Step(true,true,10),"held startup toggles scanner");
     scanner.Step(true,false,20);Check(scanner.Step(true,true,30),"scanner press missing");

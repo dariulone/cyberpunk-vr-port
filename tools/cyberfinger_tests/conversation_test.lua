@@ -91,6 +91,11 @@ local menuController={IsA=function(_,name) return name=='gameuiInGameMenuGameCon
   SpawnMenuInstanceEvent=function(_,name) assert(name=='OnOpenPauseMenu');pauseCalls=pauseCalls+1 end}
 Game.VRInkLayer=function() return {GetGameControllers=function() return {menuController} end} end
 spdlog={error=function(message) error(message) end}
+local device
+Game.GetScriptableSystemsContainer=function() return {Get=function(_,name)
+  assert(name=='TakeOverControlSystem')
+  return {GetControlledObject=function() return device end}
+end} end
 enabled=true
 menuCommand=1;events.onUpdate();events.onUpdate();assert(inventoryCalls==1 and pauseCalls==0,'inventory became pause or repeated')
 menuCommand=2;events.onUpdate();assert(pauseCalls==1,'black hold did not open native pause')
@@ -102,6 +107,19 @@ inMenu=true;menuCommand=5;events.onUpdate();inMenu=false;assert(gearToggles==1,'
 paused=true;menuCommand=3;events.onUpdate();assert(cyberwareCalls==1,'OS action leaked through pause');paused=false
 inMenu=true;menuCommand=1;events.onUpdate();assert(inventoryCalls==1,'command replaced an active game menu');inMenu=false
 enabled=false;menuCommand=1;events.onUpdate();enabled=true;events.onUpdate();assert(inventoryCalls==1,'command leaked across controller change')
+
+device={IsA=function(_,class) return class=='SurveillanceCamera' end}
+menuCommand=1;events.onUpdate()
+assert(uiState==5 and inventoryCalls==1,'camera takeover allowed a queued inventory tap')
+menuCommand=3;events.onUpdate();assert(cyberwareCalls==1,'camera takeover allowed OS cyberware')
+inMenu=true;events.onUpdate();assert(uiState==0,'camera claimed a native menu')
+inMenu=false;enabled=false;events.onUpdate();assert(uiState==0,'camera claimed another controller')
+enabled=true;initialized.ShardNotificationController(controller);events.onUpdate()
+assert(uiState==4,'camera took priority over the shard reader')
+uninitialized.ShardNotificationController(controller)
+device={IsA=function(_,class) return class=='SecurityTurret' end}
+events.onUpdate();assert(uiState==0,'another controlled device claimed the camera shortcut')
+device=nil;events.onUpdate();assert(uiState==0,'camera context persisted after exit')
 
 local closeCount=0
 local function newShard()

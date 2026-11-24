@@ -100,6 +100,17 @@ int main() {
         check(ControlHint("StopDeviceControl",false,s) == "Either Menu");
         s.computer = false;
         s.scanner = true;
+        s.context = MenuContext::SurveillanceCamera;
+        check(ControlHint("StopDeviceControl",false,s) == "Right Menu");
+        s.scanner = false;
+        check(ControlHint("StopDeviceControl",false,s) == "Right Menu");
+        check(ControlHint("IconicCyberware",true,s).empty());
+        s.sources &= ~RightMenu;
+        check(ControlHint("StopDeviceControl",false,s).empty());
+        s.sources = ~0u;
+        s.context = MenuContext::General;
+        s.scanner = true;
+        check(ControlHint("StopDeviceControl",false,s).empty());
         check(ControlHint("UI_ApplyAndClose",false,s) == (left ? "Left Trigger" : "Right Trigger"));
         check(ControlHint("UI_MoveUp",false,s).empty());
         s.scanner = false;

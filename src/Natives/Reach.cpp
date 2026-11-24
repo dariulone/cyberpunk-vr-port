@@ -214,7 +214,7 @@ void VRCyberFingerUiState(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,void
     int32_t context=0;bool interaction=false;
     RED4ext::GetParameter(frame,&context);RED4ext::GetParameter(frame,&interaction);++frame->code;
     using cvr::cyberfinger::MenuContext;
-    const auto menu = context >= 0 && context <= static_cast<int>(MenuContext::ShardReader)
+    const auto menu = context >= 0 && context <= static_cast<int>(MenuContext::SurveillanceCamera)
         ? static_cast<MenuContext>(context) : MenuContext::General;
     cvr::cyberfinger::UiTick(menu,interaction);
 }

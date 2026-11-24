@@ -18,7 +18,7 @@ float HudScale();
 enum class Command { None, Inventory, Pause, Cyberware, MeleeToggle, ToggleWornGear, DrawFists, CloseShard };
 void RequestCommand(Command);
 Command TakeCommand();
-enum class MenuContext { General, Map, Journal, PictureFrame, ShardReader };
+enum class MenuContext { General, Map, Journal, PictureFrame, ShardReader, SurveillanceCamera };
 void UiTick(MenuContext context,bool interaction);
 MenuContext Context();
 bool InteractionActive();

@@ -2,6 +2,7 @@
 -- conversation controls. Non-CyberFinger controllers never enter this path.
 local controllers={}
 local shardContext = 4
+local cameraContext = 5
 local publishedShard
 local meleeToggle=require('melee_toggle')
 local hudHints=require('hud_hints')
@@ -28,6 +29,12 @@ registerForEvent("onInit",function()
     end)
   end
 end)
+local function controllingCamera()
+  local systems=Game.GetScriptableSystemsContainer()
+  local takeover=systems and systems:Get(CName.new('TakeOverControlSystem'))
+  local device=takeover and takeover:GetControlledObject()
+  return device and device:IsA('SurveillanceCamera')
+end
 local function publishUi(enabled)
   if type(VRCyberFingerUiState)~='function' then return end
   local context,interaction=0,false
@@ -38,6 +45,13 @@ local function publishUi(enabled)
       pcall(function()
         local c=controllers[id];local root=c and c:GetRootWidget()
         if root and visible(root) then context=id end
+      end)
+    end
+    if context==0 then
+      pcall(function()
+        if not controllingCamera() then return end
+        local ui=GetAllBlackboardDefs().UI_System
+        if not Game.GetBlackboardSystem():Get(ui):GetBool(ui.IsInMenu) then context=cameraContext end
       end)
     end
     pcall(function()
@@ -99,6 +113,8 @@ local function command(enabled)
     if Game.GetSystemRequestsHandler():IsGamePaused() then return end
     local defs=GetAllBlackboardDefs().UI_System
     if Game.GetBlackboardSystem():Get(defs):GetBool(defs.IsInMenu) then return end
+    -- The player may have taken control since OpenXR queued the shortcut.
+    if (action==1 or action==3) and controllingCamera() then return end
     if action==5 then
       local holster=GetMod('CyberpunkVRPort_Holster')
       if holster and holster.toggleWornGear then holster.toggleWornGear() end

@@ -115,6 +115,8 @@ inline std::string ControlHint(std::string_view action, bool hold, const HintLay
         if (action == "UI_ScrollVertically") return s.leftMouse ? button(LeftStick,"Left Stick Up/Down") : button(RightStick,"Right Stick Up/Down");
         return {};
     }
+    if (s.context == MenuContext::SurveillanceCamera && action == "StopDeviceControl")
+        return button(RightMenu, "Right Menu");
     if (s.scanner) {
         if (action == "VisionHold" || action == "VisionToggle") return button(LeftGrip,"Left Grip");
         if (action == "UI_ApplyAndClose") return trigger(s.leftMouse);
@@ -169,7 +171,8 @@ inline std::string ControlHint(std::string_view action, bool hold, const HintLay
         return s.leftWeapon ? button(RightBlack, "Tap Right Black Wrist") : button(LeftBlack, "Tap Left Black Wrist");
     if ((!s.seated || s.driving) && (action == "UseConsumable" || action == "UseConsumable_Tutorial"))
         return button(RightBlackHold, "Hold Right Black Wrist");
-    if (!s.seated && action == "IconicCyberware") return button(RightMenu, "Hold Right Menu");
+    if (!s.seated && s.context != MenuContext::SurveillanceCamera && action == "IconicCyberware")
+        return button(RightMenu, "Hold Right Menu");
     if (s.vehicleFire && (action == "UI_FakeRangedAttack" || action == "RangedAttack"))
         return s.leftWeapon ? button(LeftTrigger, "Left Trigger") : button(RightTrigger, "Right Trigger");
     if (!s.seated && (s.foot & Walking)) {

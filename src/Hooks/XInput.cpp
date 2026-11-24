@@ -619,6 +619,11 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         // Bypass the port's gameplay X/Y remaps (reload/weapon wheel). These
         // are the game's own Choice1/Choice2 actions, including hold duration.
         if(cfInteract)pState->Gamepad.wButtons|=cfInteractionButtons;
+        // StopDeviceControl uses game B, after handedness and the physical reload remap.
+        if (handInput.cameraExitUntil && GetTickCount64() < handInput.cameraExitUntil &&
+            g_menuModeValue == 0 && !g_uiPopupOpen.load(std::memory_order_relaxed) && !cvr::input::KeypadInputActive() &&
+            cvr::cyberfinger::Context() == cvr::cyberfinger::MenuContext::SurveillanceCamera)
+            pState->Gamepad.wButtons |= XINPUT_GAMEPAD_B;
         if(driverPedals) {
             cvr::cyberfinger::MergeDriverPedals(pState->Gamepad,nativePad,
                 FloatToBYTE(-cfDrivingInput.pedal),FloatToBYTE(cfDrivingInput.pedal));
