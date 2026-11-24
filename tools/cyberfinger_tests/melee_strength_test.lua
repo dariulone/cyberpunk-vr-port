@@ -36,7 +36,9 @@ for _,hz in ipairs({30,90}) do
             VRCyberwareContacts=function(_,weapon,hand,p,op,radius,passive)
               if not passive then contacts=contacts+1 end
             end}
-          local weapon={VRMeleeReach=function() return 1 end}
+          WeaponObject={IsOfType=function(id,kind)return id==kind end}
+          gamedataItemType={Wea_Katana="katana"}
+          local weapon={GetItemID=function()return "club" end,VRMeleeReach=function() return 1 end}
           package.loaded.ordinary_melee=nil;package.loaded.cyberware=nil
           local module=require('cyberware')
           local function tick(speed)

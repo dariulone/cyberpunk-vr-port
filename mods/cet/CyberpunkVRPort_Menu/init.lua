@@ -88,6 +88,7 @@
 
 local Menu = require("modules/menu")
 local Wheel = require("modules/wheel")
+local TutorialCard = require("modules/tutorial_card")
 local shared = { menuController = nil }
 
 local function hotLoad()
@@ -120,15 +121,18 @@ registerForEvent("onInit", function()
     ObserveAfter("gameuiInGameMenuGameController", "OnInitialize", function(self) shared.menuController = self end)
   end)
   Menu.init(shared)
+  TutorialCard.init()
   print("[VRMenu] ready")
 end)
 
 registerForEvent("onUpdate", function(dt)
   Menu.update(dt)
   Wheel.update(dt, Menu.isOpen())
+  TutorialCard.update(dt)
 end)
 
 registerForEvent("onShutdown", function()
+  TutorialCard.release()
   Wheel.release()
   Menu.release()
 end)

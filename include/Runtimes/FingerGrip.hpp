@@ -68,6 +68,7 @@ void SetGripFromFingers(bool on);
 // ring, little; 0 = straight, 1 = fully bent. False until that hand has sent finger data; then the last values.
 // Any thread.
 bool TrackedCurl(int hand, float curl[5]);
+bool BothGripsFresh();
 // The finger spread for V's hand (xr_finger_spread): thumb-index, index-middle, middle-ring, ring-little, 0 touching ..
 // 1 apart, measured from the hand joints. False when none is fresher than 250 ms. Any thread.
 bool TrackedSplay(int hand, float splay[4]);

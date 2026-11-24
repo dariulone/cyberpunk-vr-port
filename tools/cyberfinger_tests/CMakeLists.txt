@@ -83,4 +83,20 @@ if(LUA_SOURCE_DIR)
     add_test(NAME cyberfinger_hud_hint_rows COMMAND cyberfinger_lua
         ${CMAKE_CURRENT_LIST_DIR}/hud_hints_test.lua
         ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_CyberFinger/hud_hints.lua)
+    add_test(NAME cyberfinger_katana_offhand COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/katana_offhand_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_Weapon/)
+    add_test(NAME cyberfinger_mirror_gear COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/mirror_gear_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_VRIK/modules/mirror_gear.lua)
+    add_test(NAME cyberfinger_grenade_placement COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/grenade_placement_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_TacticalBelt/)
+    add_test(NAME cyberfinger_katana_scabbard COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/scabbard_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_Holster/)
+    add_test(NAME cyberfinger_tutorial_and_holster COMMAND cyberfinger_lua
+        ${CMAKE_CURRENT_LIST_DIR}/tutorial_card_test.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_Menu/modules/tutorial_card.lua
+        ${CMAKE_CURRENT_LIST_DIR}/../../mods/cet/CyberpunkVRPort_Holster/modules/placements.lua)
 endif()

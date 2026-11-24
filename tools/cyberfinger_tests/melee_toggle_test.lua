@@ -46,4 +46,14 @@ swimming=1;toggle(nil);swimming=0;device=true;toggle(nil);device=false
 slots={'gun'};toggle(nil) -- scripted weapon outside the loadout is left alone
 slots={'sword','knife'};active='knife';module.observe(player);module.observe(nil)
 active='fists';toggle('sword') -- new player/session cannot inherit the old remembered knife
+active=nil
+local occupied=false
+GetMod=function()return nil end
+player.VRHasDrawnCombatItem=function()return occupied end
+local before=#requests
+assert(module.toggle(player,true) and #requests==before+1 and requests[#requests].itemID=='fists')
+occupied=true;assert(not module.toggle(player,true));occupied=false
+active='gun';assert(not module.toggle(player,true));active=nil
+baseFists={'arms'};assert(not module.toggle(player,true))
+assert(#requests==before+1,"fist shortcuts fell back to another item")
 print('CyberFinger melee/fists equipment toggle passed')

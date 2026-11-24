@@ -1,9 +1,10 @@
 # CyberFinger + Cyberpunk VR: quick start
 
-For this checkout's **Quest Pro + Steam Link + CyberFinger** setup, with an
-**AMD RX 7900 XT**, a **left-handed weapon**, and optional eight-tracker SlimeVR.
-Controls below assume the **CyberFinger CyberpunkVRPort** SteamVR binding and
-**Left-handed bindings: Same as right-handed**.
+Quick start for **CyberFinger + SteamVR** with either weapon hand. Both layouts
+use the **CyberFinger CyberpunkVRPort** SteamVR binding. Read the shared controls
+first, then the right-handed assignments and the left-handed differences.
+This checkout's installer defaults to a **left-handed weapon**. The setup used
+here is a Quest Pro over Steam Link, an AMD RX 7900 XT and optional eight-tracker SlimeVR.
 
 **Need settings right now? Press F10.** For snap turning:
 **Controls > General > Turning (right stick) > Snap turn**, then **Save**.
@@ -11,6 +12,8 @@ Controls below assume the **CyberFinger CyberpunkVRPort** SteamVR binding and
 [Next-session TODO and installation status](docs/cyberfinger-session-todo.md).
 
 ### CyberFinger controls
+
+[See the illustrated controls for each context.](#buttons-at-a-glance)
 
 These changes apply only when this profile is configured **and CyberFinger's
 named actions are bound to an active controller**. Other controllers retain the
@@ -48,6 +51,7 @@ fight each other, and entering a menu with a held control must not click it.
 **Pointing or highlight navigation:** move the left stick to navigate the
 highlight; either trigger activates it. Deliberately move your pointing hand
 to resume laser selection. The right stick changes tabs without a modifier.
+In **Esc > Load Game** and other scrollable pause-menu lists, hold the physical **right stick up/down** to scroll. The left stick moves the highlight and either Trigger selects it. Both weapon-hand layouts use the same controls.
 In the world-space VR menu and F10, right stick up/down scrolls the pointed list.
 For the original game menus, keep Cyberpunk's PC window in the foreground for
 laser clicks. F10's title strip is the move handle: point at it, hold that
@@ -64,7 +68,7 @@ Menu for B; holding both Menu buttons toggles the HUD without also sending B.
 Esc/pause, inventory, map/journal and PgUp's native character editor use a
 visible hand laser like CET and F10. It ends at the same point that moves the
 mouse cursor, including empty areas between controls. It starts from your
-configured weapon hand (left for this preset). Pointing outside the canvas
+configured weapon hand. Pointing outside the canvas
 keeps a short aiming beam; moving back onto it resumes the cursor. Joystick
 highlight navigation or physical mouse control hides the beam until hand
 pointer control resumes. Closing the menu or losing hand tracking hides it.
@@ -104,27 +108,30 @@ settings. Grip with the laser right-clicks and opens panel options such as
 **Recenter panel**. Grip on the title handle still moves the panel. Stick
 navigation stays captured while menus are open, so it does not move or turn V.
 
-**Left-handed pointing:** F10 prefers your configured weapon hand, so the
-left-handed preset starts with the left laser. Either hand can take over by
-pressing its trigger. CyberFinger ignores the older F10 pointer-hand override.
+**F10 pointing:** either hand can take over by pressing its Trigger. The laser
+starts on the right for a right-handed weapon and on the left for a left-handed
+weapon. CyberFinger ignores the older F10 pointer-hand override.
 
-**Conversation choices:** **right stick up/down** selects the previous/next
-choice; **right trigger** confirms, regardless of weapon handedness. **Left
-stick still moves**, and **right stick left/right
-still turns** wherever the game permits movement. Only right-stick vertical
-actions (dash/dodge, crouch or pitch) and the right trigger's normal aim/fire
-action are reserved. Release/center those controls after the choices close
-before they resume gameplay. Held controls on entry cannot select immediately.
+**Conversation choices.** Move the **right stick up/down** to highlight a reply,
+then press **either Trigger** to confirm it. This works with either weapon hand.
+While driving, **right stick click** also confirms. On foot, the **left stick**
+still moves and **right stick left/right** still turns wherever the scene allows.
+A Trigger already held when the choices appear needs a fresh press. After the
+choices close, release each held Trigger and center the stick to resume their gameplay actions.
 Ordinary nearby interaction prompts do not activate this dialogue layout.
 
 **CyberFinger button hints.** When the game is showing controller hints, supported
 HUD rows add the physical control in brackets after the action. In the driver's
 seat, look for **[Tap Left Menu]** to draw and **[Hold Left Grip 0.4 s]** to exit.
-On foot, quick reload shows **[Tap Right Black Wrist]** for a left-handed weapon
-and **[Tap Left Black Wrist]** for a right-handed weapon. Nearby primary and
+On foot, quick reload shows **[Tap Left Black Wrist]** for a right-handed weapon
+and **[Tap Right Black Wrist]** for a left-handed weapon. Nearby primary and
 secondary choices name the Trigger or Grip on the hand opposite the movement
-stick. A selected dialogue choice names **Right Trigger** and, for multiple
+stick. A selected dialogue choice names **Either Trigger** and, for multiple
 choices, **Right Stick Up/Down**.
+
+Native menu hint rows also show CyberFinger controls. On the map, **Track waypoint** names your weapon-hand Grip and **Jump to V** names the other Trigger. In the journal, that other Trigger sorts. In the wardrobe, **Preview** uses Grip. In the apartment picture frame, **Confirm** uses Trigger and **Remove** uses Grip.
+
+While driving, **Accelerate** and **Brake** name right-stick travel. **Handbrake** names **Right Stick Click**. Driver dialogue shows **Either Trigger or Right Stick Click**. With a gun drawn, aim and fire name their own triggers. The katana hint shows which hand can take the lower hilt, or **Swing either katana** when both are drawn. F10 and the world-space VR menu share the **Bindings** page, which also covers scabbard return, computers, the scanner and CET panels.
 
 These labels use the active OpenXR bindings and the game's current action.
 The first version recognizes English SteamVR and CyberFinger control names.
@@ -132,8 +139,9 @@ After using the desktop mouse or keyboard, move a CF stick to bring back the
 controller prompts.
 Keyboard prompts, unsupported actions, button combinations, and controls whose
 physical assignment SteamVR cannot confirm keep their usual hints. The original
-icons and hold indicators stay visible. This applies to the gameplay HUD and
-choice lists. A mod that draws its own interface supplies its own prompts.
+icons and hold indicators stay visible. A native menu laser can keep its CyberFinger
+hints while moving the mouse cursor. Supported text-only VR tutorial cards use
+the same labels. A mod that draws its own interface supplies its own widget text.
 
 **HUD:** the main HUD and interaction panel are 25% larger by default. Hold
 **both Menu buttons for about half a second** to hide/show them; release both before
@@ -188,8 +196,9 @@ preset, pass `-ResetHudDefaults` to the installer. F10's **Reset element** and
    **CyberFinger CyberpunkVRPort** layout. OpenXR actions become available when
    the game initializes VR. A saved custom layout takes priority over driver
    defaults; normal launches reuse your selection.
-5. If first-run setup asks, choose **Left hand**, then **Same as right-handed**
-   for bindings. Point at a choice and squeeze that hand's trigger to select.
+5. If first-run setup asks, point and press Trigger to choose your weapon hand.
+   Choose **Right hand** for a right-handed weapon. For a left-handed weapon,
+   choose **Left hand**, then **Same as right-handed** to match the diagrams.
    Load a save or start a game. Full-body calibration needs a loaded game.
 6. Face your intended forward direction and press **F7** to recenter. Open and
    close your hands: V's fingers should follow before you rely on finger grabs.
@@ -211,41 +220,94 @@ path can be checked.
 
 ## Buttons at a glance
 
-![Left-handed CyberFinger controls. Hold the left stick fully forward to sprint. Tap and release its click to jump, or hold the right stick click for a charged jump.](docs/controls/cyberfinger-controls.svg)
+Find the numbered control on the **physical left or right CyberFinger**. In each image, **white** text applies to both weapon hands. **Blue (RH)** shows the right-handed assignment, followed by **pink (LH)** for the left-handed difference. Both layouts use the same SteamVR binding. The diagrams assume full-forward sprint and **Same as right-handed** bindings when using a left-handed weapon.
 
-The figure shows the **sprint/jump update** with **Sprint** set to **Hold the left stick forward**.
-Earlier builds use left stick click for sprint and right stick click for jump.
+[Shared controls](#shared-controls) · [Weapon-hand differences](#weapon-hand-differences) · [Diagrams by context](#diagrams-by-context)
 
-[Open the context-switching guide](docs/controls/cyberfinger-controls.html) locally
-in a browser for **Gameplay**, **Cyberpunk menus**, **VR menus / F10**,
-**Conversation choices**, **Map / journal**, **Computer**, and
-**Apartment picture frame** diagrams.
-It uses the existing controller illustrations from the CyberFinger driver repo.
+#### Shared controls
 
-Left/right mean your **physical** hands. The **Menu** buttons are the buttons
-Resonite assigns to its dial/menu function; there is no rotary dial to turn.
-The physical grip buttons are utilities. **Closing your fingers supplies grab.**
-
-| Control | Action with the left-handed preset |
+| Context | Both weapon hands |
 |---|---|
-| Left stick | Move at partial travel. Hold fully forward for about 0.2 seconds to sprint |
-| Left stick click | Tap and release to jump on foot. Hold and push the right stick for a D-pad shortcut |
-| Right stick left/right | Turn; snap turning requires a full push, then return toward center |
-| Right stick up / down past 80% travel | Dash or dodge / toggle crouch; release to center between crouch toggles |
-| Right stick click | Jump; hold for charge jump where available |
-| Left trigger | Fire; throttle when driving without a drawn weapon |
-| Right trigger | Aim/block; brake when driving |
-| Left physical grip button | On foot: toggle scanner. In a vehicle: hold 0.4 s to exit. In native menus: X / context action |
-| Right physical grip button | With fists/melee equipped: toggle fists ↔ equipped melee weapon; with a firearm: R3 slide release/rack. Secondary/context action in menus (X in native menus) |
-| Left Menu, tap / hold | Next weapon / weapon wheel in gameplay; Back/cancel on release in menus |
-| Right Menu, tap / hold | Inventory on release / operating-system cyberware after 0.65 s in gameplay; Back/cancel on release in menus |
-| Left black wrist, short press | Eject magazine from the weapon |
-| Right black wrist, short press | Quick reload |
-| Left black wrist, hold | Pause menu |
-| Right black wrist, hold | Use equipped healing item |
-| Left pink wrist | SteamVR dashboard |
-| Right pink wrist | Open/close the world-space VR menu |
-| Close fingers near a target / open hand | Grab / release |
+| Walking | With the gun holstered, left stick moves and right stick turns. Partial travel walks. Hold the movement stick fully forward for about 0.2 s to sprint. |
+| Turning and jumping | On the turn stick, push sideways to turn, forward to dash/dodge, or back to crouch. Dash and crouch trigger past 80% travel. Center the stick before repeating. Left stick click jumps on release. Right stick click jumps on press and can charge a jump while held. |
+| Taking, using and scanning | At a prompt, right Trigger takes/interacts and right Grip eats/uses. In exploration, left Grip toggles the scanner. In the scanner, push the left stick fully up/down to page quickhacks and press right Trigger to confirm. |
+| Firearms and melee | With empty hands and Offensive mode on, press and release the weapon-hand Trigger alone to draw. With a gun drawn, tap right Grip to crouch or hold it for 0.65 s to close a locked slide or operate a supported revolver hammer. With a katana, one-handed swings are fast and two-handed swings are strong. For fists and other melee, either Trigger modifies swing strength. |
+| Driving and driver combat | Steer with the left stick or grab the wheel. Right stick forward gives analog gas, back brakes/reverses, and center coasts. Click it for the handbrake. Tap right Grip to cycle view, hold left Grip for 0.4 s to exit, and tap right pink for the VR menu. |
+| Conversation choices | Right stick up/down highlights. Either Trigger confirms. While driving, right stick click also confirms. |
+| Native menus | Left stick navigates highlights. Right stick sideways changes tabs, including on the map. Trigger selects, Grip performs the secondary action and either Menu goes back. Map and journal shortcuts are listed below. |
+| Computers | Aim with the right hand. Right Trigger clicks, right Grip goes back and right stick up/down scrolls. Either Menu exits. |
+| Menu and wrist shortcuts | Hold left black to pause or right black to heal, on foot or driving. Left Menu tap/hold cycles weapons or opens the wheel. Right Menu tap/hold opens inventory or activates OS cyberware. Hold both for 0.5 s to toggle the HUD. Left pink opens SteamVR. Right pink opens the VR menu. |
+| Physical grabs | Close your fingers near a grabbable object, then open your hand to release it. **Grip** in the diagrams means the physical button. **Menu** is the ring button Resonite uses for its dial. |
+
+<a id="left-handed-and-right-handed-weapons"></a>
+
+#### Weapon-hand differences
+
+| Control or context | Right-handed weapon (RH) | Left-handed weapon (LH) |
+|---|---|---|
+| Gun drawn on foot | Left stick moves/strafes, right turns. Right Trigger fires, left aims. | Right stick moves/strafes, left turns. Left Trigger fires, right aims. Center the sticks after drawing or holstering to engage their new roles. |
+| Physical reload | Left hand grabs the magazine or chamber handle. | Right hand grabs it. |
+| Black wrist taps with a gun drawn, on foot or driving | Right ejects. Left quick-reloads. | Left ejects. Right quick-reloads. |
+| Driver triggers | Right draws or fires. Left sounds the horn while unarmed and aims with a gun drawn. | Left draws or fires. Right sounds the horn while unarmed and aims with a gun drawn. |
+| Fists and melee | Left Grip switches between fists and equipped melee. This takes priority over the scanner while the melee toggle is available. | Right Grip switches between fists and equipped melee. Left Grip operates the scanner. |
+| Native menu, picture frame and F10 lasers | The laser starts on the right. | The laser starts on the left. |
+| Map and journal | Right hand points and selects. Right stick up/down zooms the map. Right Grip tracks a waypoint. Left Trigger jumps to V or sorts the journal. Left Grip opens the journal from the map. | Left hand points and selects. Left stick up/down zooms the map. Left Grip tracks a waypoint. Right Trigger jumps to V or sorts the journal. Right Grip opens the journal from the map. |
+| CET windows | Right hand starts with the laser and scrolls. Left stick changes tabs. | Left hand starts with the laser and scrolls. Right stick changes tabs. |
+
+When you transfer the CET laser, scrolling follows the new laser hand and tab switching follows the opposite hand. For a different left-handed layout, **Left stick walks, buttons mirrored** swaps the native face buttons. **Left stick turns, buttons mirrored** also swaps the native sticks and their clicks, so the right stick normally walks and the left hand operates computers and nearby prompts.
+
+#### Diagrams by context
+
+[Normal](#normal-on-foot) · [Gun combat](#gun-combat) · [Melee](docs/controls/cyberfinger-melee.svg) · [Car](#car) · [Car + combat](#driver-combat)
+
+#### Normal on foot
+
+![On foot with the weapon holstered. Move with the left stick. At a prompt, right Trigger takes or interacts and right Grip eats or uses.](docs/controls/cyberfinger-controls.svg)
+
+#### Gun combat
+
+![Firearm controls for both weapon hands. With a right-handed gun, move on the left stick and fire with right Trigger. With a left-handed gun, move on the right stick and fire with left Trigger.](docs/controls/cyberfinger-combat.svg)
+
+[Fists and melee diagram](docs/controls/cyberfinger-melee.svg) · [Katana diagram](docs/controls/cyberfinger-katana.svg) · [Scanner and quickhacks diagram](docs/controls/cyberfinger-scanner.svg)
+
+#### Car
+
+In both driver-seat contexts, use the right stick like a two-way pedal. Move it partway for partial gas or braking. Release it to coast.
+
+![In the driver’s seat, steer with the left stick or grab the wheel. Right stick forward accelerates and back brakes or reverses. Weapon Trigger draws, off-hand Trigger sounds the horn, right Grip cycles view.](docs/controls/cyberfinger-car.svg)
+
+#### Driver combat
+
+![Driving with a gun drawn. Right stick controls gas and brake, weapon Trigger fires and off-hand Trigger aims. Right Grip cycles the camera. The black wrist taps eject and reload.](docs/controls/cyberfinger-car-combat.svg)
+
+#### Gamepad D-pad shortcuts
+
+Center the right stick, **hold the physical left stick clicked in**, and push the right stick toward one of the four directions. Hold that direction for a hold action. Release the left click and center the right stick before resuming throttle or brake. The diagrams above show the corresponding gamepad cross with the active direction highlighted.
+
+| D-pad | On foot or in combat | Driving or driver combat |
+|---|---|---|
+| ↑ Up | With empty hands, toggle **Offensive mode**. With a weapon, fists or grenade drawn, put everything away and switch the mode off. | Use the equipped healing item where available |
+| ↓ Down | Open the current notification or message. Hold for the phone when available. | Phone or current notification when available |
+| ← Left | Pocket radio. Hold for radio selection. | Cycle vehicle lights. Supported vehicles also offer a siren or customization on this direction. |
+| → Right | Call the vehicle. Hold for vehicle selection. | Cycle camera view. Tapping right Grip sends the same direction. |
+
+**Offensive mode** starts on for a new installation. On foot, center the right stick, hold the left stick click and push the right stick up once. If you're armed, this puts away both hands, including a held grenade. Once the HUD shows **Offensive mode OFF**, look down in FBT or look at V in a mirror to see V’s outfit, including any belt that belongs to the clothing. The tactical belt itself disappears along with its pouches, ammunition, grenade, holsters and scabbards. With gear hidden, Trigger still interacts and confirms. Empty-hand Trigger draw and belt pickups are disabled.
+
+Repeat the shortcut with empty hands to restore your gear permanently. If you leave the mode off and draw a gun, melee weapon, fists or grenade through the wheel or a game action, your gear appears temporarily. Putting the last item away restores your saved preference. If you left the mode on, holstering normally keeps the belt visible. Hold the **right black wrist button** to heal on foot.
+
+**Left-handed CyberFinger grenade pickup.** On the port's tactical belt, the grenade sits at the front right. Reach across with your left hand and close it at the holder. Either hand can pick it up, and the prop follows the hand that took it.
+
+The game chooses the action for the active screen, equipment and vehicle. Native menus use left-stick focus and right-stick tabs directly. Dialogue uses right-stick up/down directly. Neither requires holding left click.
+
+#### Menu and interaction diagrams
+
+| Context | Open the diagram |
+|---|---|
+| Conversations and devices | [Dialogue choices](docs/controls/cyberfinger-dialogue.svg) · [Computer](docs/controls/cyberfinger-computer.svg) · [Apartment picture frame](docs/controls/cyberfinger-picture-frame.svg) |
+| Original game menus | [Esc, inventory and wardrobe](docs/controls/cyberfinger-game-menus.svg) · [Map](docs/controls/cyberfinger-map.svg) · [Journal](docs/controls/cyberfinger-journal.svg) |
+| VR and mod panels | [VR menu](docs/controls/cyberfinger-vr-menu.svg) · [F10 settings](docs/controls/cyberfinger-f10.svg) · [CET windows](docs/controls/cyberfinger-cet.svg) |
+
+To switch among all the diagrams offline, open the [controller guide](docs/controls/cyberfinger-controls.html) in a browser.
 
 About three-quarters forward gives you ordinary movement, just as on Quest.
 The left click jumps on release so you can use a D-pad shortcut without jumping.
@@ -263,11 +325,7 @@ utilities resume. Outside an interaction prompt, normal weapon controls return.
 In standard menus, either laser hand's Trigger selects except for the explicit
 map/journal off-hand Tab shortcut above.
 
-Black wrist **short presses register on release**. Holding a black button
-produces its hold action instead. Black-button roles follow the configured
-weapon hand, independently of stick mirroring: **weapon hand = eject / pause;
-other hand = quick reload / heal**. For a right-handed weapon these four black
-assignments swap sides. Pink buttons stay fixed. Use the default v2 binding;
+Black wrist **short presses register on release**. With a gun drawn, tap the weapon-side wrist to eject where supported, or tap the other wrist to quick-reload. An empty hand has no magazine to eject. With either weapon hand, **hold left black to pause and right black to heal**. A hold consumes the tap. Pink buttons stay fixed. Use the default v2 binding;
 the older optional *pink pause* variant is not this layout.
 
 | Shortcut | Action |
@@ -393,29 +451,73 @@ panels. Keyboard text entry still uses the keyboard. See
   Menu. The mod's VR wheel is controlled by **Controls > VR weapon wheel on a held Y**.
 - **Holsters/support:** reach to a holster and close the drawing hand. To support
   a gun, bring the free hand to its support point and close it; open to release.
-  **Gesture holstering is off by default** on CyberFinger so reaching across to a
-  wrist button keeps your weapon equipped. To enable it, open **F10** or the
-  **VR menu > Settings**, then **Controls > General > CyberFinger gesture holstering**.
-  With it enabled, close the weapon hand at its holster to put it away. In simple
-  holster mode, reach within **12 cm** of a hip or shoulder. You can draw from
-  holsters with either setting.
-- **Reload:** tap the weapon-hand black wrist (left by default) to eject on weapons with physical reload
-  support, grab the magazine
-  with your free hand, move it out/in along the magazine well, and rack the slide
-  as required. **Right physical grip** provides the R3 slide-release action.
-  On the **Militech Crusher**, an empty reload highlights the charging handle
-  after the magazine seats. Open your **free hand** (right for a left-handed V),
-  reach to the highlighted handle, close your fingers, pull back and open to
-  release. The free-hand Trigger also works there. A partial reload skips this step.
-  Amber highlights indicate the magazine/slide needing attention.
-  Tap the **other-hand black wrist** (right by default) for the game's quick
-  reload; keyboard **R** also works. Hold that other-hand black button to heal.
+  **Gesture holstering defaults to Off for guns and On for swords and other melee weapons.**
+  Open **F10** or **VR menu > Settings**, then **Controls > General**. Set
+  **CyberFinger gun gesture holstering** and **CyberFinger melee gesture holstering** independently.
+  On upgrade, your previous gesture holstering choice carries over to guns.
+  Under **CyberFinger holster types**, turn each body holster on or off. With an enabled immersive holster you can reach to draw even when gesture holstering is off. Switching a type off removes its worn weapon and holder and disables drawing or returning it there. The wheel and inventory still work.
+
+  | Holster switch | Includes | Default |
+  | --- | --- | --- |
+  | Handguns | Pistols and revolvers | Off |
+  | Machine guns | Submachine, light and heavy machine guns | Off |
+  | Shotguns | All shotguns | Off |
+  | Knives | Knives and short blades | On |
+  | Grenades | Tactical belt grenade and its pickup, in either holster mode | On |
+  | Swords | Katanas, swords, long blades, machetes and chainswords | On |
+  | Rifles | Assault, precision and sniper rifles | Off |
+  | Other melee | Axes, clubs and hammers | On |
+
+  Your choices persist across restarts. With Offensive mode off and both hands empty, all worn gear is hidden. Switching the mode shows **Offensive mode ON** or **Offensive mode OFF** at the center of your headset view for two seconds, even with the HUD hidden or moved.
+  To put an enabled weapon away in simple holster mode, close the weapon hand within
+  **12 cm** of a hip or shoulder. Immersive hip katanas use the scabbard return below.
+- **Katana hand and scabbard.** With **F10 > Controls > General > CyberFinger swords in right hand** on (default), automatic immersive holsters place the katana at the left hip and V draws it with the right hand. This also applies with left-handed guns. Turn the option off to follow the weapon-hand setting for swords. Hip-mounted katanas share a dark scabbard with brass trim that stays on the belt while the sword is drawn. The inventory’s **Hide holsters** control hides it.
+- **Draw.** In **Holstered** or **Fists**, line up the centre of V’s drawing hand with the wrapped handle, about a palm-width below the guard. Tap **Grip** there, or close your fingers around the handle and pull clear. You can steady the first scabbard with your free hand. Some scripted scenes require empty hands. If the blade appears briefly there, try the same wheel draw outside after the scene ends.
+- **Draw with the Grip button.** With Offensive mode on and the sword visible on your belt, tap the drawing hand’s **Grip** at its hilt. This works from **Holstered** and **Fists**. With the default sword setting, use right Grip at the left hip. If you equip swords in the left hand, use left Grip at the right hip.
+- **One sword, two grips.** Swing with one hand for a **fast** attack. Tap the free hand’s **Grip** at the lower hilt to latch a two-handed hold for **strong** swings. Tap the same Grip again to release. You can also close and open the free hand on the hilt for momentary support. Away from the sword and scabbard, the free hand can punch.
+- **Put away with Grip.** Tap the Grip on the hand holding the katana. This holsters it directly. With two blades, the secondary hand puts away its own blade. Putting away the primary ends dual wielding. The physical button works with gesture holstering switched off.
+- **Equip two katanas in the VR menu.** Tap the **right pink wrist button**, open **Inventory**, and use the laser and Trigger to select a numbered weapon slot. Choose **Melee**, select a katana you own, and press **Equip**. Select **Equipment** to return to the slot overview. Repeat with a different katana in another numbered slot.
+- **Check both holsters.** On that overview, look immediately to the right of each katana’s tile for the small body icon. A cyan **A** on the icon means **Auto** is already selected. To change it, select the icon and choose **Auto**, the leftmost option. Set the bottom toggle to **Holsters: Shown**. If the icons are missing, open **F10 > Controls > General** and enable both **Immersive holsters** and **Swords**.
+- **Which katana goes where.** The two **Auto** katanas follow their numbered weapon slots. With the default sword setting, the lower-numbered katana sits on your **left hip** for your **right hand**. The next sits on your **right hip** for your **left hand**. Draw the first, then take the second at the same spot on its handle with your left hand. Selecting a weapon from the wheel keeps the same hip assignments. Explicitly choosing left-hand swords mirrors the pair.
+- **Return the second katana.** With melee gesture holstering enabled, bring your **right hand** to the top of the **right-hip scabbard** as if bracing it. You can keep the first katana in that hand. Bring your closed **left hand** to the opening and open it while your right hand is still there. The second katana goes back and your left hand is free. With left-hand swords, swap sides.
+- **Put away.** In the default layout, take your left hand off the hilt. With the sword clear of your hip, close your left hand on the scabbard first. Bring your closed right hand to the opening, then **open just your right hand**. V puts the katana away and plays the return sound. You can keep your left hand closed. If you carry the sword in your left hand, swap hands. Moving away before release cancels the return.
+- **Tutorial cards:** Text tutorials such as Songbird’s Relic perk-tree introduction open on a floating panel in front of you. Turn your head to read across the panel. The game’s usual Continue action dismisses it. Tutorials with pictures or video use the game’s presentation.
+- **Physical reload:** reach with the hand opposite the weapon. Open your fingers,
+  then close them at the highlighted part. Reload with your **left hand** for a
+  right-handed gun or your **right hand** for a left-handed gun.
+  - **Magazines:** tap the weapon-hand black wrist to eject where supported.
+    If the game lets you pull a seated magazine by hand, an empty one also accepts a
+    fresh grasp at its marker. For an early swap on a magazine that doubles as
+    a support grip, hold the free-hand Trigger as you grasp it.
+  - **Handles:** if a handle lights up after you insert the magazine, open your
+    free hand at the marker and grasp it for the indicated motion. This also
+    works on the Grad when its handle lights up after a shot. The original
+    free-hand Trigger input remains available on trigger-operated handles.
+    On handles and slides with a recorded grasp, you can also touch the
+    moving part with the **pinky side** of your open hand and close your
+    fingers. Keep your wrist at that angle through the pull. On the
+    **Nekomata**, either side of the chamber handle accepts this grasp.
+  - **Nekomata magazine:** with the tactical belt enabled, reach to the rifle
+    magazine on your free-hand hip. The belt uses the Copperhead magazine as
+    its marker. Picking it up puts the Nekomata magazine in your free hand.
+  - **Carnage and Tactician:** when the pump needs cycling, open and close your
+    free hand at its marker, or close the pinky side against the pump, then
+    move it back and forward. Keeping your fingers
+    closed after that stroke returns the hand to supporting the weapon.
+  - **Single-round sniper reload:** on the Ashura, grab and insert the round
+    with your free hand as before.
+  - **Quick reload:** tap the free hand’s black wrist (left for a right-handed
+    gun, right for a left-handed gun), or
+    press **R**. Hold **right black** to heal. **Right Grip** crouches on a tap. Hold it for **0.65 s** for the button shortcut, which closes a locked slide or toggles the hammer on a supported revolver. Grasping and moving the highlighted chamber handle with the free hand is a separate tracked action.
 - **Scanner:** tap left physical grip to open; tap again to close. Full up/down pushes on the left stick
   page the quickhack list; the **Trigger opposite the movement stick** applies
   the selected hack (right Trigger in the default layout). Release it before
   normal weapon aim/fire resumes.
+- **Auto fist fight mode.** With Offensive mode on and your hands empty, raise both hands in front of you. Either **tap both Triggers together** or **make two tracked punches with closed hands**, one with each hand within one second, in either order. Both shortcuts draw bare fists. Switch them off together under **F10 > Controls > General > Auto fist fight mode (CyberFinger)**. To draw your usual weapon instead, press and release only the weapon-hand Trigger. Overlapping Trigger presses cancel that weapon draw, in either release order.
+- **Block with bare fists.** Hold both physical Triggers with both hands raised in front of you. Release either Trigger or lower either hand to drop the block. This works with **Auto fist fight mode** switched off if you equip fists from the wheel.
 - **Fists / melee weapon:** with fists or an ordinary melee weapon in hand,
-  tap the **Grip opposite your weapon hand** (right for this left-handed preset)
+  tap the **Grip opposite your configured weapon hand** (left for a right-handed
+  weapon, right for a left-handed weapon)
   to switch between **bare fists and an equipped melee weapon**. It remembers
   your last melee weapon while it remains in a weapon slot, otherwise uses the
   first equipped melee weapon. With no melee weapon equipped, it leaves fists
@@ -426,7 +528,7 @@ panels. Keyboard text entry still uses the keyboard. See
 - **Melee attacks:** physically jab/punch or swing your equipped melee weapon.
   **No Trigger is needed for a normal attack.** With CyberFinger active, hold
   **either physical Trigger before starting the swing** to make it a strong
-  attack, including arm-cyberware melee. Trigger presses alone do not launch
+  attack with fists, arm cyberware and other melee weapons. For a katana, grip with one hand for fast swings or two hands for strong swings. Trigger presses alone do not launch
   attacks; tracked motion and contact are still required. Other controllers
   keep their existing attacking-hand Trigger modifier. Combat still needs
   in-headset playtesting. Physical grabs and throws depend on valid finger
@@ -438,14 +540,13 @@ panels. Keyboard text entry still uses the keyboard. See
   action to enter vehicle combat when the game allows it. The default keyboard
   equivalent is a tap of **Alt**. To **exit**, hold the **physical left Grip button** for **0.4 seconds**
   while seated. Use the same left button with either weapon hand. The keyboard
-  shortcut is **F**. Holding the weapon-hand black wrist button pauses.
-  Right stick click is A/handbrake and confirms vehicle dialogue.
-  With a gun drawn, the firing trigger shoots and throttle latches; the left
-  stick forward/back trims it.
+  shortcut is **F**. Holding the left black wrist button pauses.
+  Right stick click applies the handbrake. During driver dialogue, use right stick up/down to highlight a choice, then press either Trigger or click the right stick to confirm.
+  **Right stick forward accelerates and backward brakes or reverses**. During dialogue the stick selects choices. Center it after dialogue to resume driving. Tap **right Grip** to cycle camera view. Use the weapon-hand Trigger to draw or fire (with vehicle firing enabled). The off-hand Trigger sounds the horn before drawing and aims afterward.
 
-To quit normally, close the VR overlay, open the game's pause menu with
-**weapon-hand black wrist held** (left by default, or Escape), then use the
-game's exit option. **F10 / Insert stays keyboard-only**; right pink opens the
+To quit normally, close the VR overlay and open the game's pause menu. Hold the
+left black wrist button, or press Escape, then use the game's
+exit option. **F10 / Insert stays keyboard-only**; right pink opens the
 world VR menu instead.
 
 **Crash report after Alt-F4:** the included shutdown fix releases cached HUD
@@ -461,8 +562,8 @@ the **General** subpage rather than Driving or Bindings for the settings below.
 | Setting | Where / what to choose |
 |---|---|
 | Snap turn | **Controls > Turning (right stick)**: enable **Snap turn**, choose **Snap angle** (30 degrees is the preset) |
-| Left-handed weapon | **Controls > Left-handed controls: On**; **Left-handed bindings: Same as right-handed** |
-| Right-handed weapon | Turn **Left-handed controls Off**; right trigger fires, left aims; sticks/Menu/wrist layout stays as above |
+| Right-handed weapon | Turn **Left-handed controls Off**. Right Trigger fires and left stick moves. |
+| Left-handed weapon | Turn **Left-handed controls On** and choose **Same as right-handed**. Left Trigger fires and right stick moves with a gun drawn. See the [weapon-hand differences](#weapon-hand-differences). |
 | Visible finger animation | **Controls > Finger Tracking > Enable finger tracking**; restart the game after enabling |
 | Physical crouch | **Controls > Physical crouch** and its depth control |
 | Movement direction | **Controls**: choose Game, HMD, left-hand or right-hand locomotion |
@@ -484,16 +585,16 @@ reaches about 85% when held fully backward. Advanced adjustment:
 restart after changing). Other controller profiles retain their usual thresholds.
 Right-stick left/right switches tabs on the map too; weapon-hand up/down still
 zooms. **Right Menu tap** opens Inventory; **hold 0.65 s** activates equipped OS
-cyberware when the game permits it. **Weapon-hand black wrist hold** opens Pause.
+cyberware when the game permits it. **Left black wrist hold** opens Pause.
 These shortcuts do not depend on the game's Start/Back button assignments.
 **Both Menu buttons held 0.5 s** toggle the HUD even when a hand's optical
 tracking drops. Release both before repeating; nearby interaction prompts and
 conversations temporarily reveal a hidden HUD, so test away from those prompts.
 
-For the left-handed preset, *Same as right-handed* preserves buttons/sticks;
-the **weapon and firing trigger are still left-handed**. Other mirroring modes
-change this guide's button layout. Keep SteamVR's trigger bindings on their
-physical hands; the mod handles the swap.
+For the left-handed preset, choose *Same as right-handed* to keep the usual
+walking layout. Drawing a left-handed gun on foot puts movement on the right
+stick. Keep SteamVR's trigger bindings on their physical hands so the mod can
+assign them for each context.
 
 ### Quest Pro eye-tracked foveation
 
@@ -700,13 +801,13 @@ redscript are needed only if your other mods require them.
 4. Preview the install. The installer looks for Cyberpunk 2077 in GOG and Steam, including Steam libraries on other drives. If it finds one copy, it selects it automatically. If it finds several, it shows each store and full path. Enter the number for the copy you play, or press **Enter** to cancel. Check the **Game** path in the preview, then run the install and choose the same copy if prompted again.
 
    ```powershell
-   .\install_cyberfinger.cmd -Package .\package -WhatIf
-   .\install_cyberfinger.cmd -Package .\package
+   .\install_cyberfinger.cmd -Package .\package -WeaponHand Right -WhatIf
+   .\install_cyberfinger.cmd -Package .\package -WeaponHand Right
    ```
 
    If the game is missing from the list or you want to skip the prompt, add `-GameRoot "D:\Games\Cyberpunk 2077"` to both commands using the folder that contains `bin\x64\Cyberpunk2077.exe`. For Steam, right-click **Cyberpunk 2077 → Manage → Browse local files** to find that folder.
 
-   Keep `-Package .\package` on both commands. Omitting it starts a source build. The defaults are a left-handed weapon and eight-role SlimeVR. Add `-WeaponHand Right` or `-NoSlimeVR` to **both** commands as needed. Keep the extracted folder after installation for the backup and `install.json` under `build\cyberfinger-install-backups\`.
+   The examples select a **right-handed weapon**. For a **left-handed weapon**, omit `-WeaponHand Right` from both commands to use the installer default. Keep `-Package .\package` on both commands to use the prebuilt files. Eight-role SlimeVR is enabled by default. Add `-NoSlimeVR` to both commands if needed. Keep the extracted folder for the backup and `install.json` under `build\cyberfinger-install-backups\`.
 5. Connect both controllers in CyberFinger Bridge and start SteamVR with the headset connected. For the Steam edition, click **Play** on Cyberpunk 2077 in your Steam Library. For GOG, launch the game as usual. Choose **Play in VR** in the startup dialog, or **Play on desktop** for a monitor-only session. While the game is in VR, open **SteamVR Settings > Controllers > Manage Controller Bindings**, choose **CyberpunkVRPort** and the **CyberFinger CyberpunkVRPort** layout. Load a save, press **F10** to check the VR settings, and open and close your fingers to verify tracking.
 
 **If you have a prepared package folder instead of the portable ZIP**, copy the entire folder that contains `bin` and `red4ext` to the destination as `package`. From the matching checkout, copy `install_cyberfinger.cmd` and `scripts\install_cyberfinger.ps1` beside it in the layout above. For an older package missing `package\red4ext\plugins\cyberpunkvrport\config\cyberfinger-hud.ini.example`, also copy `mods\config\cyberfinger-hud.ini.example` from that checkout, preserving its path beside the installer. Then follow steps 2–5.
@@ -718,14 +819,14 @@ the following from its repository root in PowerShell. The portable ZIP above
 contains the newer 0.2.45 integration build.
 
 ```powershell
-.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4 -WhatIf
-.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4 -WeaponHand Right -WhatIf
+.\install_cyberfinger.cmd -Package .\dist\CyberpunkVRPort-0.2.3-cyberfinger-wrist-r4 -WeaponHand Right
 ```
 
 Without `-Package`, `install_cyberfinger.cmd` prepares/builds/packages the source;
 that needs Git, CMake and Visual Studio C++ build tools. Optional arguments:
 `-WeaponHand Right`, `-NoSlimeVR`, and `-GameRoot "D:\Games\Cyberpunk 2077"`.
-The default installer selects the left-handed/eight-role preset.
+Omit `-WeaponHand Right` from both examples to use the installer's left-handed/eight-role preset.
 The installer seeds missing HUD keys from the captured preset; use
 `-ResetHudDefaults` only when you want to replace existing HUD tuning too.
 SteamVR driver updates and their bindings are installed separately; restart SteamVR afterwards.

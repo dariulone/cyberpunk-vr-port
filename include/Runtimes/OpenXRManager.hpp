@@ -1221,6 +1221,7 @@ private:
     cvr::framegen::Presenter m_framegen;
     cvr::depth::Renderer m_stereoDepth;
     cvr::framegen::StatsOverlay m_framegenOverlay;
+    cvr::framegen::StatsOverlay m_modeNoticeOverlay;
     // [DEPTH] Game scene-depth snapshot for the XR depth layer (parallel to color).
     ID3D12Resource* m_depthSnapshot = nullptr;
     uint32_t m_depthSnapshotW = 0;

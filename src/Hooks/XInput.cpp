@@ -34,11 +34,15 @@
 #include "Hooks/KeypadInput.hpp"
 #include "Hooks/CyberwareChord.hpp"
 #include "Hooks/CyberFingerMelee.hpp"
+#include "Hooks/CyberFingerKatana.hpp"
+#include "Hooks/CyberFingerFistFight.hpp"
+#include "Runtimes/FingerGrip.hpp"
 #include "Hooks/WeaponWheelHold.hpp"
 #include "Natives/Reach.hpp"
 #include "Natives/VrMenu.hpp"
 #include "Runtimes/CyberFingerGameMenu.hpp"
 #include "Runtimes/CyberFingerMenuPolicy.hpp"
+#include "Runtimes/CyberFingerHintBindings.hpp"
 #include "Runtimes/CyberFingerUi.hpp"
 #include "Quest/StoryAttention.hpp"
 #include "Runtimes/OpenXRManager.hpp"
@@ -348,10 +352,13 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     if (!pState) return r;
     if (dwUserIndex != 0) return r;
     static cvr::input::VehicleExitHold cfVehicleExit;
-    if (g_liveControls.xrXInputHook == 0) { cfVehicleExit={};cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
+    static cvr::cyberfinger::DriverControls cfDriverControls;
+    static cvr::cyberfinger::FirearmGrip cfGunCrouch;
+    static cvr::cyberfinger::FistTriggerChord cfDraw;
+    if (g_liveControls.xrXInputHook == 0) { cfDriverControls={};cfGunCrouch={};cfDraw={};cfVehicleExit={};cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
 
     VRControllerState vr{};
-    if (!OpenXRManager::Get().GetControllerState(&vr)) { cfVehicleExit={};cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
+    if (!OpenXRManager::Get().GetControllerState(&vr)) { cfDriverControls={};cfGunCrouch={};cfDraw={};cfVehicleExit={};cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();SenseSystemEvent(false,false);cvr::quest::SuspendManualClueInput();cvr::swimming::ResetInput();cvr::ladder::ResetInput();return r; }
     vr.buttons |= static_cast<uint16_t>(CyberpunkVR_TestPadButtons & 0xFFFF);
     if (CyberpunkVR_TestPadButtons & 0x10000) vr.leftGrip = 1.f;
     if (CyberpunkVR_TestPadButtons & 0x20000) vr.rightGrip = 1.f;
@@ -362,19 +369,32 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // controllers as they are, for what a hand does as a hand (its fingers, a ladder rung, its arm's cyberware, the
     // menu tab its grip pages toward). The support hand is the one that raises the scanner.
     VRControllerState physical = vr;
-    const VRControllerState handInput=physical;
+    VRControllerState handInput=physical;
     const bool leftHanded = g_liveControls.xrLeftHanded != 0;
     const int supportHand = leftHanded ? 1 : 0;
     const bool cfActive=cvr::cyberfinger::Enabled();
+    const auto cfNativeMenu=cvr::cfmenu::Current();
+    // Keep a list scroll held across Back from becoming a gameplay stick action.
+    static bool heldMenuScroll=false;
+    if (!cfActive || !handInput.rightHandValid || !std::isfinite(handInput.rightThumbY) || std::abs(handInput.rightThumbY)<.3f)
+        heldMenuScroll=false;
+    else if (cfNativeMenu.scroll!=0.f)
+        heldMenuScroll=true;
+    if (heldMenuScroll) physical.rightThumbY=handInput.rightThumbY=0.f;
+    const bool cfDriver=cfActive && g_isDriving.load(std::memory_order_relaxed);
     const bool cfConversation=cfActive && cvr::cyberfinger::ConversationActive() && g_menuModeValue==0 &&
         !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons();
-    cvr::cyberfinger::ConversationInput(cfConversation,physical.rightThumbY,physical.rightTrigger);
+    cvr::cyberfinger::ConversationInput(cfConversation,physical.rightThumbY,
+        physical.leftTrigger,physical.rightTrigger,cfDriver && handInput.rightStickButton);
+    if(cfDriver && cfConversation && handInput.rightStickButton)
+        physical.buttons &= static_cast<uint16_t>(~XINPUT_GAMEPAD_A);
     static cvr::cyberfinger::ConversationCapture cfConversationCapture;
-    cfConversationCapture.Step(cfActive,cfConversation,physical.rightThumbY,physical.rightTrigger);
+    cfConversationCapture.Step(cfActive,cfConversation,physical.rightThumbY,physical.leftTrigger,physical.rightTrigger);
     const auto cfClaim=cfConversationCapture;
-    // Claim before handedness so right-trigger confirmation cannot also aim
-    // with a left-handed weapon or fire with a right-handed weapon.
-    physical=cfClaim.Apply(physical);
+    // Capture before handedness. Keep held dialogue triggers out of gameplay
+    // routes that also read the controller directly (draw, gestures and driver combat).
+    auto dialogueFiltered=cfClaim.Apply(physical);
+    physical=dialogueFiltered;
     const int cfMouseHand=cvr::cyberfinger::MouseHand(leftHanded,g_liveControls.xrLeftHandedBindings);
     const bool cfComputer=cvr::input::ComputerInputActive();
     static cvr::cyberfinger::MenuBackButton cfComputerExit;
@@ -398,6 +418,76 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     const bool cfInteract=cfActive && cvr::cyberfinger::InteractionActive() && !g_isInVehicle && g_menuModeValue==0 &&
         !g_bdActive.load(std::memory_order_relaxed) && !cvr::lobby::WorldShown() && !cfConversation &&
         !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons() && cvr::input::ScannerVision()!=1 && !cfComputer;
+    const bool katanaPlay = cfActive && g_menuModeValue==0 && !g_isInVehicle && !cfConversation &&
+        !cfComputer && !cfScanActive && !cvr::input::KeypadInputActive() && !cvr::cfmenu::Current().active &&
+        !g_uiPopupOpen.load() && !g_bdActive.load() && !cvr::lobby::WorldShown() &&
+        !cvr::swimming::Active() && !cvr::ladder::Active() &&
+        !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons();
+    static cvr::cyberfinger::FistFightGesture fistMotion;
+    const bool emptyDraw=katanaPlay && cvr::cyberfinger::OffensiveMode() && !g_hasWeaponEquipped &&
+        !DeviceCamActive() && g_sceneTier.load()<=1 && !cfInteract && !cvr::reach::UseHeld() &&
+        !cvr::reach::HandHolds(leftHanded ? 0 : 1) && !physical.leftMenuButton && !physical.rightMenuButton &&
+        !physical.leftGrabButton && !physical.rightGrabButton;
+    const bool canDrawFists=emptyDraw && g_liveControls.xrCyberFingerAutoFistFight && g_VRBind==4 &&
+        !cvr::reach::HandHolds(leftHanded ? 1 : 0);
+    const bool fistsEquipped=cfActive && cvr::cyberfinger::FistsEquipped();
+    const bool guardPlay=fistsEquipped && katanaPlay && !cfInteract && g_sceneTier.load()<=1 && g_VRBind==4;
+    bool raised=false, punchPair=false;
+    OpenXRHeadPose head{}, hands[2]{};
+    uint64_t sequence{},stamp{};
+    if ((canDrawFists || guardPlay) && OpenXRManager::Get().GetGestureHandFrame(&head,hands,&sequence,&stamp,true) &&
+        hands[0].valid && hands[1].valid) {
+        cvr::cyberfinger::GuardHand guard[2];
+        for (int side=0;side<2;++side) {
+            float curl[5]{};
+            const bool closed=canDrawFists && cvr::fingergrip::TrackedCurl(side,curl) && cvr::fingergrip::Update(false,curl+1);
+            guard[side]={hands[side].posX,hands[side].posY,hands[side].posZ,closed};
+        }
+        raised=guard[0].Raised() && guard[1].Raised();
+        if (canDrawFists && !fistsEquipped) punchPair=fistMotion.Step(guard,stamp,head.originSerial);
+        else fistMotion.Reset();
+    } else fistMotion.Reset();
+    const bool block=guardPlay && raised && physical.leftTrigger>=.85f && physical.rightTrigger>=.85f;
+    cvr::cyberfinger::SetFistBlock(block);
+    cvr::cyberfinger::FistTriggerChord::Result emptyHand{};
+    if (cfActive) {
+        emptyHand=cfDraw.Step(emptyDraw && !fistsEquipped,canDrawFists && raised,punchPair,leftHanded,
+            physical.leftTrigger,physical.rightTrigger,GetTickCount64());
+    } else {
+        cfDraw={};
+    }
+    if (emptyHand.fists)
+        cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::DrawFists);
+    if (block) physical.leftTrigger=physical.rightTrigger=0;
+    dialogueFiltered.leftTrigger=physical.leftTrigger;
+    dialogueFiltered.rightTrigger=physical.rightTrigger;
+    for (int side=0; side<2; ++side) {
+        const bool down=side ? physical.rightGrabButton : physical.leftGrabButton;
+        const bool valid=side ? physical.rightHandValid : physical.leftHandValid;
+        auto& grip=cvr::cyberfinger::katanaGrips[side];
+        bool curled=(side ? physical.rightGrip : physical.leftGrip)>.5f;
+        if (cfActive && grip.BlocksGesture() && !down && !curled) {
+            // The gameplay grip signal is itself suppressed while a ring button is pressed.
+            // Re-arm the belt gesture only after the physical fingers have opened.
+            float digits[5]{};
+            curled=cvr::fingergrip::TrackedCurl(side,digits) && cvr::fingergrip::Update(true,digits+1);
+        }
+        const auto claim=grip.Input(katanaPlay && valid,down,curled,GetTickCount());
+        if (!cfActive) continue;
+        if (claim.button) {
+            const uint16_t alias=side ? XINPUT_GAMEPAD_RIGHT_THUMB : XINPUT_GAMEPAD_LEFT_SHOULDER;
+            (side ? physical.rightGrabButton : physical.leftGrabButton)=false;
+            physical.buttons &= ~alias;
+            physical.cyberFingerButtons &= ~alias;
+            (side ? handInput.rightGrabButton : handInput.leftGrabButton)=false;
+            handInput.buttons &= ~alias;
+            handInput.cyberFingerButtons &= ~alias;
+        }
+        if (claim.gesture) {
+            (side ? physical.rightGrip : physical.leftGrip)=0;
+            (side ? handInput.rightGrip : handInput.leftGrip)=0;
+        }
+    }
     static cvr::cyberfinger::InteractionButtons cfInteraction;
     const uint16_t cfInteractionButtons=cfInteraction.Step(cfActive,cfInteract || cfComputer,
         cfMouseHand?physical.rightTrigger:physical.leftTrigger,
@@ -467,6 +557,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         pState->Gamepad.wButtons &= static_cast<uint16_t>(~0x4000);
     }
     if(cvr::vrui::CapturesInput()){
+        cfDriverControls={};cfGunCrouch={};cfDraw={};
         cfVehicleExit={};
         pState->Gamepad={};g_lookStickX.store(0,std::memory_order_relaxed);
         cvr::swimming::ResetInput();cvr::ladder::ResetInput();
@@ -487,7 +578,9 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         physical.buttons&=static_cast<uint16_t>(0x00FF);physical.leftGrip=physical.rightGrip=0;
         if(cfActive){vr.leftThumbX=vr.leftThumbY=vr.rightThumbX=vr.rightThumbY=0;vr.buttons=0;}
     }
-    auto menuMask=[&]{
+    const auto nativePad=pState->Gamepad;
+    cvr::cyberfinger::DriverControls::Output cfDrivingInput;
+    auto menuMask=[&](bool driverPedals){
         // Also apply after merge/weapon overrides and on the scene-input path.
         // Movement and horizontal turning still pass through their usual code.
         cfClaim.ApplyGamepad(pState->Gamepad,leftHanded,
@@ -499,6 +592,11 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         // Bypass the port's gameplay X/Y remaps (reload/weapon wheel). These
         // are the game's own Choice1/Choice2 actions, including hold duration.
         if(cfInteract)pState->Gamepad.wButtons|=cfInteractionButtons;
+        if(driverPedals) {
+            cvr::cyberfinger::MergeDriverPedals(pState->Gamepad,nativePad,
+                FloatToBYTE(-cfDrivingInput.pedal),FloatToBYTE(cfDrivingInput.pedal));
+            pState->Gamepad.wButtons |= cfDrivingInput.buttons;
+        }
         if(!menuCapture)return;
         pState->Gamepad.bLeftTrigger=pState->Gamepad.bRightTrigger=0;
         pState->Gamepad.wButtons&=static_cast<uint16_t>(0x00FF);
@@ -559,7 +657,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // The fingers follow grip, trigger and thumb in play, and in the lobby too: the main menu is a menu to the port,
     // but its world is walked with the hands in view, and the gesture only draws the fingers -- nothing reaches the
     // game from it.
-    cvr::gestures::PublishInput(handInput.leftGrip,handInput.rightGrip,handInput.leftTrigger,handInput.rightTrigger,
+    cvr::gestures::PublishInput(handInput.leftGrip,handInput.rightGrip,dialogueFiltered.leftTrigger,dialogueFiltered.rightTrigger,
         (handInput.buttons&0x0080)!=0,
         (gameplayScreen && !uiPopupOpen && g_bdActive.load(std::memory_order_relaxed)==0) || cvr::lobby::WorldShown());
     const bool mounted = g_isInVehicle;
@@ -567,8 +665,6 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     const auto vehicleButtons=cvr::input::VehicleButtonPolicy(mounted,vehicleState);
     uint16_t ownedNow = 0;
     if (gameplayScreen) ownedNow = vehicleButtons.owned ? vehicleButtons.owned : kPortOwnedButtons;
-    pState->Gamepad.wButtons |=
-        (vr.buttons & static_cast<uint16_t>(~ownedNow));
 
     // MENU-ONLY: the grips stand in for the shoulders (LB/RB page a menu's tabs). Never in gameplay -- there the
     // right grip is the hand-to-holster equip and the D-pad modifier, the left one takes the magazine, and RB/LB
@@ -591,6 +687,41 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // no weapon, no holster, and the VR menu's swipe is off in a braindance (Natives/VrMenu.cpp). The braindance
     // itself (InBraindance), not g_bdActive, which any scene that owns the camera raises.
     const bool inBraindance = InBraindance();
+    const bool cfDriverPedals=cfDriver && gameplayScreen && !uiPopupOpen && !menuCapture &&
+        !inBraindance && !cfComputer && !cvr::cfmenu::Current().active && !cvr::lobby::WorldShown();
+    const bool cfPlay = gameplayScreen && !uiPopupOpen && !menuCapture && !inBraindance && !cfComputer &&
+        !cfConversation && !cvr::cfmenu::Current().active && !cvr::lobby::WorldShown() &&
+        !g_bdActive.load(std::memory_order_relaxed);
+    const bool mirroredSticks = leftHanded && cvr::input::TradesSticks(g_liveControls.xrLeftHandedBindings);
+    cfDrivingInput = cfDriverControls.Update(cfDriver && cfPlay, g_hasWeaponEquipped, leftHanded,
+        g_liveControls.xrVehicleGunTrigger != 0, handInput.leftStickButton, handInput.rightThumbY,
+        dialogueFiltered.leftTrigger, dialogueFiltered.rightTrigger, handInput.rightGrabButton);
+    if (cfDriver && gameplayScreen) vr.leftTrigger = vr.rightTrigger = 0.f;
+    if (cfDriverPedals) {
+        // The right physical Y axis is a pedal (or dialogue choice), never camera pitch/vehicle lean.
+        (mirroredSticks ? vr.leftThumbY : vr.rightThumbY) = 0.f;
+        if (cfPlay && g_hasWeaponEquipped && (handInput.cyberFingerButtons & XINPUT_GAMEPAD_X))
+            cfDrivingInput.buttons |= XINPUT_GAMEPAD_X; // other wrist tap: native driver-combat reload
+    }
+    const bool cfNormalOnFoot = cfActive && cfPlay && !mounted && !g_hasWeaponEquipped &&
+        !cfScanActive && !onLadder && !inWater && !DeviceCamActive() && g_sceneTier.load(std::memory_order_relaxed)<=1;
+    // XInput can be polled several times between game updates.
+    static uint64_t drawUntil{};
+    const auto drawNow=GetTickCount64();
+    if (!emptyDraw || !cfNormalOnFoot || cfInteraction.claimTrigger || cfScanConfirm.claimTrigger || emptyHand.fists)
+        drawUntil=0;
+    else if (emptyHand.draw) drawUntil=drawNow+65;
+    const bool cfDrawWeapon=drawNow<drawUntil;
+    const bool cfGunOnFoot = cfActive && !mounted && g_hasWeaponEquipped && g_VRBind == 4 &&
+        CyberpunkVR_WeaponClass >= 1 && CyberpunkVR_WeaponClass <= 4 &&
+        cvr::cyberware::SelectedKind() != 4 && !cvr::anim::IsHeadAimWeaponActive();
+    const auto cfGunGrip = cfGunCrouch.Step(handInput.rightGrabButton,
+        cfGunOnFoot && cfPlay && !cfInteract && !cfScanActive && !onLadder && !inWater, GetTickCount64());
+    if ((cfDriver || cfGunOnFoot) && handInput.rightGrabButton) {
+        // Strip Grip's R3 alias before publishing the reload script's slide-release signal.
+        vr.buttons &= static_cast<uint16_t>(~(mirroredSticks ? XINPUT_GAMEPAD_LEFT_THUMB : XINPUT_GAMEPAD_RIGHT_THUMB));
+    }
+    pState->Gamepad.wButtons |= (vr.buttons & static_cast<uint16_t>(~ownedNow));
     const uint64_t exitHoldMs=CyberpunkVR_VehicleExitHoldMs>0 ? uint64_t(CyberpunkVR_VehicleExitHoldMs) : 400;
     const bool cfSeatInput=cfActive && vehicleButtons.exitOnX && gameplayScreen && !menuCapture &&
         !uiPopupOpen && !cfComputer && !cvr::cfmenu::Current().active && !cvr::lobby::WorldShown() &&
@@ -624,9 +755,10 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
             OpenXRManager::Get().SetSharedSlot(slot,0);
         PublishMergedPacket(pState);return r;
     }
-    if(cfActive && (g_menuModeValue!=0 || cvr::cfmenu::Current().active) && !inBraindance && !cvr::lobby::WorldShown() && !menuCapture) {
-        const auto menu=cvr::cfmenu::Current();
+    if(cfActive && (g_menuModeValue!=0 || cfNativeMenu.active) && !inBraindance && !cvr::lobby::WorldShown() && !menuCapture) {
+        const auto& menu=cfNativeMenu;
         pState->Gamepad={};pState->Gamepad.wButtons=menu.buttons;
+        pState->Gamepad.sThumbRY=FloatToSHORT(menu.scroll); // native right_stick_y_scroll
         if(menu.zoom>0)pState->Gamepad.bRightTrigger=FloatToBYTE(menu.zoom);
         if(menu.zoom<0)pState->Gamepad.bLeftTrigger=FloatToBYTE(-menu.zoom);
         g_lookStickX.store(0,std::memory_order_relaxed);
@@ -724,7 +856,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         OpenXRManager::Get().SetSharedSlot(vrshared::kLeftGripPressed, 0.0f);
         OpenXRManager::Get().SetSharedSlot(vrshared::kRightTriggerAnalog, physical.rightTrigger);
         OpenXRManager::Get().SetSharedSlot(vrshared::kLeftTriggerAnalog, physical.leftTrigger);
-        menuMask();
+        menuMask(cfDriverPedals);
         PublishMergedPacket(pState);
         return r;
     }
@@ -735,10 +867,12 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // Triggers: take the max so a physical squeeze isn't lost.
     // (VR melee block does NOT inject LT here: the gesture guard is STAT-driven — the CET weapon
     // mod sets IsBlocking/IsDeflecting directly, damageManager.script mitigates on those stats,
-    // and the PSM Block state with its AimWalk/sprint debuffs is never entered. A physical left
-    // trigger still reaches the game's own 'MeleeBlock' action through this merge as in flat.)
-    BYTE lt = FloatToBYTE(vr.leftTrigger);
-    BYTE rt = FloatToBYTE(vr.rightTrigger);
+    // and the PSM Block state with its AimWalk/sprint debuffs is never entered. CyberFinger fists
+    // use both Triggers for guard, so a single VR Trigger must not also start the game's LT block.)
+    BYTE lt = guardPlay ? 0 : FloatToBYTE(vr.leftTrigger);
+    // The dedicated draw action owns empty-hand CF input, including with full-body IK disabled.
+    // Prompt confirmation and hand animation read the original Trigger separately.
+    BYTE rt = cfNormalOnFoot ? 0 : FloatToBYTE(vr.rightTrigger);
     // The VR left trigger reaches the gamepad LT (aim / zoom, melee block, VEHICLE BRAKE) unless
     // the smoking lighter has a claim on it, which is only true on foot with empty hands.
     //
@@ -983,7 +1117,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
 
     // Publish whether the VR right trigger is held (shared[30]) so the CET melee mod can use it as the
     // power/strong modifier (hold = strong attack).
-    OpenXRManager::Get().SetSharedSlot(30, (vr.rightTrigger > 0.5f) ? 1.0f : 0.0f);
+    OpenXRManager::Get().SetSharedSlot(30, (cfDriver ? cfDrivingInput.fire : vr.rightTrigger > 0.5f) ? 1.0f : 0.0f);
     // ...and the same trigger as an ANALOG value, which a flag cannot stand in for: an action worked progressively
     // needs the whole travel, not the half-way mark. The physical reload rides a revolver's hammer on it.
     // THE GRIPS AND THE ANALOG TRIGGERS ARE THE HANDS' OWN, published per PHYSICAL controller whatever the
@@ -1029,7 +1163,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // The scanner used to hold this click and the publish was suppressed while it did. It fires on
     // the left grip now, so the click means one thing again and needs no guard.
     OpenXRManager::Get().SetSharedSlot(vrshared::kRightStickClick,
-                                       (vr.buttons & 0x0080) ? 1.0f : 0.0f);
+                                       (cfGunGrip.slide || (vr.buttons & 0x0080)) ? 1.0f : 0.0f);
     // One switch for the whole port. The launcher's DEBUG checkbox already gates the plugin's own
     // chatter; republishing it here lets the CET bridges obey it too, live, without each of them
     // growing a setting of its own that nobody remembers to turn off.
@@ -1113,6 +1247,28 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // physical pad's so the game uses our values).
     const bool analogMovement=cvr::input::UseAnalogMovement(g_liveControls.xrMovementSpeedMode,g_isInVehicle);
     const float fullInput=cvr::input::StickFullInput(g_liveControls.xrMaxInputThreshold);
+    static cvr::cyberfinger::CombatSticks cfCombatSticks;
+    const bool armedSticks = cfActive && leftHanded && firearmTrigger && !physicalCyberware &&
+        !cvr::input::TradesSticks(g_liveControls.xrLeftHandedBindings) && !cfConversation &&
+        !cfComputer && !scannerActive && !menuCapture && !inBraindance && !onLadder &&
+        !cvr::swimming::Active() && !DeviceCamActive() && !cvr::lobby::WorldShown() &&
+        !cvr::input::KeypadInputActive() && !cvr::cfmenu::Current().active;
+    // Publish the same hand swap and takeover state used for this input sample.
+    const bool sprintOnClick = cfActive || g_liveControls.xrSprintMode == 1;
+    unsigned hints = 0;
+    if (cfActive && gameplayScreen && !mounted && !menuCapture && !cfConversation && !cfComputer &&
+        !inWater && !onLadder && !inBraindance && !DeviceCamActive() && !uiPopupOpen) {
+        using namespace cvr::cyberfinger;
+        hints = Walking;
+        if (cfPlay && !scannerActive) hints |= WornGearShortcut;
+        if (armedSticks || (leftHanded && cvr::input::TradesSticks(g_liveControls.xrLeftHandedBindings))) hints |= MoveRight;
+        if (CyberpunkVR_DashStickUp) hints |= DashEnabled;
+        if (dualWield) hints |= DualGuns;
+        if (sprintOnClick) hints |= ClickSprint;
+    }
+    cvr::cyberfinger::footHints.store(hints,std::memory_order_relaxed);
+    if (cfActive) cfCombatSticks.Apply(vr, armedSticks);
+    else cfCombatSticks = {};
     const float scannerLy=ApplyStickDeadzone(vr.leftThumbY,0.12f);
     float lx=analogMovement?cvr::input::AnalogAxis(vr.leftThumbX,g_liveControls.xrLeftStickDeadzone,fullInput)
                            :ApplyStickDeadzone(vr.leftThumbX,0.12f);
@@ -1278,7 +1434,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         static float s_vehThrottle = 0.0f;
         static LARGE_INTEGER s_vehGunQpc = {};
 
-        vehGunMode = (g_isDriving.load(std::memory_order_relaxed) && g_hasWeaponEquipped
+        vehGunMode = (!cfActive && g_isDriving.load(std::memory_order_relaxed) && g_hasWeaponEquipped
                       && g_liveControls.xrVehicleGunTrigger != 0);
         if (vehGunMode) {
             LARGE_INTEGER now, freq;
@@ -1318,6 +1474,8 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         }
         s_vehGunPrev = vehGunMode;
     }
+    if (cfDrivingInput.fire && (trgMode <= .5f || trgMode > 1.5f))
+        pState->Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
 
     // CyberFinger always starts sprint with a left-stick click. Other controllers
     // retain their configured sprint mode. In forward-hold mode, a partial push is left as the
@@ -1370,7 +1528,6 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
             OpenXRManager::Get().PhysicalCrouchRequested();
 
         const bool fullForward=cvr::input::AtFullTravel(lyDetent,analogMovement,fullInput);
-        const bool sprintOnClick = cfActive || g_liveControls.xrSprintMode == 1;
         const bool detent = !sprintOnClick && fullForward && !g_isInVehicle && !crouchBlocks;
         if (detent) s_detentMs += dtMs; else s_detentMs = 0.0;
         const double holdMs = (CyberpunkVR_SprintHoldMs >= 0) ? CyberpunkVR_SprintHoldMs : 200;
@@ -1644,7 +1801,7 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
 
     // Stick-gesture buttons: full-forward left stick => sprint (L3), full-down right
     // stick => crouch (R3). OR'd in on top of any physical / VR button press.
-    uint16_t synthButtons = 0;
+    uint16_t synthButtons = cfGunGrip.crouch ? XINPUT_GAMEPAD_RIGHT_THUMB : 0;
     if (wantSprint) synthButtons |= XINPUT_GAMEPAD_LEFT_THUMB;
     if (wantCrouch) synthButtons |= XINPUT_GAMEPAD_RIGHT_THUMB;
     // The dash, as the B the game's Dodge_Button listens for. Emitted HERE rather than merged with the
@@ -1684,7 +1841,8 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
     // The ordinary scroll-and-confirm list is unaffected, and it is what a car conversation is.
     if (CyberpunkVR_VehicleDialogConfirmOnA != 0) {
         static bool s_aWas = false;
-        const bool aDown = vehicleButtons.confirmOnA && gameplayScreen && (vr.buttons & 0x1000) != 0;
+        const bool aDown = vehicleButtons.confirmOnA && gameplayScreen &&
+            !cfDriver && (vr.buttons & 0x1000) != 0; // CF driver dialogue has its own confirm route; A is only handbrake
         if (aDown && !s_aWas) synthButtons |= 0x4000;   // XINPUT_GAMEPAD_X -> DialogConfirm
         s_aWas = aDown;
     }
@@ -1751,7 +1909,9 @@ DWORD WINAPI HookedXInputGetState(DWORD dwUserIndex, XINPUT_STATE* pState) {
         cvr::vrmenu::PublishWheelHold(wheel.pending, wheel.held);
     }
 
-    menuMask();
+    // Deliver the draw after the wheel policy, so holding the Trigger cannot open the VR wheel.
+    if (cfDrawWeapon) pState->Gamepad.wButtons |= XINPUT_GAMEPAD_Y;
+    menuMask(cfDriverPedals);
     PublishMergedPacket(pState);
     return r;
 }

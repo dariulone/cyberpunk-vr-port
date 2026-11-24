@@ -33,6 +33,9 @@
 #include "Anim/ScenePolicy.hpp"     // the carried body's left arm
 #include "Anim/VrikState.hpp"       // g_VRBodyCarryingState
 #include "Anim/LeftHanded.hpp"
+#include "Hooks/CyberFingerKatana.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Natives/Reach.hpp"
 
 #include <windows.h>
 #include <cmath>
@@ -385,10 +388,26 @@ void ParseInto(Hold* h, FILE* f) {
 // wrist's frame -- and, with the weapon in the left hand (Anim/LeftHanded.cpp), its mirror: the right wrist in the
 // left wrist's frame. Everything below measures and places the support hand through this, so the hold, the steer
 // and the release are the same code for both hands.
+bool CyberFingerKatana(const Hold* h) {
+    return h && std::strcmp(h->weapon, "katana") == 0 && cvr::cyberfinger::Enabled();
+}
+
 void HoldPose(const Hold* h, float* off, float* rot) {
     off[0] = h->off[0]; off[1] = h->off[1]; off[2] = h->off[2];
     rot[0] = h->rot[0]; rot[1] = h->rot[1]; rot[2] = h->rot[2]; rot[3] = h->rot[3];
-    if (cvr::anim::WeaponInLeftHand()) cvr::anim::MirrorHeldHand(off, rot);
+    if (CyberFingerKatana(h)) {
+        // Move the captured supporting wrist towards the lower end of the virtual hilt.
+        // -Z in the katana attachment frame, transformed by its captured right-wrist grip.
+        constexpr float gripRotation[] = {-0.6178f, 0.3754f, 0.6161f, 0.3128f};
+        constexpr float lowerHilt[] = {0.f, 0.f, -0.065f};
+        float delta[3];
+        VRIK_QuatRotateVec(gripRotation, lowerHilt, delta);
+        for (int i = 0; i < 3; ++i) off[i] += delta[i];
+    }
+    if (cvr::anim::WeaponInLeftHand()) {
+        cvr::anim::MirrorHeldHand(off, rot);
+        cvr::anim::OffsetSupportGrip(off);
+    }
 }
 
 // The support hand in the reload module's numbering (0 left, 1 right).
@@ -615,7 +634,8 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
     // point, so without this the grip snapped shut on the way in and the magazine was carried by a hand
     // welded to the pistol (the two-handed magnet caught). `g_VRReloadFingerActive[0]` is the reload
     // module saying it has the left hand: a magazine held, a slide gripped, or a preview being offered.
-    if (g_VRReloadFingerActive[SupportHand()]) {
+    if (g_VRReloadFingerActive[SupportHand()] || cvr::reach::BracingScabbard(SupportHand()) || cvr::reach::OffhandBlade(SupportHand())) {
+        g_gripFresh = 0;
         CyberpunkVR_TwoHandActive = 0;
         CyberpunkVR_TwoHandBlend = 0.0f;
         SteerReset();
@@ -761,10 +781,18 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
     // `g_gripFresh` is what makes "a squeeze" mean a squeeze rather than a button that happens to be down --
     // see the note at the top of this function.
     const bool inRange = (dist >= 0.0f && dist <= CyberpunkVR_TwoHandRadius);
+    const bool katana = CyberFingerKatana(g_cur);
+    if (katana && !inRange && !CyberpunkVR_TwoHandActive) g_gripFresh = 0;
     bool engagedNow = false;      // this pass closed the hold: the steer is measured from here
-    if (CyberpunkVR_TwoHandActive) {
-        if (!pressed) CyberpunkVR_TwoHandActive = 0;
-    } else if (pressed && inRange && g_gripFresh) {
+    using KatanaSupport = cvr::cyberfinger::KatanaGrip::Support;
+    const auto button = katana ? cvr::cyberfinger::katanaGrips[SupportHand()].Pose(
+        leftAt && inRange, CyberpunkVR_TwoHandActive != 0, GetTickCount()) : KatanaSupport::Gesture;
+    if (button == KatanaSupport::Release) {
+        CyberpunkVR_TwoHandActive = 0;
+        g_gripFresh = 0;
+    } else if (CyberpunkVR_TwoHandActive) {
+        if (!pressed && button != KatanaSupport::Hold) CyberpunkVR_TwoHandActive = 0;
+    } else if (button == KatanaSupport::Hold || (pressed && inRange && g_gripFresh)) {
         CyberpunkVR_TwoHandActive = 1;
         engagedNow = true;
     }
@@ -884,6 +912,8 @@ void TwoHandRight(const float* targetR, float* hm, const float* wristR, const fl
                               ? (rl / CyberpunkVR_TwoHandLeverFull) : 1.0f;
                     if (lev > 1.0f) lev = 1.0f;
                     if (lev < 0.0f) lev = 0.0f;
+                    // A held virtual hilt follows the two controllers even when its grip points are close.
+                    if (katana) lev = 1.0f;
                     const float dead = CyberpunkVR_TwoHandAimDeadDeg * (1.0f - 0.75f * lev)
                                        * 0.01745329252f;
                     const float cap  = CyberpunkVR_TwoHandAimMaxDeg * lev * 0.01745329252f;

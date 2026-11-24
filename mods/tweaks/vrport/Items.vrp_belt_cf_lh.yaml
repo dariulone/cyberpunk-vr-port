@@ -1,0 +1,4 @@
+Items.vrp_belt_cf_lh:
+  $base: Items.vrp_belt_lh
+  entityName: vrp_belt_cf_lh
+  appearanceName: vrp_belt_cf_lh_

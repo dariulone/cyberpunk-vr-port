@@ -13,6 +13,7 @@
 --     IS the weapon's fit there. The holster under the arm alone stands off that spot by UNDERARM_SHIFT.
 -- A shell stays on the body while its weapon is in the hand: the holster is empty then, not gone.
 local D = require("data/shells")
+local Scabbard = require("modules/scabbard")
 
 local M = {}
 
@@ -110,7 +111,10 @@ function M.wanted(copies, body)
     local name = c.place.name
     local side = SIDE_OF[name]
     if name == "hip_r" or name == "hip_l" then
-      if c.kind == "pistol" then
+      if c.cfScabbard and Scabbard.isHipKatana(c) then
+        out["scabbard_" .. c.key] = { ent = "vrport\\holster\\shell\\cf_katana_scabbard.ent",
+          comp = c.place.comp, slot = c.place.slot, pose = { p = c.place.pos, q = c.place.rot } }
+      elseif c.kind == "pistol" then
         local kind = legKind(c.look, c.typeName)
         local spec = D.leg[side][kind][body]
         out["leg_" .. side] = { ent = spec.ent, comp = c.place.comp, slot = c.place.slot,

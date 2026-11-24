@@ -417,6 +417,19 @@ void VRWorldToModel(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame
 }
 
 // A DIRECTION, so no anchor is applied -- rotation only.
+void VRWorldRotationToModel(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, RED4ext::Quaternion* out, int64_t) {
+    RED4ext::Quaternion world{};
+    RED4ext::GetParameter(frame, &world);
+    ++frame->code;
+    if (!out) return;
+    float w2m[4], aw[3], am[3];
+    if (!VRWorldModelFrame(w2m, aw, am)) { *out = {}; return; }
+    const float q[4] = {world.i, world.j, world.k, world.r};
+    float model[4];
+    VRIK_QuatMul(w2m, q, model);
+    out->i = model[0]; out->j = model[1]; out->k = model[2]; out->r = model[3];
+}
+
 void VRWorldDirToModel(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4) {
     RED4EXT_UNUSED_PARAMETER(aContext); RED4EXT_UNUSED_PARAMETER(a4);
     RED4ext::Vector4 dir{};

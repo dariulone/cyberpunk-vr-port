@@ -14,6 +14,9 @@ bool WeaponInLeftHand();
 // -1 until the rig is armed.
 int HeldWeaponBone();
 
+void FitLeftFirearmGrip(uint8_t* boneBuf);
+void OffsetSupportGrip(float* pos);
+
 // The rig was armed: each right bone's left twin and the reflection between their frames, from its reference pose.
 // Called with the player pose lock held (src/Anim/CharacterRig.cpp).
 void LeftHandedArmRig(const char* const* names, int count);

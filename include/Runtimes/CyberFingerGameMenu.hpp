@@ -3,8 +3,8 @@
 #include <cstdint>
 namespace cvr::cfmenu {
 struct Snapshot {
-    bool active{},hit{},down{},secondary{},focus{},ray{};
-    float u{},v{},zoom{};uint16_t buttons{};uint64_t tick{};
+    bool active{},hit{},down{},secondary{},focus{},ray{},desktop{};
+    float u{},v{},zoom{},scroll{};uint16_t buttons{};uint64_t tick{};
     XrVector3f start{},end{},head{};
 };
 // XR thread publishes the same tracked hands and exact quad as the compositor.

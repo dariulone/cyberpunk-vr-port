@@ -72,6 +72,7 @@ float ThumbCurl(const XrHandJointLocationEXT* j) {
 // Last measured bend and spread per hand, for the animation thread. Curl: five bytes (thumb..little); spread: four
 // bytes (thumb-index .. ring-little); both with a 23-bit millisecond stamp at bit 40 and bit 63 set once stored.
 std::atomic<uint64_t> g_curl[2]{};
+std::atomic<uint64_t> g_gripSampleAt[2]{};
 std::atomic<uint64_t> g_splay[2]{};
 constexpr uint64_t kStampMask = (1ull << 23) - 1;
 uint64_t Byte(float v) { return uint64_t((v < 0 ? 0.0f : (v > 1 ? 1.0f : v)) * 255.0f + 0.5f); }
@@ -125,6 +126,7 @@ int Use(int hand, float thumb, const float curl[4]) {
     const bool was = g_gripping[hand];
     g_gripping[hand] = Update(was, curl);
     const ULONGLONG now = GetTickCount64();
+    g_gripSampleAt[hand].store(now, std::memory_order_relaxed);
     if (thumb >= 0.0f)
         g_curl[hand].store((1ull << 63) | ((now & kStampMask) << 40) | Byte(thumb) | (Byte(curl[0]) << 8) |
                            (Byte(curl[1]) << 16) | (Byte(curl[2]) << 24) | (Byte(curl[3]) << 32),
@@ -168,6 +170,15 @@ std::atomic<bool> g_gripFromFingers{false};
 }
 bool GripFromFingers() { return g_gripFromFingers.load(std::memory_order_relaxed); }
 void SetGripFromFingers(bool on) { g_gripFromFingers.store(on, std::memory_order_relaxed); }
+
+bool BothGripsFresh() {
+    const auto now = GetTickCount64();
+    for (const auto& sample : g_gripSampleAt) {
+        const auto at = sample.load(std::memory_order_relaxed);
+        if (!at || (now >= at && now - at >= cvr::cyberfinger::ProximityGrip::kLossMs)) return false;
+    }
+    return true;
+}
 
 bool TrackedCurl(int hand, float curl[5]) {
     if (hand < 0 || hand > 1) return false;
@@ -223,6 +234,7 @@ void OnSessionDestroying() {
     g_fresh[0] = g_fresh[1] = false;
     g_proximity[0] = {}; g_proximity[1] = {};
     g_curl[0].store(0); g_curl[1].store(0);
+    for (auto& sample : g_gripSampleAt) sample.store(0, std::memory_order_relaxed);
     g_splay[0].store(0); g_splay[1].store(0);
 }
 

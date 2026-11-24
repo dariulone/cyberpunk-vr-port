@@ -2,7 +2,7 @@ local hints = dofile(assert(arg[1]))
 local function widget(controller, children)
     return {
         IsVisible = function() return true end, GetOpacity = function() return 1 end,
-        GetController = function() return controller end,
+        GetController = function() return controller end, GetParentWidget = function() return nil end,
         IsA = function() return children ~= nil end,
         GetNumChildren = function() return #children end,
         GetWidgetByIndex = function(_, i) return children[i + 1] end,
@@ -57,13 +57,13 @@ NameToString = function(s) return s end
 inkWidgetRef = {Get=function(w) return w end}
 spdlog = {error=error}
 function VRCyberFingerHint(name, hold)
-    return ({Exit='Hold Left Grip 0.4 s', ChoiceApply='Right Trigger', ChoiceScroll='Right Stick Up/Down',
+    return ({Exit='Hold Left Grip 0.4 s', ChoiceApply='Either Trigger', ChoiceScroll='Right Stick Up/Down',
         Choice2=hold and 'Hold Right Grip' or 'Right Grip'})[name] or ''
 end
 local function scan() hints.update(.3, true, true) end
 scan();scan()
 assert(row.textWidgetRef.value == 'Salir [Hold Left Grip 0.4 s]')
-assert(dialogue.m_ActiveTextRef.value == 'Yes [Right Stick Up/Down / Right Trigger]')
+assert(dialogue.m_ActiveTextRef.value == 'Yes [Right Stick Up/Down / Either Trigger]')
 assert(item.m_label.value == 'Use [Hold Right Grip]')
 dialogue.m_hasDedicatedInput = true
 buttons[2] = widget(display)
@@ -81,4 +81,43 @@ action, gamepad = 'Exit', true
 scan()
 hints.update(0, false)
 assert(row.textWidgetRef.value == 'Replacement' and item.m_label.value == 'Use')
+local observers = {}
+function ObserveAfter(class, method, callback) observers[class..method] = callback end
+function IsDefined(c) return not c.expired end
+hints.init()
+local menu = tree('ButtonHintListItem', {})
+menu.m_label = caption('Track waypoint')
+local bind = observers['ButtonHintListItemSetData;CNamescript_ref<String>']
+local key = observers['ButtonHintListItemSetData;EInputKeyscript_ref<String>']
+local pointer = true
+function VRCyberFingerHint(name)
+    if name == 'VRPortCyberFingerMenuPointer' then return pointer and '1' or '' end
+    if pointer and name == 'world_map_menu_track_waypoint' then return 'Left Grip' end
+    if pointer and name == 'back' then return 'Either Menu' end
+    return ''
+end
+gamepad = false  -- the laser synthesized a mouse event
+bind(menu, 'world_map_menu_track_waypoint')
+scan();scan()
+assert(menu.m_label.value == 'Track waypoint [Left Grip]')
+pointer = false
+scan()
+assert(menu.m_label.value == 'Track waypoint')
+pointer = true
+menu.m_label.value = 'Return'
+bind(menu, 'back')
+scan()
+assert(menu.m_label.value == 'Return [Either Menu]')
+key(menu)
+scan()
+assert(menu.m_label.value == 'Return', 'raw-key row retained previous action')
+local label = tree('LabelInputDisplayController', {})
+label.m_inputLabel = caption('Exit')
+Game.GetPlayer = function() return nil end
+observers['LabelInputDisplayControllerSetInputActionLabel;CNamescript_ref<String>'](label, 'back')
+scan()
+assert(label.m_inputLabel.value == 'Exit [Either Menu]', 'menu before player spawn')
+label.expired = true
+scan()
+assert(label.m_inputLabel.value == 'Exit')
 print('CyberFinger HUD hint rows passed')

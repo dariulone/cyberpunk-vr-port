@@ -2,6 +2,14 @@
 // show, mapped onto the physical button that produces that pad button through the port's XInput merge, and the
 // native that hands it to the game's UI scripts (mods/redscript/CyberpunkVRPort_Prompts).
 #include "Hooks/PromptButtons.hpp"
+#include "Hooks/KeypadInput.hpp"
+#include "Anim/LeftHanded.hpp"
+#include "Hooks/ScannerGesture.hpp"
+#include "Natives/VrMenu.hpp"
+#include "Natives/Reach.hpp"
+#include "Overlay/ModUi.hpp"
+#include "Overlay/VrOverlay.hpp"
+#include "Runtimes/CyberFingerGameMenu.hpp"
 #include "Hooks/Handedness.hpp"
 #include "Hooks/VehicleButtons.hpp"
 #include "Hooks/Hook.hpp"
@@ -27,6 +35,9 @@
 
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_VehicleDialogConfirmOnA;   // src/Hooks/XInput.cpp
 extern "C" int32_t CyberpunkVR_VehicleExitHoldMs;
+extern "C" int32_t CyberpunkVR_ScannerStickNav, CyberpunkVR_ScannerFaceNav;
+extern "C" int CyberpunkVR_WeaponClass, CyberpunkVR_TwoHandGrip;
+extern std::atomic<bool> g_katanaFamily;
 
 namespace cvr::input {
 
@@ -156,18 +167,41 @@ void VRCyberFingerHint(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, RED4e
     if (!out) return;
     using namespace cvr::cyberfinger;
     *out = RED4ext::CString("");
-    if (!Enabled() || !g_liveControls.xrXInputHook || g_menuModeValue != 0) return;
+    if (!Enabled() || !g_liveControls.xrXInputHook || cvr::vrui::CapturesInput() ||
+        cvr::vrmenu::CapturesButtons() || cvr::modui::CapturesInput()) return;
     const char* name = action.ToString();
     if (!name) return;
     HintLayout layout;
     layout.sources = hintSources.load(std::memory_order_relaxed);
+    layout.foot = footHints.load(std::memory_order_relaxed);
     layout.leftWeapon = g_liveControls.xrLeftHanded != 0;
     layout.leftMouse = MouseHand(layout.leftWeapon, g_liveControls.xrLeftHandedBindings) == 0;
+    const auto panel = cvr::cfmenu::Current();
+    layout.menu = panel.active && !panel.desktop;
+    if ((panel.active || g_menuModeValue != 0) && !layout.menu) return;
+    if (std::string_view(name) == "VRPortCyberFingerMenuPointer") {
+        if (layout.menu && (panel.ray || panel.focus)) *out = RED4ext::CString("1");
+        return;
+    }
+    layout.context = Context();
+    layout.computer = cvr::input::ComputerInputActive();
     layout.seated = g_isInVehicle;
     layout.exitGrip = cvr::input::VehicleButtonPolicy(layout.seated, g_vehicleState.load()).exitOnX;
     layout.driving = g_isDriving.load();
-    layout.vehicleFire = layout.driving && g_hasWeaponEquipped && g_liveControls.xrVehicleGunTrigger;
+    layout.armed = g_hasWeaponEquipped;
+    layout.vehicleFire = layout.driving && layout.armed && g_liveControls.xrVehicleGunTrigger;
+    layout.firearm = layout.armed && CyberpunkVR_WeaponClass >= 1 && CyberpunkVR_WeaponClass <= 4;
+    layout.melee = layout.armed && CyberpunkVR_WeaponClass == 5;
+    layout.fists = FistsEquipped();
+    layout.katana = layout.melee && g_katanaFamily.load(std::memory_order_relaxed);
+    layout.leftSword = layout.katana && cvr::anim::WeaponInLeftHand();
+    layout.secondGrip = CyberpunkVR_TwoHandGrip != 0;
+    layout.dualKatana = layout.katana && cvr::reach::OffhandBlade(layout.leftSword ? 1 : 0);
+    layout.mirroredButtons = layout.leftWeapon && cvr::input::TradesButtons(g_liveControls.xrLeftHandedBindings);
     layout.dialogue = ConversationActive();
+    layout.scanner = !layout.seated && !layout.dialogue && cvr::input::ScannerVision() == 1;
+    layout.scannerPaging = CyberpunkVR_ScannerFaceNav && CyberpunkVR_ScannerStickNav;
+    layout.leftScanStick = !layout.leftMouse;
     layout.interaction = InteractionActive();
     layout.defaultExitTime = CyberpunkVR_VehicleExitHoldMs <= 0 || CyberpunkVR_VehicleExitHoldMs == 400;
     *out = RED4ext::CString(ControlHint(name, hold, layout).c_str());

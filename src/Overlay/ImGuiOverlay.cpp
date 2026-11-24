@@ -6,6 +6,7 @@
 #include "Overlay/VrDraw.hpp"
 #include "Overlay/VrImGuiInput.hpp"
 #include "Overlay/ModUi.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
 #include "Overlay/ModUiImGui.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Render/DesktopMirror.hpp"
@@ -724,7 +725,9 @@ void OverlayRender(IDXGISwapChain* swapChain) {
     if(!g_menuVisible){
         if(!luaVr){DrawHandLocatorOverlay();DrawBarrelCrosshair();DrawLeftBarrelDot();DrawFbtCalibrationHelpers();DrawCompactAdsCameraTelemetry();}
         cvr::lua::Draw(io.DisplaySize.x,io.DisplaySize.y);
-        if(luaVr)g_luaUiInput.Finish("VR port Lua windows  |  Grip top strip to move");
+        if(luaVr)g_luaUiInput.Finish(cvr::cyberfinger::Enabled()
+            ? "Trigger: click    Grip: context / move strip    Laser stick: scroll    Other stick: tabs    Menu: back"
+            : "VR port Lua windows  |  Grip top strip to move");
     }
 
     const bool placementSave = cvr::vrui::ConsumePlacementSave();

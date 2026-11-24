@@ -19,19 +19,23 @@ cvr::cyberfinger::NativeMenuButtons nativeButtons;
 bool active{},armed[2]{},pressed[2]{},edges[2]{};
 int hand{};uint16_t pulse{},heldButtons{};uint64_t pulseUntil{};
 bool directional{};
-bool desktop{},mouseKnown{};int mouseX{},mouseY{};
+bool desktop{},mouseKnown{},keyboardHints{};int mouseX{},mouseY{};
 cvr::cyberfinger::MenuContext context{};
-bool grabArmed[2]{},zoomArmed{},anchored{};XrPosef anchor{};uint64_t anchorOrigin{};
+bool grabArmed[2]{},verticalArmed{},anchored{};XrPosef anchor{};uint64_t anchorOrigin{};
 bool Foreground(){return g_gameHwnd && GetForegroundWindow()==g_gameHwnd;}
 void Clear(){tracking={};snapshot={};navigation={};focus={};nativeButtons={};active=false;hand=0;pulse=heldButtons=0;pulseUntil=0;
     for(int i=0;i<2;++i)armed[i]=pressed[i]=edges[i]=grabArmed[i]=false;
-    zoomArmed=false;context={};desktop=mouseKnown=false;}
+    verticalArmed=false;context={};desktop=mouseKnown=keyboardHints=false;}
 }
 void Reset(){std::lock_guard lock(mutex);Clear();anchored=false;}
 void SuspendInput(){std::lock_guard lock(mutex);const auto pose=tracking;Clear();tracking=pose;}
 void DesktopMouse(uint32_t message,int x,int y,uintptr_t extraInfo) {
     std::lock_guard lock(mutex);
     if(!active)return;
+    if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) {
+        keyboardHints = true;
+        return;
+    }
     const bool move=message==WM_MOUSEMOVE;
     const bool click=message==WM_LBUTTONDOWN || message==WM_RBUTTONDOWN ||
         message==WM_LBUTTONDBLCLK || message==WM_RBUTTONDBLCLK;
@@ -53,7 +57,18 @@ void Hands(const cvr::vrui::Tracking& value,bool enabled) {
     const bool journal=context==cvr::cyberfinger::MenuContext::Journal;
     if(map || journal)hand=value.preferLeft?0:1;
     tracking=value;snapshot.active=true;snapshot.tick=now;snapshot.head=value.head.position;
-    const auto steps=navigation.Step(true,map?0:value.hands[0].stickX,map?0:value.hands[0].stickY,value.hands[1].stickX,
+    const bool list=context==cvr::cyberfinger::MenuContext::General;
+    const auto& right=value.hands[1];
+    const auto& stick=map?value.hands[hand]:right;
+    const bool validStick=stick.valid && std::isfinite(stick.stickX) && std::isfinite(stick.stickY);
+    if (!validStick) verticalArmed=false;
+    else if (std::abs(stick.stickY)<.3f && (!list || std::abs(stick.stickX)<.3f)) verticalArmed=true;
+    const bool vertical=validStick && verticalArmed && std::abs(stick.stickY)>.4f;
+    const bool alongList=list && validStick && std::abs(stick.stickY)>std::abs(stick.stickX);
+    snapshot.zoom=map && vertical ? stick.stickY : 0.f;
+    snapshot.scroll=alongList && vertical ? stick.stickY : 0.f;
+    const float tabX=(list && (!validStick || !verticalArmed || alongList)) ? 0.f : right.stickX;
+    const auto steps=navigation.Step(true,map?0:value.hands[0].stickX,map?0:value.hands[0].stickY,tabX,
         false,false,now);
     const auto actions=nativeButtons.Step(value.menuLeft,value.menuRight,
         value.hands[0].grip>.5f,value.hands[1].grip>.5f);
@@ -63,10 +78,6 @@ void Hands(const cvr::vrui::Tracking& value,bool enabled) {
     heldButtons=map?(otherGrab?0x8000:0):((ownGrab || otherGrab)?0x4000:0);
     if(context==cvr::cyberfinger::MenuContext::PictureFrame && heldButtons)heldButtons=0x8000;
     snapshot.secondary=map && ownGrab;
-    const float zoom=value.hands[hand].stickY;
-    if(!value.hands[hand].valid)zoomArmed=false;
-    if(std::isfinite(zoom) && std::abs(zoom)<.3f)zoomArmed=true;
-    snapshot.zoom=map && zoomArmed && value.valid && value.hands[hand].valid && std::isfinite(zoom) && std::abs(zoom)>.4f?zoom:0;
     directional=steps.direction!=0;
     const uint16_t buttons=cvr::cyberfinger::DirectionButton(steps.direction) |
         (steps.tab<0?0x0100:steps.tab>0?0x0200:0) | (actions&0x2000);
@@ -130,6 +141,7 @@ void Panel(const XrPosef& pose,float width,float height) {
     }
     snapshot.buttons=(now<pulseUntil?pulse:0)|heldButtons;
     snapshot.secondary=snapshot.secondary && snapshot.hit;
+    if (directional || edges[0] || edges[1] || snapshot.buttons || snapshot.secondary || snapshot.zoom != 0 || snapshot.scroll != 0) keyboardHints=false;
     if(desktop){snapshot.hit=snapshot.down=snapshot.secondary=false;}
     // The beam and cursor share the exact displayed quad intersection. Keep a
     // short aiming ray off the canvas too, but yield visuals with input when
@@ -145,7 +157,9 @@ void Panel(const XrPosef& pose,float width,float height) {
 Snapshot Current() {
     std::lock_guard lock(mutex);
     if(!cvr::cyberfinger::Enabled() || GetTickCount64()-snapshot.tick>250)return {};
-    return snapshot;
+    auto value = snapshot;
+    value.desktop = desktop || keyboardHints;
+    return value;
 }
 bool Cursor(float& u,float& v) {
     {std::lock_guard lock(mutex);if(desktop)return false;}

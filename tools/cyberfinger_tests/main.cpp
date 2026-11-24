@@ -1,3 +1,4 @@
+#include "Core/LiveControls.hpp"
 #include "Runtimes/ProximityGrip.hpp"
 #include "Runtimes/CyberFingerInput.hpp"
 #include "Runtimes/FingerGrip.hpp"
@@ -20,6 +21,9 @@ bool SameRotation(Quat a, Quat b) {
 }
 
 void Grabs() {
+    const LiveControls defaults{};
+    Check(defaults.xrCyberFingerGunGestureHolstering == 0 && defaults.xrCyberFingerMeleeGestureHolstering == 1,
+          "fresh settings should enable only melee gesture holstering");
     cvr::cyberfinger::ProximityGrip grip;
     Check(!grip.Update(false, true, 0), "invalid startup grabs");
     Check(!grip.Update(true, true, 1), "closed hand on startup grabs");
@@ -82,6 +86,65 @@ void Handedness() {
         bool leftHandValid = true, rightHandValid = false;
     };
     State raw;
+    {
+        struct Pad { uint8_t bLeftTrigger{}, bRightTrigger{}; };
+        const Pad native{40,0};
+        Pad game{255,255}; // handedness, dialogue and weapon overrides may have modified either channel
+        cvr::cyberfinger::MergeDriverPedals(game,native,0,187);
+        Check(game.bLeftTrigger==40 && game.bRightTrigger==187,"CF gas or native brake lost");
+        cvr::cyberfinger::MergeDriverPedals(game,native,210,0);
+        Check(game.bLeftTrigger==210 && game.bRightTrigger==0,"CF brake leaked into throttle");
+        cvr::cyberfinger::MergeDriverPedals(game,Pad{},0,0);
+        Check(game.bLeftTrigger==0 && game.bRightTrigger==0,"released pedals stayed latched");
+    }
+    {
+        cvr::cyberfinger::DpadChord chord;
+        Check(!chord.Direction(true,0,1,.8f),"accelerating on chord entry selected D-pad Up");
+        chord.Direction(true,0,0,.8f);
+        Check(!chord.Direction(true,0,1,.8f,true) && chord.toggleWornGear,"unarmed Up must toggle gear without healing");
+        Check(!chord.Direction(true,0,.75f,.8f,true) && !chord.toggleWornGear,"threshold jitter reset the gear shortcut");
+        Check(!chord.Direction(true,0,1,.8f,false) && !chord.toggleWornGear,"held gear shortcut became heal");
+        chord.Direction(true,0,0,.8f);
+        Check(chord.Direction(true,0,1,.8f)==1 && !chord.toggleWornGear,"vehicle Up lost healing");
+        Check(chord.Direction(true,0,1,.8f,true)==1 && !chord.toggleWornGear,"held gamepad Up became a toggle");
+        chord.Direction(false,0,1,.8f);
+        Check(!chord.Direction(true,0,1,.8f,true) && !chord.toggleWornGear,"held stick on chord entry toggled gear");
+        chord.Direction(true,0,0,.8f);
+        Check(!chord.Direction(true,0,1,.8f,true) && chord.toggleWornGear,"second gear toggle after release failed");
+        Check(chord.Direction(true,.82f,-.85f,.8f)==2 && chord.Direction(true,.85f,.7f,.8f)==8,"D-pad diagonal or calibrated threshold");
+        for (bool left : {false,true}) {
+            cvr::cyberfinger::DriverControls controls;
+            auto update=[&](bool armed,float stick,float primary,float other,bool grip=false,bool shift=false) {
+                return controls.Update(true,armed,left,true,shift,stick,left?primary:other,left?other:primary,grip);
+            };
+            Check(!update(false,1,1,1,true).buttons,"held driver controls on entry");
+            update(false,0,0,0);
+            auto drive=update(false,.56f,1,1,true);
+            Check(std::fabs(drive.pedal-.5f)<.001f && drive.buttons==0xC008 && !drive.fire,"analog throttle, draw, horn, view");
+            Check(!update(true,1,1,1).fire,"drawing with a held trigger fired");
+            update(true,0,0,0);
+            auto combat=update(true,-.56f,1,1);
+            Check(std::fabs(combat.pedal+.5f)<.001f && combat.fire && combat.buttons==0x0100,"driver weapon, aim or reverse role");
+            Check(!update(true,1,0,0,false,true).pedal && !update(true,1,0,0).pedal,"chord release resumed throttle");
+            update(true,0,0,0);
+            Check(update(true,1,0,0).pedal==1 && update(true,-1,0,0).pedal==-1,"pedal endpoints");
+            controls.Update(false,true,left,true,false,0,0,0,false);
+            Check(!update(true,1,1,1,true).fire && !update(true,1,1,1,true).pedal,"menu release reused held inputs");
+        }
+    }
+    {
+        cvr::cyberfinger::CombatSticks combat;
+        State held = raw;
+        combat.Apply(held, true);
+        Check(held.leftThumbY == 0.f && held.rightThumbX == 0.f, "drawing a gun reused held axes");
+        combat.Apply(held, true);
+        held = raw;
+        combat.Apply(held, true);
+        Check(held.leftThumbX == raw.rightThumbX && held.rightThumbY == raw.leftThumbY &&
+              held.leftTrigger == raw.leftTrigger, "combat axes or firing hand incorrect");
+        combat.Apply(held, false);
+        Check(held.leftThumbX == 0.f && held.rightThumbY == 0.f, "holstering reused held axes");
+    }
     raw.buttons = 0x1000 | 0x2000 | 0x40; // physical A, B, left stick click
     raw.cyberFingerButtons = 0x8000 | 0x20 | 0x100 | 0x1;
     const auto right = cvr::cyberfinger::ForGame(raw, false, 2);
@@ -115,8 +178,7 @@ void Handedness() {
     // reload must never become jump, and pause must never become vehicle exit.
     for(bool weaponLeft:{false,true})for(int mode=0;mode<=2;++mode) {
         const uint16_t expected[]={uint16_t(weaponLeft?0x2000:0x4000),
-            uint16_t(weaponLeft?0x4000:0x2000),uint16_t(weaponLeft?0x0010:0x0001),
-            uint16_t(weaponLeft?0x0001:0x0010)};
+            uint16_t(weaponLeft?0x4000:0x2000),0x0010,0x0001};
         for(int control=0;control<4;++control) {
             State wrist;
             wrist.cyberFingerButtons=cvr::cyberfinger::WristButtons(weaponLeft,

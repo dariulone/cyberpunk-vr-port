@@ -1,4 +1,4 @@
--- Decorate only the native HUD's hint and choice rows. The game keeps its own
+-- Decorate action-bearing Ink hint rows and selected choices. The game keeps its own
 -- localized caption, icon, hold progress, and rules for when a row is visible.
 local H = {}
 local previous, frame, remaining = {}, 0, 0
@@ -40,11 +40,40 @@ local function singleAction(container)
     if displays == 1 and budget.left > 0 then return action end
 end
 
+-- CET supplies weak references to the observed controllers. A virtualized row
+-- may receive a different action, or a literal keyboard key, without being destroyed.
+local rows = {}
+local function bind(controller, field, action)
+    for i = #rows, 1, -1 do
+        local row = rows[i]
+        if not IsDefined(row.controller) or row.controller == controller then table.remove(rows, i) end
+    end
+    if action then rows[#rows + 1] = {controller=controller, field=field, action=action} end
+end
+function H.init()
+    ObserveAfter('ButtonHintListItem', 'SetData;CNamescript_ref<String>', function(c, action)
+        bind(c, 'm_label', action)
+    end)
+    ObserveAfter('ButtonHintListItem', 'SetData;EInputKeyscript_ref<String>', function(c)
+        bind(c, nil, nil)
+    end)
+    ObserveAfter('LabelInputDisplayController', 'SetInputActionLabel;CNamescript_ref<String>', function(c, action)
+        bind(c, 'm_inputLabel', action)
+    end)
+end
+local function visible(widget)
+    while widget do
+        if not widget:IsVisible() or widget:GetOpacity() <= 0 then return false end
+        widget = widget:GetParentWidget()
+    end
+    return true
+end
 local function scan(current, choices)
     local player = Game.GetPlayer()
-    if not player or not player:PlayerLastUsedPad() then return end
-    local layer = Game.VRInkLayer(CName.new('inkHUDLayer'))
-    if not layer then return end
+    -- The hand laser emits mouse clicks. Ink can report keyboard/mouse for
+    -- those clicks, so consult the port's pointer ownership on a native panel.
+    local pad = player and player:PlayerLastUsedPad()
+    if not pad and VRCyberFingerHint(CName.new('VRPortCyberFingerMenuPointer'), false) == '' then return end
     local function show(ref, label)
         if not ref or not label or label == '' then return end
         local text = inkWidgetRef.Get(ref)
@@ -53,6 +82,21 @@ local function scan(current, choices)
             current[#current + 1] = text
         end
     end
+    for i = #rows, 1, -1 do
+        local row = rows[i]
+        local c = row.controller
+        if not IsDefined(c) then
+            table.remove(rows, i)
+        else
+            local ok, err = pcall(function()
+                local root = c:GetRootWidget()
+                if root and visible(root) then show(c[row.field], VRCyberFingerHint(row.action, false)) end
+            end)
+            if not ok then report(err) end
+        end
+    end
+    local layer = Game.VRInkLayer(CName.new('inkHUDLayer'))
+    if not layer then return end
     local function visit(c)
         if not c then return end
         local class = NameToString(c:GetClassName())

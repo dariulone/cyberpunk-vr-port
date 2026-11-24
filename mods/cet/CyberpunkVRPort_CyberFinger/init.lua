@@ -12,6 +12,7 @@ local function visible(root)
   return false
 end
 registerForEvent("onInit",function()
+  hudHints.init()
   for _,entry in ipairs({{1,'WorldMapMenuGameController'},{2,'questLogV2GameController'},
     {2,'questLogGameController'},{3,'FrameSwitcherMenuGameController'}}) do
     local id,class=entry[1],entry[2]
@@ -81,7 +82,12 @@ local function command(enabled)
     if Game.GetSystemRequestsHandler():IsGamePaused() then return end
     local defs=GetAllBlackboardDefs().UI_System
     if Game.GetBlackboardSystem():Get(defs):GetBool(defs.IsInMenu) then return end
-    if action==4 then meleeToggle.toggle(player);return end
+    if action==5 then
+      local holster=GetMod('CyberpunkVRPort_Holster')
+      if holster and holster.toggleWornGear then holster.toggleWornGear() end
+      return
+    end
+    if action==4 or action==6 then meleeToggle.toggle(player,action==6);return end
     if action==3 then
       -- Uses the same item/cooldown/phone-call checks as the game's OS action.
       player:VRActivateIconicCyberware()

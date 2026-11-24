@@ -61,8 +61,8 @@ function M.handEquipment(player)
     Game.VRHandEquipment(mask)
 end
 
-function M.ordinary(dt,player,weapon,position,forward,origin)
-    ordinary.update(dt,player,weapon,position,forward,origin,M.state)
+function M.ordinary(dt,player,weapon,position,forward,origin,blocking)
+    ordinary.update(dt,player,weapon,position,forward,origin,M.state,nil,nil,nil,blocking)
 end
 
 function M.update(dt,player,weapon,kind,now,supplied,ordinaryLever)

@@ -38,6 +38,8 @@ return {
         slot       = 'vrp_cocking_mechanism',
         handleSide = 'both',  -- the handle sticks out on both sides (the slide bone's vertices, x -0.035..+0.035 m): reload.lua handGrips
         which      = 1, bone = 5,
+        -- The knob spans both sides of the moving slot (35 mm either side).
+        cyberFingerPinky = { off = { -0.030, 0, 0 }, radius = 0.032 },
         travel     = 0.0800,
         restLocal  = { 0.00000, 0.07360, 0.21840 },
         localAxis  = { 0, 0, -1 },
@@ -68,6 +70,7 @@ return {
 
     mag = {
         enabled    = true,
+        cyberFingerPouch = true,
         slot       = 'vrp_mag_slot',
         which      = 0,
         -- TRACK 0: a rifle's magazine rig idles at 1, 0 and the game's own reload drops index 0 while the magazine

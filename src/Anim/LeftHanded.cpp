@@ -9,7 +9,7 @@
 // THE HOLD IS THE ANIMATION'S. What the left hand does with the weapon -- the grip, the weapon's seat in the hand,
 // the squeeze of every round, the draw, the reload -- is the right hand's single-wield animation of that weapon,
 // mirrored onto the left hand offline (tools/lefthanded_anims) and played by the game's own graph
-// (src/Hooks/LeftHandedAnimation.cpp). Nothing here touches the weapon hand's fingers or its slot.
+// (src/Hooks/LeftHandedAnimation.cpp). The CyberFinger Nekomata fit below translates its attachment.
 //
 // What the game has no left-handed version of either is the port's own: the support hand on the gun, the recoil and
 // the haptics of the hand holding it, the hand that holsters and reloads. Those ask WeaponInLeftHand(), and the
@@ -31,6 +31,9 @@
 #include "Anim/Cyberware.hpp"
 #include "Anim/VrikHook.hpp"
 #include "Anim/VrikState.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include <atomic>
+#include <algorithm>
 #include "Core/VrCoreShared.hpp"   // g_hasRightWeaponEquipped, g_hasLeftWeaponEquipped
 
 #include <cmath>
@@ -39,6 +42,7 @@
 #include <string_view>
 
 extern void Log(const char* fmt, ...);   // the ungated project logger
+extern std::atomic<bool> g_nekomataFamily;
 extern "C" __declspec(dllexport) extern int CyberpunkVR_CarryLeft;  // Anim/TwoHandGrip.cpp
 
 // Twins found when the rig was armed (fingers, then 1 for the hands), and the worst reflection residual among them
@@ -172,6 +176,40 @@ const Mat3& ParentReflection(const Twin& t) {
 }
 
 }  // namespace
+
+// Both consumers run under the player pose lock. The tracked hand stays in
+// place; the virtual rifle and its support contact move together.
+static float gripOffset[3]{};
+void FitLeftFirearmGrip(uint8_t* boneBuf) {
+    std::fill_n(gripOffset, 3, 0.f);
+    if (!g_nekomataFamily.load(std::memory_order_relaxed) || !cvr::cyberfinger::Enabled() ||
+        g_VRBind != 4 || !WeaponInLeftHand()) return;
+    const int slot = g_VRSmokeLighterIdx;
+    if (slot < 0 || slot >= g_VRBoneCount || (g_VRFKCount > 0 && slot >= g_VRFKCount)) return;
+    auto* pose = reinterpret_cast<float*>(boneBuf + slot * 48);
+    // WeaponLeft's wrist-local translation in the recorded one-handed stance.
+    // Leave authored translations outside the grip (for example a draw) alone.
+    constexpr float authored[] = {.05765f, -.02568f, -.02208f};
+    constexpr float fit[] = {0.f, .065f, .065f};
+    float delta[3];
+    VRIK_QuatRotateVec(pose + VRIK_ROT_OFF / sizeof(float), fit, delta);
+    float originalError = 0.f, fittedError = 0.f;
+    for (int i = 0; i < 3; ++i) {
+        const float d = pose[i] - authored[i];
+        originalError += d*d;
+        fittedError += (d-delta[i])*(d-delta[i]);
+    }
+    constexpr float radius2 = .04f * .04f;
+    if (originalError > radius2 && fittedError > radius2) return;
+    for (int i = 0; i < 3; ++i) {
+        if (originalError <= radius2) pose[i] += delta[i];
+        gripOffset[i] = delta[i];
+    }
+}
+
+void OffsetSupportGrip(float* pos) {
+    for (int i = 0; i < 3; ++i) pos[i] += gripOffset[i];
+}
 
 bool WeaponInLeftHand() {
     // The only weapon in hand hangs on the left slot. A gun the carry moved there is still the right hand's, and an

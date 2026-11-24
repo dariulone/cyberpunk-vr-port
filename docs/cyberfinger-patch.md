@@ -182,8 +182,10 @@ For snap turning, open **F10 > Controls > Turning (right stick)**, enable
 
 When editing manually, edit the **CyberpunkVRPort** application's binding. The action
 labels below are those created by the port; SteamVR may display per-hand action
-variants. Choose the indicated hand for the existing per-hand actions. This table
-uses the **left-handed weapon preset**, with movement still on the left stick.
+variants. Bind each input to its physical hand for both weapon modes. The results
+below assume **Same as right-handed** when playing left-handed. The stick rows
+describe movement with the gun holstered. See the
+[illustrated controls](../README_CYBRFNGR.md#buttons-at-a-glance) for each context.
 
 | Physical control | Action to bind | Result |
 |---|---|---|
@@ -191,16 +193,16 @@ uses the **left-handed weapon preset**, with movement still on the left stick.
 | Right stick axes | Thumbstick, right | Turn; up dash, down crouch |
 | Left stick click | Thumbstick Click, left | Click to sprint until the stick is released; hold remains a D-pad modifier |
 | Right stick click | Primary Button (A/X), right | Jump/confirm; hold supports charge jump |
-| Left trigger | Trigger, left | Fire; throttle in vehicles |
-| Right trigger | Trigger, right | Aim/block; brake in vehicles |
-| Left physical grip (`/input/grip/click`) | CyberFinger Scanner (`cf_scanner`) | Toggle scanner; X in native menus; context action in VR menus/F10 |
-| Right physical grip (`/input/grip/click`) | Thumbstick Click, right | Existing R3: melee/slide release, context dependent |
+| Left trigger | Trigger, left | With a gun on foot or driving, aim for a right-handed weapon or fire for a left-handed weapon. While driving unarmed, sound the horn for RH or draw for LH |
+| Right trigger | Trigger, right | With a gun on foot or driving, fire for a right-handed weapon or aim for a left-handed weapon. While driving unarmed, draw for RH or sound the horn for LH |
+| Left physical grip (`/input/grip/click`) | CyberFinger Scanner (`cf_scanner`) | Toggle scanner in exploration, X in native menus, context action in VR menus/F10. In right-handed melee, toggle fists/weapon. |
+| Right physical grip (`/input/grip/click`) | Thumbstick Click, right | With a firearm on foot, tap to crouch or hold 0.65 s for slide release/hammer. While driving, cycle camera view. In left-handed melee, toggle fists/weapon. |
 | Left Menu button (`/input/b`) | CyberFinger Weapon Wheel (`cf_weapon`) | Tap next weapon, hold weapon wheel |
 | Right Menu button (`/input/b`) | CyberFinger Inventory (`cf_inventory`) | Tap inventory; hold 0.65 s for OS cyberware |
-| Left black wrist (`/input/a`) | Primary Button (A/X), left | Eject for left weapon hand; quick reload for right weapon hand |
-| Right black wrist (`/input/a`) | Secondary Button (B/Y), right | Quick reload for left weapon hand; eject for right weapon hand |
-| Left black wrist, hold (`/input/a_hold`) | Menu Button | Pause for left weapon hand; heal for right weapon hand |
-| Right black wrist, hold (`/input/a_hold`) | CyberFinger Right Black Hold (`cf_heal`) | Heal for left weapon hand; pause for right weapon hand |
+| Left black wrist (`/input/a`) | Primary Button (A/X), left | Quick reload for a right-handed weapon, eject for a left-handed weapon |
+| Right black wrist (`/input/a`) | Secondary Button (B/Y), right | Eject for a right-handed weapon, quick reload for a left-handed weapon |
+| Left black wrist, hold (`/input/a_hold`) | Menu Button | Pause with either weapon hand |
+| Right black wrist, hold (`/input/a_hold`) | CyberFinger Right Black Hold (`cf_heal`) | Heal with either weapon hand |
 | Left pink wrist (`/input/pink`) | No game action; existing compositor binding | SteamVR dashboard |
 | Right pink wrist (`/input/pink`) | CyberFinger VR Menu (`cf_settings`) | Open/close world-space VR menu; F10 remains keyboard-only |
 | Close/open fingers near a target | No SteamVR gesture binding | Grab/release |
@@ -226,7 +228,7 @@ nearby-object gesture, not a menu click. These context changes require the
 matching plugin; the v2 raw SteamVR bindings are unchanged. Black-wrist raw
 actions are resolved by weapon hand before merging as named game actions, so
 optional face-button/stick mirroring cannot turn eject into weapon switch or
-reload into jump. Weapon-hand hold always pauses, including in vehicles. Hold the physical left Grip button for 0.4 seconds to exit a vehicle with either weapon hand.
+reload into jump. Physical left black hold pauses and right black hold heals. The right stick is the analog accelerator/brake in the driver seat. Hold the physical left Grip button for 0.4 seconds to exit a vehicle with either weapon hand.
 See [the quick reference](../README_CYBRFNGR.md) for context-specific controls.
 
 The default leaves left pink for the SteamVR dashboard through its compositor
@@ -243,30 +245,21 @@ are separate physical inputs and can be rebound independently in SteamVR.
 
 ## Weapon hand
 
-Use the port's existing **Controls > Left-handed controls** setting for the
-actual gun/weapon hand. The CyberFinger preset sets it to **on** and sets
-**Left-handed bindings** to **Same as right-handed**. Despite that binding
-option's name, the weapon is left-handed: the left trigger fires and the right
-trigger aims/blocks. It keeps the sticks and face buttons in the layout above.
-The existing left-handed weapon, holster, support-hand, reload and recoil paths
-follow the weapon-hand setting.
+Keep both triggers bound to their physical hands in SteamVR. The port reads
+**Controls > Left-handed controls** from `config/vrport.ini` and assigns the
+gun, support hand, reload and wrist shortcuts in game.
 
-The equivalent `config/vrport.ini` keys are:
+| Weapon hand | F10 setting | Firearm controls on foot |
+|---|---|---|
+| Right | Left-handed controls off (`xr_left_handed=0`) | Right Trigger fires, left aims and left stick moves. |
+| Left | Left-handed controls on (`xr_left_handed=1`), **Same as right-handed** (`xr_left_handed_bindings=0`) | Left Trigger fires, right aims and right stick moves with the gun drawn. Holster the gun to return movement to the left stick. |
 
-```ini
-xr_left_handed=1
-xr_left_handed_bindings=0
-```
-
-For a right-handed weapon, set `xr_left_handed=0` (or turn the checkbox off).
-The right trigger then fires and the left aims/blocks, while the Menu and wrist
-bindings remain as listed. Keep both triggers bound to their **physical** hands
-in SteamVR; the port performs the swap once. No second handedness setting in
-`cyberfinger.ini` overrides the in-game choice.
+The installer seeds the left-handed setting. Both modes use the same on-foot
+Menu shortcuts and driver-seat pedals.
 
 If desired, `xr_left_handed_bindings=1` also mirrors ordinary face buttons, and
 `2` also mirrors sticks/clicks so movement is on the right stick. Those modes
-change the jump/wrist mappings in the table. Dedicated `cf_weapon`,
+change native pad mappings. Black wrist taps follow the weapon hand. Holds use fixed physical sides. Dedicated `cf_weapon`,
 `cf_inventory`, `cf_scanner` and `cf_heal` actions keep their named functions.
 
 ## Configuration

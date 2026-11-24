@@ -259,6 +259,8 @@ tools/vr_bench/*.obj
 !tools/holsters/
 tools/holsters/*
 !tools/holsters/make_own_holsters.py
+!tools/holsters/make_katana_scabbard.py
+!tools/holsters/make_cyberfinger_belt.py
 !tools/holsters/ownshell.cpp
 !tools/holsters/build_ownshell.bat
 !tools/mirror/

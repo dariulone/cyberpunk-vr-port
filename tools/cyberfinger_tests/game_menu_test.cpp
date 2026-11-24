@@ -69,6 +69,21 @@ int main()try {
         const int dominant=left?0:1,other=1-dominant;
         for(auto& h:t.hands){h.valid=true;h.aim={{0,0,0,1},{0,0,-.2f}};}
         t.hands[dominant].aim.position.x=.2f;t.hands[other].aim.position.x=-.4f;
+        testContext=MenuContext::General;
+        t.hands[1].stickY=.8f;
+        Check(frame().scroll==0,"held stick scrolled on menu entry");
+        t.hands[1].stickY=0;frame();
+        t.hands[1].stickY=.8f;t.hands[1].stickX=.67f;state=frame();
+        Check(state.scroll==.8f && !state.buttons && !state.focus && state.hit,"up-scroll changed tab or pointer focus");
+        Check(frame().scroll==.8f,"held scroll did not reach successive packets");
+        t.hands[1].stickX=0;t.hands[1].stickY=-.9f;
+        Check(frame().scroll==-.9f,"down-scroll lost its sign");
+        t.hands[1].valid=false;Check(frame().scroll==0,"tracking loss kept scrolling");
+        t.hands[1].valid=true;Check(frame().scroll==0,"reacquired a held scroll");
+        t.hands[1].stickY=.1f;Check(frame().scroll==0,"stick drift scrolled the list");
+        t.hands[1].stickX=.9f;t.hands[1].stickY=.45f;state=frame();
+        Check(state.scroll==0 && state.buttons==0x0200,"horizontal tab also scrolled");
+        t.hands[1].stickX=t.hands[1].stickY=0;
         testContext=MenuContext::Map;state=frame();
         Check(state.ray && std::abs(state.start.x-.2f)<.001f,"map beam ignored preferred handedness");
         t.hands[other].trigger=1;state=frame();
@@ -80,7 +95,7 @@ int main()try {
         t.hands[dominant].grip=0;t.hands[other].grip=1;
         Check(frame().buttons&0x8000,"map other Grip did not open journal");
         t.hands[dominant].stickY=.8f;state=frame();
-        Check(state.zoom>.79f && !state.focus,"dominant map stick navigated instead of zooming");
+        Check(state.zoom>.79f && !state.focus && state.scroll==0,"map zoom leaked into navigation or scrolling");
         t.hands[other].grip=0;t.hands[1].stickX=.8f;
         state=frame();Check((state.buttons&0x0200)!=0 && state.zoom>.79f,"map disabled right-stick next tab or lost zoom");
         t.hands[1].stickX=0;frame();t.hands[1].stickX=-.8f;

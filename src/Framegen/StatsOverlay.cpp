@@ -138,16 +138,16 @@ void Draw(Canvas c,const Settings& settings,const Statistics& stats) {
 }
 }
 const XrCompositionLayerBaseHeader* StatsOverlay::Prepare(XrSession session,XrSpace view,ID3D12Device* device,ID3D12CommandQueue* queue,
-    XrSpace local,const XrPosef* head,uint64_t origin,XrTime displayTime) {
+    XrSpace local,const XrPosef* head,uint64_t origin,XrTime displayTime,const char* notice) {
     const auto settings=GetSettings();
-    if(!settings.overlay) {
+    if(!notice && !settings.overlay) {
         if(!fence || fence->GetCompletedValue()>=fenceValue)Shutdown();
         return nullptr;
     }
     if(!device || !queue || !session || !view)return nullptr;
-    ConfigureHardwareTelemetry(device);
-    const uint32_t wantedWidth=settings.overlayLayout==0 ? 720u : (settings.overlayLayout==1 ? 420u : 360u);
-    const uint32_t wantedHeight=settings.overlayLayout==0 ? 452u : (settings.overlayLayout==1 ? 404u : 222u);
+    if(!notice) ConfigureHardwareTelemetry(device);
+    const uint32_t wantedWidth=notice ? 320u : settings.overlayLayout==0 ? 720u : (settings.overlayLayout==1 ? 420u : 360u);
+    const uint32_t wantedHeight=notice ? 42u : settings.overlayLayout==0 ? 452u : (settings.overlayLayout==1 ? 404u : 222u);
     if(swapchain && (width!=wantedWidth || height!=wantedHeight) && fence->GetCompletedValue()>=fenceValue)Shutdown();
     if(!swapchain) {
         width=wantedWidth;height=wantedHeight;rowPitch=(width*4+255)&~255u;pixels.resize(size_t(width)*height);
@@ -169,14 +169,22 @@ const XrCompositionLayerBaseHeader* StatsOverlay::Prepare(XrSession session,XrSp
         if(FAILED(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&desc,D3D12_RESOURCE_STATE_GENERIC_READ,nullptr,IID_PPV_ARGS(&upload)))) {Shutdown();return nullptr;}
     }
     const auto now=NowMs();
-    if((now>=nextUpdate || acquired) && fence->GetCompletedValue()>=fenceValue) {
+    const bool refresh = notice ? (!published || notice != renderedNotice) : now >= nextUpdate;
+    if((refresh || acquired) && fence->GetCompletedValue()>=fenceValue) {
         if(!acquired) {XrSwapchainImageAcquireInfo info{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};if(XR_SUCCEEDED(xrAcquireSwapchainImage(swapchain,&info,&acquiredIndex)))acquired=true;}
         if(acquired) {
             XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};wait.timeout=0;
             if(xrWaitSwapchainImage(swapchain,&wait)==XR_SUCCESS) {
-                const auto stats=GetStatistics();void* data{};D3D12_RANGE none{};
+                void* data{};D3D12_RANGE none{};
                 if(SUCCEEDED(upload->Map(0,&none,&data))) {
-                    Draw({pixels.data(),int(width),int(height)},settings,stats);
+                    Canvas canvas{pixels.data(),int(width),int(height)};
+                    if (notice) {
+                        canvas.Panel();
+                        const int textWidth = (int(std::strlen(notice))*6-1)*2;
+                        canvas.Text((canvas.width-textWidth)/2,(canvas.height-14)/2,notice);
+                    } else {
+                        Draw(canvas,settings,GetStatistics());
+                    }
                     for(uint32_t row=0;row<height;++row)std::memcpy(static_cast<uint8_t*>(data)+size_t(row)*rowPitch,pixels.data()+size_t(row)*width,size_t(width)*4);
                     upload->Unmap(0,nullptr);
                     if(SUCCEEDED(allocator->Reset()) && SUCCEEDED(list->Reset(allocator.Get(),nullptr))) {
@@ -186,7 +194,7 @@ const XrCompositionLayerBaseHeader* StatsOverlay::Prepare(XrSession session,XrSp
                         D3D12_TEXTURE_COPY_LOCATION src{},dst{};src.pResource=upload.Get();src.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
                         src.PlacedFootprint.Footprint={target->GetDesc().Format,width,height,1,rowPitch};dst.pResource=target;dst.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
                         list->CopyTextureRegion(&dst,0,0,0,&src,nullptr);std::swap(b.Transition.StateBefore,b.Transition.StateAfter);list->ResourceBarrier(1,&b);
-                        if(SUCCEEDED(list->Close())) {ID3D12CommandList* lists[]={list.Get()};queue->ExecuteCommandLists(1,lists);queue->Signal(fence.Get(),++fenceValue);published=true;nextUpdate=now+250;}
+                        if(SUCCEEDED(list->Close())) {ID3D12CommandList* lists[]={list.Get()};queue->ExecuteCommandLists(1,lists);queue->Signal(fence.Get(),++fenceValue);published=true;renderedNotice=notice;nextUpdate=now+250;}
                     }
                 }
                 XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
@@ -195,9 +203,14 @@ const XrCompositionLayerBaseHeader* StatsOverlay::Prepare(XrSession session,XrSp
             }
         }
     }
-    if(!published)return nullptr;
+    if(!published || (notice && notice!=renderedNotice))return nullptr;
     layer.space=view;layer.eyeVisibility=XR_EYE_VISIBILITY_BOTH;layer.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     layer.subImage={swapchain,{{0,0},{int32_t(width),int32_t(height)}},0};
+    if (notice) {
+        layer.pose = {{0,0,0,1},{0,0,-1.5f}};
+        layer.size = {0.56f,0.56f*height/width};
+        return reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
+    }
     constexpr float positions[9][2]={{-18,18},{18,18},{-18,-18},{18,-18},{0,18},{0,-18},{-18,0},{18,0},{0,0}};
     constexpr float radians=.01745329252f;
     const float distance=settings.overlayDistance;
@@ -237,7 +250,7 @@ void StatsOverlay::Shutdown(bool wait) {
     }
     if(swapchain) {xrDestroySwapchain(swapchain);swapchain=XR_NULL_HANDLE;}
     std::vector<XrSwapchainImageD3D12KHR>().swap(images);upload.Reset();allocator.Reset();list.Reset();fence.Reset();
-    fenceValue=0;nextUpdate=0;acquired=published=false;
+    fenceValue=0;nextUpdate=0;acquired=published=false;renderedNotice=nullptr;
     std::vector<uint32_t>().swap(pixels);width=height=rowPitch=0;follow.Reset();clock.Reset();followMode=-1;
 }
 }

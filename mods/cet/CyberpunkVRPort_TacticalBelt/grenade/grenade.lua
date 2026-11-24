@@ -1020,8 +1020,7 @@ end
 --     position  -0.0830  0.0516  0.0267 m   -- 101 mm from the wrist
 --     rotation  -0.731265 -0.032951 0.109304 0.672472   -- 95.48 degrees
 --
--- Recorded on the RIGHT hand. The left is given the same numbers: the take has a grenade in the left
--- for a quarter of a second and that is not enough to measure a hold from.
+-- The recorded offsets are right-wrist local. CyberFinger's left-hand path mirrors them below.
 -- wrist and hand-anchor bone indices, per hand, from the recorder's own list
 WRIST_BONE  = { [0] = 23, [1] = 24 }
 ANCHOR_BONE = { [0] = 26, [1] = 28 }
@@ -1057,18 +1056,33 @@ grenadeHoldPose = function()
     local side = E.S.grab.side
     if side == nil then return end
 
+    local mirror = side == 0 and type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled()
     local wp, wq, ap, aq
-    local ok = pcall(function()
-        wp = VRBoneModelPos(WRIST_BONE[side]);  wq = VRBoneModelRot(WRIST_BONE[side])
-        ap = VRBoneModelPos(ANCHOR_BONE[side]); aq = VRBoneModelRot(ANCHOR_BONE[side])
-    end)
-    if not (ok and wp and wq and ap and aq) then return end
+    if mirror then
+        -- The live wrist and prop root are available with debug capture off.
+        local item = E.S.grab.obj
+        if not IsDefined(item) then return end
+        wp, wq = VRPalmModelPos(side), VRPalmModelRot(side)
+        ap = VRWorldToModel(item:GetWorldPosition())
+        aq = VRWorldRotationToModel(item:GetWorldOrientation())
+        if wp.w == 0 or ap.w == 0 then return end
+    else
+        local ok = pcall(function()
+            wp = VRBoneModelPos(WRIST_BONE[side]);  wq = VRBoneModelRot(WRIST_BONE[side])
+            ap = VRBoneModelPos(ANCHOR_BONE[side]); aq = VRBoneModelRot(ANCHOR_BONE[side])
+        end)
+        if not (ok and wp and wq and ap and aq) then return end
+    end
 
-    -- the hold, in model space
     local HP, HQ = holdNow()
-    local hx, hy, hz = qrot4(wq.i, wq.j, wq.k, wq.r, HP[1], HP[2], HP[3])
+    -- V's wrist twins have opposite local axes (S = -I in the reference rig).
+    -- Reflect the prop on its lateral axis to keep its top pointing up.
+    local sign = mirror and -1 or 1
+    local qi, qj, qk, qr = HQ[1], HQ[2], HQ[3], HQ[4]
+    if mirror then qi, qj, qk, qr = qr, qk, -qj, -qi end
+    local hx, hy, hz = qrot4(wq.i, wq.j, wq.k, wq.r, sign * HP[1], sign * HP[2], sign * HP[3])
     hx, hy, hz = wp.x + hx, wp.y + hy, wp.z + hz
-    local mi, mj, mk, mr = qmul4(wq.i, wq.j, wq.k, wq.r, HQ[1], HQ[2], HQ[3], HQ[4])
+    local mi, mj, mk, mr = qmul4(wq.i, wq.j, wq.k, wq.r, qi, qj, qk, qr)
     -- WHERE THE GRENADE ENDED UP, in model space, kept for the pin: it is the only frame both the
     -- recording and the live hand agree on, and it is computed here anyway.
     pinS.itemP = { hx, hy, hz }
@@ -1937,6 +1951,11 @@ updateGrenadeGrab = function(now, dt)
     -- A GRAB WAITING FOR THE WEAPON TO GO (see below). It completes the moment no weapon is left in a
     -- hand slot, as an ordinary grab from that holder; letting go, or a weapon that is still there after
     -- two seconds, drops it.
+    if E.S.grenadeHolsterDisabled then
+        E.S.grab.pending = nil
+        E.S.grab.was[0], E.S.grab.was[1] = gripDown(0), gripDown(1)
+        return
+    end
     local pend = E.S.grab.pending
     if pend ~= nil then
         if not gripDown(pend.side) or (now - pend.at) > 2.0 then
@@ -1986,9 +2005,36 @@ updateGrenadeGrab = function(now, dt)
     end
 end
 
--- PUT ONE IN THE HAND AND LEAVE IT THERE, from the panel. `host` is the belt element it should be
--- taken from -- the caller knows which one is showing; nil means "do not hide anything".
+function M.held() return E.S.grab.slot ~= nil end
+
+-- A thrown effect can still reserve a slot after the visible grenade has left the hand.
+function M.reservedSlots()
+    local slots = E.S.grab.armSlots
+    if not slots then return false, false, false end
+    return slots[THROW_SLOTS[1]] == true, slots[THROW_SLOTS[2]] == true, slots[THROW_SLOTS[3]] == true
+end
+
+function M.stow(pl)
+    E.S.grab.pending = nil
+    throwDisarm(pl)
+    grenadeRelease(pl)
+    E.S.grab.spent = E.S.grab.spent or {}
+    for side = 0, 1 do
+        local down = gripDown(side)
+        E.S.grab.was[side], E.S.grab.spent[side] = down, down
+    end
+end
+
+function M.suspend(pl, dt)
+    E.S.grab.lastDt = dt
+    M.stow(pl)
+    -- Finish any in-flight game effect while the belt is unavailable.
+    throwTick(pl)
+end
+
+-- Pin a prop in the hand from the tuning panel.
 function M.pin(side, host)
+    if E.S.wornGearHidden or E.S.grenadeHolsterDisabled then return false end
     local pl = Game.GetPlayer()
     if pl == nil then return false end
     if E.S.grab.slot ~= nil then grenadeRelease(pl) end

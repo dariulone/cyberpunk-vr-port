@@ -587,19 +587,19 @@ void OpenXRManager::RefreshCyberFingerHintBindings() {
             origin.whichComponents = XR_INPUT_SOURCE_LOCALIZED_NAME_COMPONENT_BIT;
             if (XR_FAILED(xrGetInputSourceLocalizedName(m_session, &origin, sizeof(component), &used, component))) continue;
             if (logOrigins) Log("[cyberfinger] HUD input 0x%x: %s / %s\n", expected, hand, component);
-            verified |= PhysicalHintSource(hand, component) & expected;
+            verified |= PhysicalHintSource(hand, component, (expected & (LeftStickClick | RightStickClick)) != 0) & expected;
         }
     };
     check(m_cyberFingerActions.weapon, LeftMenu);
     check(m_cyberFingerActions.inventory, RightMenu);
     check(m_cyberFingerActions.scanner, LeftGrip);
-    check(m_thumbstickClickAction, RightGrip);
-    check(m_primaryButtonAction, LeftBlack);
+    check(m_thumbstickClickAction, RightGrip | LeftStickClick);
+    check(m_primaryButtonAction, LeftBlack | RightStickClick);
     check(m_secondaryButtonAction, RightBlack);
     check(m_menuButtonAction, LeftBlackHold);
     check(m_cyberFingerActions.heal, RightBlackHold);
     check(m_triggerAction, LeftTrigger | RightTrigger);
-    check(m_thumbstickAction, RightStick);
+    check(m_thumbstickAction, LeftStick | RightStick);
     if (hintSources.exchange(verified) != verified || !m_nextHintBindingCheck)
         Log("[cyberfinger] HUD hint source mask 0x%x\n", verified);
 }
@@ -978,7 +978,10 @@ bool OpenXRManager::ResubmitLastFrame(XrTime displayTime) {
         layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection);
     }
     uint32_t count = 1;
-    for (uint32_t i = 0; i < last.extraCount; ++i) layers[count++] = last.extra[i];
+    for (uint32_t i = 0; i < last.extraCount; ++i) {
+        if (m_modeNoticeOverlay.Owns(last.extra[i]) && !m_modeNoticeOverlay.Displays(cvr::cyberfinger::ModeNoticeText())) continue;
+        layers[count++] = last.extra[i];
+    }
     XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
     endInfo.displayTime = displayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -2027,7 +2030,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                         // D-PAD CHORD: while the LEFT stick click is held, the RIGHT
                         // stick picks the D-Pad direction. The right axes are zeroed for
                         // the whole hold so snap-turn/camera cannot fire during selection.
-                        if (triangleShift) {
+                        static cvr::cyberfinger::DpadChord cfDpad;
+                        const bool cfChord = cyberfinger && leftStickClicked && !cvr::cyberfinger::ConversationActive();
+                        const bool normalOnFoot = cfChord && m_sessionState == XR_SESSION_STATE_FOCUSED &&
+                            !menuRectActive && !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons() &&
+                            (cvr::cyberfinger::footHints.load(std::memory_order_relaxed) & cvr::cyberfinger::WornGearShortcut) != 0;
+                        const auto direction = cfDpad.Direction(cfChord, ctrl.rightThumbX, ctrl.rightThumbY, cvr::cyberfinger::StickActionThreshold(), normalOnFoot);
+                        if (cfDpad.toggleWornGear) cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::ToggleWornGear);
+                        if (cfChord) {
+                            ctrl.buttons |= direction;
+                            dpadUsedThisFrame = direction != 0 || std::fabs(ctrl.rightThumbX) > .2f || std::fabs(ctrl.rightThumbY) > .2f;
+                            ctrl.rightThumbX = ctrl.rightThumbY = 0.f;
+                        } else if (triangleShift) {
                             dpadUsedThisFrame = cvr::input::TriangleDpad(true, ctrl.rightThumbX, ctrl.rightThumbY, ctrl.buttons);
                         } else if (leftStickClicked && !(cyberfinger && cvr::cyberfinger::ConversationActive())) {
                             float threshold = CyberpunkVR_DpadChordStick;
@@ -2782,7 +2796,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             m_lastSubmission.valid = false;
                             XrCompositionLayerProjection layerProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
                             XrCompositionLayerQuad layerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
-                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+6] = {};
+                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+7] = {};
 
                             if (frameMenu) {
                                 layerQuad.space = m_localSpace;
@@ -2896,6 +2910,11 @@ DWORD OpenXRManager::FrameThreadMain() {
                             // compositor that sorts quads by distance (the FPS layer sits at 1.25 m, the
                             // panel at 2.3 m on the test setup) still drew it over the panel. The panel
                             // shows the same statistics itself.
+                            if (const char* notice = cvr::cyberfinger::ModeNoticeText()) {
+                                if (const auto* card = m_modeNoticeOverlay.Prepare(m_session,m_viewSpace,m_d3dDevice,m_d3dQueue,
+                                    XR_NULL_HANDLE,nullptr,0,frameState.predictedDisplayTime,notice))
+                                    layers[endInfo.layerCount++]=card;
+                            }
                             if(const auto* metrics=m_framegenOverlay.Prepare(m_session,m_viewSpace,m_d3dDevice,m_d3dQueue,
                                 m_localSpace,hudTracked?&hudHead.pose:nullptr,GetTrackingOriginSerial(),frameState.predictedDisplayTime))
                                 if(!cvr::vrui::Visible() && !cvr::modui::Visible())layers[endInfo.layerCount++]=metrics;

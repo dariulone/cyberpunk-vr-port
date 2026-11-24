@@ -85,6 +85,10 @@ enabled=true
 menuCommand=1;events.onUpdate();events.onUpdate();assert(inventoryCalls==1 and pauseCalls==0,'inventory became pause or repeated')
 menuCommand=2;events.onUpdate();assert(pauseCalls==1,'black hold did not open native pause')
 menuCommand=3;events.onUpdate();assert(cyberwareCalls==1,'right Menu hold did not activate OS cyberware')
+local gearToggles=0
+GetMod=function(name) if name=='CyberpunkVRPort_Holster' then return {toggleWornGear=function() gearToggles=gearToggles+1 end} end end
+menuCommand=5;events.onUpdate();events.onUpdate();assert(gearToggles==1,'worn gear toggle missed or repeated')
+inMenu=true;menuCommand=5;events.onUpdate();inMenu=false;assert(gearToggles==1,'menu changed worn gear')
 paused=true;menuCommand=3;events.onUpdate();assert(cyberwareCalls==1,'OS action leaked through pause');paused=false
 inMenu=true;menuCommand=1;events.onUpdate();assert(inventoryCalls==1,'command replaced an active game menu');inMenu=false
 enabled=false;menuCommand=1;events.onUpdate();enabled=true;events.onUpdate();assert(inventoryCalls==1,'command leaked across controller change')

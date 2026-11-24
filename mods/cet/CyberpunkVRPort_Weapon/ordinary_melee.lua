@@ -3,8 +3,7 @@
 local tuning=require('melee_tuning')
 local strength=require('melee_strength')
 local M={}
-local state
-local clock=0
+local tracks={{clock=0},{clock=0}}
 local function sub(a,b) return {x=a.x-b.x,y=a.y-b.y,z=a.z-b.z} end
 local function length(a) return math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z) end
 local function dot(a,b) return a.x*b.x+a.y*b.y+a.z*b.z end
@@ -15,24 +14,34 @@ local function distance(a,b,lever)
     end
     return d
 end
-function M.reset() state=nil end
+function M.reset() tracks={{clock=0},{clock=0}} end
+function M.resetOffhand() tracks[2].state=nil end
 -- CyberFinger accepts either physical trigger; other controllers use the
 -- weapon hand (input[3] below is already that hand's tracking).
-local function weaponTrigger()
+local function strongAttack(weapon, offhand, twoHanded)
+    if type(VRCyberFingerEnabled)=="function" and VRCyberFingerEnabled()
+        and WeaponObject.IsOfType(weapon:GetItemID(),gamedataItemType.Wea_Katana) then
+        return not offhand and twoHanded
+    end
     return strength.strong(Game.VRWeaponInLeftHand() and 0 or 1)
 end
 
-function M.update(dt,player,weapon,position,forward,origin,diag)
+function M.update(dt,player,weapon,position,forward,origin,diag,supportSide,fist,closed,blocking)
+    local offhand=supportSide~=nil
+    local track=tracks[offhand and 2 or 1]
+    local state=track.state
+    local lane=offhand and 0 or 1
     diag.ticks=diag.ticks+1;diag.kind=0;diag.left=0;diag.right=2;diag.frameSize=12
     local input=Game.VRMeleeInputFrame()
-    if not input or #input~=5 or input[3].w<=0 or not dt or dt<=0 or dt>.25
+    local control=input and input[offhand and 2 or 3]
+    if not input or #input~=5 or not control or control.w<=0 or not dt or dt<=0 or dt>.25
         or Game.GetSystemRequestsHandler():IsGamePaused() then
-        state=nil;diag.phase='no physical melee tracking';return
+        track.state=nil;diag.phase='no physical melee tracking';return
     end
-    local reach=math.min(1.25,weapon:VRMeleeReach())
+    local reach=fist and 0 or math.min(1.25,weapon:VRMeleeReach())
     local tip=Vector4.new(position.x+forward.x*reach,position.y+forward.y*reach,position.z+forward.z*reach,1)
-    local sample={control=input[3],position=position,tip=tip,origin=origin,stamp=input[1].x,epoch=input[1].y}
-    if input[1].z>.5 and input[2].w>0 then
+    local sample={control=control,position=position,tip=tip,origin=origin,stamp=input[1].x,epoch=input[1].y}
+    if not offhand and input[1].z>.5 and input[2].w>0 then
         local line=sub(input[2],input[3]);local n=length(line)
         if n>.03 then sample.line={x=line.x/n,y=line.y/n,z=line.z/n} end
     end
@@ -40,13 +49,15 @@ function M.update(dt,player,weapon,position,forward,origin,diag)
     if previous and previous.epoch==sample.epoch then return end
     local span=previous and ((sample.stamp-previous.stamp)%16777216)*.001 or 0
     if previous and span<.004 then return end
-    clock=clock+math.min(span,.25);sample.time=clock
+    local clock=track.clock+math.min(span,.25)
+    track.clock=clock;sample.time=clock
     if previous and (span>.1 or previous.control.w~=sample.control.w
         or length(sub(sample.control,previous.control))>math.max(tuning.teleport,span*15)
         or length(sub(origin,previous.origin))>.6) then state=nil;previous=nil end
     if not state then
         state={sample=sample,history={sample},mute=clock+tuning.equipMute,armed=false,soundArmed=false,
-            lastBegin=-10,lastSound=-10};diag.phase='settling';return
+            lastBegin=-10,lastSound=-10}
+        track.state=state;diag.phase='settling';return
     end
     local s=state
     if (previous.line~=nil)~=(sample.line~=nil) then
@@ -85,19 +96,27 @@ function M.update(dt,player,weapon,position,forward,origin,diag)
             s.armed=true;s.soundArmed=true
         end
     end
-    if clock>=s.mute and speed>=tuning.swingSpeed and s.armed and clock-s.lastBegin>=.12 then
-        s.strong=weaponTrigger()
-        s.episode=player:VRCyberwareBeginSwing(weapon,1,s.strong,speed)
+    if blocking then
+        s.armed,s.soundArmed,s.episode=false,false,false
+        s.quiet=nil
+        s.sample=sample
+        return
+    end
+    local canStrike=not fist or closed
+    if not canStrike then s.episode=false end
+    if canStrike and clock>=s.mute and speed>=tuning.swingSpeed and s.armed and clock-s.lastBegin>=.12 then
+        s.strong=strongAttack(weapon,offhand,input[1].z>.5)
+        s.episode=player:VRCyberwareBeginSwing(weapon,lane,s.strong,speed)
         s.armed=false;s.lastBegin=clock;s.direction=velocity
     end
     if s.episode and speed>=tuning.swingSpeed then
         s.liveUntil=clock+.06
-        player:VRCyberwareUpdateSwing(weapon,1,speed)
+        player:VRCyberwareUpdateSwing(weapon,lane,speed)
     end
     -- Air sound belongs to the physical stroke, not to a collision or the
     -- success of a queued game attack. One whoosh per stroke/reversal.
-    if clock>=s.mute and soundSpeed>=tuning.whooshSpeed and s.soundArmed and clock-s.lastSound>=.12 then
-        player:VRMeleeWhoosh(weapon,soundSpeed>=tuning.fastSpeed,weaponTrigger())
+    if canStrike and clock>=s.mute and soundSpeed>=tuning.whooshSpeed and s.soundArmed and clock-s.lastSound>=.12 then
+        player:VRMeleeWhoosh(weapon,soundSpeed>=tuning.fastSpeed,strongAttack(weapon,offhand,input[1].z>.5))
         -- No haptic for a stroke through the air: a blade that meets nothing gives the hand nothing back. The hand
         -- feels the hit (kMeleeHit), the block and the parry.
         s.soundArmed=false;s.lastSound=clock
@@ -105,10 +124,12 @@ function M.update(dt,player,weapon,position,forward,origin,diag)
     end
     local active=s.episode and clock<=(s.liveUntil or -1)
     if not active then s.episode=false end
-    player:VRMeleeSweepHit(weapon,position,tip,previous.position,previous.tip,.22,not active)
+    if not offhand or active then
+        player:VRMeleeSweepHit(weapon,position,tip,previous.position,previous.tip,fist and .09 or .22,not active)
+    end
     if diag.traceMotion then
         local samples=diag.motionSamples or {};diag.motionSamples=samples
-        samples[#samples+1]={side=1,time=clock,speed=speed,sound=soundSpeed,active=active or false,
+        samples[#samples+1]={side=offhand and supportSide or (Game.VRWeaponInLeftHand() and 0 or 1),time=clock,speed=speed,sound=soundSpeed,active=active or false,
             control={sample.control.x,sample.control.y,sample.control.z},
             position={position.x,position.y,position.z},tip={tip.x,tip.y,tip.z}}
         if #samples>160 then table.remove(samples,1) end

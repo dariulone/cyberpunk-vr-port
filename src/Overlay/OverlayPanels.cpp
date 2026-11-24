@@ -23,6 +23,7 @@
 #include "Runtimes/EyeTracking.hpp"
 #include "Runtimes/CyberFingerInput.hpp"
 #include "Runtimes/CyberFingerUi.hpp"
+#include "Runtimes/CyberFingerHolsterTypes.hpp"
 #include "Fbt/Game/Menu.hpp"
 extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
@@ -741,27 +742,33 @@ static bool DrawDrivingControls(LiveControlsUiState& state) {
                 }
 
                 UI::Spacing();
-                changed |= CheckboxInt("Trigger fires the gun while driving", &state.xrVehicleGunTrigger);
-                if (UI::IsItemHovered()) {
-                    UI::SetTooltip(
-                        "Draw a weapon in the driver seat and the RIGHT TRIGGER stops being the\n"
-                        "throttle and becomes the gun: drive with the left hand on the wheel and\n"
-                        "shoot with the right.\n\n"
-                        "The throttle LATCHES at whatever it was when the weapon came out, so the\n"
-                        "car keeps rolling, and the LEFT STICK forward/back trims that speed while\n"
-                        "you shoot. Holster the weapon and the trigger is the throttle again.\n\n"
-                        "While the weapon is out the left stick's forward/back is taken by the\n"
-                        "trim: no lean / rock and no autodrive gesture until you holster.");
-                }
-                float tt = state.xrVehicleThrottleTrim > 0.0f ? state.xrVehicleThrottleTrim : 0.5f;
-                if (widgets::SliderFloat("Throttle trim rate (/s)", &tt, 0.05f, 3.0f, "%.2f")) {
-                    state.xrVehicleThrottleTrim = tt;
-                    changed = true;
-                }
-                if (UI::IsItemHovered()) {
-                    UI::SetTooltip("How much of the throttle's full travel the left stick adds or\n"
-                                      "removes per second while a weapon is out.\n"
-                                      "0.5 = two seconds held to go from idle to floored.");
+                if (cvr::cyberfinger::Enabled()) {
+                    changed |= CheckboxInt("Weapon-hand Trigger fires while driving", &state.xrVehicleGunTrigger);
+                    if (UI::IsItemHovered())
+                        UI::SetTooltip("Right stick forward accelerates, back brakes or reverses. The other Trigger aims a drawn gun.");
+                } else {
+                    changed |= CheckboxInt("Trigger fires the gun while driving", &state.xrVehicleGunTrigger);
+                    if (UI::IsItemHovered()) {
+                        UI::SetTooltip(
+                            "Draw a weapon in the driver seat and the RIGHT TRIGGER stops being the\n"
+                            "throttle and becomes the gun: drive with the left hand on the wheel and\n"
+                            "shoot with the right.\n\n"
+                            "The throttle LATCHES at whatever it was when the weapon came out, so the\n"
+                            "car keeps rolling, and the LEFT STICK forward/back trims that speed while\n"
+                            "you shoot. Holster the weapon and the trigger is the throttle again.\n\n"
+                            "While the weapon is out the left stick's forward/back is taken by the\n"
+                            "trim: no lean / rock and no autodrive gesture until you holster.");
+                    }
+                    float tt = state.xrVehicleThrottleTrim > 0.0f ? state.xrVehicleThrottleTrim : 0.5f;
+                    if (widgets::SliderFloat("Throttle trim rate (/s)", &tt, 0.05f, 3.0f, "%.2f")) {
+                        state.xrVehicleThrottleTrim = tt;
+                        changed = true;
+                    }
+                    if (UI::IsItemHovered()) {
+                        UI::SetTooltip("How much of the throttle's full travel the left stick adds or\n"
+                                          "removes per second while a weapon is out.\n"
+                                          "0.5 = two seconds held to go from idle to floored.");
+                    }
                 }
 
                 // LIVE STATE, so "it did not grab" and "it steers the wrong way" are both answerable
@@ -1215,14 +1222,23 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             UI::Separator();
             UI::TextUnformatted("Weapon holsters");
             if (cvr::cyberfinger::Configured()) {
-                changed |= CheckboxInt("CyberFinger gesture holstering", &state.xrCyberFingerGestureHolstering);
+                changed |= CheckboxInt("CyberFinger gun gesture holstering", &state.xrCyberFingerGunGestureHolstering);
                 if (UI::IsItemHovered())
-                    UI::SetTooltip("Close your weapon hand at a holster to put the weapon away. Drawing from holsters works with either setting.");
+                    UI::SetTooltip("Close the weapon hand at its holster to put away a gun. Off by default.");
+                changed |= CheckboxInt("CyberFinger melee gesture holstering", &state.xrCyberFingerMeleeGestureHolstering);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("Bring the closed sword hand to the scabbard and open it there. Hold the first scabbard with your other hand. For the second blade, keep that other hand near the scabbard. At other holsters, close the weapon hand to stow. Drawing works with either setting.");
+                changed |= CheckboxInt("CyberFinger swords in right hand", &state.xrCyberFingerRightHandSwords);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("Draw swords in the right hand with either weapon-hand preference. The automatic sword holster uses the left hip.");
+                changed |= CheckboxInt("Auto fist fight mode (CyberFinger)", &state.xrCyberFingerAutoFistFight);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("With Offensive mode on and empty hands raised, tap both Triggers together or punch once with each hand to equip fists.");
             }
             changed |= CheckboxInt("Immersive holsters", &state.xrImmersiveHolsters);
             if (UI::IsItemHovered()) {
                 UI::SetTooltip(
-                    "ON  - every equipped weapon hangs on the body where it belongs:\n"
+                    "ON  - equipped weapons with enabled holsters hang on the body:\n"
                     "      pistols on the right hip, blades and clubs on the left hip,\n"
                     "      rifles and shotguns over the shoulders, knives on the chest.\n"
                     "      Reach for one and squeeze the grip to draw it (a blade at the\n"
@@ -1232,6 +1248,18 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             }
 
             UI::Separator();
+            if (cvr::cyberfinger::Configured()) {
+                UI::TextUnformatted("CyberFinger holster types");
+                for (const auto& category : cvr::cyberfinger::holsters::categories) {
+                    bool enabled = (state.xrCyberFingerHolsterTypes & category.bit) != 0;
+                    if (UI::Checkbox(category.label, &enabled)) {
+                        if (enabled) state.xrCyberFingerHolsterTypes |= category.bit;
+                        else state.xrCyberFingerHolsterTypes &= ~category.bit;
+                        changed = true;
+                    }
+                }
+                UI::Separator();
+            }
             UI::TextUnformatted("Physical reload");
             changed |= CheckboxInt("Reload highlight", &state.xrReloadGlow);
             if (UI::IsItemHovered()) {

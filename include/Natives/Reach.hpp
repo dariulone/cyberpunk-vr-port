@@ -27,6 +27,8 @@ bool UseHeld();
 // A hand that cannot take anything now: one the port has put something in (Anim/HandGestures.hpp PortHolds) or the
 // support hand on the gun.
 bool HandHolds(int side);
+bool BracingScabbard(int side);
+bool OffhandBlade(int side);
 
 // Turn a transform (position X Y Z W, rotation X Y Z W; forward = +Y) onto a point of the world by the shortest arc:
 // the position stays and the roll goes along. False, and the transform untouched, for a point within 5 cm or past

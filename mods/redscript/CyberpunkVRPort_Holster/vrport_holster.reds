@@ -6,6 +6,17 @@
 
 module CyberpunkVRPort.Holster
 
+@addMethod(PlayerPuppet)
+public final func VRNotifyOffensiveMode(text: String) -> Void {
+  let message: SimpleScreenMessage;
+  let board = GameInstance.GetBlackboardSystem(this.GetGame()).Get(GetAllBlackboardDefs().UI_Notifications);
+  if !IsDefined(board) { return; };
+  message.isShown = true;
+  message.message = text;
+  message.duration = 2.0;
+  board.SetVariant(GetAllBlackboardDefs().UI_Notifications.OnscreenMessage, ToVariant(message), true);
+}
+
 // World-space position of a bone / attachment slot on the player puppet's SlotComponent (e.g.
 // 'RightHand', 'LeftHand', 'RightUpLeg', 'LeftUpLeg'). Returns (0,0,0,0) if the slot does not
 // resolve, so the caller can gracefully skip it.
@@ -28,6 +39,23 @@ private func VRSendEquipRequest(action: EquipmentManipulationAction) -> Void {
   req.owner = this;
   let eqSystem = GameInstance.GetScriptableSystemsContainer(this.GetGame()).Get(n"EquipmentSystem") as EquipmentSystem;
   if IsDefined(eqSystem) { eqSystem.QueueRequest(req); }
+}
+
+// Only live hand attachments count. A grenade selected in the Gadget equipment area stays on the belt.
+@addMethod(PlayerPuppet)
+public final func VRHasDrawnCombatItem(skipWeaponLeft: Bool, skipGrenadeLeft: Bool, skipGrenadeRight: Bool) -> Bool {
+  let ts = GameInstance.GetTransactionSystem(this.GetGame());
+  return (!skipWeaponLeft && IsDefined(ts.GetItemInSlot(this, t"AttachmentSlots.WeaponLeft") as WeaponObject))
+    || IsDefined(ts.GetItemInSlot(this, t"AttachmentSlots.WeaponRight") as WeaponObject)
+    || (!skipGrenadeLeft && IsDefined(ts.GetItemInSlot(this, t"AttachmentSlots.GrenadeLeft")))
+    || (!skipGrenadeRight && IsDefined(ts.GetItemInSlot(this, t"AttachmentSlots.GrenadeRight")))
+    || IsDefined(this.VROffhandItem(0)) || IsDefined(this.VROffhandItem(1));
+}
+
+@addMethod(PlayerPuppet)
+public final func VRHolsterAllForOffensiveMode() -> Void {
+  this.m_vrHolsterIntentTime = EngineTime.ToFloat(GameInstance.GetSimTime(this.GetGame()));
+  this.VRSendEquipRequest(EquipmentManipulationAction.UnequipAll);
 }
 
 // Equip the FIRST melee WEAPON (the actual blade, e.g. the katana). NOT RequestLastUsedOrFirstAvailable

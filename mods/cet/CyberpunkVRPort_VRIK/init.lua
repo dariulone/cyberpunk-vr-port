@@ -512,7 +512,12 @@ local function updateCyberware(dt)
         finishCyberware("ready")
     end
 end
-registerForEvent("onShutdown", function() finishCyberware("idle") end)
+local mirrorGear = require("modules/mirror_gear")
+local mirrorGearError
+registerForEvent("onShutdown", function()
+    pcall(mirrorGear.clear)
+    finishCyberware("idle")
+end)
 
 -- PLAIN FUNCTIONS FOR THE PER-FRAME pcalls below: `pcall(function() ... end)` allocates a closure on
 -- every call, and the mods' per-frame garbage is what CET's collector pays for (the GC step in
@@ -618,7 +623,7 @@ local MIRROR_STEP = 0.3         -- seconds between the hub actions of a leave
 local MIRROR_FIND_M = 15.0      -- metres around the player the double is looked for once the mirror's hub is up
 local mirrorTimer, mirrorBound = 0.0, false
 local mirror = nil              -- { id, anchor, hubT, freed, stepT, yaw }
-local function findMirrorDouble(player, within)
+local function findMirrorDouble(player, within, storyMirror)
     local q = TargetSearchQuery.new()
     q.maxDistance = within
     q.testedSet = TargetingSet.Complete
@@ -630,8 +635,7 @@ local function findMirrorDouble(player, within)
         local e = part:GetComponent():GetEntity()
         if e and e:GetEntityID().hash ~= playerHash and e:IsA('NPCPuppet') then
             local record = string.lower(TDBID.ToStringDEBUG(e:GetRecordID()) or '')
-            if string.find(record, 'tpp', 1, true) and string.find(record, '_v$') and
-               (string.find(record, 'female', 1, true) ~= nil) == female then
+            if mirrorGear.matches(record, female, storyMirror) then
                 return e
             end
         end
@@ -788,6 +792,9 @@ registerForEvent('onUpdate', function(dt)
     local player = Game.GetPlayer()
     if not player then return end
 
+    local gearOK, gearError = pcall(mirrorGear.update, player, dt or 0.0, mirror and mirror.id, findMirrorDouble, MIRROR_FIND_M)
+    if not gearOK and gearError ~= mirrorGearError then spdlog.error("[VRIK] mirror gear: " .. tostring(gearError)) end
+    mirrorGearError = gearError
     if type(VRMirrorDouble) == 'function' and not pcall(updateMirrorDouble, player, dt or 0.0) then
         if mirrorBound then pcall(VRMirrorDoubleClear) end
         mirrorBound, mirror = false, nil

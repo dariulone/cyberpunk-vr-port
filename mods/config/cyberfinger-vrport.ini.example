@@ -12,7 +12,21 @@ xr_vive_trackers=1
 ; Also configurable live under Controls > Left-handed controls.
 xr_left_handed=1
 
-; Keep movement on the left stick and the current button layout.
-; With a left weapon only triggers/grab roles swap: left fires, right aims/blocks.
+; Left-hand firearm combat trades stick axes so the right stick can strafe while the left fires.
+; The default sword-hand preference can be changed under Controls > General.
+; With a left firearm, left trigger fires and right trigger aims.
 ; 1 = also mirror face buttons; 2 = also mirror sticks/clicks (right stick moves).
 xr_left_handed_bindings=0
+
+; CyberFinger gesture stowing. Uncomment to override a default (0 = off, 1 = on).
+; xr_cyberfinger_gun_gesture_holstering=0
+; xr_cyberfinger_melee_gesture_holstering=1
+; CyberFinger immersive weapon holsters and tactical belt grenade holder
+; xr_cyberfinger_holster_handguns=0
+; xr_cyberfinger_holster_machine_guns=0
+; xr_cyberfinger_holster_shotguns=0
+; xr_cyberfinger_holster_knives=1
+; xr_cyberfinger_holster_grenades=1
+; xr_cyberfinger_holster_swords=1
+; xr_cyberfinger_holster_rifles=0
+; xr_cyberfinger_holster_other_melee=1

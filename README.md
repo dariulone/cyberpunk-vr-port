@@ -11,8 +11,8 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
 
 Experimental [CyberFinger and eight-role SlimeVR patch](docs/cyberfinger-patch.md):
 opt-in finger grabs, separate physical controls and additional body targets.
-The CyberFinger preset uses a left-handed weapon with left-stick movement;
-either weapon hand is selectable, and the left/right Menu buttons have separate bindings.
+Both weapon hands use the same CyberFinger SteamVR binding. The [control diagrams](README_CYBRFNGR.md#buttons-at-a-glance)
+show shared controls first, then right-handed and left-handed assignments. The installer defaults to a left-handed weapon.
 Install this variant with `install_cyberfinger.cmd` (defaults to the GOG folder);
 see the [installer prerequisites and options](docs/cyberfinger-patch.md#installer).
 

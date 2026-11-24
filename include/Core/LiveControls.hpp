@@ -1,5 +1,6 @@
 #pragma once
 #include "Render/SharpenPolicy.hpp"
+#include "Runtimes/CyberFingerHolsterTypes.hpp"
 
 // ================================================================================================
 // The live settings block -- vrport.ini, re-read whenever the file's timestamp changes.
@@ -131,7 +132,11 @@ struct LiveControls {
     // 1 (default) = holding Y opens the port's weapon wheel in front of the body and the game keeps running; a
     // tap is still the game's next weapon. 0 = the game's own wheel (it slows time). Hooks/WeaponWheelHold.hpp.
     volatile int xrVrWeaponWheel = 1;
-    volatile int xrCyberFingerGestureHolstering = 0;
+    volatile int xrCyberFingerGunGestureHolstering = 0;
+    volatile int xrCyberFingerRightHandSwords = 1;
+    volatile int xrCyberFingerAutoFistFight = 1;
+    volatile int xrCyberFingerMeleeGestureHolstering = 1;
+    volatile int xrCyberFingerHolsterTypes = cvr::cyberfinger::holsters::defaults;
 };
 
 extern LiveControls g_liveControls;

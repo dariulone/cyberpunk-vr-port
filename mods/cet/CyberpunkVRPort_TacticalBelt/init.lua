@@ -1190,7 +1190,7 @@ end
 local MIRRORED = { "ucbeltmag_", "ucbeltammo_shell", "ucbeltgrenade" }
 local LEFT_HANDED_BELT = { ["Items.vrp_belt"] = "Items.vrp_belt_lh" }
 local function mirrorSign(name)
-    if not S.beltMirrored then return 1 end
+    if not S.beltMirrored or (S.crossBodyGrenade and name:match("^ucbeltgrenade")) then return 1 end
     for _, p in ipairs(MIRRORED) do
         if string.sub(name, 1, #p) == p then return -1 end
     end
@@ -1205,7 +1205,10 @@ end
 -- The belt this player wears: the variant chosen, or its mirror for a left-handed player where it has one.
 local function wantedRecord()
     local rec = CFG.variants[CFG.variant]
-    if rec ~= nil and LEFT_HANDED_BELT[rec] ~= nil and leftHanded() then return LEFT_HANDED_BELT[rec] end
+    if rec ~= nil and LEFT_HANDED_BELT[rec] ~= nil and leftHanded() then
+        if type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled() then return "Items.vrp_belt_cf_lh" end
+        return LEFT_HANDED_BELT[rec]
+    end
     return rec
 end
 
@@ -1692,6 +1695,7 @@ local function forceBeltAppearance(pl, ts)
     now = now or ""
     -- What the belt wears, not what was asked: its elements are where its appearance put them.
     S.beltMirrored = string.find(now, "_lh_&", 1, true) ~= nil
+    S.crossBodyGrenade = string.find(now, "_cf_lh_&", 1, true) ~= nil
     local want = string.format("%s&%s&TPP", stem, body)
     if now == want then
         if S.appSaid ~= now then
@@ -1919,7 +1923,9 @@ local function dropOutfitDuplicate(pl, ts, want)
     if o == nil then return end
     local rec = nil
     pcall(function() rec = tostring(TDBID.ToStringDEBUG(ItemID.GetTDBID(o:GetItemID()))) end)
-    if rec ~= want then return end
+    local cfBelt = "Items.vrp_belt_cf_lh"
+    local swapped = (want == cfBelt and rec == "Items.vrp_belt_lh") or (want == "Items.vrp_belt_lh" and rec == cfBelt)
+    if rec ~= want and not swapped then return end
     local off = nil
     local outfit = outfitSystem()
     if outfit ~= nil then pcall(function() off = outfit:UnequipSlot(id) end) end
@@ -2135,6 +2141,15 @@ local MAG_ALIAS = {
     testera = "satara",
 }
 
+-- The archive has no hip mesh for the Nekomata. CyberFinger uses the rifle
+-- pouch already baked on this belt. The reload still supplies the Nekomata item.
+local function beltMagModel(key)
+    if key == "nekomata" and type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled() then
+        return "copperhead"
+    end
+    return key
+end
+
 -- THE PUMPS, which have no magazine of their own on this belt -- their ammunition is the row of loose shells. Named
 -- so that a pump in hand is still an answer: with none, the belt fell back to the loadout's next weapon and hung
 -- that one's magazine on the pouch -- an Ashura's under a Tactician.
@@ -2151,6 +2166,7 @@ local function magKeyIn(name)
     for _, k in ipairs(WEAPON_MAG) do
         if string.find(low, k, 1, true) then return k end
     end
+    if string.find(low, "nekomata", 1, true) then return "nekomata" end
     for k, to in pairs(MAG_ALIAS) do
         if string.find(low, k, 1, true) then return to end
     end
@@ -2297,7 +2313,9 @@ local function readState()
                 memo.slotWeaponLeft = TweakDBID.new("AttachmentSlots.WeaponLeft")
             end
             -- The left-handed hold carries a single weapon in WeaponLeft.
-            local w = ts:GetItemInSlot(pl, memo.slotWeaponRight) or ts:GetItemInSlot(pl, memo.slotWeaponLeft)
+            local first, second = memo.slotWeaponRight, memo.slotWeaponLeft
+            if leftHanded() then first, second = second, first end
+            local w = ts:GetItemInSlot(pl, first) or ts:GetItemInSlot(pl, second)
             st.inhand = w ~= nil
             -- THE WEAPON IN HAND WINS. It is the one about to be reloaded, and it is the one the belt
             -- should be carrying ammunition for; the loadout's first weapon is only the fallback for
@@ -2365,7 +2383,7 @@ local function wanted(rule, st)
     -- ...and it is EMPTY while the player is carrying it. The reload module says so; a pouch that
     -- still shows a magazine the hand is holding is the same lie as a grenade left on the belt after
     -- it was thrown.
-    if mk ~= nil then return (not S.magTaken) and st.wmag == mk end
+    if mk ~= nil then return (not S.magTaken) and beltMagModel(st.wmag) == mk end
     if rule == "always" then return true end
     if rule == "never" then return false end
     if rule == "grenade" then return (not none) and st.grenade end
@@ -2434,7 +2452,8 @@ local function applyElements(st)
         local isTwin = string.find(name, "_lit", -4, true) ~= nil
         local rule = ruleFor(name)
         local want = wanted(rule, st)
-        if hideAll then want = false end
+        local hideGrenade = S.grenadeHolsterDisabled and (name:match("^ucbeltgrenade") or rule == "grenade" or rule:match("^grenade="))
+        if hideAll or hideGrenade then want = false end
         -- WHAT IS IN THE HAND IS NOT ALSO ON THE BELT. The rule still says "show the frag holder", and
         -- it is right -- a frag grenade is still equipped -- so the hold has to override it rather than
         -- be expressed through it.
@@ -2449,7 +2468,7 @@ local function applyElements(st)
         local okE, is = pcall(isEnabled, comp)
         if not okE then is = nil end
         -- (a mark twin goes off with the rest in a scene; the hand lights it again after)
-        if (not isTwin or hideAll) and is ~= nil and is ~= want then
+        if (not isTwin or hideAll or hideGrenade) and is ~= nil and is ~= want then
             S.want[name] = want
             pcall(toggle, comp, want)
             if CFG.verbose then log("%s -> %s (was %s)", name, tostring(want), tostring(is)) end
@@ -3438,7 +3457,7 @@ end
 -- One tick of prop upkeep. Cheap by construction: the attach is only attempted once a second and only
 -- while the slot is empty, the placement is only written when a slider actually moved, and the claim
 -- is only renewed for a prop that is meant to be lit.
-local function updateProps(now)
+local function updateProps(now, gearHidden)
     if CFG.props == nil then return end
     local pl = Game.GetPlayer()
     if pl == nil then return end
@@ -3448,7 +3467,10 @@ local function updateProps(now)
         -- Keep cleanup for occupied slots and the debug panel's live item label.
         -- Empty disabled slots have no item/plane/highlight work to perform.
         if p.on or obj ~= nil or overlay or PERFORMANCE.legacyEmptyPropPoll then
-        local want_item, want_tag = propItem(p)
+        local want_item, want_tag
+        if not gearHidden and not (S.grenadeHolsterDisabled and p.follow == "grenade") then
+            want_item, want_tag = propItem(p)
+        end
         -- A followed item that changed -- another grenade type equipped, or none -- means the slot has
         -- to be emptied before the new one can go in. The tag, not the record: a followed prop always
         -- attaches the same record and only its entity changes.
@@ -3748,7 +3770,7 @@ end
 local function updateMagReach()
     S.magD[0], S.magD[1] = nil, nil
     local st = S.state
-    local k = st and st.wmag or nil
+    local k = st and beltMagModel(st.wmag) or nil
     local host = (k ~= nil) and ("ucbeltmag_" .. k) or nil
     S.magHost = (host ~= nil and S.comps[host] ~= nil) and host or nil
     local hx, hy, hz, qi, qj, qk, qr = hipsModelFrame()
@@ -3834,7 +3856,7 @@ local function updateHighlight(dt)
     -- left in the pistol grip with nothing in it and the holster could not draw again. So the holders
     -- simply do not light until the weapon is put away.
     local plNow = Game.GetPlayer()
-    local noGrenades = plNow ~= nil and playerPlane(plNow, os.clock()) == 2
+    local noGrenades = S.grenadeHolsterDisabled or (plNow ~= nil and playerPlane(plNow, os.clock()) == 2)
     local litBefore = { [0] = S.litHand[0], [1] = S.litHand[1] }
 
     for side = 0, 1 do
@@ -3867,7 +3889,11 @@ local function updateHighlight(dt)
             for _, target in ipairs(targets) do
                 local dx, dy, dz = target.x - p.x, target.y - p.y, target.z - p.z
                 local d = math.sqrt(dx * dx + dy * dy + dz * dz)
-                if bestD == nil or d < bestD then best, bestD = target.host, d end
+                -- On the cross-body belt the magazine and grenade share a hip. The empty
+                -- weapon hand can pick up the grenade without the idle ammunition taking focus.
+                local idleAmmo = S.crossBodyGrenade and side == 0 and not noGrenades
+                    and (target.host:match("^ucbeltmag_") or target.host:match("^ucbeltammo_shell"))
+                if not idleAmmo and (bestD == nil or d < bestD) then best, bestD = target.host, d end
             end
             -- The row a piece belongs to is what the hand is really reaching for.
             if best ~= nil then best = OFFSET_GROUP[best] or best end
@@ -4057,7 +4083,10 @@ end
 registerForEvent("onUpdate", function(dt)
     -- First, before any return: the once-a-frame caches (hipsModelFrame, palmPoint) hold for one tick at most.
     S.frame = (S.frame or 0) + 1
-    if not S.ready or not CFG.enabled then return end
+    if not S.ready then return end
+    memo.holster = memo.holster or GetMod("CyberpunkVRPort_Holster")
+    local gearHidden = memo.holster and memo.holster.wornGearHidden and memo.holster.wornGearHidden() or false
+    if not CFG.enabled and not gearHidden and not S.wornGearHidden then return end
     -- The main menu and character creation have a player of their own, the menu world's puppet, and the
     -- belt is not worn there. Attaching to it crashed: a request superseded there had the item factory free the
     -- half-loaded belt meshes (read 0x0 at exe+0xB0C787, the fault ATTACH_WAIT exists for).
@@ -4102,9 +4131,36 @@ registerForEvent("onUpdate", function(dt)
     -- OFF THE BODY IN A SCENE, read every frame: the pieces follow it below, and a change runs the elements'
     -- pass in this same frame instead of up to a quarter of a second later.
     -- (a flip also walks the pieces again: what it hides or shows are the components worn now)
-    local scene = sceneHides()
+    local disableGrenades = memo.holster and memo.holster.grenadeHolsterEnabled and not memo.holster.grenadeHolsterEnabled() or false
+    if disableGrenades ~= (S.grenadeHolsterDisabled == true) then
+        S.grenadeHolsterDisabled, S.sceneFlip = disableGrenades, true
+    end
+    local gearChanged = gearHidden ~= (S.wornGearHidden == true)
+    S.wornGearHidden = gearHidden
+    local scene = gearHidden or sceneHides()
     if scene ~= (S.scene == true) then S.scene, S.sceneFlip, S.beltParts = scene, true, nil end
     applyBeltChunks(applyBeltPieces(pl, who))
+    if gearHidden then
+        if gearChanged then
+            applyLit({})
+            S.litHand, S.ringAt, S.magD, S.shellD, S.shellNear = {}, {}, {}, {}, {}
+            S.magHost = nil
+        end
+        if GRENADE then GRENADE.suspend(pl, dt) end
+        updateProps(os.clock(), true)
+        -- Late garment assembly can introduce components after the first hidden frame.
+        S.acc = S.acc + (dt or 0.016)
+        if gearChanged or S.acc >= 1.0 / math.max(1, CFG.rate_hz) then
+            S.acc = 0
+            applyElements(S.state)
+        end
+        return
+    end
+    if not CFG.enabled then
+        applyElements(S.state)
+        updateProps(os.clock())
+        return
+    end
 
     updateMagReach()
     updateHighlight(dt)
@@ -4800,7 +4856,7 @@ return {
     -- A grenade already in that hand, or a grab of it waiting on the weapon, counts too: the two mods run
     -- in no fixed order, and the belt may have taken this very squeeze earlier in the same frame.
     grenadeReach = function(side)
-        if not CFG.grenade_grab then return false end
+        if S.wornGearHidden or S.grenadeHolsterDisabled or not CFG.grenade_grab then return false end
         if S.grab.slot ~= nil then return S.grab.side == side end
         if S.grab.pending ~= nil then return S.grab.pending.side == side end
         local h = S.litHand[side]
@@ -4828,7 +4884,7 @@ return {
     -- it. nil means "conjure one the old way": a weapon we never built a magazine for must not become
     -- unreloadable.
     magKey = function()
-        if S.magHost == nil then return nil end
+        if not CFG.enabled or S.scene or S.magHost == nil then return nil end
         return string.match(S.magHost, "^ucbeltmag_(.+)$")
     end,
     -- Palm to that pouch, in metres. nil when there is no pouch or no hand.

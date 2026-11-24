@@ -184,12 +184,12 @@ local function pose(def, melee)
   return def.gun or def.melee
 end
 
-local function build(def, mirror, melee)
+local function build(def, mirror, melee, edgeUp)
   local s = mirror and -1 or 1
   local p = pose(def, melee)
   local pos = v(p.pos[1], p.pos[2], p.pos[3] * s)
   local dir = v(p.dir[1], p.dir[2], p.dir[3] * s)
-  local face = v(p.face[1], p.face[2], p.face[3] * s)
+  local face = edgeUp and v(1, 0, 0) or v(p.face[1], p.face[2], p.face[3] * s)
   -- a gun: Y = dir, Z = face; a melee weapon: Z = dir kept exactly, Y = face made square to it
   local q
   local nd = norm(dir)
@@ -207,14 +207,16 @@ end
 -- The place `name` (a right-handed name) as this player has it, for a melee weapon or a gun: turned over to the
 -- other side when the drawing hand is the left one.
 local cache = {}
-function P.get(name, left, melee)
+function P.get(name, left, melee, sword)
   left, melee = left == true, melee == true
-  local ck = name .. (left and "|L" or "|R") .. (melee and "|m" or "|g")
+  local edgeUp = sword and name == "hip_l"
+  local ck = name .. (left and "|L" or "|R") .. (melee and "|m" or "|g") .. (edgeUp and "|edgeUp" or "")
   local c = cache[ck]
   if c then return c end
   local def = RIGHT[name]
   if def == nil then return nil end
-  c = build(def, left, melee)
+  c = build(def, left, melee, edgeUp)
+  c.knucklesUp = edgeUp
   c.name = left and (MIRROR_NAME[name] or name) or name
   cache[ck] = c
   return c
@@ -234,7 +236,31 @@ local KIND = {
 local MELEE = { Wea_Katana = true, Wea_Sword = true, Wea_LongBlade = true, Wea_Machete = true, Wea_Axe = true,
   Wea_OneHandedClub = true, Wea_Chainsword = true, Wea_Knife = true, Wea_ShortBlade = true, Wea_TwoHandedClub = true,
   Wea_Hammer = true }
+-- Matches CyberFingerHolsterTypes.hpp. The original placement kind still chooses the body zone.
+local HOLSTER_BIT = {
+  Wea_Handgun=1, Wea_Revolver=1,
+  Wea_SubmachineGun=2, Wea_LightMachineGun=2, Wea_HeavyMachineGun=2,
+  Wea_Shotgun=4, Wea_ShotgunDual=4, Wea_Knife=8, Wea_ShortBlade=8, Gad_Grenade=16,
+  Wea_Katana=32, Wea_Sword=32, Wea_LongBlade=32, Wea_Machete=32, Wea_Chainsword=32,
+  Wea_AssaultRifle=64, Wea_Rifle=64, Wea_PrecisionRifle=64, Wea_SniperRifle=64,
+  Wea_Axe=128, Wea_OneHandedClub=128, Wea_TwoHandedClub=128, Wea_Hammer=128,
+}
+function P.holsterTypes()
+  return type(VRCyberFingerHolsterTypes) == "function" and VRCyberFingerHolsterTypes() or 255
+end
+function P.holsterEnabled(typeName, mask)
+  local bit = HOLSTER_BIT[typeName]
+  return not bit or (mask or P.holsterTypes()) % (2 * bit) >= bit
+end
 function P.kind(itemTypeName) return KIND[itemTypeName] end
 function P.melee(itemTypeName) return MELEE[itemTypeName] == true end
+function P.sword(t) return t == "Wea_Katana" or t == "Wea_Sword" or t == "Wea_LongBlade" end
+
+-- Back of the hand is local -Z on the right wrist and +Z on the left.
+function P.knucklesUp(q, left)
+  if not q then return false end
+  local rightBackZ = 2 * (q.i*q.i + q.j*q.j) - 1
+  return (left and -rightBackZ or rightBackZ) >= 0.35
+end
 
 return P

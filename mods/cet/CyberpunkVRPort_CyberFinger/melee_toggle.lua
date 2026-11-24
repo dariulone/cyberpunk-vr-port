@@ -15,7 +15,7 @@ function M.observe(player)
   local id=weapon and weapon:GetItemID()
   if id and melee(id) then lastMelee=key(id) end
 end
-function M.toggle(player)
+function M.toggle(player, emptyToFists)
   if not player then return false end
   M.observe(player)
   if Game.GetSystemRequestsHandler():IsGamePaused() then return false end
@@ -29,9 +29,17 @@ function M.toggle(player)
   end
   local weapon=player:GetActiveWeapon()
   local active=weapon and weapon:GetItemID()
-  if not active or not (fists(active) or melee(active)) then return false end
+  if emptyToFists then
+    if active then return false end
+    local belt=GetMod("CyberpunkVRPort_TacticalBelt")
+    if belt and belt.grenade then
+      if belt.grenade.held() or player:VRHasDrawnCombatItem(belt.grenade.reservedSlots()) then return false end
+    elseif player:VRHasDrawnCombatItem(false,false,false) then return false end
+  elseif not active or not (fists(active) or melee(active)) then
+    return false
+  end
   local target
-  if fists(active) then
+  if active and fists(active) then
     for _,id in ipairs(EquipmentSystem.GetItemsInArea(player,gamedataEquipmentArea.Weapon) or {}) do
       if melee(id) then
         target=target or id
@@ -40,11 +48,13 @@ function M.toggle(player)
     end
   else
     -- Only switch from an ordinary weapon still equipped in the loadout.
-    local equipped=false
-    for _,id in ipairs(EquipmentSystem.GetItemsInArea(player,gamedataEquipmentArea.Weapon) or {}) do
-      if key(id)==key(active) then equipped=true;break end
+    if active then
+      local equipped=false
+      for _,id in ipairs(EquipmentSystem.GetItemsInArea(player,gamedataEquipmentArea.Weapon) or {}) do
+        if key(id)==key(active) then equipped=true;break end
+      end
+      if not equipped then return false end
     end
-    if not equipped then return false end
     for _,id in ipairs(EquipmentSystem.GetItemsInArea(player,gamedataEquipmentArea.BaseFists) or {}) do
       if fists(id) then target=id;break end
     end

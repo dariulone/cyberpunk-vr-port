@@ -30,9 +30,25 @@
 // This file intentionally stays in the global namespace: the plugin registers plain global natives.
 
 native func VRLeftHanded() -> Bool;
+native func VRCyberFingerRightHandSwords() -> Bool;
 native func VRLeftHandedAnimations(controller: ref<IScriptable>, on: Bool, graph: CName, slot: CName) -> Void;
 
 public abstract class VRLeftHandedWeapon {
+  public static func RightHandSword(item: ItemID) -> Bool {
+    let record: ref<Item_Record>;
+    let itemType: gamedataItemType;
+    if !ItemID.IsValid(item) || !VRCyberFingerRightHandSwords() { return false; };
+    record = TweakDBInterface.GetItemRecord(ItemID.GetTDBID(item));
+    if !IsDefined(record) { return false; };
+    itemType = record.ItemType().Type();
+    return Equals(itemType, gamedataItemType.Wea_Katana) || Equals(itemType, gamedataItemType.Wea_Sword)
+      || Equals(itemType, gamedataItemType.Wea_LongBlade);
+  }
+
+  public static func WantsLeft(item: ItemID) -> Bool {
+    return VRLeftHanded() && VRLeftHandedWeapon.Movable(item) && !VRLeftHandedWeapon.RightHandSword(item);
+  }
+
   // A weapon that goes to the left hand when it is drawn on its own: a hand-held weapon that may hang on that slot.
   public static func Movable(item: ItemID) -> Bool {
     let record: ref<Item_Record>;
@@ -126,9 +142,14 @@ public abstract class VRLeftHandedWeapon {
 @wrapMethod(EquipmentSystemPlayerData)
 public final func GetItemIDfromEquipmentManipulationAction(eqManipulationAction: EquipmentManipulationAction, currentState: SSlotActiveItems) -> SSlotActiveItems {
   let state: SSlotActiveItems = wrappedMethod(eqManipulationAction, currentState);
-  if VRLeftHanded() && VRLeftHandedWeapon.Movable(state.rightHandItem) && !VRLeftHandedWeapon.IsWeapon(state.leftHandItem) {
+  if VRLeftHandedWeapon.WantsLeft(state.rightHandItem) && !VRLeftHandedWeapon.IsWeapon(state.leftHandItem) {
     state.leftHandItem = state.rightHandItem;
     state.rightHandItem = ItemID.None();
+  } else {
+    if VRLeftHandedWeapon.RightHandSword(state.leftHandItem) && !ItemID.IsValid(state.rightHandItem) {
+      state.rightHandItem = state.leftHandItem;
+      state.leftHandItem = ItemID.None();
+    };
   };
   return state;
 }
@@ -150,7 +171,7 @@ public final func GetItemIDfromEquipmentManipulationAction(eqManipulationAction:
 @wrapMethod(EquipmentSystemPlayerData)
 private final func HandleEquipWeapon(itemID: ItemID, out slotIndex: Int32, opt blockActiveSlotsUpdate: Bool, opt forceEquipWeapon: Bool, out isLeftWeapon: Bool) -> Bool {
   let handled: Bool;
-  if !blockActiveSlotsUpdate && VRLeftHanded() && VRLeftHandedWeapon.Movable(itemID)
+  if !blockActiveSlotsUpdate && VRLeftHandedWeapon.WantsLeft(itemID)
     && this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Left) == itemID
     && !ItemID.IsValid(this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Right))
     && this.GetItemInEquipSlot(EquipmentSystem.GetEquipAreaType(itemID), slotIndex) == itemID {
@@ -160,8 +181,8 @@ private final func HandleEquipWeapon(itemID: ItemID, out slotIndex: Int32, opt b
     return true;
   };
   handled = wrappedMethod(itemID, slotIndex, blockActiveSlotsUpdate, forceEquipWeapon, isLeftWeapon);
-  if handled && VRLeftHanded() && this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Right) == itemID
-    && VRLeftHandedWeapon.Movable(itemID) && !ItemID.IsValid(this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Left)) {
+  if handled && VRLeftHandedWeapon.WantsLeft(itemID) && this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Right) == itemID
+    && !ItemID.IsValid(this.GetSlotActiveItem(EquipmentManipulationRequestSlot.Left)) {
     this.SetSlotActiveItem(EquipmentManipulationRequestSlot.Right, ItemID.None());
     this.SendPSMWeaponManipulationRequest(EquipmentManipulationRequestType.Unequip, EquipmentManipulationRequestSlot.Right, gameEquipAnimationType.Default);
     this.SetSlotActiveItem(EquipmentManipulationRequestSlot.Left, itemID);
@@ -217,16 +238,18 @@ public final func GetActiveWeaponToUnequip() -> ItemID {
 // (CyberpunkVRPort_Weapon) when VRLeftHanded() changes; true when the weapon was put away -- the mod then draws it
 // with VRLeftHandedRedraw once both hands are empty.
 @addMethod(PlayerPuppet)
-public func VRLeftHandedRehand() -> Bool {
-  let toLeft: Bool = VRLeftHanded();
+public func VRWeaponNeedsRehand() -> Bool {
   let right: ref<WeaponObject> = GameObject.GetRightActiveWeapon(this);
   let left: ref<WeaponObject> = GameObject.GetLeftActiveWeapon(this);
-  let held: ref<WeaponObject> = toLeft ? right : left;
-  let other: ref<WeaponObject> = toLeft ? left : right;
+  if (IsDefined(left) && IsDefined(right)) || (!IsDefined(left) && !IsDefined(right)) { return false; };
+  if IsDefined(right) { return VRLeftHandedWeapon.WantsLeft(right.GetItemID()); };
+  return VRLeftHandedWeapon.Movable(left.GetItemID()) && !VRLeftHandedWeapon.WantsLeft(left.GetItemID());
+}
+
+@addMethod(PlayerPuppet)
+public func VRLeftHandedRehand() -> Bool {
   VRLeftHandedWeapon.SetAnimations(this);
-  if !IsDefined(held) || IsDefined(other) || !VRLeftHandedWeapon.Movable(held.GetItemID()) {
-    return false;
-  };
+  if !this.VRWeaponNeedsRehand() { return false; };
   return this.VRLeftHandedRequest(EquipmentManipulationAction.UnequipWeapon);
 }
 
@@ -271,13 +294,11 @@ public final func OnRestored() -> Void {
   };
   right = this.m_slotActiveItemsInHands.rightHandItem;
   left = this.m_slotActiveItemsInHands.leftHandItem;
-  if VRLeftHanded() {
-    if VRLeftHandedWeapon.Movable(right) && !VRLeftHandedWeapon.IsWeapon(left) {
-      this.m_slotActiveItemsInHands.leftHandItem = right;
-      this.m_slotActiveItemsInHands.rightHandItem = ItemID.None();
-    };
+  if VRLeftHandedWeapon.WantsLeft(right) && !VRLeftHandedWeapon.IsWeapon(left) {
+    this.m_slotActiveItemsInHands.leftHandItem = right;
+    this.m_slotActiveItemsInHands.rightHandItem = ItemID.None();
   } else {
-    if VRLeftHandedWeapon.Movable(left) && !VRLeftHandedWeapon.IsWeapon(right) {
+    if VRLeftHandedWeapon.Movable(left) && !VRLeftHandedWeapon.WantsLeft(left) && !VRLeftHandedWeapon.IsWeapon(right) {
       this.m_slotActiveItemsInHands.rightHandItem = left;
       this.m_slotActiveItemsInHands.leftHandItem = ItemID.None();
     };

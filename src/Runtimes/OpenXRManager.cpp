@@ -2442,6 +2442,7 @@ void OpenXRManager::Shutdown() {
     m_framegen.Reset();
     m_stereoDepth.Poll();
     m_framegenOverlay.Shutdown(true);
+    m_modeNoticeOverlay.Shutdown(true);
     m_settingsPanel.Shutdown();
     m_modPanel.Shutdown(false);
     cvr::modui::Suspend();cvr::vrui::SetExternalCapture(false);

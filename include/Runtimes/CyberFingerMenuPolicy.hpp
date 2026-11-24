@@ -131,6 +131,21 @@ public:
         return {};
     }
 };
+// The XInput hook and the reload script poll on different clocks. Hold the result
+// briefly so each sees the tap or hold once even when it misses the first poll.
+class FirearmGrip {
+    MenuTapHold gesture;
+    uint64_t crouchUntil{}, slideUntil{};
+public:
+    struct Result { bool crouch{}, slide{}; };
+    Result Step(bool down, bool allowed, uint64_t now) {
+        const auto edges=gesture.Step(down,allowed,now);
+        if (!allowed) { crouchUntil=slideUntil=0; return {}; }
+        if (edges.tap) crouchUntil=now+90;
+        if (edges.hold) slideUntil=now+90;
+        return {now<crouchUntil,now<slideUntil};
+    }
+};
 // Hold both physical Menu buttons for half a second. Claim until BOTH are up,
 // so neither Back/inventory nor a weapon-wheel release follows the HUD toggle.
 class HudChord {
@@ -151,30 +166,46 @@ public:
     float Held()const{return held;}
 };
 class ConversationNavigation {
-    AxisStep stick;ButtonEdge trigger;bool down{};uint64_t last{};
+    struct TriggerPress {
+        bool armed{};
+        bool Step(float value) {
+            if (!std::isfinite(value)) armed=false;
+            else if (value<=.35f) armed=true;
+            else if (armed && value>.65f) { armed=false; return true; }
+            return false;
+        }
+    };
+    AxisStep stick;
+    TriggerPress left, right;
+    ButtonEdge driverClick;
+    uint64_t last{};
 public:
-    int Step(bool enabled,float rightY,float rightTrigger,uint64_t now) {
-        if(!enabled || !std::isfinite(rightTrigger) ||
-            (last && (now<last || now-last>250))){*this={};last=now;return 0;}
+    int Step(bool enabled,float rightY,float leftTrigger,float rightTrigger,bool stickClick,uint64_t now) {
+        if(!enabled || (last && (now<last || now-last>250))){*this={};last=now;return 0;}
         last=now;
         const int direction=stick.Step(0,rightY,now);
-        down=rightTrigger>(down?.35f:.65f);
-        return trigger.Step(down)?3:direction;
+        // Sample every input even when two presses arrive in the same frame.
+        const bool leftPressed=left.Step(leftTrigger);
+        const bool rightPressed=right.Step(rightTrigger);
+        const bool clicked=driverClick.Step(stickClick);
+        return leftPressed || rightPressed || clicked ? 3 : direction;
     }
 };
-// Reserve only physical right Y and trigger. Keep each reserved until released
+// Reserve physical right Y and both triggers. Keep each reserved until released
 // after the choice hub closes, so confirmation cannot become a shot or dodge.
 struct ConversationCapture {
-    bool vertical{},trigger{};
-    void Step(bool configured,bool active,float rightY,float rightTrigger) {
+    bool vertical{},leftTrigger{},rightTrigger{};
+    void Step(bool configured,bool active,float rightY,float left,float right) {
         if(!configured){*this={};return;}
-        if(active){vertical=trigger=true;return;}
+        if(active){vertical=leftTrigger=rightTrigger=true;return;}
         if(std::isfinite(rightY) && std::abs(rightY)<.35f)vertical=false;
-        if(std::isfinite(rightTrigger) && rightTrigger<.35f)trigger=false;
+        if(std::isfinite(left) && left<=.35f)leftTrigger=false;
+        if(std::isfinite(right) && right<=.35f)rightTrigger=false;
     }
     template<class State> State Apply(State state)const {
         if(vertical)state.rightThumbY=0;
-        if(trigger)state.rightTrigger=0;
+        if(leftTrigger)state.leftTrigger=0;
+        if(rightTrigger)state.rightTrigger=0;
         return state;
     }
     template<class Pad> void ApplyGamepad(Pad& pad,bool leftHanded,bool mirroredSticks)const {
@@ -182,10 +213,8 @@ struct ConversationCapture {
             if(mirroredSticks)pad.sThumbLY=0;
             else pad.sThumbRY=0;
         }
-        if(trigger) {
-            if(leftHanded)pad.bLeftTrigger=0;
-            else pad.bRightTrigger=0;
-        }
+        if(leftHanded ? rightTrigger : leftTrigger)pad.bLeftTrigger=0;
+        if(leftHanded ? leftTrigger : rightTrigger)pad.bRightTrigger=0;
     }
 };
 }

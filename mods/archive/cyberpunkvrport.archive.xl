@@ -17,6 +17,7 @@
 # where ArchiveXL (if installed for other mods) would apply it a second time.
 factories:
   - base\vrport\vrp_props.csv
+  - base\vrport\cf_belt_factory.csv
   - vrcigarette\vr_wheel.csv
 
 # The lobby's construct: one more appearance, vrport_construct (the gold hologram), on the body

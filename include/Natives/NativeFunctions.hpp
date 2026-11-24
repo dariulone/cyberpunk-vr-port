@@ -395,6 +395,7 @@ void VRWeaponRigStatus(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFr
 void VRWeaponRigUse(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, int32_t* aOut, int64_t a4);
 void VRWorldDirToModel(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4);
 void VRWorldToModel(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* aFrame, RED4ext::Vector4* aOut, int64_t a4);
+void VRWorldRotationToModel(RED4ext::IScriptable*, RED4ext::CStackFrame*, RED4ext::Quaternion*, int64_t);
 
 void VROverlayCommand(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
 void VROverlayMenu(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
@@ -419,6 +420,15 @@ void VRReachUse(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRHandHolds(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRAllowsGestureHolstering(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
 void VRCyberFingerEnabled(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRCyberFingerRightHandSwords(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRCyberFingerHolsterTypes(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+void VRCyberFingerRevealModeNotice(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+void VRCyberFingerShowModeNotice(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
+void VRCyberFingerScabbardHand(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRCyberFingerMeleeHand(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
+void VRCyberFingerKatanaGrip(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRCyberFingerFistBlock(RED4ext::IScriptable*,RED4ext::CStackFrame*,bool*,int64_t);
+void VRCyberFingerSetOffensiveMode(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
 void VRCyberFingerCommand(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
 void VRCyberFingerConversation(RED4ext::IScriptable*,RED4ext::CStackFrame*,int32_t*,int64_t);
 void VRCyberFingerUiState(RED4ext::IScriptable*,RED4ext::CStackFrame*,void*,int64_t);
