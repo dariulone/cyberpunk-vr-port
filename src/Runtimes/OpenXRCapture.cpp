@@ -2028,7 +2028,9 @@ bool OpenXRManager::EnsureMonoSubmitResources() {
 
     for (uint32_t eye = 0; eye < viewCount; ++eye) {
         XrSwapchainCreateInfo swapchainInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
-        swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+        // SteamVR samples the projection images during composition, just as it does HUD quads.
+        swapchainInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
+                                   XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
         swapchainInfo.format = selectedFormat;
         swapchainInfo.sampleCount = 1;
         swapchainInfo.width = static_cast<int32_t>(width);

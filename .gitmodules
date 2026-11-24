@@ -1,6 +1,6 @@
 [submodule "externals/RED4ext.SDK"]
 	path = externals/RED4ext.SDK
-	url = https://github.com/marklove5102/RED4ext.SDK.git
+	url = https://github.com/WopsS/RED4ext.SDK.git
 [submodule "externals/externals/RED4ext.SDK"]
 	path = externals/externals/RED4ext.SDK
 	url = https://github.com/marklove5102/RED4ext.SDK.git

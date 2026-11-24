@@ -10,6 +10,10 @@ cvr::quest::ObjectKey Key(const RED4ext::Handle<RED4ext::ent::Entity>& object) {
     return {reinterpret_cast<uintptr_t>(object.instance),reinterpret_cast<uintptr_t>(object.refCount)};
 }
 }
+void VRWilsonRangeTarget(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, RED4ext::NodeRef* out, int64_t) {
+    frame->code++;
+    if (out) *out = RED4ext::NodeRef("#mq011_target_002");
+}
 void VRStoryAttentionUpdate(RED4ext::IScriptable*,RED4ext::CStackFrame* frame,int32_t* out,int64_t) {
     RED4ext::Handle<RED4ext::ent::Entity> player;
     int32_t started{},done{},locomotion{-1},tier{},workspot{},vehicle{},choices{},paused{1};

@@ -11,10 +11,9 @@ here is a Quest Pro over Steam Link, an AMD RX 7900 XT and optional eight-tracke
 
 [Next-session TODO and installation status](docs/cyberfinger-session-todo.md).
 
-This branch integrates upstream **0.2.45**. See the
-[merge report](docs/upstream-0.2.45-integration.md) for improvements, compatibility
-decisions, build checks and the headset test checklist. The merged package was
-installed for testing on 2026-11-15; the original `main` checkout remains unchanged.
+This source includes upstream through `1337b43d`, including the SteamVR/Radeon
+projection change and per-eye FSR3 frame generation. The earlier 0.2.45
+integration has a [merge report and headset checklist](docs/upstream-0.2.45-integration.md).
 
 ### CyberFinger controls
 

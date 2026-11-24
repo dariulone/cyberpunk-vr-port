@@ -1,3 +1,4 @@
+#include "Framegen/Fsr3.hpp"
 // OnFootDeltaHead -- one hook, one file. It registers itself at the bottom; Hooks/Hook.hpp says why the
 // stage and order live here rather than in a boot function.
 //
@@ -107,7 +108,10 @@ extern "C" void __fastcall OnOnFootDeltaHeadCallback(float* deltaHead) {
 
     // Only deliberate native/stick view turning enters DeltaHead. Physical
     // body following is consumed separately by the movement adapter.
-    if (snap != 0.0f) deltaHead[idx] += snap;
+    if (snap != 0.0f) {
+        deltaHead[idx] += snap;
+        cvr::fsr3::NoteSnapTurn(snap);
+    }
 }
 
 bool InstallOnFootDeltaHeadHook() {

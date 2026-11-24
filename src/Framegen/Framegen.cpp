@@ -1,4 +1,5 @@
 #include "Framegen/Framegen.hpp"
+#include "Framegen/Fsr3.hpp"
 #include "Framegen/FramePolicy.hpp"
 #include "Render/Afw.hpp"
 #include "Utils/DebugGate.hpp"
@@ -98,6 +99,8 @@ const char* BackendName(Backend value) {
         case Backend::Nvidia:return "NVIDIA OFA + FidelityFX";
         case Backend::DlssG:return "NVIDIA DLSS-G";
         case Backend::Anr:return "ANR FG";
+        case Backend::Fsr3Interpolation:return "FSR3 interpolation";
+        case Backend::Fsr3Extrapolation:return "FSR3 extrapolation";
         default:return "FidelityFX";
     }
 }
@@ -114,7 +117,7 @@ void SetDepthCaptureEnabled(bool value) {depthCapture.store(value,std::memory_or
 bool MetricsEnabled() {return metrics.load(std::memory_order_relaxed);}
 void SetSettings(Settings value) {
     std::lock_guard settingsLock(settingsWriteMutex);
-    value.backend=Backend(std::clamp(int(value.backend),0,3));
+    value.backend=Backend(std::clamp(int(value.backend),0,5));
     value.quality=std::clamp(value.quality,0,2);
     // 0 = no optical flow: frame interpolation on the engine's vectors alone.
     value.flowScale=value.flowScale==100 || value.flowScale==75 || value.flowScale==0 ? value.flowScale : 50;
@@ -131,6 +134,12 @@ void SetSettings(Settings value) {
     const bool disabledReportChanged=metricsChanged || value.enabled!=settings.enabled || value.backend!=settings.backend || !CyberpunkVR_FramegenReport[0];
     if(metricsChanged)ClearMetricsLocked();
     if(value.historySeconds!=settings.historySeconds)nextRefresh=nextSummary=0;
+    fsr3::Settings fsr;
+    fsr.enabled=value.enabled && Fsr3Backend(value.backend);
+    fsr.mode=value.backend==Backend::Fsr3Extrapolation ? fsr3::kExtrapolation : fsr3::kInterpolation;
+    fsr.opticalFlow=value.fsr3OpticalFlow;
+    fsr.show=value.fsr3Show;
+    fsr3::SetSettings(fsr);
     settings=value;
     enabled.store(value.enabled,std::memory_order_relaxed);
     metrics.store(value.overlay,std::memory_order_relaxed);
@@ -331,7 +340,8 @@ bool ParseSetting(const char* line,Settings& value) {
     else if(sscanf_s(line,"xr_framegen_overlay = %d",&n)==1)value.overlay=n!=0;
     else if(sscanf_s(line,"xr_framegen_pace = %d",&n)==1)value.autoPace=n!=0;
     else if(sscanf_s(line,"xr_framegen_cadence_lock = %d",&n)==1)value.cadenceLock=n!=0;
-    else if(sscanf_s(line,"xr_framegen_backend = %d",&n)==1)value.backend=Backend(std::clamp(n,0,3));
+    else if(sscanf_s(line,"xr_framegen_backend = %d",&n)==1)value.backend=Backend(std::clamp(n,0,5));
+    else if(sscanf_s(line,"xr_fsr3_optical_flow = %d",&n)==1)value.fsr3OpticalFlow=n!=0;
     else if(sscanf_s(line,"xr_framegen_quality = %d",&n)==1)value.quality=n;
     else if(sscanf_s(line,"xr_framegen_flow_scale = %d",&n)==1)value.flowScale=n;
     else if(sscanf_s(line,"xr_framegen_overlay_corner = %d",&n)==1)value.overlayCorner=n;
@@ -347,6 +357,7 @@ bool ParseSetting(const char* line,Settings& value) {
     return true;
 }
 void WriteSettings(void* file,const Settings& s) {
+    std::fprintf(static_cast<FILE*>(file),"xr_fsr3_optical_flow=%d\n",s.fsr3OpticalFlow);
     std::fprintf(static_cast<FILE*>(file),"xr_framegen=%d\nxr_framegen_overlay=%d\nxr_framegen_pace=%d\nxr_framegen_backend=%d\nxr_framegen_quality=%d\nxr_framegen_flow_scale=%d\nxr_framegen_overlay_corner=%d\n",
         s.enabled,s.overlay,s.autoPace,int(s.backend),s.quality,s.flowScale,s.overlayCorner);
     std::fprintf(static_cast<FILE*>(file),"xr_framegen_cadence_lock=%d\n",s.cadenceLock ? 1 : 0);

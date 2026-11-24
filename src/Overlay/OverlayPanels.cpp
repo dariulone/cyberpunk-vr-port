@@ -100,6 +100,15 @@ extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" UINT GetForcedDisplayModeWidth();
 extern "C" UINT GetForcedDisplayModeHeight();
 
+// DLSS5 neural render -- Render/NeuralRender.cpp.
+extern "C" int32_t  CyberpunkVR_NrEnable, CyberpunkVR_NrAlternateEyes, CyberpunkVR_NrPreset, CyberpunkVR_NrStyle;
+extern "C" float    CyberpunkVR_NrIntensity, CyberpunkVR_NrLocalTone, CyberpunkVR_NrLocalStructure, CyberpunkVR_NrSkinStructure;
+extern "C" float    CyberpunkVR_NrPaperWhite, CyberpunkVR_NrColorStrength, CyberpunkVR_NrMotionScaleX, CyberpunkVR_NrMotionScaleY;
+extern "C" int32_t  CyberpunkVR_NrMVecScaleMode, CyberpunkVR_NrDepthConversion, CyberpunkVR_NrReset, CyberpunkVR_NrAutoMask;
+extern "C" int32_t  CyberpunkVR_NrArmed, CyberpunkVR_NrInited, CyberpunkVR_NrContexts, CyberpunkVR_NrDisabled, CyberpunkVR_NrFault;
+extern "C" uint32_t CyberpunkVR_NrCreateResult, CyberpunkVR_NrLastResult, CyberpunkVR_NrEvals[2];
+extern "C" float    CyberpunkVR_NrPassesPerSec, CyberpunkVR_NrGpuMs[6], CyberpunkVR_NrFrameStats[3];
+
 namespace overlay {
 
 bool CheckboxInt(const char* label, int* value) {
@@ -971,6 +980,98 @@ bool DrawFpsOverlayControls(LiveControlsUiState& state) {
     return changed;
 }
 
+void DrawNeuralRenderControls() {
+    widgets::Section("DLSS 5 NEURAL RENDERING");
+    UI::TextWrapped("Enable DLSS in the game. Neural Rendering also requires support from the installed NVIDIA NGX runtime. "
+                    "This setting starts off each time you launch.");
+    UI::Separator();
+    CheckboxInt("DLSS 5 Neural Render", &CyberpunkVR_NrEnable);
+    if (UI::IsItemHovered())
+        UI::SetTooltip("Runs the neural render pass on both eyes and puts its picture in the headset.\n"
+                       "Off = the game's own DLSS picture, untouched.");
+    static const char* const kFaults[] = {"", "Neural Rendering is unavailable.",
+        "An NGX function is missing.", "The installed NGX runtime does not expose DLSS 5 NR for this game.", "NGX crashed while starting.",
+        "Creating the neural render crashed.", "The neural render pass crashed.",
+        "The game's DLSS picture is in a format this cannot read.", "The DLSS hook could not be put in."};
+    if (CyberpunkVR_NrDisabled) {
+        const int fault = CyberpunkVR_NrFault;
+        const char* reason=fault>0 && fault<int(IM_ARRAYSIZE(kFaults)) ? kFaults[fault] : "NGX error.";
+        if(fault==3 && CyberpunkVR_NrCreateResult==0xBAD0000Cu)
+            reason="NGX requires a newer display driver or feature library.";
+        UI::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Stopped: %s",reason);
+        if (UI::Button("Retry")) { CyberpunkVR_NrFault = 0; CyberpunkVR_NrDisabled = 0; }
+    } else if (!CyberpunkVR_NrEnable) {
+        UI::TextDisabled("Off.");
+    } else if (!CyberpunkVR_NrArmed) {
+        UI::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Waiting for the game's DLSS.");
+    } else if (!CyberpunkVR_NrInited) {
+        UI::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Waiting for the first DLSS frame.");
+    } else {
+        UI::TextColored(ImVec4(0.45f, 0.9f, 0.5f, 1.0f), "Running: %d eye context%s", CyberpunkVR_NrContexts,
+                        CyberpunkVR_NrContexts == 1 ? "" : "s");
+    }
+    if(!CyberpunkVR_NrEnable)return;
+    UI::TextDisabled("passes/s %.1f   left %u  right %u   last 0x%08X   create 0x%08X", CyberpunkVR_NrPassesPerSec,
+                     CyberpunkVR_NrEvals[0], CyberpunkVR_NrEvals[1], CyberpunkVR_NrLastResult, CyberpunkVR_NrCreateResult);
+    UI::Text("Game frames/s %.1f   NR passes per frame %.2f (most %.0f)", CyberpunkVR_NrFrameStats[0],
+             CyberpunkVR_NrFrameStats[1], CyberpunkVR_NrFrameStats[2]);
+    if (UI::IsItemHovered())
+        UI::SetTooltip("The game's Presents per second, and how many neural render passes ran between two of them:\n"
+                       "2 = one per eye, as it should be.");
+    const float* gpu = CyberpunkVR_NrGpuMs;
+    UI::Text("GPU ms  left: encode %.2f  NR %.2f  decode %.2f   right: encode %.2f  NR %.2f  decode %.2f",
+             gpu[0], gpu[1], gpu[2], gpu[3], gpu[4], gpu[5]);
+    if (UI::IsItemHovered())
+        UI::SetTooltip("The GPU time of each eye's pass, averaged over a second: the colour encode, the neural\n"
+                       "render model itself and the decode back onto the eye.");
+    CheckboxInt("Alternate eyes (one eye per frame)", &CyberpunkVR_NrAlternateEyes);
+    if (UI::IsItemHovered())
+        UI::SetTooltip("Half the work: the left eye on even frames, the right on odd, the other eye showing\n"
+                       "the game's own picture. Each eye's history updates at half rate and may shimmer.");
+
+    widgets::Section("MODEL");
+    static const char* const kPresets[] = {"Default", "Preset #1", "Preset #2", "Preset #3", "Preset #4", "Preset #5", "Preset #6"};
+    widgets::Combo("NR preset", &CyberpunkVR_NrPreset, kPresets, IM_ARRAYSIZE(kPresets));
+    if (UI::IsItemHovered()) UI::SetTooltip("Applied when the neural render is created: turn it off and on again.");
+    static const char* const kStyles[] = {"Natural", "Cinematic", "Style 2"};
+    widgets::Combo("NR style", &CyberpunkVR_NrStyle, kStyles, IM_ARRAYSIZE(kStyles));
+    widgets::SliderFloat("NR intensity", &CyberpunkVR_NrIntensity, 0.0f, 2.0f, "%.2f");
+    if (UI::IsItemHovered())
+        UI::SetTooltip("Up to 1: the model's own strength. Above 1: the change the model makes is pushed further\n"
+                       "(as the DLSS5 Visual Enhancer does). 0 = the game's picture.");
+    widgets::SliderFloat("Local tone strength", &CyberpunkVR_NrLocalTone, 0.0f, 1.0f, "%.2f");
+    widgets::SliderFloat("Local structure strength", &CyberpunkVR_NrLocalStructure, 0.0f, 1.0f, "%.2f");
+    CheckboxInt("Automatic mask", &CyberpunkVR_NrAutoMask);
+    if (UI::IsItemHovered())
+        UI::SetTooltip("The model finds the skin in the picture itself and gives it its own structure strength.");
+    UI::BeginDisabled(!CyberpunkVR_NrAutoMask);
+    widgets::SliderFloat("Skin structure strength", &CyberpunkVR_NrSkinStructure, 0.0f, 1.0f, "%.2f");
+    UI::EndDisabled();
+    if (UI::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        UI::SetTooltip("The structure strength on skin. Needs the automatic mask.");
+
+    widgets::Section("MOTION / DEPTH");
+    static const char* const kMotion[] = {"As given", "As DLSS (render size)", "As DLSS, inverted", "Output size"};
+    widgets::Combo("Motion scale", &CyberpunkVR_NrMVecScaleMode, kMotion, IM_ARRAYSIZE(kMotion));
+    if (UI::IsItemHovered())
+        UI::SetTooltip("How the game's motion vectors become pixels for the model. A wrong one is moving colour\n"
+                       "noise; \"As DLSS\" is what the game's own DLSS gets.");
+    widgets::SliderFloat("Motion scale X", &CyberpunkVR_NrMotionScaleX, -2.0f, 2.0f, "%.3f");
+    widgets::SliderFloat("Motion scale Y", &CyberpunkVR_NrMotionScaleY, -2.0f, 2.0f, "%.3f");
+    static const char* const kDepth[] = {"Game (reversed)", "Not inverted", "Inverted"};
+    widgets::Combo("Depth", &CyberpunkVR_NrDepthConversion, kDepth, IM_ARRAYSIZE(kDepth));
+    CheckboxInt("Reset the history every frame", &CyberpunkVR_NrReset);
+    if (UI::IsItemHovered())
+        UI::SetTooltip("Diagnostic: no temporal accumulation. Moving noise that stops with this on is the motion\n"
+                       "scale; noise that stays is the colour input.");
+
+    widgets::Section("COLOUR");
+    widgets::SliderFloat("Colour strength", &CyberpunkVR_NrColorStrength, 0.0f, 1.0f, "%.2f");
+    if (UI::IsItemHovered()) UI::SetTooltip("How much of the neural render's picture replaces the game's: 0 = none, 1 = all.");
+    widgets::SliderFloat("Scene paper white", &CyberpunkVR_NrPaperWhite, 0.1f, 4.0f, "%.2f");
+    if (UI::IsItemHovered()) UI::SetTooltip("The scene brightness taken as white when the HDR picture is mapped for the model.");
+}
+
 bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditing) {
     bool changed = false;
     if(foveatedEditing)*foveatedEditing=false;
@@ -1113,7 +1214,11 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             changed|=UI::Checkbox("Enable frame generation",&fg.enabled);
             if(UI::IsItemHovered())UI::SetTooltip("While frame generation is enabled, hand smoothing runs at its rate times xr_hand_lerp_framegen_scale (1.25; 0 turns it off).");
             int backend=int(fg.backend);
-            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0NVIDIA OFA + FidelityFX\0NVIDIA DLSS Frame Generation\0ANR FG (Apex Neural Rendering)\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
+            if(widgets::Combo("Frame generator",&backend,"FidelityFX\0NVIDIA OFA + FidelityFX\0NVIDIA DLSS Frame Generation\0ANR FG (Apex Neural Rendering)\0FSR3 interpolation\0FSR3 extrapolation\0")) {fg.backend=cvr::framegen::Backend(backend);changed=true;}
+            if(fg.backend==cvr::framegen::Backend::Fsr3Interpolation)
+                changed|=UI::Checkbox("FSR3 optical flow",&fg.fsr3OpticalFlow);
+            if(cvr::framegen::Fsr3Backend(fg.backend))
+                changed|=UI::Checkbox("Show FSR3 generated frames",&fg.fsr3Show);
             using cvr::framegen::Backend;
             const Backend active=cvr::framegen::ActiveBackend();
             if(fg.backend==Backend::DlssG && fg.enabled && active!=Backend::DlssG)
@@ -1136,7 +1241,9 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 UI::TextWrapped("Apex Neural Rendering's frame generation model (beta), run as a DLSS-G provider on the game's motion vectors and depth. Any recent NVIDIA, AMD or Intel GPU.");
             changed|=UI::Checkbox("Adaptive real-frame pacing",&fg.autoPace);
             if(UI::IsItemHovered())UI::SetTooltip("Up to half headset refresh. Leaves more GPU time for generated frames when adjacent real frames are being missed.");
-            UI::TextWrapped("Uses game motion vectors and depth in both eyes. Adds one intermediate frame between real frames.");
+            if(fg.backend==Backend::Fsr3Extrapolation)
+                UI::TextWrapped("The real stereo pair is shown first. A spare display cycle can show a half-frame prediction from its motion vectors.");
+            else UI::TextWrapped("Uses game motion vectors and depth in both eyes. Adds one intermediate frame between real frames.");
             UI::Separator();
             const auto runtimeStatus=cvr::framegen::GetRuntimeStatus();
             UI::TextWrapped("%s",runtimeStatus.text);
@@ -1514,6 +1621,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
         }
 
         if (section>=0 ? section==4 : UI::BeginTabItem("STEREO")) {
+            DrawNeuralRenderControls();
             if(UI::CollapsingHeader("PERFORMANCE",ImGuiTreeNodeFlags_DefaultOpen)) {
                 bool stableEmptyPacing = CyberpunkVR_OverlaySkipEmpty == 0;
                 if (UI::Checkbox("Stable pacing with no overlay graphics", &stableEmptyPacing)) {

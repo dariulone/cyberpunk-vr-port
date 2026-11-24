@@ -11,6 +11,7 @@
 #include "Render/GpuQueueTimeline.hpp"
 #include "Render/SceneGpuProfile.hpp"
 #include "Render/MonoCascades.hpp"
+#include "Render/NeuralRender.hpp"
 #include "Render/SinglePassTrace.hpp"
 #include "Render/NativePreparation.hpp"
 #include "Render/NativeRetainedGeometry.hpp"
@@ -239,6 +240,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* swapChain, UINT syncInte
     cvr::gpu::scene_profile::Poll();
     cvr::stereo::pair_probe::Poll();
     cvr::cascades::Poll();
+    cvr::neural_render::OnPresent();
     if(CyberpunkVR_PreparationRequest.load() &&
        (CyberpunkVR_EarlyDepthRequest.load() || cvr::stereo::retained_geometry::Active()) &&
        CyberpunkVR_NativeStereoProbeState.load()!=1){

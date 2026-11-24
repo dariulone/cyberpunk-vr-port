@@ -1,3 +1,4 @@
+#include "Framegen/Fsr3.hpp"
 #include "Runtimes/HapticRouting.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include "Runtimes/FingerGrip.hpp"
@@ -672,6 +673,7 @@ void OpenXRManager::PumpInlineFrame() {
         return;
     }
     FrameThreadMain();
+    if(m_framegen.WantsFsr3Cycle() && m_sessionRunning.load(std::memory_order_relaxed)) FrameThreadMain();
     ReleaseFrameLoop(FrameLoopOwner::Inline);
 }
 
@@ -2494,7 +2496,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                     XrStage(4);
                     const double selectStart=XrDiagNowMs();
                     fgSelection=m_framegen.Select(m_d3dDevice,IsRuntimeSteamVR() && finishedCapture?RuntimeQueue():m_d3dQueue,std::move(fgFrame),
-                        generateScene && m_sessionRunning.load(std::memory_order_relaxed));
+                        generateScene && m_sessionRunning.load(std::memory_order_relaxed),
+                        double(frameState.predictedDisplayPeriod)*1e-6);
                     fgSelectMs=XrDiagNowMs()-selectStart;
                     fgSelected=true;
                     for(unsigned eye=0;eye<2;++eye) {
@@ -2875,6 +2878,19 @@ DWORD OpenXRManager::FrameThreadMain() {
                         }
                     }
 
+                    // Queue even a partial pair before releasing either image to the compositor.
+                    m_cmdList->Close();
+                    ID3D12CommandList* cmdLists[] = {m_cmdList};
+                    if(fgSelected && cvr::fsr3::Enabled())cvr::fsr3::QueueWaitForLast(copyQueue);
+                    copyQueue->ExecuteCommandLists(1, cmdLists);
+                    XrStage(6);
+                    OrderRuntimeAfter(copyQueue);
+                    ++m_fenceValue;
+                    m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
+                    if (SUCCEEDED(fenceQueue->Signal(m_fence, m_fenceValue)))
+                        cvr::gpu::profile::Submitted(gpuProfile, fenceQueue, m_fence, m_fenceValue);
+                    capturedReadFence=m_fenceValue;
+
                     if (!copyReady) {
                         // An image released here may hold nothing of this frame: never reuse what is in the swapchains.
                         m_lastCopy.valid = false;
@@ -2899,27 +2915,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             }
                         }
 
-                        m_cmdList->Close();
-                        ID3D12CommandList* cmdLists[] = {m_cmdList};
-                        copyQueue->ExecuteCommandLists(1, cmdLists);
-                        XrStage(6);
-                        OrderRuntimeAfter(copyQueue);
-                        ++m_fenceValue;
-                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
-                        if (SUCCEEDED(fenceQueue->Signal(m_fence, m_fenceValue)))
-                            cvr::gpu::profile::Submitted(gpuProfile, fenceQueue, m_fence, m_fenceValue);
-                        capturedReadFence=m_fenceValue;
                     } else {
-                        m_cmdList->Close();
-                        ID3D12CommandList* cmdLists[] = {m_cmdList};
-                        copyQueue->ExecuteCommandLists(1, cmdLists);
-                        XrStage(6);
-                        OrderRuntimeAfter(copyQueue);
-                        ++m_fenceValue;
-                        m_cmdAllocatorFence[m_cmdAllocatorIndex] = m_fenceValue;
-                        if (SUCCEEDED(fenceQueue->Signal(m_fence, m_fenceValue)))
-                            cvr::gpu::profile::Submitted(gpuProfile, fenceQueue, m_fence, m_fenceValue);
-                        capturedReadFence=m_fenceValue;
 
                         bool releaseOk = true;
                         for (uint32_t eye = 0; eye < viewCountOutput; ++eye) {
