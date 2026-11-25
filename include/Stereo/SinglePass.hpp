@@ -38,6 +38,8 @@ bool PipelineSet(ID3D12GraphicsCommandList*,ID3D12PipelineState* engine,ID3D12Pi
 bool Viewports(ID3D12GraphicsCommandList*,UINT count,const D3D12_VIEWPORT*);
 bool Scissors(ID3D12GraphicsCommandList*,UINT count,const D3D12_RECT*);
 bool VertexBuffers(ID3D12GraphicsCommandList*,UINT start,UINT count,const D3D12_VERTEX_BUFFER_VIEW*);
+bool ShadingRate(ID3D12GraphicsCommandList*,D3D12_SHADING_RATE,const D3D12_SHADING_RATE_COMBINER*);
+bool ShadingImage(ID3D12GraphicsCommandList*,ID3D12Resource*);
 // Before the census sends a draw: true when single pass took it (kept or drawn for both eyes) and the caller must
 // not send it; false after the list's state is the engine's again. kind 1 DrawInstanced (args: vertices, instances,
 // start vertex, start instance), 2 DrawIndexedInstanced (indices, instances, start index, base vertex, start

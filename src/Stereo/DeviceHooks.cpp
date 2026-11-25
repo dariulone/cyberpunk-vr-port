@@ -787,14 +787,18 @@ static void STDMETHODCALLTYPE ProbePredication(ID3D12GraphicsCommandList* list,I
 }
 static void STDMETHODCALLTYPE ProbeShadingRate(ID3D12GraphicsCommandList5* list,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* combiners) {
     const auto* e=command_list_hook_entry(list);if(!e || !e->shading_rate_original)return;
+    if(cvr::stereo::probe::internalCommands){e->shading_rate_original(list,rate,combiners);return;}
     cvr::vrs::Restore(list);
-    e->shading_rate_original(list,rate,combiners);cvr::stereo::scene_state::ShadingRate(list,rate,combiners);
+    if(!cvr::single_pass::ShadingRate(list,rate,combiners))e->shading_rate_original(list,rate,combiners);
+    cvr::stereo::scene_state::ShadingRate(list,rate,combiners);
     cvr::vrs::ShadingRate(list,rate,combiners);cvr::optics::ShadingRateSet(list,rate,combiners);
 }
 static void STDMETHODCALLTYPE ProbeShadingImage(ID3D12GraphicsCommandList5* list,ID3D12Resource* image) {
     const auto* e=command_list_hook_entry(list);if(!e || !e->shading_image_original)return;
+    if(cvr::stereo::probe::internalCommands){e->shading_image_original(list,image);return;}
     cvr::vrs::Restore(list);
-    e->shading_image_original(list,image);cvr::stereo::scene_state::ShadingRateImage(list,image);
+    if(!cvr::single_pass::ShadingImage(list,image))e->shading_image_original(list,image);
+    cvr::stereo::scene_state::ShadingRateImage(list,image);
     cvr::vrs::ShadingImage(list,image);
 }
 static void STDMETHODCALLTYPE VrsClearState(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso) {
@@ -976,11 +980,14 @@ static void STDMETHODCALLTYPE RetainedBeginRenderPass(ID3D12GraphicsCommandList4
     cvr::stereo::retained_geometry::RenderPass(list,true);
     cvr::stereo::target_handoff::Unknown(list,8);
     cvr::stereo::target_access::Unknown(list,8);
+    cvr::vrs::Restore(list);cvr::vrs::Targets(list,0,false,0,0,true);
     entry->begin_render_pass_original(list,count,targets,depth,flags);
 }
 static void STDMETHODCALLTYPE RetainedEndRenderPass(ID3D12GraphicsCommandList4* list){
     const auto* entry=command_list_hook_entry(list);if(!entry || !entry->end_render_pass_original)return;
+    cvr::vrs::Restore(list);
     entry->end_render_pass_original(list);cvr::stereo::retained_geometry::RenderPass(list,false);
+    cvr::vrs::Targets(list,0,false,0,0,false);
 }
 template<bool Initialize>static void STDMETHODCALLTYPE ObserveMetaCommand(ID3D12GraphicsCommandList4* list,ID3D12MetaCommand* command,const void* data,SIZE_T bytes){
     const auto* entry=command_list_hook_entry(list);if(!entry)return;
@@ -1014,7 +1021,11 @@ static void STDMETHODCALLTYPE CensusRayDispatch(ID3D12GraphicsCommandList4* list
 }
 static void STDMETHODCALLTYPE ObserveMeshDispatch(ID3D12GraphicsCommandList6* list,UINT x,UINT y,UINT z){
     const auto* entry=command_list_hook_entry(list);if(!entry || !entry->dispatch_mesh_original)return;
-    cvr::stereo::target_access::Unknown(list,22);cvr::stereo::target_handoff::Unknown(list,22);entry->dispatch_mesh_original(list,x,y,z);
+    cvr::stereo::target_access::Unknown(list,22);cvr::stereo::target_handoff::Unknown(list,22);cvr::vrs::Restore(list);entry->dispatch_mesh_original(list,x,y,z);
+}
+static void STDMETHODCALLTYPE VrsMeshDispatch(ID3D12GraphicsCommandList6* list,UINT x,UINT y,UINT z){
+    const auto* entry=command_list_hook_entry(list);if(!entry || !entry->dispatch_mesh_original)return;
+    cvr::vrs::Restore(list);entry->dispatch_mesh_original(list,x,y,z);
 }
 static void patch_command_list_vtable(void* command_list) {
     if (!command_list) return;
@@ -1158,6 +1169,7 @@ static void patch_command_list_vtable(void* command_list) {
     if(same4)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+68),reinterpret_cast<void*>(&RetainedBeginRenderPass));
     if(same4)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+69),reinterpret_cast<void*>(&RetainedEndRenderPass));
     if(same4 && !probeEnabled)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+76),reinterpret_cast<void*>(&CensusRayDispatch));
+    if(same6 && !probeEnabled)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+79),reinterpret_cast<void*>(&VrsMeshDispatch));
     if(probeEnabled){
         if(same4){const Slot opaque[]{
             {70,reinterpret_cast<void*>(&ObserveMetaCommand<true>)},{71,reinterpret_cast<void*>(&ObserveMetaCommand<false>)},

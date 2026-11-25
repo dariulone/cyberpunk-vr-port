@@ -2,7 +2,6 @@
 #include "Render/CommandResources.hpp"
 #include "Render/RenderProbeScope.hpp"
 #include "Render/ViewInstancedPipeline.hpp"
-#include "Stereo/EngineStereo.hpp"
 #include <wrl/client.h>
 #include <algorithm>
 #include <cstring>
@@ -22,8 +21,8 @@ namespace {
 constexpr GUID pipelineKey{0x5a4ac73c,0x80da,0x4983,{0xb5,0x12,0x1f,0x54,0xa9,0xa0,0xbe,0x47}};
 struct Map;
 struct State {
-    bool known{},eligible{},depth{};
-    UINT targets{},expectedTargets{},width{},height{};
+    bool known{},eligible{},depth{},blocked{},mapStereo{};
+    UINT targets{},expectedTargets{},vpX{},width{},height{},targetWidth{},targetHeight{};
     D3D12_SHADING_RATE rate=D3D12_SHADING_RATE_1X1;
     std::array<D3D12_SHADING_RATE_COMBINER,2> combiners{D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
     ID3D12Resource* image{};
@@ -39,15 +38,21 @@ struct State {
 struct Map {
     Settings settings;
     unsigned width{},height{};
+    bool stereo{};
     ComPtr<ID3D12Resource> image,upload;
     ComPtr<ID3D12CommandAllocator> allocator;
     ComPtr<ID3D12GraphicsCommandList> list;
     uint64_t completion{},lastUsed{};
     bool ready{};
 };
+struct MapRequest {
+    unsigned width{},height{};
+    bool stereo{};
+    bool operator==(const MapRequest&) const = default;
+};
 std::mutex mutex;
 std::mutex statesMutex;
-std::atomic<bool> everEnabled{};
+std::atomic<bool> everEnabled{},stateCapHit{};
 std::atomic<uint64_t> revision{1};
 std::atomic<uint64_t> recordingEpoch{1};
 std::array<std::atomic<uint64_t>,2> draws{},sceneDraws{},eligibleDraws{};
@@ -59,7 +64,7 @@ ComPtr<ID3D12Device> device;
 ComPtr<ID3D12Fence> fence;
 std::unordered_map<ID3D12GraphicsCommandList*,State> states;
 std::vector<std::shared_ptr<Map>> maps;
-std::vector<std::pair<unsigned,unsigned>> requests;
+std::vector<MapRequest> requests;
 
 State* FindState(ID3D12GraphicsCommandList* list,bool create=false) {
     // Recording one command list is externally serialized by D3D12's contract.
@@ -68,7 +73,7 @@ State* FindState(ID3D12GraphicsCommandList* list,bool create=false) {
     thread_local State* cached{};
     if(previous==list && cached)return cached;
     std::lock_guard lock(statesMutex);auto it=states.find(list);
-    if(it==states.end() && create && states.size()<512)it=states.try_emplace(list).first;
+    if(it==states.end() && create){if(states.size()<2048)it=states.try_emplace(list).first;else stateCapHit.store(true,std::memory_order_relaxed);}
     previous=list;cached=it==states.end()?nullptr:&it->second;return cached;
 }
 void RestoreState(ID3D12GraphicsCommandList* list,State& s) {
@@ -88,7 +93,8 @@ void SetPipeline(State& s,ID3D12PipelineState* pso) {
     s.expectedTargets=s.eligible?count:0;
 }
 bool CreateMap(Map& map,ID3D12CommandQueue* queue) {
-    const auto bytes=BuildRates(map.settings,map.width,map.height,status.tileSize,status.additionalRates);
+    const auto bytes=map.stereo?BuildStereoRates(map.settings,map.settings,map.width,map.height,status.tileSize,status.additionalRates)
+                               :BuildRates(map.settings,map.width,map.height,status.tileSize,status.additionalRates);
     if(bytes.empty())return false;
     D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     d.Width=(map.width+status.tileSize-1)/status.tileSize;d.Height=(map.height+status.tileSize-1)/status.tileSize;
@@ -121,17 +127,15 @@ bool CreateMap(Map& map,ID3D12CommandQueue* queue) {
 Settings GetSettings(){std::lock_guard lock(mutex);return requested;}
 void SetSettings(Settings s) {
     s=Normalize(s);std::lock_guard lock(mutex);
-    // The rate map is laid out for one eye per target; engine stereo has both in one. The setting itself is
-    // kept, so it is back when the mode is.
-    const bool on=s.mode!=0 && !engine_stereo::Enabled();
+    const bool on=s.mode!=0;
     if(enabled.load(std::memory_order_relaxed)!=on)recordingEpoch.fetch_add(1,std::memory_order_release);
     enabled.store(on,std::memory_order_relaxed);
     if(on)everEnabled.store(true,std::memory_order_relaxed);
     if(s==requested)return;
     requested=s;applyAfter=GetTickCount64()+1000;
-    if(!s.mode){applied=s;revision.fetch_add(1,std::memory_order_release);}
+    if(!s.mode){applied=s;status.readyMaps=0;revision.fetch_add(1,std::memory_order_release);}
 }
-Status GetStatus(){std::lock_guard lock(mutex);auto value=status;for(int i=0;i<2;++i){value.draws[i]=draws[i].load();value.sceneDraws[i]=sceneDraws[i].load();value.eligibleDraws[i]=eligibleDraws[i].load();}return value;}
+Status GetStatus(){std::lock_guard lock(mutex);auto value=status;value.stateCapHit=stateCapHit.load(std::memory_order_relaxed);for(int i=0;i<2;++i){value.draws[i]=draws[i].load();value.sceneDraws[i]=sceneDraws[i].load();value.eligibleDraws[i]=eligibleDraws[i].load();}return value;}
 void GraphicsCreated(ID3D12PipelineState* pso,const D3D12_GRAPHICS_PIPELINE_STATE_DESC& d) {
     if(!pso || stereo::probe::internalCommands)return;
     const UINT count=EligiblePipeline(d)?d.NumRenderTargets:0;pso->SetPrivateData(pipelineKey,sizeof(count),&count);
@@ -153,12 +157,17 @@ void Reset(ID3D12GraphicsCommandList* list,bool known,ID3D12PipelineState* pso) 
 void Invalidate(ID3D12GraphicsCommandList* list){if(stereo::probe::internalCommands || !everEnabled.load(std::memory_order_relaxed))return;if(auto* s=FindState(list))*s={};}
 void Pipeline(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso){Edit(list,[&](State& s){SetPipeline(s,pso);});}
 void Viewports(ID3D12GraphicsCommandList* list,UINT n,const D3D12_VIEWPORT* v){Edit(list,[&](State& s){
-    s.width=s.height=0;
-    if(n!=1 || !v || v->TopLeftX!=0 || v->TopLeftY!=0 || !(v->Width>=64 && v->Width<=16384 && v->Height>=64 && v->Height<=16384) ||
-       float(UINT(v->Width))!=v->Width || float(UINT(v->Height))!=v->Height)return;
-    s.width=UINT(v->Width);s.height=UINT(v->Height);
+    s.width=s.height=s.vpX=0;
+    if(n!=1 || !v || v->TopLeftY!=0 || !(v->Width>=64 && v->Width<=16384 && v->Height>=64 && v->Height<=16384) ||
+       !(v->TopLeftX>=0 && v->TopLeftX<=16384) || float(UINT(v->Width))!=v->Width || float(UINT(v->Height))!=v->Height ||
+       float(UINT(v->TopLeftX))!=v->TopLeftX)return;
+    const UINT w=UINT(v->Width),x=UINT(v->TopLeftX);
+    if(x!=0 && x!=w && x!=w+1)return;
+    s.vpX=x;s.width=w;s.height=UINT(v->Height);
 });}
-void Targets(ID3D12GraphicsCommandList* list,UINT count,bool depth){Edit(list,[&](State& s){s.targets=count;s.depth=depth;});}
+void Targets(ID3D12GraphicsCommandList* list,UINT count,bool depth,unsigned targetWidth,unsigned targetHeight,bool blocked){Edit(list,[&](State& s){
+    s.targets=count;s.depth=depth;s.targetWidth=targetWidth;s.targetHeight=targetHeight;s.blocked=blocked;
+});}
 void ShadingRate(ID3D12GraphicsCommandList* list,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* c){Edit(list,[&](State& s){
     s.rate=rate;s.combiners=c?std::array{c[0],c[1]}:std::array{D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
 });}
@@ -167,17 +176,21 @@ void ShadingImage(ID3D12GraphicsCommandList* list,ID3D12Resource* image){Edit(li
 void PrepareDraw(ID3D12GraphicsCommandList* base,uint32_t node,int eye,RateFn setRate,ImageFn setImage) {
     if(stereo::probe::internalCommands || !everEnabled.load(std::memory_order_relaxed))return;
     auto* state=FindState(base);if(!state || !state->known)return;auto& s=*state;
-    if(!enabled.load(std::memory_order_relaxed) || s.recordingEpoch!=recordingEpoch.load(std::memory_order_acquire) || node!=0x33DDA4 || eye<0 || eye>1 || !setRate || !setImage){RestoreState(base,s);return;}
-    sceneDraws[eye].fetch_add(1,std::memory_order_relaxed);
-    if(!s.eligible || !s.depth || s.targets!=s.expectedTargets || !s.width || !s.height){RestoreState(base,s);return;}
-    eligibleDraws[eye].fetch_add(1,std::memory_order_relaxed);
+    if(!enabled.load(std::memory_order_relaxed) || s.recordingEpoch!=recordingEpoch.load(std::memory_order_acquire) || node!=kRenderElementsNode || eye<0 || eye>1 || !setRate || !setImage){RestoreState(base,s);return;}
+    const bool singleEye=!s.blocked && s.vpX==0 && (s.targetWidth==0 || (s.targetWidth==s.width && s.targetHeight==s.height));
+    const bool sideBySide=!s.blocked && s.width>0 && s.targetWidth>=128 && s.targetHeight==s.height && ((s.vpX==0 && (s.targetWidth==s.width*2 || s.targetWidth+1==s.width*2)) || (s.width==s.targetWidth/2 && s.vpX==s.targetWidth-s.width));
+    const int drawEye=(s.vpX>0 && s.targetHeight==s.height && s.width==s.targetWidth/2 && s.vpX==s.targetWidth-s.width)?1:eye;
+    sceneDraws[drawEye].fetch_add(1,std::memory_order_relaxed);
+    if(!s.eligible || !s.depth || s.targets!=s.expectedTargets || !s.width || !s.height || !(singleEye || sideBySide)){RestoreState(base,s);return;}
+    eligibleDraws[drawEye].fetch_add(1,std::memory_order_relaxed);
+    const unsigned reqW=sideBySide?s.targetWidth:s.width,reqH=sideBySide?s.targetHeight:s.height;
     const auto version=revision.load(std::memory_order_acquire);
-    if(s.revision!=version || s.mapWidth!=s.width || s.mapHeight!=s.height) {
-        std::lock_guard lock(mutex);s.selected.reset();s.revision=version;s.mapWidth=s.width;s.mapHeight=s.height;
+    if(s.revision!=version || s.mapWidth!=reqW || s.mapHeight!=reqH || s.mapStereo!=sideBySide) {
+        std::lock_guard lock(mutex);s.selected.reset();s.revision=version;s.mapWidth=reqW;s.mapHeight=reqH;s.mapStereo=sideBySide;
         if(applied.mode && status.supported && !status.failed) {
-            const auto found=std::find_if(maps.begin(),maps.end(),[&](const auto& m){return m->settings==applied && m->width==s.width && m->height==s.height;});
+            const auto found=std::find_if(maps.begin(),maps.end(),[&](const auto& m){return m->settings==applied && m->width==reqW && m->height==reqH && m->stereo==sideBySide;});
             if(found!=maps.end()){if((*found)->ready){s.selected=*found;s.selected->lastUsed=++useSerial;}}
-            else {const auto size=std::pair{s.width,s.height};if(requests.size()<8 && std::find(requests.begin(),requests.end(),size)==requests.end())requests.push_back(size);}
+            else {const MapRequest req{reqW,reqH,sideBySide};if(requests.size()<8 && std::find(requests.begin(),requests.end(),req)==requests.end())requests.push_back(req);}
         }
     }
     if(!s.selected){RestoreState(base,s);return;}
@@ -186,7 +199,7 @@ void PrepareDraw(ID3D12GraphicsCommandList* base,uint32_t node,int eye,RateFn se
         if(!gpu::KeepCommandResources(base,{map.image.Get()})){RestoreState(base,s);return;}
         s.retained=map.image.Get();
     }
-    draws[eye].fetch_add(1,std::memory_order_relaxed);
+    draws[drawEye].fetch_add(1,std::memory_order_relaxed);
     if(s.overrideImage==map.image.Get())return;
     RestoreState(base,s);
     auto* list=static_cast<ID3D12GraphicsCommandList5*>(base);s.rateFn=setRate;s.imageFn=setImage;s.overrideImage=map.image.Get();
@@ -208,7 +221,7 @@ void Tick(ID3D12Device* current,ID3D12CommandQueue* queue) {
         InterlockedIncrement(reinterpret_cast<volatile LONG*>(&CyberpunkVR_FixedVrsReportSeq));
     }
     if(!enabled.load(std::memory_order_relaxed))return;
-    if(device && device.Get()!=current){status.failed=true;return;}
+    if(device && device.Get()!=current){status.failed=true;status.readyMaps=0;revision.fetch_add(1,std::memory_order_release);return;}
     if(!status.checked) {
         device=current;status.checked=true;D3D12_FEATURE_DATA_D3D12_OPTIONS6 options{};
         status.supported=SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6,&options,sizeof(options))) &&
@@ -219,7 +232,7 @@ void Tick(ID3D12Device* current,ID3D12CommandQueue* queue) {
     }
     if(!status.supported || status.failed)return;
     if(GetTickCount64()>=applyAfter && !(applied==requested)) {applied=requested;requests.clear();revision.fetch_add(1,std::memory_order_release);}
-    const auto done=fence->GetCompletedValue();if(done==UINT64_MAX){status.failed=true;return;}
+    const auto done=fence->GetCompletedValue();if(done==UINT64_MAX){status.failed=true;status.readyMaps=0;revision.fetch_add(1,std::memory_order_release);return;}
     status.readyMaps=0;
     for(auto& map:maps)if(map->completion && map->completion<=done) {
         if(!map->ready)revision.fetch_add(1,std::memory_order_release);
@@ -229,19 +242,21 @@ void Tick(ID3D12Device* current,ID3D12CommandQueue* queue) {
     std::erase_if(maps,[&](const auto& m){return m->ready && !(m->settings==applied);});
     if(!applied.mode)return;
     auto pending=std::move(requests);requests.clear();
-    for(auto [w,h]:pending) {
-        if(std::any_of(maps.begin(),maps.end(),[&](const auto& m){return m->width==w && m->height==h && m->settings==applied;}))continue;
+    for(auto [w,h,stereo]:pending) {
+        if(std::any_of(maps.begin(),maps.end(),[&](const auto& m){return m->width==w && m->height==h && m->stereo==stereo && m->settings==applied;}))continue;
         if(maps.size()>=16) {
             auto victim=maps.end();for(auto it=maps.begin();it!=maps.end();++it)if((*it)->ready && (victim==maps.end() || (*it)->lastUsed<(*victim)->lastUsed))victim=it;
             if(victim==maps.end())break;
             maps.erase(victim); // Recorded lists/submissions retain any in-flight image.
         }
-        auto map=std::make_shared<Map>();map->settings=applied;map->width=w;map->height=h;maps.push_back(map);
-        if(!CreateMap(*map,queue)){status.failed=true;break;}
+        auto map=std::make_shared<Map>();map->settings=applied;map->width=w;map->height=h;map->stereo=stereo;maps.push_back(map);
+        if(!CreateMap(*map,queue)){status.failed=true;status.readyMaps=0;revision.fetch_add(1,std::memory_order_release);break;}
     }
 }
 void Shutdown(){enabled.store(false,std::memory_order_relaxed);recordingEpoch.fetch_add(1,std::memory_order_release);std::lock_guard lock(mutex);requests.clear();
+    status.readyMaps=0;applied={};revision.fetch_add(1,std::memory_order_release);
     // Submitted uploads remain retained until their fence completes, even on shutdown.
-    const auto done=fence?fence->GetCompletedValue():0;std::erase_if(maps,[&](const auto& m){return m->completion && m->completion<=done;});
+    const auto done=fence?fence->GetCompletedValue():0;
+    if(done!=UINT64_MAX)std::erase_if(maps,[&](const auto& m){return m->completion && m->completion<=done;});
 }
 }
