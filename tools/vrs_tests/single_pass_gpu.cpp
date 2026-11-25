@@ -164,17 +164,19 @@ static void InitHookTable(void** vt) {
 
 static std::pair<unsigned, unsigned> VerifyStereoPixels(
     const std::vector<uint8_t>& baseline, const std::vector<uint8_t>& actual, cvr::vrs::Settings leftS, cvr::vrs::Settings rightS,
-    UINT w, UINT h, UINT tileSize, bool additionalRates) {
+    UINT w, UINT h, UINT tileSize, bool additionalRates, unsigned* outAsymmetry = nullptr) {
     const auto rates = cvr::vrs::BuildStereoRates(leftS, rightS, w, h, tileSize, additionalRates);
     const UINT cols = (w + tileSize - 1) / tileSize, eyeW = w / 2;
-    unsigned leftDiff = 0, rightDiff = 0;
+    unsigned leftDiff = 0, rightDiff = 0, asymmetry = 0;
     for (UINT y = 0; y < h; ++y) for (UINT x = 0; x < w; ++x) {
         const size_t off = (size_t(y) * w + x) * 4;
         const bool same = std::memcmp(baseline.data() + off, actual.data() + off, 4) == 0;
         if (rates[size_t(y / tileSize) * cols + x / tileSize] == D3D12_SHADING_RATE_1X1) Check(same, "Center 1x1 pixel differed");
         else if (!same) (x < eyeW ? ++leftDiff : ++rightDiff);
+        if (outAsymmetry && x < eyeW && same != (std::memcmp(baseline.data() + (size_t(y) * w + x + eyeW) * 4, actual.data() + (size_t(y) * w + x + eyeW) * 4, 4) == 0)) ++asymmetry;
     }
     Check(leftDiff > 0 && rightDiff > 0, "Peripheral coarse tiles did not differ in both halves");
+    if (outAsymmetry) *outAsymmetry = asymmetry;
     return {leftDiff, rightDiff};
 }
 
@@ -439,10 +441,39 @@ int main() try {
     const auto [l4, r4] = VerifyStereoPixels(baseline, vi4x4Pixels, vrs4x4, vrs4x4, stereoWidth, stereoHeight, options.ShadingRateImageTileSize, options.AdditionalShadingRatesSupported != FALSE);
     std::cout << "PASS Scenario 5: Indexed DrawIndexedInstanced pair collapse with VRS 4x4 (1 hw draw, center exact, peripheral diff L=" << l4 << " R=" << r4 << ")\n";
 
-    // Scenario 6: Clean shutdown & zero D3D12 validation warnings
+    // Scenario 6: Eye-tracked mid-recording slot promotion & vergence pinning
+    const cvr::vrs::Settings eyeTracked4x4{2, 40.f, 40.f, 0.f, 0.f, true}; cvr::vrs::SetSettings(eyeTracked4x4);
+    const cvr::vrs::DynamicEyeOffsets gazeA{true, {20.f, -20.f}, {-10.f, 10.f}}, gazeB{true, {-20.f, 20.f}, {10.f, -10.f}};
+    cvr::vrs::Tick(device.Get(), queue.Get(), &gazeA); wait(); cvr::vrs::Tick(device.Get(), queue.Get(), &gazeA);
+    const uint64_t s6k = CyberpunkVR_SinglePassCounts[0].load(), s6i = CyberpunkVR_SinglePassCounts[1].load();
+    beginStereoRecording(engineOpaquePso.Get(), vpLeft, scLeft); IssueDraw(cvr::vrs::kRenderElementsNode, 0);
+    Check(CyberpunkVR_SinglePassCounts[0].load() == s6k + 1 && CollectDrawEvents().empty(), "Scenario 6 left draw not held");
+    ID3D12Resource* const imgA = g_hwState.shadingImage; Check(imgA != nullptr, "Scenario 6 imgA not bound");
+    cvr::vrs::Tick(device.Get(), queue.Get(), &gazeB); wait(); cvr::vrs::Tick(device.Get(), queue.Get(), &gazeB);
+    IssueViewports(1, &vpRight); IssueScissors(1, &scRight); IssueDraw(cvr::vrs::kRenderElementsNode, 0); submitOnly();
+    Check(CyberpunkVR_SinglePassMismatch[9].load() == 0 && CyberpunkVR_SinglePassMismatch[10].load() == 0 &&
+          CyberpunkVR_SinglePassCounts[1].load() == s6i + 1, "Scenario 6 pinning mismatch");
+    { const auto draws = CollectDrawEvents();
+      Check(draws.size() == 1 && draws[0].pso == twinOpaquePso.Get() && draws[0].vpCount == 2 &&
+            draws[0].shadingImage == imgA && draws[0].combiners[1] == D3D12_SHADING_RATE_COMBINER_OVERRIDE, "Scenario 6 draw not pinned to imgA"); }
+    const uint64_t s6n = CyberpunkVR_SinglePassCounts[1].load();
+    beginStereoRecording(engineOpaquePso.Get(), vpLeft, scLeft); IssueDraw(cvr::vrs::kRenderElementsNode, 0);
+    IssueViewports(1, &vpRight); IssueScissors(1, &scRight); IssueDraw(cvr::vrs::kRenderElementsNode, 0);
+    const auto gazeBPixels = submitAndReadStereo();
+    Check(CyberpunkVR_SinglePassCounts[1].load() == s6n + 1 && CyberpunkVR_SinglePassMismatch[10].load() == 0, "Scenario 6 next recording failed");
+    ID3D12Resource* imgB = nullptr;
+    { const auto draws = CollectDrawEvents();
+      Check(draws.size() == 1 && draws[0].pso == twinOpaquePso.Get() && draws[0].vpCount == 2 && draws[0].combiners[1] == D3D12_SHADING_RATE_COMBINER_OVERRIDE, "Scenario 6 next draw failed");
+      imgB = draws[0].shadingImage; Check(imgB && imgB != imgA, "Scenario 6 did not promote imgB != imgA"); }
+    auto lB = eyeTracked4x4, rB = eyeTracked4x4; lB.offsetX = gazeB.offsetX[0]; lB.offsetY = gazeB.offsetY[0]; rB.offsetX = gazeB.offsetX[1]; rB.offsetY = gazeB.offsetY[1];
+    unsigned asym = 0; VerifyStereoPixels(baseline, gazeBPixels, lB, rB, stereoWidth, stereoHeight, options.ShadingRateImageTileSize, options.AdditionalShadingRatesSupported != FALSE, &asym);
+    Check(asym > 0, "Scenario 6 gazeB Left and Right halves did not diverge");
+    std::cout << "PASS Scenario 6: Eye-tracked mid-recording slot promotion & vergence pinning (pinned imgA=" << imgA << ", promoted imgB=" << imgB << ", asymmetry=" << asym << ")\n";
+
+    // Scenario 7: Clean shutdown & zero D3D12 validation warnings
     CyberpunkVR_SinglePass = 0; cvr::gpu::CollectCommandResources(); vtableGuard.Restore(); cvr::vrs::Shutdown();
     VerifyInfoQueueClean(device.Get());
-    std::cout << "PASS Scenario 6: Clean shutdown and 0 D3D12 validation warnings/errors\n";
+    std::cout << "PASS Scenario 7: Clean shutdown and 0 D3D12 validation warnings/errors\n";
     return 0;
 #endif
 } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

@@ -1,11 +1,16 @@
 #include "Render/FixedVrs.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
 #include <initializer_list>
 #include <limits>
 #include <stdexcept>
 #include <iostream>
 #include <utility>
+#include <vector>
 using namespace cvr::vrs;
 static void Check(bool value){if(!value)throw std::runtime_error("VRS policy assertion failed");}
 int main()try{
@@ -85,5 +90,83 @@ int main()try{
             }
         }
     }
-    std::cout<<"PASS VRS center coverage, tile sizes, edge tiles, offsets, unsupported rates, defaults, parsing, opaque-pipeline gates and stereo maps\n";
+    Check(!Settings{}.eyeTracked);
+    Check(Settings{2,70,65,0,0,false}.SameAllocation(Settings{2,70,65,12,-8,true}));
+    Check(!Settings{2,70,65,0,0,false}.SameAllocation(Settings{1,70,65,0,0,false}));
+    Check(!Settings{2,70,65,0,0,false}.SameAllocation(Settings{2,60,65,0,0,false}));
+    Check(!Settings{2,70,65,0,0,false}.SameAllocation(Settings{2,70,55,0,0,false}));
+    {
+        Settings p;
+        Check(ParseSetting("xr_vrs_eye_tracked=1",p) && p.eyeTracked);
+        Check(ParseSetting("xr_vrs_eye_tracked = 0",p) && !p.eyeTracked);
+        auto writeIni=[](FILE* f,const Settings& val){
+            if constexpr(requires(FILE* fp,const Settings& sv){WriteSettings(fp,sv);})WriteSettings(f,val);
+            else WriteSettings(val,f);
+        };
+        for(const Settings expected:{Settings{2,62.5f,55.f,11.5f,-7.5f,true},Settings{1,70.f,65.f,-4.f,3.5f,false}}){
+            std::filesystem::path fallback;
+            FILE* tmp=nullptr;
+            if(tmpfile_s(&tmp)!=0 || !tmp){
+                fallback=std::filesystem::temp_directory_path()/"vrs_settings_roundtrip_test.ini";
+                fopen_s(&tmp,fallback.string().c_str(),"w+b");
+            }
+            Check(tmp!=nullptr);
+            struct FileGuard{
+                FILE* f;
+                std::filesystem::path path;
+                ~FileGuard(){if(f)std::fclose(f);if(!path.empty()){std::error_code ec;std::filesystem::remove(path,ec);}}
+            } guard{tmp,fallback};
+            writeIni(tmp,expected);
+            std::fflush(tmp);
+            std::rewind(tmp);
+            Settings roundTrip{0,20.f,20.f,0.f,0.f,!expected.eyeTracked};
+            char line[512]{};
+            while(std::fgets(line,sizeof(line),tmp)){
+                size_t len=std::strlen(line);
+                while(len && (line[len-1]=='\n' || line[len-1]=='\r'))line[--len]='\0';
+                if(len)ParseSetting(line,roundTrip);
+            }
+            Check(roundTrip==expected);
+        }
+    }
+    const float oxValues[]{-30.0f,-29.83f,-29.79f,-25.0f,-12.3f,-0.2f,-0.05f,0.0f,0.05f,6.25f,12.5f,25.0f,29.79f,29.83f,30.0f};
+    const float oyValues[]{-20.0f,0.0f,0.04f,15.0f};
+    for(unsigned w:{256u,1485u})for(int mode:{1,2})for(bool additional:{false,true}){
+        const unsigned h=192u,tile=16u;
+        std::vector<EyeTileSignature> sigs;
+        std::vector<std::vector<uint8_t>> maps;
+        for(float ox:oxValues)for(float oy:oyValues){
+            const Settings st{mode,40.f,40.f,ox,oy,true};
+            sigs.push_back(ComputeTileSignature(st,w,h,tile,additional));
+            maps.push_back(BuildRates(st,w,h,tile,additional));
+        }
+        for(size_t i=0;i<sigs.size();++i)for(size_t j=i;j<sigs.size();++j)
+            Check((sigs[i]==sigs[j])==(maps[i]==maps[j]));
+    }
+    for(unsigned targetW:{512u,2970u,2969u})for(int mode:{1,2})for(bool additional:{false,true}){
+        const unsigned h=192u,tile=16u;
+        std::vector<StereoTileSignature> sigs;
+        std::vector<std::vector<uint8_t>> maps;
+        for(float ox:oxValues)for(float oy:oyValues){
+            const Settings left{mode,40.f,40.f,ox,oy,true};
+            const Settings right{mode,40.f,40.f,-ox,-oy,true};
+            sigs.push_back(ComputeStereoTileSignature(left,right,targetW,h,tile,additional));
+            maps.push_back(BuildStereoRates(left,right,targetW,h,tile,additional));
+        }
+        if(targetW==512u){
+            for(size_t i=0;i<sigs.size();++i)for(size_t j=i;j<sigs.size();++j)
+                Check((sigs[i]==sigs[j])==(maps[i]==maps[j]));
+        }else{
+            size_t distinct=0;
+            for(size_t i=0;i<sigs.size();++i){
+                bool first=true;
+                for(size_t j=0;j<i;++j){if(sigs[i]==sigs[j]){first=false;break;}}
+                if(first)++distinct;
+                for(size_t j=i;j<sigs.size();++j)
+                    if(sigs[i]==sigs[j])Check(maps[i]==maps[j]);
+            }
+            Check(distinct>=sigs.size()/2);
+        }
+    }
+    std::cout<<"PASS VRS center coverage, tile sizes, edge tiles, offsets, unsupported rates, defaults, parsing, opaque-pipeline gates, stereo maps and Phase 2 eye-tracked tile signatures\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

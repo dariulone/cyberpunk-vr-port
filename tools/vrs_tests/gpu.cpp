@@ -272,6 +272,124 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
     std::cout<<"PASS GPU EngineStereo 512x192 side-by-side, scope/mismatch refusal, zero eye-switch rebinds, view-instanced="
              <<(viewInstancedTested?"tested":"skipped")<<"; PS invocations "<<stereoBaseline.invocations<<" -> "<<stereoVrs.invocations<<"\n";
 
+    // Phase 2 Dynamic Eye-Tracked Ring Buffer & Tile-Quantized Skip D3D12 hardware test block.
+    SetSettings({2,40,40,0,0,true});{const auto t=GetTickCount64()+1000;while(GetTickCount64()<=t)std::this_thread::sleep_for(std::chrono::milliseconds(15));}
+    DynamicEyeOffsets gaze{true,{0.f,0.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);
+    beginStereo(vpLeft,scLeft,false);PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    Check(GetStatus().readyMaps>=1,"Eye-tracked stereo map pool did not become ready");
+
+    // Immediate SameAllocation offset update test (no 1000 ms sleep).
+    const auto beforeImmediate=GetStatus();
+    SetSettings({2,40,40,5,-5,false});
+    Tick(device.Get(),queue.Get(),nullptr);
+    Check(GetStatus().uploads>beforeImmediate.uploads,"SameAllocation offset update did not upload immediately");
+    wait();Tick(device.Get(),queue.Get(),nullptr);
+    SetSettings({2,40,40,0,0,true});
+
+    // Sub-tile micro-jitter dirty skip test.
+    gaze={true,{0.f,0.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    const auto beforeMicro=GetStatus();
+    gaze={true,{0.02f,-0.02f},{0.02f,-0.02f}};
+    Tick(device.Get(),queue.Get(),&gaze);
+    const auto afterMicro=GetStatus();
+    Check(afterMicro.uploads==beforeMicro.uploads,"Sub-tile micro-jitter triggered redundant VRS upload");
+    Check(afterMicro.skippedTicks>beforeMicro.skippedTicks,"Sub-tile micro-jitter did not increment skippedTicks");
+
+    // Zero-dropout in-flight dynamic gaze sweep, ring reuse & independent per-eye vergence test.
+    ComPtr<ID3D12CommandAllocator> heldAllocator;
+    Hr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&heldAllocator)));
+    ComPtr<ID3D12GraphicsCommandList> heldList;
+    Hr(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,heldAllocator.Get(),pso.Get(),IID_PPV_ARGS(&heldList)));
+    ComPtr<ID3D12GraphicsCommandList5> heldList5;Hr(heldList.As(&heldList5));
+    cvr::gpu::ResetCommandResources(heldList.Get());Reset(heldList.Get(),true,pso.Get());
+    heldList->SetGraphicsRootSignature(root.Get());heldList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    heldList->RSSetViewports(1,&vpLeft);heldList->RSSetScissorRects(1,&scLeft);Viewports(heldList.Get(),1,&vpLeft);
+    heldList->OMSetRenderTargets(3,&sRtv,TRUE,&sDsv);Targets(heldList.Get(),3,true,stereoWidth,stereoHeight,false);
+    Rate(heldList5.Get(),D3D12_SHADING_RATE_1X1,nullptr);Image(heldList5.Get(),nullptr);
+    ShadingRate(heldList.Get(),D3D12_SHADING_RATE_1X1,nullptr);ShadingImage(heldList.Get(),nullptr);
+    PrepareDraw(heldList.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage!=nullptr,"Held command list failed to acquire initial SlotLease VRS map");
+
+    for(int step=1;step<=12;++step){
+        const float gx=-25.f+step*4.f;
+        gaze={true,{gx,-gx},{0.f,0.f}};
+        Tick(device.Get(),queue.Get(),&gaze);
+        beginStereo(vpLeft,scLeft,false);
+        PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+        Check(observedImage!=nullptr,"VRS dropped out while dynamic gaze slot upload was in-flight");
+        Restore(list.Get());Hr(list->Close());
+        wait();Tick(device.Get(),queue.Get(),&gaze);
+    }
+    Check(GetStatus().allocations<=8,"Dynamic gaze sweep exceeded bounded ring-buffer allocation count");
+    Restore(heldList.Get());Hr(heldList->Close());cvr::gpu::ResetCommandResources(heldList.Get());
+
+    gaze={true,{22.f,-22.f},{-12.f,12.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    beginStereo(vpLeft,scLeft,false);list->BeginQuery(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage!=nullptr,"Vergence VRS map not bound on left half");
+    list->DrawInstanced(3,1,0,0);
+    list->RSSetViewports(1,&vpRight);list->RSSetScissorRects(1,&scRight);Viewports(list.Get(),1,&vpRight);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    list->DrawInstanced(3,1,0,0);
+    Restore(list.Get());
+    const auto vergenceVrs=finishAndReadStereo();
+
+    const auto vergenceRates=BuildStereoRates({2,40,40,22.f,-12.f,true},{2,40,40,-22.f,12.f,true},
+        stereoWidth,stereoHeight,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    unsigned vergenceLeftDiff=0,vergenceRightDiff=0;
+    for(UINT y=0;y<stereoHeight;++y)for(UINT x=0;x<stereoWidth;++x){
+        const auto offset=(size_t(y)*stereoWidth+x)*4;
+        const bool same=std::memcmp(stereoBaseline.pixels.data()+offset,vergenceVrs.pixels.data()+offset,4)==0;
+        if(vergenceRates[size_t(y/options.ShadingRateImageTileSize)*stereoCols+x/options.ShadingRateImageTileSize]==0)
+            Check(same,"Vergence fine center changed");
+        if(!same){if(x<eyeWidth)++vergenceLeftDiff;else ++vergenceRightDiff;}
+    }
+    Check(vergenceLeftDiff>0 && vergenceRightDiff>0,"Vergence peripheral shader rate did not affect both halves");
+    std::cout<<"PASS GPU Phase 2 dynamic eye-tracked ring-buffer VRS, micro-jitter skip, zero-dropout sweep and independent vergence centers\n";
+
+    // R1: Mid-recording revision pin test (mid-batch revision bump must never rebind VRS).
+    gaze={true,{20.f,-20.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    beginStereo(vpLeft,scLeft,false);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    ID3D12Resource* const pinnedImg=observedImage;
+    const auto pinnedCalls=std::pair{rateCalls,imageCalls};
+    Check(pinnedImg!=nullptr,"Mid-recording pin test failed to bind initial VRS map");
+    gaze={true,{-20.f,20.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    list->RSSetViewports(1,&vpRight);list->RSSetScissorRects(1,&scRight);Viewports(list.Get(),1,&vpRight);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage==pinnedImg && std::pair{rateCalls,imageCalls}==pinnedCalls,"Mid-recording revision bump rebound VRS");
+    Restore(list.Get());Hr(list->Close());
+
+    // R5: Pause-menu dormancy status test (>30 ticks without PrepareDraw must keep readyMaps >= 1).
+    for(int tickIdx=0;tickIdx<35;++tickIdx)Tick(device.Get(),queue.Get(),&gaze);
+    Check(GetStatus().readyMaps>=1,"Pause-menu dormancy dropped readyMaps below 1");
+
+    // R7: Single-eye eyeTracked=true dual-pool test (256 x 192).
+    gaze={true,{20.f,-20.f},{-10.f,10.f}};
+    Tick(device.Get(),queue.Get(),&gaze);
+    begin();PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    begin();PrepareDraw(list.Get(),kRenderElementsNode,1,Rate,Image);Restore(list.Get());Hr(list->Close());
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    Check(GetStatus().readyMaps==2,"Single-eye eye-tracked dual-pool did not reach readyMaps == 2");
+    const auto leftSingle=render(1,0,kRenderElementsNode),rightSingle=render(1,1,kRenderElementsNode);
+    Check(leftSingle.pixels!=rightSingle.pixels,"Single-eye eye-tracked Left and Right pixels did not diverge");
+    const auto leftSingleRates=BuildRates({2,40,40,20.f,-10.f,true},width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    const auto rightSingleRates=BuildRates({2,40,40,-20.f,10.f,true},width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    const UINT singleCols=(width+options.ShadingRateImageTileSize-1)/options.ShadingRateImageTileSize;
+    for(UINT y=0;y<height;++y)for(UINT x=0;x<width;++x){
+        const auto offset=(size_t(y)*width+x)*4;
+        const size_t tileIdx=size_t(y/options.ShadingRateImageTileSize)*singleCols+x/options.ShadingRateImageTileSize;
+        if(leftSingleRates[tileIdx]==0)Check(std::memcmp(baseline.pixels.data()+offset,leftSingle.pixels.data()+offset,4)==0,"Single-eye left fine center changed");
+        if(rightSingleRates[tileIdx]==0)Check(std::memcmp(baseline.pixels.data()+offset,rightSingle.pixels.data()+offset,4)==0,"Single-eye right fine center changed");
+    }
+    std::cout<<"PASS GPU R1 mid-recording pin, R5 pause-menu dormancy status, and R7 single-eye eye-tracked dual-pool\n";
+
     cvr::gpu::CollectCommandResources();Shutdown();
     ComPtr<ID3D12InfoQueue> info;Hr(device.As(&info));
     for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T n=0;info->GetMessage(i,nullptr,&n);std::vector<char> storage(n);auto* m=reinterpret_cast<D3D12_MESSAGE*>(storage.data());Hr(info->GetMessage(i,m,&n));

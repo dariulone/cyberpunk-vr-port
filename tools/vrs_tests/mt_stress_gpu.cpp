@@ -3,10 +3,7 @@
 #include "Render/FixedVrs.hpp"
 #include <atomic>
 #include <chrono>
-#include <cstdio>
-#include <cstring>
 #include <thread>
-extern "C" __declspec(dllexport) extern char CyberpunkVR_FixedVrsReport[1024];
 using namespace vrs_test;
 
 namespace {
@@ -39,6 +36,13 @@ void WaitSlot(WorkerCtx& ctx, UINT s) {
     Hr(ctx.fence->SetEventOnCompletion(t, ctx.event.handle));
     Check(WaitForSingleObject(ctx.event.handle, 10000) == WAIT_OBJECT_0, "Worker GPU completion timeout");
 }
+struct GazeStep { float x0, y0, x1, y1; };
+constexpr std::array<GazeStep, 6> kSaccades{{{-22.f, 18.f, 22.f, -18.f}, {20.f, -16.f, -20.f, 16.f}, {-18.f, -20.f, 18.f, 20.f}, {24.f, 0.f, -24.f, 0.f}, {0.f, 22.f, 0.f, -22.f}, {0.f, 0.f, 0.f, 0.f}}};
+void UpdateGazePattern(cvr::vrs::DynamicEyeOffsets& g, UINT step) {
+    const GazeStep& b = kSaccades[(step / 5u) % kSaccades.size()]; const UINT sub = step % 5u;
+    const float j = (sub < 2u) ? 0.f : static_cast<float>(sub - 2u) * 0.04f;
+    g = {true, {b.x0 + j, b.x1 - j}, {b.y0 + j, b.y1 - j}};
+}
 } // namespace
 
 int main() try {
@@ -69,7 +73,8 @@ int main() try {
     std::mutex queueMutex, errorMutex; std::string workerError;
     std::atomic<UINT> activeWorkers{kWorkers}; std::atomic<bool> stopWorkers{false}; std::atomic<UINT64> totalIters{0};
     const auto startTime = std::chrono::steady_clock::now(), safetyDeadline = startTime + std::chrono::seconds(20);
-    cvr::vrs::SetSettings({1, 50.f, 50.f, 0.f, 0.f});
+    cvr::vrs::SetSettings({1, 50.f, 50.f, 0.f, 0.f, true});
+    cvr::vrs::DynamicEyeOffsets gaze{true, {0.f, 0.f}, {0.f, 0.f}};
 
     std::vector<std::thread> threads; threads.reserve(kWorkers);
     for (UINT wi = 0; wi < kWorkers; ++wi) {
@@ -117,35 +122,43 @@ int main() try {
         });
     }
 
-    enum class Phase { InitialApply, Mode1Active, Mode2Pending, Mode2Active, Mode0Off, MidShutdown, MidShutdownDone };
+    enum class Phase { InitialApply, Mode1EyeTracked, Mode2Pending, Mode2Active, Mode0Off, MidShutdown, MidShutdownDone };
     Phase phase = Phase::InitialApply; auto phaseStart = startTime;
-    UINT activeTicks = 0; uint64_t drawsBase = 0; bool sawMode2 = false, sawRecovery = false;
-    const auto reportApplied = [&](int m) {
-        char pat[24]{}; std::snprintf(pat, sizeof(pat), "\"applied\":%d,", m);
-        return std::strstr(CyberpunkVR_FixedVrsReport, pat) != nullptr;
-    };
+    UINT gazeStep = 0, mode2Ticks = 0; uint64_t uploadsBeforeGaze = 0, skippedBeforeGaze = 0, drawsBase = 0;
+    bool sawDisable = false, sawReenable = false, sawMode2 = false, sawRecovery = false;
 
     while (activeWorkers.load(std::memory_order_acquire) > 0) {
-        cvr::vrs::Tick(device.Get(), queue.Get());
+        if (phase == Phase::Mode1EyeTracked || phase == Phase::Mode2Pending || phase == Phase::Mode2Active || phase == Phase::MidShutdown)
+            UpdateGazePattern(gaze, gazeStep);
+        cvr::vrs::Tick(device.Get(), queue.Get(), &gaze);
         const auto now = std::chrono::steady_clock::now();
         if (now >= safetyDeadline) { stopWorkers.store(true, std::memory_order_release); break; }
         const auto st = cvr::vrs::GetStatus(); const uint64_t totalDraws = st.draws[0] + st.draws[1];
         if (phase == Phase::InitialApply) {
-            if (reportApplied(1) && st.readyMaps >= 1 && st.draws[0] > 0 && st.draws[1] > 0) { drawsBase = totalDraws; activeTicks = 0; phase = Phase::Mode1Active; phaseStart = now; }
-        } else if (phase == Phase::Mode1Active) {
-            if (++activeTicks >= 12u && totalDraws > drawsBase) { cvr::vrs::SetSettings({2, 45.f, 45.f, 0.f, 0.f}); phase = Phase::Mode2Pending; phaseStart = now; }
+            if (st.appliedMode == 1 && st.readyMaps >= 1 && st.uploads > 0 && st.draws[0] > 0 && st.draws[1] > 0) {
+                uploadsBeforeGaze = st.uploads; skippedBeforeGaze = st.skippedTicks; gazeStep = 0; phase = Phase::Mode1EyeTracked; phaseStart = now;
+            }
+        } else if (phase == Phase::Mode1EyeTracked) {
+            if (gazeStep == 12u) { cvr::vrs::SetSettings({1, 50.f, 50.f, 12.f, -8.f, false}); Check(!cvr::vrs::GetAppliedSettings().eyeTracked, "SameAllocation disable failed"); sawDisable = true; }
+            else if (gazeStep == 24u) { cvr::vrs::SetSettings({1, 50.f, 50.f, -10.f, 8.f, true}); Check(cvr::vrs::GetAppliedSettings().eyeTracked, "SameAllocation reenable failed"); sawReenable = true; }
+            if (++gazeStep >= 32u && st.uploads > uploadsBeforeGaze && st.skippedTicks > skippedBeforeGaze) {
+                cvr::vrs::SetSettings({2, 45.f, 45.f, 0.f, 0.f, true}); phase = Phase::Mode2Pending; phaseStart = now;
+            }
         } else if (phase == Phase::Mode2Pending) {
-            if (reportApplied(2) && st.readyMaps >= 1) { drawsBase = totalDraws; activeTicks = 0; phase = Phase::Mode2Active; phaseStart = now; }
+            ++gazeStep;
+            if (st.appliedMode == 2 && st.readyMaps >= 1) { drawsBase = totalDraws; mode2Ticks = 0; phase = Phase::Mode2Active; phaseStart = now; }
         } else if (phase == Phase::Mode2Active) {
-            if (++activeTicks >= 12u && totalDraws > drawsBase) { sawMode2 = true; cvr::vrs::SetSettings({0, 45.f, 45.f, 0.f, 0.f}); phase = Phase::Mode0Off; phaseStart = now; }
+            ++gazeStep;
+            if (++mode2Ticks >= 12u && totalDraws > drawsBase) { sawMode2 = true; cvr::vrs::SetSettings({0, 45.f, 45.f, 0.f, 0.f, false}); phase = Phase::Mode0Off; phaseStart = now; }
         } else if (phase == Phase::Mode0Off) {
-            if (reportApplied(0) && st.readyMaps == 0 && (now - phaseStart) >= std::chrono::milliseconds(100)) {
-                cvr::vrs::Shutdown(); cvr::vrs::Tick(device.Get(), queue.Get());
+            if (st.appliedMode == 0 && (now - phaseStart) >= std::chrono::milliseconds(100)) {
+                cvr::vrs::Shutdown(); cvr::vrs::Tick(device.Get(), queue.Get(), &gaze);
                 drawsBase = cvr::vrs::GetStatus().draws[0] + cvr::vrs::GetStatus().draws[1];
-                cvr::vrs::SetSettings({1, 65.f, 65.f, 0.f, 0.f}); phase = Phase::MidShutdown; phaseStart = now;
+                cvr::vrs::SetSettings({1, 65.f, 65.f, 0.f, 0.f, true}); phase = Phase::MidShutdown; phaseStart = now;
             }
         } else if (phase == Phase::MidShutdown) {
-            if (reportApplied(1) && st.readyMaps >= 1 && totalDraws > drawsBase) { sawRecovery = true; phase = Phase::MidShutdownDone; stopWorkers.store(true, std::memory_order_release); }
+            ++gazeStep;
+            if (st.appliedMode == 1 && st.readyMaps >= 1 && totalDraws > drawsBase) { sawRecovery = true; phase = Phase::MidShutdownDone; stopWorkers.store(true, std::memory_order_release); }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -161,13 +174,15 @@ int main() try {
 
     cvr::gpu::CollectCommandResources(); cvr::vrs::Shutdown();
     const auto st = cvr::vrs::GetStatus();
-    Check(phase == Phase::MidShutdownDone && sawMode2 && sawRecovery, "Phase progression check failed");
+    Check(phase == Phase::MidShutdownDone && sawDisable && sawReenable && sawMode2 && sawRecovery, "Phase progression check failed");
     Check(!st.failed && !st.stateCapHit && (st.sceneDraws[0] + st.sceneDraws[1] > 0) && (st.draws[0] + st.draws[1] > 0), "Final status check failed");
+    Check(st.uploads > uploadsBeforeGaze && st.skippedTicks > skippedBeforeGaze && st.allocations > 0 && st.allocations <= 16ULL * 3ULL, "Gaze upload/skip/alloc check failed");
     VerifyInfoQueueClean(device.Get());
 
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startTime).count();
-    std::cout << "PASS MT GPU VRS stress (" << kWorkers << " threads, " << totalIters.load() << " total iters in " << ms << " ms); sceneDraws=["
-              << st.sceneDraws[0] << "," << st.sceneDraws[1] << "], eligibleDraws=[" << st.eligibleDraws[0] << "," << st.eligibleDraws[1]
+    std::cout << "PASS MT GPU VRS stress (" << kWorkers << " threads, " << totalIters.load() << " total iters in " << ms << " ms); uploads=" << st.uploads
+              << ", allocations=" << st.allocations << ", skippedTicks=" << st.skippedTicks
+              << ", sceneDraws=[" << st.sceneDraws[0] << "," << st.sceneDraws[1] << "], eligibleDraws=[" << st.eligibleDraws[0] << "," << st.eligibleDraws[1]
               << "], draws=[" << st.draws[0] << "," << st.draws[1] << "]\n";
     return 0;
 } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
