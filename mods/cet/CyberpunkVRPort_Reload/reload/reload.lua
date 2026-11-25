@@ -41,6 +41,16 @@ M.RELEASE_LEVEL = 0.25
 -- gripTarget), so this never moves the hold.
 function M.previewR(sc) return (sc.previewRadius or 0.05) * M.GRIP_ROOM end
 
+-- HOW MUCH OF THE PUSH THE PLAYER ACTUALLY HAS TO MAKE. `seatAt` is the fraction of `insertRun` a magazine must
+-- travel before the well takes it -- the Unity's measured 0.70 asks for 80 mm of a 115 mm push, and it was moved
+-- from 0.80 to 0.70 by eye, "80 % meant pushing the magazine visibly too far into the well". A third of the
+-- measured fraction is what a hand wants: the magazine catches as it reaches the well's mouth and the magnet
+-- takes the rest, instead of asking for a push that has nowhere to go. The per-weapon values keep their
+-- proportions and this scales them all at once; M.tune.seat still overrides it outright.
+M.SEAT_ROOM = 0.33
+-- The floor keeps the short wells honest: 0.33 of the Zhuo's 0.40 is 0.13, twelve centimetres of a 150 mm run.
+M.SEAT_FLOOR = 0.15
+
 local CONFIGS = {}
 do
     -- The list of weapons is DATA (reload/weapons/index.lua), not a literal here: a new pistol is a config file
@@ -4809,7 +4819,11 @@ function M.frame(weapon, slotComp, holder, dt)
                     -- looking, not a quantity in the recording -- the animation's hand lets go at a depth its own
                     -- magazine mesh happens to reach, and a different mesh reads differently at the same number.
                     local seatFrac = mc.seatAt or 0.70
-                    if (M.tune and (M.tune.seat or -1) >= 0) then seatFrac = M.tune.seat end
+                    if (M.tune and (M.tune.seat or -1) >= 0) then
+                        seatFrac = M.tune.seat            -- the slider is an absolute fraction: it wins outright
+                    else
+                        seatFrac = math.max(M.SEAT_FLOOR, seatFrac * M.SEAT_ROOM)
+                    end
                     seatNow = (depth <= (1.0 - seatFrac) * run) and (perp <= insR)
                 else
                     seatNow = (seenD >= 0 and seenD <= (mc.seatRadius or 0.03))
