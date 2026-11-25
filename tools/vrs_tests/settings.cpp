@@ -1,9 +1,11 @@
 #include "Render/FixedVrs.hpp"
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <stdexcept>
 #include <iostream>
+#include <utility>
 using namespace cvr::vrs;
 static void Check(bool value){if(!value)throw std::runtime_error("VRS policy assertion failed");}
 int main()try{
@@ -33,5 +35,55 @@ int main()try{
     Check(EligiblePipeline(d));d.BlendState.RenderTarget[0].BlendEnable=TRUE;Check(!EligiblePipeline(d));d.BlendState={};
     d.NumRenderTargets=1;Check(!EligiblePipeline(d));d.NumRenderTargets=4;d.SampleDesc.Count=4;Check(!EligiblePipeline(d));
     d.SampleDesc.Count=1;d.GS.BytecodeLength=1;Check(!EligiblePipeline(d));
-    std::cout<<"PASS VRS center coverage, tile sizes, edge tiles, offsets, unsupported rates, defaults, parsing and opaque-pipeline gates\n";
+    Check(BuildStereoRates({},{},1,256,16,true).empty());
+    Check(BuildStereoRates({},{},16386,256,16,true).empty());
+    Check(BuildStereoRates({},{},512,256,0,true).empty());
+    Check(BuildStereoRates({},{},512,256,12,true).empty());
+    for(unsigned tile:{8u,16u,32u})for(bool additional:{false,true}) {
+        const unsigned eyeW=256,targetW=512,h=192;
+        const unsigned columns=(targetW+tile-1)/tile,eyeColumns=columns/2,rows=(h+tile-1)/tile;
+        for(const auto& [left,right]:std::initializer_list<std::pair<Settings,Settings>>{
+            {{2,50,45,20,-10},{2,50,45,-20,10}},
+            {{1,60,60,0,0},{2,40,40,0,0}},
+        }) {
+            const auto stereo=BuildStereoRates(left,right,targetW,h,tile,additional);
+            const auto leftMap=BuildRates(left,eyeW,h,tile,additional);
+            const auto rightMap=BuildRates(right,eyeW,h,tile,additional);
+            Check(stereo.size()==size_t(columns)*rows);
+            Check(leftMap.size()==size_t(eyeColumns)*rows && rightMap.size()==size_t(eyeColumns)*rows);
+            for(unsigned row=0;row<rows;++row) {
+                for(unsigned col=0;col<eyeColumns;++col)
+                    Check(stereo[size_t(row)*columns+col]==leftMap[size_t(row)*eyeColumns+col]);
+                for(unsigned col=eyeColumns;col<columns;++col)
+                    Check(stereo[size_t(row)*columns+col]==rightMap[size_t(row)*eyeColumns+(col-eyeColumns)]);
+            }
+        }
+    }
+    for(unsigned targetW:{2970u,2969u}) {
+        const unsigned leftW=(targetW+1)/2,rightW=targetW-leftW,h=1484,tile=16;
+        const unsigned columns=(targetW+tile-1)/tile,rows=(h+tile-1)/tile,seamCol=leftW/tile;
+        for(bool additional:{false,true}) {
+            for(const auto& [left,right]:std::initializer_list<std::pair<Settings,Settings>>{
+                {{2,40,40,30,0},{2,40,40,0,0}},
+                {{2,40,40,0,0},{2,40,40,-30,0}},
+                {{2,40,40,30,0},{2,40,40,-30,0}},
+                {{1,70,65,0,0},{2,50,40,-25,30}},
+            }) {
+                const auto stereo=BuildStereoRates(left,right,targetW,h,tile,additional);
+                Check(stereo.size()==size_t(columns)*rows);
+                for(unsigned y=0;y<h;++y)for(unsigned x=0;x<targetW;++x) {
+                    const auto rate=stereo[size_t(y/tile)*columns+x/tile];
+                    Check(rate==0 || rate==5 || (additional && rate==10));
+                    const bool isLeft=x<leftW;
+                    const Settings& eye=isLeft?left:right;
+                    const unsigned ex=isLeft?x:x-leftW,ew=isLeft?leftW:rightW;
+                    const float dx=(float(ex)+.5f)/ew*100-50-eye.offsetX,dy=(float(y)+.5f)/h*100-50-eye.offsetY;
+                    if(!eye.mode || (std::abs(dx)<eye.width*.5f && std::abs(dy)<eye.height*.5f))Check(rate==0);
+                }
+                if(left.offsetX==30 || right.offsetX==-30)
+                    Check(stereo[size_t((h/2)/tile)*columns+seamCol]==0);
+            }
+        }
+    }
+    std::cout<<"PASS VRS center coverage, tile sizes, edge tiles, offsets, unsupported rates, defaults, parsing, opaque-pipeline gates and stereo maps\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

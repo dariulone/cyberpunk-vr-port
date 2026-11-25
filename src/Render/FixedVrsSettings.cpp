@@ -39,6 +39,29 @@ std::vector<uint8_t> BuildRates(Settings s,unsigned w,unsigned h,unsigned tile,b
     }
     return result;
 }
+std::vector<uint8_t> BuildStereoRates(Settings leftEye,Settings rightEye,unsigned targetW,unsigned targetH,unsigned tile,bool additional) {
+    if(targetW<2 || !targetH || targetW>16384 || targetH>16384 || tile<8 || tile>32 || (tile&(tile-1)))return {};
+    leftEye=Normalize(leftEye);rightEye=Normalize(rightEye);
+    const unsigned columns=(targetW+tile-1)/tile,rows=(targetH+tile-1)/tile;
+    std::vector<uint8_t> result(size_t(columns)*rows,D3D12_SHADING_RATE_1X1);
+    if(!leftEye.mode && !rightEye.mode)return result;
+    const float leftW=float(targetW-targetW/2),rightX=leftW,rightW=float(targetW/2),h=float(targetH);
+    const auto rateForEye=[&](const Settings& s,float baseX,float eyeW,float x0,float x1,float y0,float y1)->uint8_t {
+        if(!s.mode)return D3D12_SHADING_RATE_1X1;
+        const float left=baseX+eyeW*(.5f+(s.offsetX-s.width*.5f)/100.f),right=left+eyeW*s.width/100.f;
+        const float top=h*(.5f+(s.offsetY-s.height*.5f)/100.f),bottom=top+h*s.height/100.f;
+        const auto intersects=[&](float marginX,float marginY){return x1>left-marginX && x0<right+marginX && y1>top-marginY && y0<bottom+marginY;};
+        if(intersects(0.f,0.f))return D3D12_SHADING_RATE_1X1;
+        return uint8_t(s.mode==2 && additional && !intersects(eyeW*.08f,h*.08f)?D3D12_SHADING_RATE_4X4:D3D12_SHADING_RATE_2X2);
+    };
+    for(unsigned y=0;y<rows;++y)for(unsigned x=0;x<columns;++x) {
+        const float x0=float(x*tile),x1=float(std::min(targetW,(x+1)*tile)),y0=float(y*tile),y1=float(std::min(targetH,(y+1)*tile));
+        if(x1<=leftW)result[size_t(y)*columns+x]=rateForEye(leftEye,0.f,leftW,x0,x1,y0,y1);
+        else if(x0>=rightX)result[size_t(y)*columns+x]=rateForEye(rightEye,rightX,rightW,x0,x1,y0,y1);
+        else result[size_t(y)*columns+x]=std::min(rateForEye(leftEye,0.f,leftW,x0,leftW,y0,y1),rateForEye(rightEye,rightX,rightW,rightX,x1,y0,y1));
+    }
+    return result;
+}
 bool EligiblePipeline(const D3D12_GRAPHICS_PIPELINE_STATE_DESC& d) {
     if(d.NumRenderTargets<3 || d.NumRenderTargets>4 || !d.PS.BytecodeLength || !d.VS.BytecodeLength ||
        !d.DepthStencilState.DepthEnable || d.SampleDesc.Count!=1 || d.SampleDesc.Quality ||

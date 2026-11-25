@@ -441,7 +441,7 @@ const FlushSlot kFlushSlots[]{
 #undef CVR_SP
 // ClearState: a flush, then nothing of the old state holds.
 void STDMETHODCALLTYPE ClearState(L* self,ID3D12PipelineState* pso) {
-    if(active.load(std::memory_order_relaxed)){auto& l=Of(self);FlushList(self,l);l.eng=l.act=Gfx{};l.engPso=nullptr;l.dirty=false;}
+    if(active.load(std::memory_order_relaxed)){auto& l=Of(self);FlushList(self,l);l.eng=l.act=Gfx{};l.eng.rateKnown=l.act.rateKnown=true;l.eng.imageKnown=l.act.imageKnown=true;l.engPso=nullptr;l.dirty=false;}
     reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,ID3D12PipelineState*)>(ChainOf(self)->next[11])(self,pso);
 }
 // SetPipelineState1 (a ray-tracing state object) takes the pipeline slot.
@@ -502,20 +502,6 @@ void STDMETHODCALLTYPE BlendFactor(L* self,const FLOAT* factor) {
         std::memcpy(l.eng.blend,f,sizeof(l.eng.blend));std::memcpy(l.act.blend,f,sizeof(l.act.blend));l.eng.blendKnown=l.act.blendKnown=true;
     }
 }
-void STDMETHODCALLTYPE ShadingRate(L5* self,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* combiners) {
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L5*,D3D12_SHADING_RATE,const D3D12_SHADING_RATE_COMBINER*)>(ChainOf(self)->next[77])(self,rate,combiners);
-    if(active.load(std::memory_order_relaxed)) {
-        auto& l=Of(reinterpret_cast<L*>(self));
-        const D3D12_SHADING_RATE_COMBINER c[2]{combiners?combiners[0]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
-                                               combiners?combiners[1]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
-        l.eng.rate=l.act.rate=rate;std::memcpy(l.eng.combiners,c,sizeof(c));std::memcpy(l.act.combiners,c,sizeof(c));
-        l.eng.rateKnown=l.act.rateKnown=true;
-    }
-}
-void STDMETHODCALLTYPE ShadingImage(L5* self,ID3D12Resource* image) {
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L5*,ID3D12Resource*)>(ChainOf(self)->next[78])(self,image);
-    if(active.load(std::memory_order_relaxed)){auto& l=Of(reinterpret_cast<L*>(self));l.eng.image=l.act.image=image;l.eng.imageKnown=l.act.imageKnown=true;}
-}
 void STDMETHODCALLTYPE IndexBuffer(L* self,const D3D12_INDEX_BUFFER_VIEW* view) {
     if(active.load(std::memory_order_relaxed)) {
         auto& l=Of(self);l.eng.ib=view?*view:D3D12_INDEX_BUFFER_VIEW{};
@@ -546,8 +532,6 @@ void Install(void** vtable,size_t lastSlot) {
     put(46,reinterpret_cast<void*>(&Targets));
     put(23,reinterpret_cast<void*>(&BlendFactor));
     put(24,reinterpret_cast<void*>(&StencilRef));
-    put(77,reinterpret_cast<void*>(&ShadingRate));
-    put(78,reinterpret_cast<void*>(&ShadingImage));
     Log("[single-pass] command-list vtable %p chained (slots 9..%zu)\n",static_cast<void*>(vtable),lastSlot);
 }
 void Activate() {active.store(true,std::memory_order_release);}
@@ -557,7 +541,7 @@ void Reset(ID3D12GraphicsCommandList* list) {
     if(!active.load(std::memory_order_relaxed))return;
     auto& l=Of(list);
     auto pending=std::move(l.pending);pending.clear();
-    l=List{};l.pending=std::move(pending);   // keep the allocation
+    l=List{};l.eng.rateKnown=l.act.rateKnown=true;l.eng.imageKnown=l.act.imageKnown=true;l.pending=std::move(pending);   // keep the allocation
 }
 bool PipelineSet(ID3D12GraphicsCommandList* list,ID3D12PipelineState* engine,ID3D12PipelineState* bound) {
     if(!active.load(std::memory_order_relaxed))return false;
@@ -589,6 +573,24 @@ bool VertexBuffers(ID3D12GraphicsCommandList* list,UINT start,UINT count,const D
     if(Hold(l) && start+count<=kVb){l.dirty=true;return true;}
     for(UINT i=0;i<count && start+i<kVb;++i)l.act.vb[start+i]=l.eng.vb[start+i];
     if(count && start<kVb)l.act.vbUsed=std::max<uint32_t>(l.act.vbUsed,std::min<uint32_t>(start+count,kVb));
+    return false;
+}
+bool ShadingRate(ID3D12GraphicsCommandList* list,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* combiners) {
+    if(!active.load(std::memory_order_relaxed))return false;
+    auto& l=Of(list);
+    const D3D12_SHADING_RATE_COMBINER c[2]{combiners?combiners[0]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+                                           combiners?combiners[1]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
+    l.eng.rate=rate;std::memcpy(l.eng.combiners,c,sizeof(c));l.eng.rateKnown=true;
+    if(Hold(l)){l.dirty=true;return true;}
+    l.act.rate=rate;std::memcpy(l.act.combiners,c,sizeof(c));l.act.rateKnown=true;
+    return false;
+}
+bool ShadingImage(ID3D12GraphicsCommandList* list,ID3D12Resource* image) {
+    if(!active.load(std::memory_order_relaxed))return false;
+    auto& l=Of(list);
+    l.eng.image=image;l.eng.imageKnown=true;
+    if(Hold(l)){l.dirty=true;return true;}
+    l.act.image=image;l.act.imageKnown=true;
     return false;
 }
 void Flush(ID3D12GraphicsCommandList* list) {
