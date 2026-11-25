@@ -5536,20 +5536,22 @@ void BeforeSimulate(void* sc, float dt) {
                     now ? "a script's: it meets neither the gun nor the other hand" : "its own again");
             scriptedOn[side] = now;
         }
-        // RUNNING, THE HANDS DO NOT MEET EACH OTHER (nor the gun in the other): past 2.5 m/s, back under 1.5. Each body is
-        // a part of a step behind its controller at a run, the two by different parts as each is pushed, and two hands
-        // held together shook against each other at a sprint (2026-11-11: 102 frames of 112 over 5 mm); they meet again
-        // as before (apart, or out of the gun) once the player slows.
+        // RUNNING NO LONGER TAKES THE HANDS' COLLISION AWAY. The rule was measured before the bodies rode the entity
+        // (2026-11-11: two hands held together shook at a sprint, 102 frames of 112 over 5 mm), and 2026-11-14 gave
+        // every body the step's entity motion (Steer's ride) -- which is exactly the shake that measurement described.
+        // What it still did was drop the two-hand and hand-to-gun collision for the length of every dash and for the
+        // whole of a lift ride, so the support hand left the gun (a two-handed SMG lost its left grip on a dash, the
+        // hand going to the bolt) and stayed off until the player slowed. The flag stays for the log only.
+        // IF A SPRINT EVER SHAKES THE HANDS AGAIN, restore `&& !running` on wantHands and on wantGun below.
         static bool running = false;
         {
             const float pace = std::sqrt(playerPace[0] * playerPace[0] + playerPace[1] * playerPace[1]);
             const bool was = running;
-            running = running ? pace > 1.5f : pace > 2.5f;
-            if (running != was) Log("[physhands] the player %s (%.1f m/s): the hands %s\n", running ? "runs" : "slows", pace,
-                                    running ? "meet neither each other nor the gun in the other" : "may meet each other again");
+            running = running ? pace > 3.0f : pace > 3.6f;
+            if (running != was) Log("[physhands] the player %s (%.1f m/s)\n", running ? "runs" : "slows", pace);
         }
         const bool wantHands = selfBitsReady && s.handsMeet && !holding && actor[0] && actor[1] && simulating[0] && simulating[1] &&
-                               !scriptedOn[0] && !scriptedOn[1] && !running;
+                               !scriptedOn[0] && !scriptedOn[1];
         const bool handsWas = handsMeetOn;
         if (!wantHands) handsMeetOn = false;
         else if (!handsMeetOn && HandsApart()) handsMeetOn = true;
@@ -5557,7 +5559,7 @@ void BeforeSimulate(void* sc, float dt) {
         handsMeetShown.store(handsMeetOn, std::memory_order_relaxed);
         for (int side = 0; side < 2; ++side) {
             const bool wantGun = selfBitsReady && s.weapon && armed && !holding && actor[0] && actor[1] && simulating[0] &&
-                                 simulating[1] && weaponOn[side] > 0 && !scriptedOn[1 - side] && !running;
+                                 simulating[1] && weaponOn[side] > 0 && !scriptedOn[1 - side];
             const bool was = gunMeetOn[side];
             if (!wantGun) gunMeetOn[side] = false;
             else if (!gunMeetOn[side] && !OtherInGun(side)) gunMeetOn[side] = true;
