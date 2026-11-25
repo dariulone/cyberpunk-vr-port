@@ -310,12 +310,21 @@ local function enableAsked()
     return ok and request == 1
 end
 
+local idleElapsed = 0
+
 function VrcamSelect.tick(dt)
+    -- NO SECOND VIEW WANTED AND THIS PLAYER'S CAMERAS ALREADY OFF -- engine stereo, where the plugin never asks for
+    -- one, or the mono mode: throttle the steady-state check to 4 Hz instead of touching Game.GetPlayer() every frame.
+    if VrcamSelect.nudged == nil and VrcamSelect.want == false and VrcamSelect.appliedWant == false and VrcamSelect.appliedId then
+        idleElapsed = idleElapsed + math.max(tonumber(dt) or 0.016, 0)
+        if idleElapsed < 0.25 then return end
+        idleElapsed = 0
+    else
+        idleElapsed = 0
+    end
     local player = Game.GetPlayer and Game.GetPlayer() or nil
     nudgeBack()
-    -- NO SECOND VIEW WANTED AND THIS PLAYER'S CAMERAS ALREADY OFF -- engine stereo, where the plugin never asks for
-    -- one, or the mono mode: there is no RTT to release before a loading screen, so the loading layer is not walked
-    -- every frame. A new player (a save, a braindance) has another id and takes the full path below, and so does a
+    -- A new player (a save, a braindance) has another id and takes the full path below, and so does a
     -- request to turn VRCAM back on (the mono mode switched off during the launch).
     if player and VrcamSelect.want == false and VrcamSelect.appliedWant == false and VrcamSelect.appliedId then
         local ok, id = pcall(entityIdOf, player)

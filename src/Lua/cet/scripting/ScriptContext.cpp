@@ -255,6 +255,10 @@ void ScriptContext::TriggerOnInit() const
 
 void ScriptContext::TriggerOnUpdate(float aDeltaTime) const
 {
+    // Skip lock & sol2 dispatch completely for mods that don't register onUpdate (e.g. Crosshair).
+    if (!m_onUpdate)
+        return;
+
     auto lockedState = m_sandbox.GetLockedState();
 
     TryLuaFunction(m_logger, m_onUpdate, aDeltaTime);

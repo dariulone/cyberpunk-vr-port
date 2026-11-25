@@ -43,6 +43,12 @@ struct Pipeline {
     ComPtr<ID3D12Fence> fence;
     ComPtr<ID3D12Device> deviceOwner;
     uint64_t submitted=0;
+    // Bit-exact cache key: skip all 10 HUD GPU passes when snapshot & style are unchanged.
+    const Snapshot* lastSource=nullptr;
+    uint64_t lastGeneration=0;
+    float lastBright=-1.0f, lastShadow=-1.0f, lastGlow=-1.0f, lastSplit=-1.0f;
+    int32_t lastCurve=-1;
+    bool lastWindshield=false;
 };
 std::array<Pipeline,ChannelCount> pipelines;
 
@@ -107,8 +113,8 @@ bool Initialize(Slot& slot, ID3D12Device* device, uint32_t width, uint32_t heigh
 }
 
 void Publish(std::shared_ptr<Snapshot> value,Channel channel) {
-    auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipelines[Index(channel)];
-    std::lock_guard lock(snapshotMutex); snapshot=std::move(value);
+    auto& pipe=pipelines[Index(channel)];
+    std::lock_guard lock(pipe.snapshotMutex); pipe.snapshot=std::move(value);
 }
 bool ConsumerReady(Channel channel) {
     auto& consumerStamp=pipelines[Index(channel)].consumerStamp;
@@ -137,7 +143,9 @@ void DropConsumer(Channel channel) {
 
 void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
     if(channel==Channel::Main)cvr::optics::probe::Capture(device,queue);
-    auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipelines[Index(channel)];
+    auto& pipe=pipelines[Index(channel)];
+    auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted,
+           lastSource,lastGeneration,lastBright,lastShadow,lastGlow,lastSplit,lastCurve,lastWindshield]=pipe;
     if (!device || !queue) return;
     std::shared_ptr<Snapshot> source;
     { std::lock_guard lock(snapshotMutex); source=snapshot; }
@@ -149,9 +157,20 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         frame->empty=true; frame->stamp=source->stamp; frame->generation=source->generation;
         frame->masked=source->masked; frame->lootVisible=source->lootVisible;
         latest=std::move(frame);
+        lastSource=nullptr; lastGeneration=0;
         return;
     }
-    if (!source || source->sprites.empty() || GetTickCount64()-source->stamp > 300) { latest.reset(); return; }
+    if (!source || source->sprites.empty() || GetTickCount64()-source->stamp > 300) { latest.reset(); lastSource=nullptr; lastGeneration=0; return; }
+    // Bit-exact skip: when the exact same Snapshot & HUD style are already rendered in `latest`,
+    // avoid re-running all 10 GPU passes (HudSprites + 8x HudBlur + HudStyle) + ExecuteCommandLists!
+    if (latest && !latest->empty &&
+        lastSource == source.get() && lastGeneration == source->generation &&
+        lastBright == g_liveControls.xrHudBrightness && lastShadow == g_liveControls.xrHudShadow &&
+        lastGlow == g_liveControls.xrHudGlow && lastCurve == CyberpunkVR_HudPanelCurve &&
+        lastWindshield == source->windshieldMap && lastSplit == source->windshieldSplit) {
+        latest->stamp = source->stamp;
+        return;
+    }
     if (!fence) {
         if (FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)))) return;
         deviceOwner=device;
@@ -184,7 +203,7 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         auto rawRead=Transition(slot.raw.Get(),D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,0);
         cmd->ResourceBarrier(1,&rawRead);
         }
-        {
+        if (g_liveControls.xrHudGlow > 0.001f || g_liveControls.xrHudShadow > 0.001f) {
         cvr::gpu::profile::Scope blurScope(gpuProfile, cvr::gpu::profile::Stage::HudBlur);
         auto pass=[&](ID3D12Resource* src,UINT srcMip,ID3D12Resource* dst,UINT dstMip,int blurAxis) {
             const auto d=dst->GetDesc();
@@ -239,12 +258,22 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         slot.frame->lootVisible=source->lootVisible;
         slot.frame->hudRect=source->hudRect;
         slot.frame->windshieldMap=source->windshieldMap;slot.frame->windshieldSplit=source->windshieldSplit;
-        if (ok) latest=slot.frame; else SetConsumerReady(false,channel);
+        if (ok) {
+            latest=slot.frame;
+            lastSource=source.get(); lastGeneration=source->generation;
+            lastBright=g_liveControls.xrHudBrightness; lastShadow=g_liveControls.xrHudShadow;
+            lastGlow=g_liveControls.xrHudGlow; lastCurve=CyberpunkVR_HudPanelCurve;
+            lastWindshield=source->windshieldMap; lastSplit=source->windshieldSplit;
+        } else {
+            lastSource=nullptr; lastGeneration=0;
+            SetConsumerReady(false,channel);
+        }
         return;
     }
 }
 std::shared_ptr<Frame> Latest(Channel channel,bool completedOnly) {
-    auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipelines[Index(channel)];
+    auto& pipe=pipelines[Index(channel)];
+    auto& renderMutex=pipe.renderMutex; auto& latest=pipe.latest; auto& slots=pipe.slots; auto& fence=pipe.fence;
     std::lock_guard lock(renderMutex);
     const auto now=GetTickCount64();
     if(!latest || now-latest->stamp>=300)return nullptr;
@@ -263,13 +292,17 @@ std::shared_ptr<Frame> Latest(Channel channel,bool completedOnly) {
     return ready;
 }
 void Shutdown(Channel channel) {
-    auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipelines[Index(channel)];
+    auto& pipe=pipelines[Index(channel)];
+    auto& snapshotMutex=pipe.snapshotMutex; auto& renderMutex=pipe.renderMutex; auto& snapshot=pipe.snapshot;
+    auto& latest=pipe.latest; auto& slots=pipe.slots; auto& fence=pipe.fence; auto& deviceOwner=pipe.deviceOwner;
+    auto& submitted=pipe.submitted;
     DropConsumer(channel);
     std::lock_guard lock(renderMutex);
     // Shutdown follows the manager's GPU drain. If the device still has pending work, retain
     // these bounded resources rather than release native heaps underneath a command list.
     if (fence && fence->GetCompletedValue()<submitted) return;
     latest.reset();
+    pipe.lastSource=nullptr; pipe.lastGeneration=0;
     for (auto& slot:slots) {
         slot.sources.reset(); slot.frame.reset(); slot.commands.Reset(); slot.allocator.Reset();
         slot.rtv.Reset(); slot.blit.Shutdown();slot.raw.Reset();slot.blur.Reset();slot.blurTemp.Reset();

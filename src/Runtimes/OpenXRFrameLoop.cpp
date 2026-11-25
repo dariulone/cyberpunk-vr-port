@@ -2134,8 +2134,38 @@ DWORD OpenXRManager::FrameThreadMain() {
                 bool fgSelected=false;
                 // Keep source readiness and the queue decision from the same snapshot. The presenter also selects
                 // ordinary stereo frames with generation disabled; fgSelected is not evidence of GPU generation.
-                const bool finishedCapture = m_xrQueue && (IsRuntimeSteamVR()
-                    ? (CyberpunkVR_SteamVrFinishedCapture & (currentFg ? 1 : 2)) != 0 : !currentFg);
+                // Use the dedicated high-priority m_xrQueue for BOTH SteamVR and VirtualDesktopXR (even with
+                // framegen active) so eye copies & framegen never stall behind the game's next 3D frame on m_d3dQueue.
+                const bool finishedCapture = m_xrQueue &&
+                    ((CyberpunkVR_SteamVrFinishedCapture & (currentFg ? 1 : 2)) != 0);
+                // On non-SteamVR runtimes (e.g. VirtualDesktopXR), if the newest capture is almost done on the GPU,
+                // wait briefly (outside m_presentMutex, bounded to 2.5 ms so we never miss the 90 Hz ATW window)
+                // instead of immediately falling back to the 1-frame-older previous capture (+15-40 ms).
+                if (finishedCapture && !IsRuntimeSteamVR() && m_captureFence) {
+                    UINT64 waitCaptureFence = 0;
+                    {
+                        std::lock_guard<std::mutex> lock(m_presentMutex);
+                        if (m_monoCapturedFrame.texture && m_monoCapturedFrame.serial != 0 &&
+                            m_monoCapturedFrame.serial != m_lastSubmittedSerial &&
+                            m_captureFence->GetCompletedValue() < m_monoCapturedFrame.captureFence) {
+                            waitCaptureFence = m_monoCapturedFrame.captureFence;
+                        }
+                    }
+                    if (waitCaptureFence) {
+                        static HANDLE s_captureWaitEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+                        if (s_captureWaitEvent) {
+                            constexpr double kCaptureWaitMs = 2.5;
+                            const double deadline = XrDiagNowMs() + kCaptureWaitMs;
+                            for (;;) {
+                                if (m_captureFence->GetCompletedValue() >= waitCaptureFence) break;
+                                const double left = deadline - XrDiagNowMs();
+                                if (left <= 0.0) break;
+                                if (FAILED(m_captureFence->SetEventOnCompletion(waitCaptureFence, s_captureWaitEvent))) break;
+                                WaitForSingleObject(s_captureWaitEvent, static_cast<DWORD>(left) + 1);
+                            }
+                        }
+                    }
+                }
                 {
                     std::lock_guard<std::mutex> lock(m_presentMutex);
                     // ON THE RUNTIME'S OWN QUEUE a capture is read only once the game's queue has run it. The newest is
@@ -2156,7 +2186,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             captureRunning = false;
                             CyberpunkVR_XrCapturePrevious.fetch_add(1, std::memory_order_relaxed);
                         }
-                    } else if (finishedCapture && currentFg && CyberpunkVR_SteamVrFrameBuffer && m_captureFence) {
+                    } else if (finishedCapture && IsRuntimeSteamVR() && currentFg && CyberpunkVR_SteamVrFrameBuffer && m_captureFence) {
                         const CapturedMonoFrame& prev = m_monoPreviousFrame;
                         if (prev.texture && prev.serial != 0 && prev.texture != m_monoCapturedFrame.texture &&
                             prev.serial > m_lastSubmittedSerial && m_captureFence->GetCompletedValue() >= prev.captureFence) {
@@ -2206,7 +2236,7 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                 // A midpoint already accepted by the runtime owns its endpoint independently of the newest capture.
                 // New capture not ready / missing motion inputs must not drop that pinned endpoint.
-                if (IsRuntimeSteamVR() && (!monoSource || !vrcamEye) && m_framegen.Pending() && !menuRectActive) {
+                if (finishedCapture && (!monoSource || !vrcamEye) && m_framegen.Pending() && !menuRectActive) {
                     const auto& owed = m_framegen.PendingFrame();
                     if (owed.identity.origin == GetTrackingOriginSerial() && owed.lease && owed.color[0] && owed.color[1]) {
                         if (monoSource) ReleaseCapturedRead(monoSource,0);
@@ -2324,12 +2354,12 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                     // Color is capture-fence complete. Depth/motion snapshots carry their own producer fences;
                     // order those on the runtime queue without a CPU wait or a wait behind the next game frame.
-                    if (IsRuntimeSteamVR() && finishedCapture) for (const auto& input : fgFrame.inputs)
+                    if (finishedCapture) for (const auto& input : fgFrame.inputs)
                         if (input && input->readyFence && input->fenceValue)
                             m_xrQueue->Wait(input->readyFence.Get(),input->fenceValue);
                     XrStage(4);
                     const double selectStart=XrDiagNowMs();
-                    fgSelection=m_framegen.Select(m_d3dDevice,IsRuntimeSteamVR() && finishedCapture?RuntimeQueue():m_d3dQueue,std::move(fgFrame),
+                    fgSelection=m_framegen.Select(m_d3dDevice,finishedCapture?RuntimeQueue():m_d3dQueue,std::move(fgFrame),
                         !menuRectActive && m_sessionRunning.load(std::memory_order_relaxed),
                         double(frameState.predictedDisplayPeriod)*1e-6);
                     fgSelectMs=XrDiagNowMs()-selectStart;
@@ -2342,7 +2372,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     // capture is already C. Timing and identity must follow the selected pixels too.
                     presentSerial=fgSelection.frame.identity.serial;
                     monoCaptureMs=fgSelection.frame.identity.capturedMs;
-                } else if (!IsRuntimeSteamVR() || menuRectActive || !m_sessionRunning.load(std::memory_order_relaxed)) m_framegen.Reset();
+                } else if (!finishedCapture || menuRectActive || !m_sessionRunning.load(std::memory_order_relaxed)) m_framegen.Reset();
                 // The image, its own pose, and its read reservation were acquired
                 // together with MAIN above. Reused VRCAM slots keep their own label.
                 if(CyberpunkVR_StereoSubmit && viewCountOutput>=2) {
@@ -2351,9 +2381,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                     } else CVR_DIAGNOSTIC(CyberpunkVR_DebugVrcamEyeUnpaired.fetch_add(1,std::memory_order_relaxed));
                 }
 
-                // Both ordinary stereo and generated output are now ordered on the same runtime queue. Selecting a
-                // frame through Presenter does not move these copies back behind the game's next GPU frame.
-                ID3D12CommandQueue* copyQueue = finishedCapture && (IsRuntimeSteamVR() || !fgSelected) ? RuntimeQueue() : m_d3dQueue;
+                // Both ordinary stereo and generated output are now ordered on the same high-priority runtime queue.
+                // Selecting a frame through Presenter never pushes eye copies behind the game's next GPU frame.
+                ID3D12CommandQueue* copyQueue = finishedCapture ? RuntimeQueue() : m_d3dQueue;
                 ID3D12CommandQueue* fenceQueue = RuntimeQueue();
                 if (currentAllocator && monoSource && monoHasView[0] && monoHasView[1] &&
                     SUCCEEDED(currentAllocator->Reset()) && SUCCEEDED(m_cmdList->Reset(currentAllocator, nullptr))) {

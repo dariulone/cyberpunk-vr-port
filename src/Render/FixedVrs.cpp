@@ -13,11 +13,12 @@
 extern "C" {
 __declspec(dllexport) uint32_t CyberpunkVR_FixedVrsReportSeq=0;
 __declspec(dllexport) char CyberpunkVR_FixedVrsReport[1024]="{}";
+int GetMenuMode();
 }
 
 namespace cvr::vrs {
 using Microsoft::WRL::ComPtr;
-std::atomic<bool> enabled{};
+std::atomic<bool> enabled{false};
 namespace {
 constexpr GUID pipelineKey{0x5a4ac73c,0x80da,0x4983,{0xb5,0x12,0x1f,0x54,0xa9,0xa0,0xbe,0x47}};
 struct Map;
@@ -88,7 +89,40 @@ void SetPipeline(State& s,ID3D12PipelineState* pso) {
     s.expectedTargets=s.eligible?count:0;
 }
 bool CreateMap(Map& map,ID3D12CommandQueue* queue) {
-    const auto bytes=BuildRates(map.settings,map.width,map.height,status.tileSize,status.additionalRates);
+    const bool sbs=engine_stereo::Enabled();
+    const unsigned tile=status.tileSize;
+    std::vector<uint8_t> bytes;
+    if(!sbs) {
+        bytes=BuildRates(map.settings,map.width,map.height,tile,status.additionalRates);
+    } else {
+        // Engine stereo renders both eyes side-by-side in one target ([0, eyeW) and [eyeW, width)).
+        // Build a dual-eye foveated VRS map: each eye keeps its own full 1x1 native center box,
+        // and any tile straddling the center seam stays 1x1 so zero artifacts appear at the split.
+        const unsigned w=map.width, h=map.height, eyeW=w/2;
+        if(!eyeW || !h || w>16384 || h>16384 || tile<8 || tile>32 || (tile&(tile-1)))return false;
+        const Settings s=Normalize(map.settings);
+        const unsigned columns=(w+tile-1)/tile, rows=(h+tile-1)/tile;
+        bytes.assign(size_t(columns)*rows,D3D12_SHADING_RATE_1X1);
+        if(s.mode) {
+            const float cW=eyeW*s.width/100.0f, cH=h*s.height/100.0f;
+            const float top=h*(.5f+(s.offsetY-s.height*.5f)/100.0f), bottom=top+cH;
+            const float l0=eyeW*(.5f+(s.offsetX-s.width*.5f)/100.0f), r0=l0+cW;
+            const float l1=float(eyeW)+eyeW*(.5f+(-s.offsetX-s.width*.5f)/100.0f), r1=l1+cW;
+            const float mX=eyeW*.08f, mY=h*.08f;
+            for(unsigned y=0;y<rows;++y)for(unsigned x=0;x<columns;++x) {
+                const float x0=float(x*tile), y0=float(y*tile);
+                const float x1=float(std::min(w,(x+1)*tile)), y1=float(std::min(h,(y+1)*tile));
+                // Keep the center seam between left & right eyes at full 1x1 rate.
+                if(x0<float(eyeW) && x1>float(eyeW))continue;
+                const bool inRight=x0>=float(eyeW);
+                const float left=inRight?l1:l0, right=inRight?r1:r0;
+                const auto hit=[&](float mx,float my){return x1>left-mx && x0<right+mx && y1>top-my && y0<bottom+my;};
+                if(hit(0,0))continue;
+                bytes[size_t(y)*columns+x]=uint8_t(s.mode==2 && status.additionalRates && !hit(mX,mY)
+                    ? D3D12_SHADING_RATE_4X4 : D3D12_SHADING_RATE_2X2);
+            }
+        }
+    }
     if(bytes.empty())return false;
     D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     d.Width=(map.width+status.tileSize-1)/status.tileSize;d.Height=(map.height+status.tileSize-1)/status.tileSize;
@@ -121,9 +155,8 @@ bool CreateMap(Map& map,ID3D12CommandQueue* queue) {
 Settings GetSettings(){std::lock_guard lock(mutex);return requested;}
 void SetSettings(Settings s) {
     s=Normalize(s);std::lock_guard lock(mutex);
-    // The rate map is laid out for one eye per target; engine stereo has both in one. The setting itself is
-    // kept, so it is back when the mode is.
-    const bool on=s.mode!=0 && !engine_stereo::Enabled();
+    // Supported in BOTH standard dual-view stereo AND engine stereo (side-by-side dual-eye map + SinglePass!).
+    const bool on=s.mode!=0;
     if(enabled.load(std::memory_order_relaxed)!=on)recordingEpoch.fetch_add(1,std::memory_order_release);
     enabled.store(on,std::memory_order_relaxed);
     if(on)everEnabled.store(true,std::memory_order_relaxed);
@@ -141,7 +174,7 @@ void StreamCreated(ID3D12PipelineState* pso,const D3D12_PIPELINE_STATE_STREAM_DE
     if(!pso || stereo::probe::internalCommands || !stereo::ReadPipelineStream(source,info))return;
     D3D12_GRAPHICS_PIPELINE_STATE_DESC d{};d.PS=info.ps;d.VS=info.vs;d.NumRenderTargets=info.targets.NumRenderTargets;
     d.DepthStencilState=info.depth;d.BlendState=info.blend;d.SampleDesc=info.samples;
-    if(!info.haveDepth || !info.haveBlend || info.otherStages || info.viewInstancing || info.forcedSamples)return;
+    if(!info.haveDepth || !info.haveBlend || info.otherStages || info.forcedSamples)return;
     GraphicsCreated(pso,d);
 }
 void Reset(ID3D12GraphicsCommandList* list,bool known,ID3D12PipelineState* pso) {
@@ -154,7 +187,23 @@ void Invalidate(ID3D12GraphicsCommandList* list){if(stereo::probe::internalComma
 void Pipeline(ID3D12GraphicsCommandList* list,ID3D12PipelineState* pso){Edit(list,[&](State& s){SetPipeline(s,pso);});}
 void Viewports(ID3D12GraphicsCommandList* list,UINT n,const D3D12_VIEWPORT* v){Edit(list,[&](State& s){
     s.width=s.height=0;
-    if(n!=1 || !v || v->TopLeftX!=0 || v->TopLeftY!=0 || !(v->Width>=64 && v->Width<=16384 && v->Height>=64 && v->Height<=16384) ||
+    if(!v)return;
+    if(engine_stereo::Enabled()) {
+        if(n==2 && v[0].TopLeftX==0 && v[0].TopLeftY==0 && v[1].TopLeftY==0 && v[0].Height==v[1].Height &&
+           v[1].TopLeftX==v[0].Width && v[0].Width>=64 && v[0].Width<=8192 && v[0].Height>=64 && v[0].Height<=16384 &&
+           float(UINT(v[0].Width))==v[0].Width && float(UINT(v[1].Width))==v[1].Width && float(UINT(v[0].Height))==v[0].Height) {
+            s.width=UINT(v[0].Width+v[1].Width);s.height=UINT(v[0].Height);
+            return;
+        }
+        if(n==1 && v[0].TopLeftY==0 && (v[0].TopLeftX==0 || v[0].TopLeftX==v[0].Width) &&
+           v[0].Width>=64 && v[0].Width<=8192 && v[0].Height>=64 && v[0].Height<=16384 &&
+           float(UINT(v[0].Width))==v[0].Width && float(UINT(v[0].Height))==v[0].Height) {
+            s.width=UINT(v[0].Width)*2;s.height=UINT(v[0].Height);
+            return;
+        }
+        return;
+    }
+    if(n!=1 || v->TopLeftX!=0 || v->TopLeftY!=0 || !(v->Width>=64 && v->Width<=16384 && v->Height>=64 && v->Height<=16384) ||
        float(UINT(v->Width))!=v->Width || float(UINT(v->Height))!=v->Height)return;
     s.width=UINT(v->Width);s.height=UINT(v->Height);
 });}
@@ -167,7 +216,7 @@ void ShadingImage(ID3D12GraphicsCommandList* list,ID3D12Resource* image){Edit(li
 void PrepareDraw(ID3D12GraphicsCommandList* base,uint32_t node,int eye,RateFn setRate,ImageFn setImage) {
     if(stereo::probe::internalCommands || !everEnabled.load(std::memory_order_relaxed))return;
     auto* state=FindState(base);if(!state || !state->known)return;auto& s=*state;
-    if(!enabled.load(std::memory_order_relaxed) || s.recordingEpoch!=recordingEpoch.load(std::memory_order_acquire) || node!=0x33DDA4 || eye<0 || eye>1 || !setRate || !setImage){RestoreState(base,s);return;}
+    if(!enabled.load(std::memory_order_relaxed) || GetMenuMode()!=0 || s.recordingEpoch!=recordingEpoch.load(std::memory_order_acquire) || node!=0x33DDA4 || eye<0 || eye>1 || !setRate || !setImage){RestoreState(base,s);return;}
     sceneDraws[eye].fetch_add(1,std::memory_order_relaxed);
     if(!s.eligible || !s.depth || s.targets!=s.expectedTargets || !s.width || !s.height){RestoreState(base,s);return;}
     eligibleDraws[eye].fetch_add(1,std::memory_order_relaxed);

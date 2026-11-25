@@ -15,6 +15,10 @@ local MAX_RAY = 5.5
 local PEOPLE_RANGE = 3.0
 local H = { -0.62, -0.31, 0.0, 0.31, 0.62 }   -- tangents: about +/-32 deg across
 local V = { -0.40, 0.0, 0.36 }                -- about -22 / +20 deg up and down
+local rowIndex = 1
+local rowDepths = { 99.0, 99.0, 99.0 }
+local peopleDepth = 99.0
+local cachedUiSystem = nil
 
 local function cross(a, b) return { x = a.y * b.z - a.z * b.y, y = a.z * b.x - a.x * b.z, z = a.x * b.y - a.y * b.x } end
 local function norm(a) local l = math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z); if l < 1e-6 then return nil end; return { x = a.x / l, y = a.y / l, z = a.z / l } end
@@ -31,13 +35,13 @@ local function ray(sq, o, d)
     return nil
 end
 
-local function measure()
+local function measureSlice()
     local player = Game.GetPlayer()
     if not player then return 0 end
-    local defs = GetAllBlackboardDefs()
+    cachedUiSystem = cachedUiSystem or GetAllBlackboardDefs().UI_System
     local boards = Game.GetBlackboardSystem()
-    local menu = boards and boards:Get(defs.UI_System)
-    if not menu or menu:GetBool(defs.UI_System.IsInMenu) then return 0 end
+    local menu = boards and cachedUiSystem and boards:Get(cachedUiSystem)
+    if not menu or menu:GetBool(cachedUiSystem.IsInMenu) then return 0 end
     local cam = Game.GetCameraSystem()
     local sq = Game.GetSpatialQueriesSystem()
     if not cam or not sq then return 0 end
@@ -47,35 +51,47 @@ local function measure()
     local r = norm(cross(f, { x = 0, y = 0, z = 1 }))       -- camera right (world up = +Z)
     if not r then return 0 end
     local u = cross(r, f)                                    -- camera up
-    local nearest = 99.0
-    for _, v in ipairs(V) do
-        for _, h in ipairs(H) do
-            local d = norm({ x = f.x + r.x * h + u.x * v, y = f.y + r.y * h + u.y * v, z = f.z + r.z * h + u.z * v })
-            local p = d and ray(sq, o, d)
-            if p then
-                local depth = (p.x - o.x) * f.x + (p.y - o.y) * f.y + (p.z - o.z) * f.z
-                if depth > 0.05 and depth < nearest then nearest = depth end
-            end
+    -- Time-slice the 5x3 fan: 1 row (5 rays) per 16 ms tick instead of 15 synchronous raycasts in one frame.
+    local idx = rowIndex
+    rowIndex = (idx % #V) + 1
+    local v = V[idx]
+    local rowNearest = 99.0
+    for j = 1, #H do
+        local h = H[j]
+        local d = norm({ x = f.x + r.x * h + u.x * v, y = f.y + r.y * h + u.y * v, z = f.z + r.z * h + u.z * v })
+        local p = d and ray(sq, o, d)
+        if p then
+            local depth = (p.x - o.x) * f.x + (p.y - o.y) * f.y + (p.z - o.z) * f.z
+            if depth > 0.05 and depth < rowNearest then rowNearest = depth end
         end
     end
-    -- People: the same area, as tangents of the fan's outermost rays.
-    -- (Called under pcall: with the script missing or not compiled the call errors, and the rays still count.)
-    local ok, d = pcall(function()
-        return player:VRHudPeopleDepth(Vector4.new(o.x, o.y, o.z, 1), Vector4.new(f.x, f.y, f.z, 0),
-            Vector4.new(r.x, r.y, r.z, 0), Vector4.new(u.x, u.y, u.z, 0), H[#H], -V[1], PEOPLE_RANGE)
-    end)
-    if ok and type(d) == 'number' and d > 0.05 and d < nearest then nearest = d end
+    rowDepths[idx] = rowNearest
+    -- People: once per full 3-row sweep (~48 ms), without allocating a closure per tick.
+    if idx == 2 then
+        local fn = player.VRHudPeopleDepth
+        if fn then
+            local ok, d = pcall(fn, player, Vector4.new(o.x, o.y, o.z, 1), Vector4.new(f.x, f.y, f.z, 0),
+                Vector4.new(r.x, r.y, r.z, 0), Vector4.new(u.x, u.y, u.z, 0), H[#H], -V[1], PEOPLE_RANGE)
+            peopleDepth = (ok and type(d) == 'number' and d > 0.05) and d or 99.0
+        else
+            peopleDepth = 99.0
+        end
+    end
+    local nearest = peopleDepth
+    if rowDepths[1] < nearest then nearest = rowDepths[1] end
+    if rowDepths[2] < nearest then nearest = rowDepths[2] end
+    if rowDepths[3] < nearest then nearest = rowDepths[3] end
     return nearest
 end
 
 function M.tick(dt, overlayOpen)
     elapsed = elapsed + math.max(tonumber(dt) or 0, 0)
-    if elapsed < 0.033 then return end
+    if elapsed < 0.016 then return end
     elapsed = 0
     if type(SetVRHudClearance) ~= 'function' then return end
     local clearance = 0
     if not overlayOpen then
-        local ok, c = pcall(measure)
+        local ok, c = pcall(measureSlice)
         M.error = not ok and tostring(c) or nil
         clearance = ok and tonumber(c) or 0
     end

@@ -4,6 +4,8 @@
 
 // The host's profiler (src/Lua/Profiler.cpp): the mod a sample belongs to.
 extern "C" void CvrProfileMod(const char* acMod);
+extern "C" bool CvrProfileWanted();
+#include "Utils/DebugGate.hpp"
 
 #include <CET.h>
 
@@ -128,13 +130,27 @@ void ScriptStore::TriggerOnInit() const
 
 void ScriptStore::TriggerOnUpdate(float aDeltaTime) const
 {
+    // Acquire the Lua sandbox lock ONCE for all mods instead of 24 lock/unlock pairs per frame.
+    auto lockedState = m_sandbox.GetLockedState();
+    const bool profile = CvrProfileWanted();
+    const bool timeMods = profile || cvr::RuntimeDiagnosticsEnabled();
+    if (!timeMods)
+    {
+        for (const auto& [name, mod] : m_contexts)
+            mod.TriggerOnUpdate(aDeltaTime);
+        return;
+    }
+    auto tPrev = std::chrono::steady_clock::now();
     for (const auto& [name, mod] : m_contexts)
     {
-        const auto start = std::chrono::steady_clock::now();
-        CvrProfileMod(name.c_str());
+        if (profile)
+            CvrProfileMod(name.c_str());
         mod.TriggerOnUpdate(aDeltaTime);
-        CvrProfileMod(nullptr);
-        m_updateCost[name] += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        if (profile)
+            CvrProfileMod(nullptr);
+        const auto tNow = std::chrono::steady_clock::now();
+        m_updateCost[name] += std::chrono::duration<double, std::milli>(tNow - tPrev).count();
+        tPrev = tNow;
     }
 }
 
