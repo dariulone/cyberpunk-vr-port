@@ -2,8 +2,15 @@
 #include "Runtimes/HapticRouting.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include "Runtimes/FingerGrip.hpp"
+#include "Runtimes/EyeTracking.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
+#include "Runtimes/CyberFingerGameMenu.hpp"
+#include "Runtimes/CyberFingerMenuPolicy.hpp"
+#include "Runtimes/CyberFingerHintBindings.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
+#include "Hooks/KeypadInput.hpp"
+#include "Natives/VrMenu.hpp"
 #include "Runtimes/Psvr2HapticChannel.hpp"
 #include "Render/CommandResources.hpp"
 #include "Render/GpuStageProfile.hpp"
@@ -13,6 +20,7 @@ extern std::atomic<float> g_xrGripForce[2];
 // module state/helpers come from openxr_internal.h (inline, single instance).
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/Haptics.hpp"
+#include "Runtimes/LoadingPanel.hpp"
 #include "Natives/VrMenu.hpp"
 #include "Runtimes/WristBase.hpp"
 #include "Hooks/Psvr2Input.hpp"
@@ -20,6 +28,7 @@ extern std::atomic<float> g_xrGripForce[2];
 #include "Runtimes/RoomscaleTracking.hpp"
 #include "Runtimes/SimulatorRecenter.hpp"
 #include "Hooks/CyberwareChord.hpp"
+#include "Overlay/ModUi.hpp"
 #include "Hooks/ScannerGesture.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Runtimes/OpenXRInternal.hpp"
@@ -110,6 +119,7 @@ extern "C" __declspec(dllexport) int CyberpunkVR_HandRelToFilteredHead = 1;
 // below). The press itself is one frame of this loop, which an input poll running slower than it can miss; the
 // sprint-on-click mode (xr_sprint_mode=1, Hooks/XInput.cpp) reads the count instead.
 extern "C" __declspec(dllexport) volatile long CyberpunkVR_LeftStickClicks = 0;
+extern std::atomic<int> g_bdActive;  // scene camera owns input (CameraState.hpp)
 extern "C" {
     extern int32_t CyberpunkVR_ScannerGesture, CyberpunkVR_ScannerEnterMs, CyberpunkVR_ScannerExitMs;
     extern float CyberpunkVR_ScannerEarX, CyberpunkVR_ScannerEarY, CyberpunkVR_ScannerEarZ;
@@ -607,6 +617,44 @@ extern "C" __declspec(dllexport) extern int CyberpunkVR_VrcamOwnLabel;
 // build where the second eye is solid.
 extern "C" __declspec(dllexport) float CyberpunkVR_FlatDistanceM = 0.0f;
 
+void OpenXRManager::RefreshCyberFingerHintBindings() {
+    using namespace cvr::cyberfinger;
+    uint32_t verified = 0;
+    const bool logOrigins = m_nextHintBindingCheck == 0 && cvr::RuntimeDiagnosticsEnabled();
+    auto check = [&](XrAction action, uint32_t expected) {
+        if (!action) return;
+        XrBoundSourcesForActionEnumerateInfo info{XR_TYPE_BOUND_SOURCES_FOR_ACTION_ENUMERATE_INFO};
+        info.action = action;
+        XrPath sources[16]{};
+        uint32_t count = 0;
+        if (XR_FAILED(xrEnumerateBoundSourcesForAction(m_session, &info, 16, &count, sources))) return;
+        for (uint32_t i = 0; i < count; ++i) {
+            XrInputSourceLocalizedNameGetInfo origin{XR_TYPE_INPUT_SOURCE_LOCALIZED_NAME_GET_INFO};
+            origin.sourcePath = sources[i];
+            uint32_t used = 0;
+            char hand[128]{}, component[512]{};
+            origin.whichComponents = XR_INPUT_SOURCE_LOCALIZED_NAME_USER_PATH_BIT;
+            if (XR_FAILED(xrGetInputSourceLocalizedName(m_session, &origin, sizeof(hand), &used, hand))) continue;
+            origin.whichComponents = XR_INPUT_SOURCE_LOCALIZED_NAME_COMPONENT_BIT;
+            if (XR_FAILED(xrGetInputSourceLocalizedName(m_session, &origin, sizeof(component), &used, component))) continue;
+            if (logOrigins) Log("[cyberfinger] HUD input 0x%x: %s / %s\n", expected, hand, component);
+            verified |= PhysicalHintSource(hand, component, (expected & (LeftStickClick | RightStickClick)) != 0) & expected;
+        }
+    };
+    check(m_cyberFingerActions.weapon, LeftMenu);
+    check(m_cyberFingerActions.inventory, RightMenu);
+    check(m_cyberFingerActions.scanner, LeftGrip);
+    check(m_thumbstickClickAction, RightGrip | LeftStickClick);
+    check(m_primaryButtonAction, LeftBlack | RightStickClick);
+    check(m_secondaryButtonAction, RightBlack);
+    check(m_menuButtonAction, LeftBlackHold);
+    check(m_cyberFingerActions.heal, RightBlackHold);
+    check(m_triggerAction, LeftTrigger | RightTrigger);
+    check(m_thumbstickAction, LeftStick | RightStick);
+    if (hintSources.exchange(verified) != verified || !m_nextHintBindingCheck)
+        Log("[cyberfinger] HUD hint source mask 0x%x\n", verified);
+}
+
 void OpenXRManager::PumpInlineFrame() {
     // When the dedicated submit thread owns the XR frame loop, the Present thread must
     // NOT drive xrWaitFrame/submit here: those blocking fence/swapchain + compositor
@@ -961,10 +1009,10 @@ bool OpenXRManager::ResubmitLastFrame(XrTime displayTime, bool& endAttempted) {
     if(endAttempted)return false;
     auto& last = m_lastSubmission;
     if (!last.valid || last.localSpace != m_localSpace || last.viewCount > m_eyeSwapchains.size()) return false;
-    // A second with no new frame is a stall, not a skipped cycle: held that long the picture would be
-    // a frozen world, so the empty end -- what the runtime shows for "nothing" -- comes back.
-    constexpr XrTime kMaxHoldNs = 1000000000;
-    if (displayTime - last.submittedAt > kMaxHoldNs) return false;
+    // Loading screens survive long stalls; gameplay retains the one-second
+    // limit. Never reuse a pose from an earlier tracking origin.
+    if (last.origin != GetTrackingOriginSerial() ||
+        !cvr::capture::CanHold(last.presentation,displayTime-last.submittedAt)) return false;
     for (uint32_t eye = 0; eye < last.viewCount; ++eye) {
         if (last.color[eye] != m_eyeSwapchains[eye].handle) return false;
         // A depth swapchain recreated since is dropped from the layer, not the frame.
@@ -974,7 +1022,6 @@ bool OpenXRManager::ResubmitLastFrame(XrTime displayTime, bool& endAttempted) {
     XrCompositionLayerProjection projection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     const XrCompositionLayerBaseHeader* layers[1 + LastSubmission::kMaxExtra] = {};
     if (last.menuQuad) {
-        last.quad.space = m_localSpace;
         layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&last.quad);
     } else {
         projection.space = m_localSpace;
@@ -986,7 +1033,10 @@ bool OpenXRManager::ResubmitLastFrame(XrTime displayTime, bool& endAttempted) {
     // Validate again on held-frame cycles, not only when each HUD was prepared.
     last.extraCount=cvr::hud::FilterSubmittableQuads(last.extra,last.extraCount);
     uint32_t count = 1;
-    for (uint32_t i = 0; i < last.extraCount; ++i) layers[count++] = last.extra[i];
+    for (uint32_t i = 0; i < last.extraCount; ++i) {
+        if (m_modeNoticeOverlay.Owns(last.extra[i]) && !m_modeNoticeOverlay.Displays(cvr::cyberfinger::ModeNoticeText())) continue;
+        layers[count++] = last.extra[i];
+    }
     XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};
     endInfo.displayTime = displayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -1345,21 +1395,26 @@ DWORD OpenXRManager::FrameThreadMain() {
         // eyes are drawn each through its own pose (LoadingInSpace); nor the boot's notice, which keeps the intro's
         // heading (CapturedMonoFrame::oneTurn) -- latched as a menu it stayed put through small head turns and took the
         // menu's FOV.
-        bool noticeFrame = false;
+        bool capturedPresentation = false;
+        cvr::capture::Presentation inputPresentation = cvr::capture::Presentation::Scene;
         {
             std::lock_guard<std::mutex> lock(m_presentMutex);
-            noticeFrame = m_monoCapturedFrame.oneTurn;
+            capturedPresentation = m_monoCapturedFrame.serial != 0;
+            inputPresentation = m_monoCapturedFrame.presentation;
         }
-        const bool menuRectActive = ((GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture()) &&
-            !cvr::lobby::WorldShown() && !cvr::lobby::LoadingInSpace() && !noticeFrame;
+        const bool menuRectActive = capturedPresentation ? inputPresentation==cvr::capture::Presentation::Menu :
+            ((GetMenuRectMode() != 0) || (GetMenuMode() != 0) || cvr::engine_stereo::OnePicture()) &&
+            !cvr::lobby::WorldShown() && !cvr::lobby::LoadingInSpace();
         // Menu closed -> drop the latched panel anchors so the NEXT menu re-anchors in
         // front of wherever the player is looking at open time.
         if (!menuRectActive) {
+            cvr::cfmenu::Reset();
             m_menuFollow.Reset();
             m_menuClock.Reset();
             m_menuEyeAnchorValid = false;
         }
         const bool monoReady = monoEnabled && EnsureMonoSubmitResources() && !m_eyeSwapchains.empty();
+        bool gazeViewsValid=false;
         if (monoReady && !m_views.empty()) {
             XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
             viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -1369,6 +1424,9 @@ DWORD OpenXRManager::FrameThreadMain() {
             XrViewState viewState{XR_TYPE_VIEW_STATE};
             std::lock_guard<std::mutex> viewLock(m_viewMutex);
             const XrResult locateRes = xrLocateViews(m_session, &viewLocateInfo, &viewState, static_cast<uint32_t>(m_views.size()), &viewCountOutput, m_views.data());
+            gazeViewsValid=XR_SUCCEEDED(locateRes) && viewCountOutput==2 &&
+                (viewState.viewStateFlags&XR_VIEW_STATE_ORIENTATION_VALID_BIT) &&
+                (viewState.viewStateFlags&XR_VIEW_STATE_ORIENTATION_TRACKED_BIT);
             XrStage(2);
             if (XR_FAILED(locateRes)) {
                 Log("OpenXRManager: xrLocateViews failed (res=%d)\n", locateRes);
@@ -1625,6 +1683,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                 syncInfo.countActiveActionSets = 1;
                 syncInfo.activeActionSets = &activeActionSet;
                 XrResult syncRes = xrSyncActions(m_session, &syncInfo);
+                cvr::eye_tracking::Sample(m_session,m_viewSpace,locateTime,
+                    syncRes==XR_SUCCESS && m_sessionState==XR_SESSION_STATE_FOCUSED && gazeViewsValid,
+                    m_views.data(),static_cast<unsigned>(m_views.size()));
                 // Vibration queued since the last frame, played where the actions are synced.
                 if (XR_SUCCEEDED(syncRes) && m_sessionState == XR_SESSION_STATE_FOCUSED) cvr::haptics::Tick();
                 else cvr::haptics::Clear();
@@ -1638,13 +1699,56 @@ DWORD OpenXRManager::FrameThreadMain() {
                 // for-byte identical to the pre-Controls-tab behaviour.
                 const bool gameplayInputActive = (GetInputActionsEnabled() != 0) && (m_thumbstickAction != XR_NULL_HANDLE);
                 VRControllerState ctrl{};
+                bool cfBound=false;
+                bool cfRightMenuActive=false;
+                if(gameplayInputActive && syncRes==XR_SUCCESS) {
+                    ctrl.cyberFingerButtons=m_cyberFingerActions.Buttons([&](XrAction action) {
+                        XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};gi.action=action;
+                        XrActionStateBoolean value{XR_TYPE_ACTION_STATE_BOOLEAN};
+                        if(XR_FAILED(xrGetActionStateBoolean(m_session,&gi,&value)))return false;
+                        cfBound|=value.isActive!=0;
+                        if (action == m_cyberFingerActions.inventory) cfRightMenuActive = value.isActive != 0;
+                        return value.isActive && value.currentState;
+                    });
+                }
+                cvr::cyberfinger::NoteBindingActivity(cfBound);
+                const bool cyberfinger=cvr::cyberfinger::Enabled();
+                if (cyberfinger) {
+                    const auto now = GetTickCount64();
+                    if (m_hintBindingsChanged.exchange(false, std::memory_order_acquire) || now >= m_nextHintBindingCheck) {
+                        RefreshCyberFingerHintBindings();
+                        m_nextHintBindingCheck = now + 5000;
+                    }
+                } else {
+                    m_nextHintBindingCheck = 0;
+                    cvr::cyberfinger::hintSources.store(0, std::memory_order_relaxed);
+                }
                 cvr::vrui::Tracking uiTracking{};
                 uiTracking.time=frameState.predictedDisplayTime;uiTracking.origin=GetTrackingOriginSerial();
                 uiTracking.head=location.pose;uiTracking.valid=headPoseLocated;
+                uiTracking.cyberfinger=cyberfinger;uiTracking.preferLeft=g_liveControls.xrLeftHanded!=0;
+                uiTracking.menuLeft=(ctrl.cyberFingerButtons&0x8000)!=0;
+                uiTracking.menuRight=(ctrl.cyberFingerButtons&0x0020)!=0;
+                ctrl.leftMenuButton=uiTracking.menuLeft;ctrl.rightMenuButton=uiTracking.menuRight;
+                // v2 binding: right pink requests the gameplay VR menu, using
+                // its holster/summon path. F10 remains a keyboard shortcut.
+                uiTracking.menuButton=cyberfinger && (ctrl.cyberFingerButtons&cvr::cyberfinger::SettingsButton)!=0;
+                ctrl.cyberFingerButtons&=static_cast<uint16_t>(~cvr::cyberfinger::SettingsButton);
+                auto getGlobalBool=[&](XrAction action) -> bool {
+                    if(action==XR_NULL_HANDLE)return false;
+                    XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+                    gi.action=action;gi.subactionPath=XR_NULL_PATH;
+                    XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
+                    return XR_SUCCEEDED(xrGetActionStateBoolean(m_session,&gi,&st)) && st.isActive && st.currentState;
+                };
+                const bool menuPressed=gameplayInputActive && getGlobalBool(m_menuButtonAction);
+                const bool cfRightBlackHold=cyberfinger && (ctrl.cyberFingerButtons&0x0001)!=0;
+                if(cyberfinger)ctrl.cyberFingerButtons&=static_cast<uint16_t>(~0x0001u);
+                bool cfBlackTap[2]{};
                 // D-PAD chord state (left hand is processed first, right second):
                 // HOLD the LEFT stick click, pick the direction with the RIGHT stick.
                 bool leftStickClicked  = false;
-                bool leftClickValid = false;
+                bool stickClickActive[2]{};
                 bool dpadUsedThisFrame = false;
                 bool triangleShift = false;
                 XrVector3f scannerHand{};
@@ -1895,7 +1999,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         gi.subactionPath = m_handPaths[i];
                         XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
                         const bool active=XR_SUCCEEDED(xrGetActionStateBoolean(m_session, &gi, &st)) && st.isActive;
-                        if(i==0 && a==m_thumbstickClickAction)leftClickValid=active;
+                        if (a == m_thumbstickClickAction) stickClickActive[i] = active;
                         if(active)return st.currentState != XR_FALSE;
                         return false;
                     };
@@ -1927,9 +2031,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                     getVec2(m_thumbstickAction, sx, sy);
                     const bool sclick = getBool(m_thumbstickClickAction);
                     auto& uiHand=uiTracking.hands[i];
-                    uiHand.stickClick=sclick;uiHand.trigger=trig;uiHand.grip=grip;uiHand.stickY=sy;
+                    uiHand.stickClick=sclick;uiHand.trigger=trig;uiHand.grip=grip;uiHand.stickY=sy;uiHand.stickX=sx;
                     uiHand.valid=poseValid;
-                    if((cvr::vrui::Visible() || cvr::vrui::CapturesInput() || sclick) && m_handAimSpaces[i]!=XR_NULL_HANDLE){
+                    if((cyberfinger || cvr::vrui::Visible() || cvr::vrui::CapturesInput() || sclick) && m_handAimSpaces[i]!=XR_NULL_HANDLE){
                         uiHand.valid=false;
                         XrSpaceLocation aim{XR_TYPE_SPACE_LOCATION};
                         constexpr auto need=XR_SPACE_LOCATION_POSITION_VALID_BIT|XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
@@ -1937,6 +2041,20 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                     const bool prim   = getBool(m_primaryButtonAction);
                     const bool sec    = getBool(m_secondaryButtonAction);
+                    if(cyberfinger) {
+                        const bool busy=std::abs(sx)>.2f || std::abs(sy)>.2f || trig>.15f || prim || sec || sclick ||
+                            (i==0?menuPressed:cfRightBlackHold) ||
+                            (ctrl.cyberFingerButtons&(i==0?0x8100:0x0021))!=0;
+                        grip=cvr::fingergrip::ProximityValue(i,poseValid,!busy && !menuRectActive &&
+                            !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons());
+                        // The CF binding exposes left grip as cf_scanner, right
+                        // grip as R3, and the actual right stick click as A.
+                        const bool grab=i==0?(ctrl.cyberFingerButtons&0x0100)!=0:sclick;
+                        uiHand.grip=grab?1.f:0.f;
+                        uiHand.stickClick=i==0?sclick:prim;
+                        if(i==0){ctrl.leftGrabButton=grab;ctrl.leftStickButton=sclick;}
+                        else {ctrl.rightGrabButton=grab;ctrl.rightStickButton=prim;}
+                    }
                     const bool frameBumper=m_steamFrameActions.bumper!=XR_NULL_HANDLE && getBool(m_steamFrameActions.bumper);
 
                     // XInput-compatible button bits so the hook can OR them into
@@ -1960,16 +2078,16 @@ DWORD OpenXRManager::FrameThreadMain() {
                         ctrl.leftGrip    = grip;
                         ctrl.leftThumbX  = sx;
                         ctrl.leftThumbY  = sy;
-                        if (prim)   ctrl.buttons |= XB_X;
+                        if(cyberfinger)cfBlackTap[0]=prim; // driver emits black-wrist tap on release
+                        else if (prim) ctrl.buttons |= XB_X;
                         if (sec)    ctrl.buttons |= XB_Y;
                         if(frameBumper)ctrl.buttons|=XB_LEFT_SHOULDER;
                         // Only Frame's separate bumper emits LB here. The grip
                         // remains available for magazine grabs and VR gestures.
 
                         // LEFT stick click = D-Pad modifier (direction picked with the
-                        // RIGHT stick, see the right-hand branch). The vanilla L3
-                        // (sprint) is emitted DEFERRED, after the loop: only when the
-                        // click is released without a D-Pad direction having been used.
+                        // RIGHT stick, see the right-hand branch). An unused click is
+                        // resolved on release below, once both hands have been sampled.
                         leftStickClicked = sclick;
                         triangleShift = IsRuntimePsvr2() && m_psvr2TriangleTouchAction != XR_NULL_HANDLE &&
                             getBool(m_psvr2TriangleTouchAction);
@@ -1984,7 +2102,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                         ctrl.rightThumbY  = sy;
                         if (sclick) ctrl.buttons |= XB_RIGHT_THUMB;
                         if (prim)   ctrl.buttons |= XB_A;
-                        if (sec)    ctrl.buttons |= XB_B;
+                        if(cyberfinger)cfBlackTap[1]=sec;
+                        else if (sec) ctrl.buttons |= XB_B;
                         if(frameBumper)ctrl.buttons|=XB_RIGHT_SHOULDER;
 
 
@@ -1996,16 +2115,39 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                 }
 
-                // The overlay reads RAW clicks first: L3+R3 takes priority over
-                // cyberware even when the left grip is held too.
+                // Route the CF wrist menu and both-Menu HUD toggle before
+                // gameplay conversion; other controllers retain L3+R3 summon.
                 cvr::vrui::UpdateTracking(uiTracking);
+                cvr::modui::Tracking(uiTracking,m_d3dDevice,
+                    m_sessionState==XR_SESSION_STATE_FOCUSED && !cvr::vrui::Visible() && !cvr::vrmenu::CapturesButtons(),
+                    m_sessionRunning);
+                cvr::vrui::SetExternalCapture(cvr::modui::CapturesInput());
+                if(cvr::vrui::ConsumeHudToggle())cvr::cyberfinger::ToggleHud();
+                // A shard can also be opened outside native menu mode.
+                // Give F10/CET their raw Grip first. Remove the reader's press from
+                // both the gameplay R3 alias and the native menu's secondary action.
+                static cvr::cyberfinger::ShardCloseGrip shardGrip;
+                if (cyberfinger) {
+                    const bool reader=cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::ShardReader &&
+                        !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons();
+                    const bool valid=stickClickActive[1] && syncRes==XR_SUCCESS && m_sessionState==XR_SESSION_STATE_FOCUSED;
+                    if (shardGrip.Update(reader,valid,ctrl.rightGrabButton))
+                        cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::CloseShard);
+                    if (shardGrip.claimed) {
+                        ctrl.rightGrabButton=false;
+                        ctrl.buttons &= static_cast<uint16_t>(~0x0080u);
+                        uiTracking.hands[1].grip=0;
+                    }
+                } else shardGrip={};
+                cvr::cfmenu::Hands(uiTracking,menuRectActive && !cvr::vrui::CapturesInput() &&
+                    !cvr::vrmenu::CapturesButtons());
                 static cvr::input::ScannerClick scannerClick;
                 static uint64_t scannerTick=0;
                 const uint64_t inputTick=GetTickCount64();
                 const double scannerDt=scannerTick && inputTick>=scannerTick ? double(inputTick-scannerTick) : 0;
                 scannerTick=inputTick;
-                const bool scannerEnabled=CyberpunkVR_ScannerGesture!=0 && gameplayInputActive &&
-                    XR_SUCCEEDED(syncRes) && leftClickValid &&
+                const bool scannerEnabled=!cyberfinger && CyberpunkVR_ScannerGesture!=0 && gameplayInputActive &&
+                    XR_SUCCEEDED(syncRes) && stickClickActive[0] &&
                     g_liveControls.xrXInputHook!=0 && g_menuModeValue==0 &&
                     !cvr::lobby::WorldShown() && !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons() &&
                     !uiTracking.hands[1].stickClick;
@@ -2020,9 +2162,20 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                 // Resolve ownership before either chord sees L3. A scanner click must not also
                 // send a D-pad direction, activate cyberware, or defer a sprint until release.
-                if(!scannerClaim && triangleShift) {
+                static cvr::cyberfinger::DpadChord cfDpad;
+                const bool cfChord = cyberfinger && leftStickClicked && !cvr::cyberfinger::ConversationActive();
+                        const bool normalOnFoot = cfChord && m_sessionState == XR_SESSION_STATE_FOCUSED &&
+                            !menuRectActive && !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons() &&
+                            (cvr::cyberfinger::footHints.load(std::memory_order_relaxed) & cvr::cyberfinger::WornGearShortcut) != 0;
+                        const auto direction = cfDpad.Direction(cfChord, ctrl.rightThumbX, ctrl.rightThumbY, cvr::cyberfinger::StickActionThreshold(), normalOnFoot);
+                        if (cfDpad.toggleWornGear) cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::ToggleWornGear);
+                if (cfChord) {
+                    ctrl.buttons |= direction;
+                    dpadUsedThisFrame = direction != 0 || std::fabs(ctrl.rightThumbX) > .2f || std::fabs(ctrl.rightThumbY) > .2f;
+                    ctrl.rightThumbX = ctrl.rightThumbY = 0.f;
+                } else if(!scannerClaim && triangleShift) {
                     dpadUsedThisFrame=cvr::input::TriangleDpad(true,ctrl.rightThumbX,ctrl.rightThumbY,ctrl.buttons);
-                } else if(leftStickClicked && !scannerClaim) {
+                } else if(leftStickClicked && !scannerClaim && !(cyberfinger && cvr::cyberfinger::ConversationActive())) {
                     float threshold=CyberpunkVR_DpadChordStick;
                     if(!(threshold>.05f) || threshold>1.f)threshold=.90f;
                     if(ctrl.rightThumbY> threshold){ctrl.buttons|=0x0001;dpadUsedThisFrame=true;}
@@ -2032,43 +2185,70 @@ DWORD OpenXRManager::FrameThreadMain() {
                     ctrl.rightThumbX=ctrl.rightThumbY=0.f;
                 }
                 const bool cyberwareClaim=cvr::input::UpdateCyberwareChord(leftStickClicked,ctrl.leftGrip,
-                    uiTracking.hands[1].stickClick,gameplayInputActive && !scannerClaim);
+                    uiTracking.hands[1].stickClick,gameplayInputActive && !scannerClaim && !cyberfinger);
                 if(cyberwareClaim) {
                     ctrl.leftGrip=0.f;
                     ctrl.buttons &= static_cast<uint16_t>(~0x000f); // no D-pad from the same chord
                 }
 
-                // DEFERRED L3 (sprint): the left stick click doubles as the D-Pad
-                // modifier. Emit the vanilla stick-click press only when the click is
-                // RELEASED without any D-Pad direction having been used during the hold
-                // (one-frame press; the game latches button edges per poll).
+                static cvr::cyberfinger::RightMenuButton cfMenuButton;
+                const auto cfNow=GetTickCount64();
+                const bool cfMenuAllowed=cyberfinger && cfRightMenuActive &&
+                    m_sessionState==XR_SESSION_STATE_FOCUSED && GetMenuMode()==0 &&
+                    !cvr::input::ComputerInputActive() && !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons();
+                const bool inCamera=cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::SurveillanceCamera;
+                const bool cameraBlocked=inCamera && (ctrl.leftMenuButton || menuRectActive ||
+                    g_uiPopupOpen.load(std::memory_order_relaxed) || cvr::input::KeypadInputActive());
+                const auto cfMenu=cfMenuButton.Step(ctrl.rightMenuButton,cfMenuAllowed && !cameraBlocked,inCamera,cfNow);
+                ctrl.cameraExitUntil=cfMenu.cameraExitUntil;
+                if(cfMenu.inventory)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Inventory);
+                if(cfMenu.cyberware)cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Cyberware);
+                // Native menu actions are delivered once by the game-thread Lua
+                // bridge. Start/Back vary with the game's controller scheme.
+                if(cyberfinger)ctrl.cyberFingerButtons&=static_cast<uint16_t>(~0x0020u);
+
+                // Both click actions yield the whole hold to an active D-pad chord or UI.
                 {
                     static cvr::input::DeferredLeftStickClick deferredL3;
-                    const bool overlayChord=g_liveControls.xrVrInterface &&
+                    static cvr::cyberfinger::LeftStickJump cfJump;
+                    const bool overlayChord=!cyberfinger && g_liveControls.xrVrInterface &&
                         uiTracking.hands[0].stickClick && uiTracking.hands[1].stickClick;
-                    if(deferredL3.Update(leftStickClicked,scannerClaim || cyberwareClaim || overlayChord || dpadUsedThisFrame)) {
+                    const bool cfUiClaim=cyberfinger && (!gameplayInputActive || menuRectActive ||
+                        cvr::vrui::CapturesInput() || cvr::vrmenu::CapturesButtons());
+                    const bool claimed=scannerClaim || cyberwareClaim || overlayChord || dpadUsedThisFrame || cfUiClaim;
+                    const bool cfJumpMode=cvr::cyberfinger::UsesLeftStickJump(cyberfinger,g_isInVehicle,g_liveControls.xrSprintMode);
+                    if(deferredL3.Update(leftStickClicked,claimed || cfJumpMode)) {
                         ctrl.buttons |= 0x0040;   // XINPUT_GAMEPAD_LEFT_THUMB
                         InterlockedIncrement(&CyberpunkVR_LeftStickClicks);
                     }
+                    const bool jumpAllowed=cfJumpMode && !claimed && stickClickActive[0] && syncRes==XR_SUCCESS &&
+                        m_sessionState==XR_SESSION_STATE_FOCUSED && inputPresentation==cvr::capture::Presentation::Scene &&
+                        GetMenuMode()==0 && !cvr::lobby::WorldShown() && !cvr::input::KeypadInputActive() &&
+                        !cvr::input::ComputerInputActive() && !cvr::cyberfinger::ConversationActive() &&
+                        !g_bdActive.load(std::memory_order_relaxed) && !g_uiPopupOpen.load(std::memory_order_relaxed);
+                    if(cfJump.Update(jumpAllowed,leftStickClicked,cfNow))
+                        ctrl.cyberFingerButtons|=0x1000; // named game A (jump), after handedness
                 }
 
-                auto getGlobalBool=[&](XrAction action) -> bool {
-                    if(action==XR_NULL_HANDLE)return false;
-                    XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
-                    gi.action=action;gi.subactionPath=XR_NULL_PATH;
-                    XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
-                    return XR_SUCCEEDED(xrGetActionStateBoolean(m_session,&gi,&st)) && st.isActive && st.currentState;
-                };
+                static cvr::cyberfinger::ButtonEdge cfPauseButton;
+                if(cyberfinger) {
+                    const auto wrist=cvr::cyberfinger::WristButtons(
+                        g_liveControls.xrLeftHanded!=0,cfBlackTap[0],cfBlackTap[1],menuPressed,cfRightBlackHold);
+                    if(cfPauseButton.Step((wrist&0x0010)!=0) && gameplayInputActive && GetMenuMode()==0 &&
+                       !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons())
+                        cvr::cyberfinger::RequestCommand(cvr::cyberfinger::Command::Pause);
+                    ctrl.cyberFingerButtons|=wrist&static_cast<uint16_t>(~0x0010u);
+                } else cfPauseButton.Reset();
                 if(gameplayInputActive)ctrl.buttons|=m_steamFrameActions.GlobalButtons(getGlobalBool);
                 // The extra physical Frame buttons obey the same overlay capture
                 // as Touch controls. Menu/Start retains the existing escape path.
-                {std::lock_guard<std::mutex> rawLock(m_inputMutex);m_rawControllerState=ctrl;}
-                if(cvr::vrui::CapturesInput()) {
-                    ctrl={};
-                    ctrl.scannerPresses=scannerClick.Presses();
+                {
+                    std::lock_guard<std::mutex> rawLock(m_inputMutex);
+                    m_rawControllerState=ctrl;
+                    m_rawControllerState.buttons|=ctrl.cyberFingerButtons;
                 }
+                if(cvr::vrui::CapturesInput()){ctrl={};ctrl.scannerPresses=scannerClick.Presses();}
                 if (gameplayInputActive) {
-                    const bool menuPressed = getGlobalBool(m_menuButtonAction);
                     if (IsRuntimePsvr2()) {
                         // L3+R3 belongs to upstream's overlay, not our menu fallback.
                         const bool chord = triangleShift && uiTracking.hands[1].stickClick && !leftStickClicked;
@@ -2080,7 +2260,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             static bool logged = false;
                             if (!logged) { logged = true; Log("OpenXRManager[PSVR2]: Create SystemButton active (tap=Start, hold=Back).\n"); }
                         }
-                    } else if(menuPressed)ctrl.buttons|=0x0010; // Other headsets unchanged.
+                    } else if(!cyberfinger && menuPressed)ctrl.buttons|=0x0010; // CF already routes by weapon hand.
 
                     // Publish the snapshot for the XInput hook.
                     std::lock_guard<std::mutex> inLock(m_inputMutex);
@@ -2123,6 +2303,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                 uint64_t monoPoseIds[2]{};
                 double monoCaptureMs = 0.0;   // when the frame below was captured; see the age counters
                 bool monoDark = false;        // presented under a loading screen (Lobby/MenuLobby.hpp LoadingDark)
+                cvr::capture::Presentation framePresentation = cvr::capture::Presentation::Scene;
                 XrFovf monoFovs[2]{};
                 bool monoHasView[2] = {};
                 cvr::framegen::Frame fgFrame;
@@ -2175,6 +2356,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         presentSerial = pick->serial;
                         monoCaptureMs = pick->captureMs;
                         monoDark = pick->dark;
+                        framePresentation = pick->presentation;
                         frameMainEye = pick->mainEye ? 1u : 0u;
                         for (int eye = 0; eye < 2; ++eye) {
                             if(!cvr::framegen::CaptureInputsEnabled())pick->framegenInputs[eye].reset();
@@ -2187,7 +2369,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         if(CyberpunkVR_StereoSubmit && viewCountOutput>=2) {
                             const auto eye=frameMainEye^1u;
                             bool reused=false;
-                            vrcamEye=AcquireCapturedVrcamLocked(presentSerial,CyberpunkVR_VrcamEyeReuseMax,
+                            vrcamEye=AcquireCapturedVrcamLocked(presentSerial,framePresentation,CyberpunkVR_VrcamEyeReuseMax,
                                 &monoPoses[eye],&monoFovs[eye],&monoPoseIds[eye],&reused);
                             if(reused)CVR_DIAGNOSTIC(CyberpunkVR_DebugVrcamEyeReused.fetch_add(1,std::memory_order_relaxed));
                         }
@@ -2206,7 +2388,8 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                 // A midpoint already accepted by the runtime owns its endpoint independently of the newest capture.
                 // New capture not ready / missing motion inputs must not drop that pinned endpoint.
-                if (IsRuntimeSteamVR() && (!monoSource || !vrcamEye) && m_framegen.Pending() && !menuRectActive) {
+                const bool generateScene=cvr::capture::CanGenerate(framePresentation,inputPresentation);
+                if (IsRuntimeSteamVR() && (!monoSource || !vrcamEye) && m_framegen.Pending() && generateScene) {
                     const auto& owed = m_framegen.PendingFrame();
                     if (owed.identity.origin == GetTrackingOriginSerial() && owed.lease && owed.color[0] && owed.color[1]) {
                         if (monoSource) ReleaseCapturedRead(monoSource,0);
@@ -2218,6 +2401,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         if (a) {monoSource=owed.color[0];monoSource->AddRef();}
                         if (b) {vrcamEye=owed.color[1];vrcamEye->AddRef();}
                         frameMainEye=0;presentSerial=owed.identity.serial;monoCaptureMs=owed.identity.capturedMs;
+                        framePresentation=cvr::capture::Presentation::Scene;monoDark=false;
                         fgFrame=owed;
                         for (unsigned eye=0;eye<2;++eye) {
                             monoPoses[eye]=owed.pose[eye];monoFovs[eye]=owed.fov[eye];
@@ -2226,6 +2410,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                     }
                 }
 
+                const bool frameMenu = framePresentation==cvr::capture::Presentation::Menu;
+                const bool frameLoadingPanel = framePresentation==cvr::capture::Presentation::Loading;
+                const bool frameScene = framePresentation==cvr::capture::Presentation::Scene;
                 // DO NOT take m_captureMutex here.
                 //
                 // The game's Present takes that same mutex for its capture, so holding it
@@ -2330,7 +2517,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     XrStage(4);
                     const double selectStart=XrDiagNowMs();
                     fgSelection=m_framegen.Select(m_d3dDevice,IsRuntimeSteamVR() && finishedCapture?RuntimeQueue():m_d3dQueue,std::move(fgFrame),
-                        !menuRectActive && m_sessionRunning.load(std::memory_order_relaxed),
+                        generateScene && m_sessionRunning.load(std::memory_order_relaxed),
                         double(frameState.predictedDisplayPeriod)*1e-6);
                     fgSelectMs=XrDiagNowMs()-selectStart;
                     fgSelected=true;
@@ -2342,7 +2529,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     // capture is already C. Timing and identity must follow the selected pixels too.
                     presentSerial=fgSelection.frame.identity.serial;
                     monoCaptureMs=fgSelection.frame.identity.capturedMs;
-                } else if (!IsRuntimeSteamVR() || menuRectActive || !m_sessionRunning.load(std::memory_order_relaxed)) m_framegen.Reset();
+                } else if (!IsRuntimeSteamVR() || !generateScene || !m_sessionRunning.load(std::memory_order_relaxed)) m_framegen.Reset();
                 // The image, its own pose, and its read reservation were acquired
                 // together with MAIN above. Reused VRCAM slots keep their own label.
                 if(CyberpunkVR_StereoSubmit && viewCountOutput>=2) {
@@ -2365,7 +2552,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                     // lobby's curtain, and its intro's picture in that dark, are in the frame itself
                     // (Render/IntroOverlay.hpp): with the curtain shut only the separate quads go.
                     const bool curtainShut = cvr::lobby::Curtain() >= 1.0f;
-                    const float menuBlink = monoDark ? 1.0f : cvr::vrmenu::BlinkClosure();
+                    const float menuBlink = frameLoadingPanel ? 0.0f : (monoDark ? 1.0f : cvr::vrmenu::BlinkClosure());
                     bool useDepthLayer = false;
                     std::vector<bool> acquiredEyes(viewCountOutput, false);
                     std::vector<bool> acquiredDepthEyes(viewCountOutput, false);
@@ -2552,7 +2739,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 (monoPoses[0].position.y + monoPoses[1].position.y) * 0.5f,
                                 (monoPoses[0].position.z + monoPoses[1].position.z) * 0.5f};
                         }
-                        if (menuRectActive) {
+                        if (frameMenu) {
                             // LAZY-FOLLOW menus (projection path). Head-locking to the
                             // live eye pose every frame made the panel drag 1:1 with the
                             // head (motion sickness). Instead LATCH the per-eye poses when
@@ -2658,7 +2845,7 @@ DWORD OpenXRManager::FrameThreadMain() {
 
                     cvr::depth::Plan depthPlan;
                     auto depthReason=cvr::depth::Reject::Missing;
-                    if(reuseImages && copyReady && !menuRectActive && m_lastCopy.depthUsed && GetDepthSubmit() &&
+                    if(reuseImages && copyReady && frameScene && m_lastCopy.depthUsed && GetDepthSubmit() &&
                        GetMonoDepthCapture() && m_depthLayerSupported &&
                        m_lastCopy.depthInfo[0].subImage.swapchain==m_eyeSwapchains[0].depthHandle &&
                        m_lastCopy.depthInfo[1].subImage.swapchain==m_eyeSwapchains[1].depthHandle) {
@@ -2666,7 +2853,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                         depthInfos.assign(m_lastCopy.depthInfo,m_lastCopy.depthInfo+2);
                         for(unsigned eye=0;eye<2;++eye){depthInfos[eye].next=nullptr;projectionViews[eye].next=&depthInfos[eye];}
                         useDepthLayer=true;depthReason=cvr::depth::Reject::None;
-                    } else if(copyReady && !menuRectActive && fgSelected && GetDepthSubmit() && GetMonoDepthCapture() && m_depthLayerSupported) {
+                    } else if(copyReady && frameScene && fgSelected && GetDepthSubmit() && GetMonoDepthCapture() && m_depthLayerSupported) {
                         depthReason=fgSelection.synthetic && !CyberpunkVR_SyntheticDepth ? cvr::depth::Reject::Synthetic :
                             cvr::depth::Describe(fgSelection,projectionViews.data(),viewCountOutput,GetWorldScale(),depthPlan);
                         if(depthReason==cvr::depth::Reject::None &&
@@ -2786,21 +2973,34 @@ DWORD OpenXRManager::FrameThreadMain() {
                             // The HUD quads' Prepare below may recreate their swapchains: from here on the
                             // record of the last accepted frame may name a destroyed one, until this cycle's
                             // own end succeeds and writes a new record.
+                            const auto& prior = m_lastSubmission;
+                            const bool retainLoadingPose = prior.valid && prior.presentation == cvr::capture::Presentation::Loading &&
+                                prior.menuQuad && prior.origin == GetTrackingOriginSerial() && prior.localSpace == m_localSpace;
                             m_lastSubmission.valid = false;
                             XrCompositionLayerProjection layerProj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
                             XrCompositionLayerQuad layerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
-                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+3] = {};
+                            const XrCompositionLayerBaseHeader* layers[1+2*cvr::hud::ChannelCount+7] = {};
 
-                            if (menuRectActive) {
+                            if (frameLoadingPanel) {
+                                const auto& image = projectionViews[0].subImage;
+                                const auto& extent = image.imageRect.extent;
+                                const float aspect = (std::min)(16.f / 9.f, 2.f * extent.width / extent.height);
+                                layerQuad = cvr::loading::Panel(image, aspect, m_localSpace, m_viewSpace,
+                                    headPoseLocated ? &location.pose : nullptr, retainLoadingPose ? &prior.quad : nullptr);
+                                layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layerQuad);
+                            } else if (frameMenu) {
                                 layerQuad.space = m_localSpace;
                                 layerQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
                                 layerQuad.subImage = projectionViews[0].subImage;
 
-                            // LAZY-FOLLOW panel: stays put within the dead-zone, eases
-                            // to the head past the threshold (see ComputeMenuQuadPose).
-                            layerQuad.pose = ComputeMenuQuadPose(headPoseLocated, location.pose, frameState.predictedDisplayTime);
+                            // CF panels share F10's bounds and latch a world pose.
+                            // Other profiles retain their existing lazy follow.
+                            const auto panelSettings=cvr::vrui::GetSettings();
+                            layerQuad.pose = cvr::cfmenu::PanelPose(
+                                ComputeMenuQuadPose(headPoseLocated, location.pose, frameState.predictedDisplayTime),GetTrackingOriginSerial(),panelSettings);
 
-                                float quadWidth = 2.0f * 1.5f * tanf(GetMenuFov() * 3.14159f / 180.0f * 0.5f);
+                                const bool pictureFrame=cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::PictureFrame;
+                                float quadWidth = 2.0f * 1.5f * tanf((pictureFrame?55.f:GetMenuFov()) * 3.14159f / 180.0f * 0.5f);
                                 float quadHeight = quadWidth;
                                 // ENGINE STEREO: the image is the whole two-eyes-wide window squeezed into one
                                 // eye's (OpenXRCapture.cpp). Ink fits a menu's 16:9 design into that window by
@@ -2813,7 +3013,8 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     quadHeight = quadWidth * windowH / menuW;
                                     quadWidth *= windowW / menuW;
                                 }
-                                layerQuad.size = {quadWidth, quadHeight};
+                                layerQuad.size = cvr::cfmenu::PanelSize({quadWidth, quadHeight},panelSettings);
+                                cvr::cfmenu::Panel(layerQuad.pose,layerQuad.size.width,layerQuad.size.height);
                                 layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layerQuad);
                             } else {
                                 layerProj.space = m_localSpace;
@@ -2829,7 +3030,7 @@ DWORD OpenXRManager::FrameThreadMain() {
                             XrView hudViews[2]={{XR_TYPE_VIEW},{XR_TYPE_VIEW}};
                             XrVector3f eyeOffsets[2]{};
                             bool hudTracked=false, hudEyes=false;
-                            if(headPoseLocated && (!menuRectActive || cvr::framegen::GetSettings().overlay)) {
+                            if(headPoseLocated && (frameScene || cvr::framegen::GetSettings().overlay)) {
                                 constexpr auto valid=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT;
                                 hudTracked=XR_SUCCEEDED(xrLocateSpace(m_viewSpace,m_localSpace,
                                     frameState.predictedDisplayTime,&hudHead)) && (hudHead.locationFlags&valid)==valid;
@@ -2856,26 +3057,26 @@ DWORD OpenXRManager::FrameThreadMain() {
                             const bool completedHud=IsRuntimeSteamVR() || RuntimeQueue()!=m_d3dQueue;
                             endInfo.layerCount = 1;
                             const XrCompositionLayerBaseHeader* hudLayer=m_hudQuad.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw,nullptr,nullptr,completedHud);
                             if(hudLayer) {
                                 layers[endInfo.layerCount++]=hudLayer;
                                 if(const auto* other=m_hudQuad.SecondEye())layers[endInfo.layerCount++]=other;
                             }
                             if(const auto* interactions=m_interactionQuad.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw,nullptr,nullptr,completedHud)){
                                 layers[endInfo.layerCount++]=interactions;
                                 if(const auto* other=m_interactionQuad.SecondEye())layers[endInfo.layerCount++]=other;
                             }
                             if(const auto* basilisk=m_basiliskQuad.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw,nullptr,nullptr,completedHud)){
                                 layers[endInfo.layerCount++]=basilisk;
                                 if(const auto* other=m_basiliskQuad.SecondEye())layers[endInfo.layerCount++]=other;
                             }
                             if(const auto* surveillance=m_surveillanceQuad.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw,nullptr,nullptr,completedHud)){
                                 layers[endInfo.layerCount++]=surveillance;
                                 if(const auto* other=m_surveillanceQuad.SecondEye())layers[endInfo.layerCount++]=other;
@@ -2897,13 +3098,13 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 }
                             }
                             if(const auto* hitMarker=m_hitMarkerQuad.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw,nullptr,nullptr,completedHud)){
                                 layers[endInfo.layerCount++]=hitMarker;
                                 if(const auto* other=m_hitMarkerQuad.SecondEye())layers[endInfo.layerCount++]=other;
                             }
                             if(const auto* minimap=m_vehicleMinimapQuad.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
-                                !menuRectActive,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
+                                frameScene,hudTracked,hudHead.pose,GetTrackingOriginSerial(),
                                 frameState.predictedDisplayTime,hudEyes?eyeOffsets:nullptr,hudBodyYaw,hudLayer,m_hudQuad.SecondEye(),completedHud)) {
                                 layers[endInfo.layerCount++]=minimap;
                                 if(const auto* other=m_vehicleMinimapQuad.SecondEye())layers[endInfo.layerCount++]=other;
@@ -2916,16 +3117,29 @@ DWORD OpenXRManager::FrameThreadMain() {
                             // compositor that sorts quads by distance (the FPS layer sits at 1.25 m, the
                             // panel at 2.3 m on the test setup) still drew it over the panel. The panel
                             // shows the same statistics itself.
+                            if (const char* notice = cvr::cyberfinger::ModeNoticeText()) {
+                                if (const auto* card = m_modeNoticeOverlay.Prepare(m_session,m_viewSpace,m_d3dDevice,RuntimeQueue(),
+                                    XR_NULL_HANDLE,nullptr,0,frameState.predictedDisplayTime,notice))
+                                    layers[endInfo.layerCount++]=card;
+                            }
                             if(const auto* metrics=m_framegenOverlay.Prepare(m_session,m_viewSpace,m_d3dDevice,RuntimeQueue(),
                                 m_localSpace,hudTracked?&hudHead.pose:nullptr,GetTrackingOriginSerial(),frameState.predictedDisplayTime))
-                                if(!cvr::vrui::Visible())layers[endInfo.layerCount++]=metrics;
+                                if(!cvr::vrui::Visible() && !cvr::modui::Visible())layers[endInfo.layerCount++]=metrics;
                             endInfo.layers = layers;
+                            if(const auto* laser=m_cfMenuLaser.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue()))
+                                layers[endInfo.layerCount++]=laser;
                             if(const auto* panel=m_settingsPanel.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue())){
                                 layers[endInfo.layerCount++]=panel;
                                 if(const auto* ray=m_settingsPanel.Ray())layers[endInfo.layerCount++]=ray;
                             }
+                            const bool modPanelAllowed=!cvr::vrui::Visible() && !cvr::vrmenu::CapturesButtons();
+                            if(const auto* panel=m_modPanel.Prepare(m_session,m_localSpace,m_d3dDevice,RuntimeQueue(),
+                                modPanelAllowed?cvr::modui::GetView():cvr::vrui::View{},cvr::modui::Latest())){
+                                layers[endInfo.layerCount++]=panel;
+                                if(const auto* ray=m_modPanel.Ray())layers[endInfo.layerCount++]=ray;
+                            }
                             // Separate HUD/metrics quads must not remain visible through closed eyes.
-                            if (menuBlink > 0.0f || curtainShut) endInfo.layerCount = 1;
+                            if (menuBlink > 0.0f || curtainShut || cvr::capture::IsLoading(framePresentation)) endInfo.layerCount = 1;
                             // Only the appended optional layers are filtered: the primary
                             // image at layers[0] can itself be a menu quad, not a projection.
                             endInfo.layerCount = 1 + cvr::hud::FilterSubmittableQuads(layers + 1, endInfo.layerCount - 1);
@@ -3028,7 +3242,9 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     auto& last = m_lastSubmission;
                                     const uint32_t views = (std::min)(viewCountOutput, 2u);
                                     last.viewCount = views;
-                                    last.menuQuad = menuRectActive;
+                                    last.menuQuad = frameMenu || frameLoadingPanel;
+                                    last.presentation = framePresentation;
+                                    last.origin = GetTrackingOriginSerial();
                                     last.localSpace = m_localSpace;
                                     last.submittedAt = frameState.predictedDisplayTime;
                                     for (uint32_t eye = 0; eye < views; ++eye) {
@@ -3048,10 +3264,17 @@ DWORD OpenXRManager::FrameThreadMain() {
                                     for (uint32_t i = 1; i < endInfo.layerCount && last.extraCount < LastSubmission::kMaxExtra; ++i)
                                         last.extra[last.extraCount++] = layers[i];
                                     last.valid = views == viewCountOutput && views > 0;
+                                    static int lastPresentation=-1;
+                                    if(lastPresentation!=static_cast<int>(framePresentation)) {
+                                        lastPresentation=static_cast<int>(framePresentation);
+                                        Log("[xr-presentation] serial=%llu kind=%d (0 scene, 1 menu, 2 loading, 3 notice, 4 dark) paired=%d layer=%s\n",
+                                            static_cast<unsigned long long>(presentSerial),lastPresentation,vrcamEye?1:0,
+                                            last.menuQuad ? "quad" : "projection");
+                                    }
                                     static_assert(sizeof(layers) / sizeof(layers[0]) - 1 <= LastSubmission::kMaxExtra,
                                                   "the record must hold every layer after the first");
                                 }
-                                if(hudSubmitted && !menuRectActive)
+                                if(hudSubmitted && frameScene)
                                     CVR_DIAGNOSTIC(CyberpunkVR_HudSubmittedFrames.fetch_add(1,std::memory_order_relaxed));
                                 for(int eye=0;eye<2;++eye)
                                     CVR_DIAGNOSTIC(CyberpunkVR_PoseIdLastSubmit[eye].store(monoPoseIds[eye],std::memory_order_relaxed));

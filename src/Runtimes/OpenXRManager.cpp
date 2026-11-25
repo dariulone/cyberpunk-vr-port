@@ -5,13 +5,17 @@
 #include "Fbt/Game/Trackers.hpp"
 #include "Runtimes/PresenceRecenter.hpp"
 #include "Runtimes/FingerGrip.hpp"
+#include "Runtimes/EyeTracking.hpp"
+#include "Runtimes/CyberFingerGameMenu.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
 #include "Anim/WheelGrab.hpp"   // the wheel-grab blends, for the hand smoothing below
 #include "Runtimes/OpenXRManager.hpp"
+#include "Overlay/ModUi.hpp"
 #include "Render/FoveatedDlss.hpp"
 #include "Render/FixedVrs.hpp"
+#include "Render/LoadingCapture.hpp"
 #include "Hooks/Psvr2Input.hpp"
 #include "Hooks/RoomscaleMove.hpp"
 #include "Camera/CameraLink.hpp"
@@ -705,7 +709,9 @@ bool OpenXRManager::Init() {
             }
         }
         cvr::trackers::ChooseExtensions(props, extensions);     // only with xr_vive_trackers=1
-        cvr::fingergrip::ChooseExtensions(props, extensions);   // hand tracking, whenever offered
+        cvr::cyberfinger::Configure();
+        cvr::fingergrip::ChooseExtensions(props, extensions);
+        cvr::eye_tracking::ChooseExtensions(props, extensions);
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
         Log("OpenXRManager: Steam Frame controller (%s) supported=%d\n",cvr::input::SteamFrameExtension,steamFrameEnabled?1:0);
     }
@@ -821,6 +827,7 @@ bool OpenXRManager::Init() {
         strcpy_s(actionSetInfo.localizedActionSetName, "Gameplay");
         actionSetInfo.priority = 0;
         xrCreateActionSet(m_instance, &actionSetInfo, &m_actionSet);
+        cvr::eye_tracking::CreateAction(m_instance,m_systemId,m_actionSet);
 
         xrStringToPath(m_instance, "/user/hand/left", &m_handPaths[0]);
         xrStringToPath(m_instance, "/user/hand/right", &m_handPaths[1]);
@@ -865,6 +872,7 @@ bool OpenXRManager::Init() {
             // suggestions -- a second call for the haptic alone would drop every input binding.
             makeAction(m_hapticAction,          XR_ACTION_TYPE_VIBRATION_OUTPUT, "haptic",         "Haptic Feedback",      true);
             if(steamFrameEnabled)m_steamFrameActions.Create(makeAction);
+            if(cvr::cyberfinger::Configured())m_cyberFingerActions.Create(makeAction);
         }
         cvr::trackers::CreateActions(m_instance, m_actionSet);
         Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
@@ -1243,6 +1251,7 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
         attachInfo.countActionSets = 1;
         attachInfo.actionSets = &m_actionSet;
         xrAttachSessionActionSets(m_session, &attachInfo);
+        cvr::eye_tracking::CreateSpace(m_session);
 
         for (int i = 0; i < 2; i++) {
             XrActionSpaceCreateInfo spaceInfo{XR_TYPE_ACTION_SPACE_CREATE_INFO};
@@ -1294,6 +1303,7 @@ bool OpenXRManager::BeginSession() {
 }
 
 void OpenXRManager::EndSession() {
+    cvr::eye_tracking::Clear();
     if (m_session == XR_NULL_HANDLE || !m_sessionRunning.load(std::memory_order_relaxed)) return;
     xrEndSession(m_session);
     m_sessionRunning.store(false, std::memory_order_relaxed);
@@ -1311,12 +1321,15 @@ void OpenXRManager::PollEvents() {
 
     XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
     while (xrPollEvent(m_instance, &event) == XR_SUCCESS) {
-        if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
+        if (event.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+            m_hintBindingsChanged.store(true, std::memory_order_release);
+        } else if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
             auto* changed = reinterpret_cast<XrEventDataSessionStateChanged*>(&event);
             const XrSessionState previous = m_sessionState;
             m_sessionState = changed->state;
             m_sessionFocused.store(m_sessionState == XR_SESSION_STATE_FOCUSED, std::memory_order_relaxed);
             if (m_sessionState != XR_SESSION_STATE_FOCUSED) {
+                cvr::eye_tracking::Clear();
                 // A stopped/nonfocused session may not publish another frame.
                 // Do not let a stale held Create become a Back event later.
                 std::lock_guard<std::mutex> lock(m_inputMutex);
@@ -2534,6 +2547,7 @@ void OpenXRManager::Shutdown() {
     }
 
     // ---- OPENXR OBJECTS, IN DEPENDENCY ORDER -----------------------------------------------------
+    cvr::eye_tracking::Shutdown();
     //
     // Swapchains and spaces are children of the session, the session is a child of the instance, and
     // the action set outlives neither. What stood here destroyed the spaces and the SESSION first and
@@ -2543,7 +2557,12 @@ void OpenXRManager::Shutdown() {
     m_framegen.Reset();
     m_stereoDepth.Poll();
     m_framegenOverlay.Shutdown(true);
+    m_modeNoticeOverlay.Shutdown(true);
     m_settingsPanel.Shutdown();
+    m_modPanel.Shutdown(false);
+    cvr::modui::Suspend();cvr::vrui::SetExternalCapture(false);
+    m_cfMenuLaser.Shutdown();
+    cvr::cfmenu::Reset();cvr::cfmenu::DispatchPointer();
     cvr::framegen::StopHardwareTelemetry();
     m_hudQuad.Shutdown();
     m_interactionQuad.Shutdown();
@@ -2553,6 +2572,8 @@ void OpenXRManager::Shutdown() {
     m_vehicleMinimapQuad.Shutdown();
     m_introOverlay.Shutdown();
     m_loadingScreen.Shutdown();
+    m_loadingPanelActive = m_loadingArtworkReady = false;
+    cvr::loading::diagnostic::Shutdown();
     cvr::hud::Shutdown();
     cvr::hud::Shutdown(cvr::hud::Channel::Interaction);
     cvr::hud::Shutdown(cvr::hud::Channel::Basilisk);
@@ -2620,6 +2641,8 @@ void OpenXRManager::Shutdown() {
     m_secondaryButtonAction = XR_NULL_HANDLE;
     m_menuButtonAction = XR_NULL_HANDLE;
     m_steamFrameActions = {};
+    m_cyberFingerActions = {};
+    cvr::cyberfinger::NoteBindingActivity(false);
 
     m_views.clear();
     m_viewConfigViews.clear();

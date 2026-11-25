@@ -28,6 +28,7 @@ void Log(const char*,...){}
 void VRIK_QuatNorm(float* q){const float n=std::sqrt(q[0]*q[0]+q[1]*q[1]+q[2]*q[2]+q[3]*q[3]);for(int i=0;i<4;++i)q[i]/=n;}
 namespace cvr::anim {bool WeaponInLeftHand(){return false;}}
 namespace cvr::gestures {bool OwnsHand(int){return false;}}
+namespace cvr::cyberfinger {bool Enabled(){return false;}}
 float SharedPose(int index) {return slots[index];}
 bool OverlayIsVisible(){return false;}
 // The vehicle minimap anchor (PublishMinimapAnchor) is not under test: no camera pair, so it never publishes.

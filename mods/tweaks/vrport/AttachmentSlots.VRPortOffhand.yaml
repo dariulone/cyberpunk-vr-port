@@ -1,0 +1,8 @@
+# Independent hand attachments for a secondary katana or the base fists.
+AttachmentSlots.VRPortOffhandLeft:
+  $base: AttachmentSlots.WeaponLeft
+  entitySlotName: WeaponLeft
+
+AttachmentSlots.VRPortOffhandRight:
+  $base: AttachmentSlots.WeaponRight
+  entitySlotName: WeaponRight

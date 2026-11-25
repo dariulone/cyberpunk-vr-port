@@ -120,12 +120,13 @@ function S.control(kit,p,owner,key,x,y,w,value,set,redraw)
   end,function(h)
     local color=h and K.YELLOW or K.CYAN;text:SetTintColor(K.color(h and K.YELLOW or K.TEXT));K.tint(marks,color,1)
     edge:SetTintColor(K.color(color));edge:SetOpacity(h and .8 or .25)
-  end);b.key=key
+  end);b.key=key;b.context=b.click -- Grip/right-click opens the sort options too
   if open then owner.sortPopup={key=key,x=x,y=y,w=w,value=option.key,set=set,redraw=redraw} end
 end
 function S.popup(kit,p,owner)
   local popup=owner.sortPopup;if not popup or not popup.set then return end
   kit.S.modalGroup="sort"
+  kit.S.cfBack=function() owner.sortPopup=nil;popup.redraw() end
   local w,rowH=430,48;local h=#S.options()*rowH+12
   local x=math.max(12,math.min(1780-w-12,popup.x+popup.w-w))
   local y=math.min(popup.y+52,1195-h)

@@ -8,6 +8,7 @@
 #include "Runtimes/InteractionDepth.hpp"
 #include "Runtimes/HudClearance.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
 #include <Windows.h>
 #include <algorithm>
 #include <cmath>
@@ -180,6 +181,8 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
     // depth the reticle and the details sat on the target differently in each eye (17 px apart at 1.5 m on
     // the simulator, 2026-10-18) and split from the in-eye half of the scanner.
     const bool stereoDepth=g_liveControls.xrHudStereoDepth && channel!=Channel::Surveillance;
+    const bool cfPanel=channel==Channel::Main || channel==Channel::Interaction;
+    const float cfScale=cfPanel?cvr::cyberfinger::HudScale():1.f;
     if (!enabled || !g_liveControls.xrHudPanel || (channel==Channel::Interaction && !g_liveControls.xrInteractionPanel)) {
         if(fence && !submissionFailed)RetireCompleted(fence->GetCompletedValue());
         // Switched off: the game's slots come back. A menu over the world only pauses the channel.
@@ -188,7 +191,7 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
         follow.Reset(); clock.Reset(); return nullptr;
     }
     auto frame=Latest(channel,completedSource);
-    if (frame && frame->empty) {
+    if (frame && (frame->empty || (cfPanel && !cvr::cyberfinger::HudVisible()))) {
         // The channel has nothing visible: no layer, but the consumer stays ready so the native
         // slots stay masked and the next visible content appears here, not natively first.
         if(fence && !submissionFailed)RetireCompleted(fence->GetCompletedValue());
@@ -291,7 +294,7 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
         float handFront=cvr::hud::clearance::kFree;
         if(CyberpunkVR_HudClearance && CyberpunkVR_HudClearanceHands && (channel==Channel::Main || channel==Channel::Interaction)) {
             const float panelFov=std::clamp(static_cast<float>(channel==Channel::Interaction?g_liveControls.xrInteractionFov:g_liveControls.xrHudFov),30.0f,120.0f)*0.01745329252f;
-            const float tanV=tanf(panelFov*0.5f),tanH=tanV*float(width)/float(height);
+            const float tanV=tanf(panelFov*0.5f)*cfScale,tanH=tanV*float(width)/float(height);
             for(int h=0;h<2;++h) {
                 OpenXRHeadPose hand{};
                 if(OpenXRManager::Get().GetHandPose(h,&hand))
@@ -331,7 +334,7 @@ const XrCompositionLayerBaseHeader* Quad::Prepare(XrSession session, XrSpace spa
         }
         const float h=2.0f*distance*tanf(fov*0.5f)*
             (configuredDistance>0.0f ? cvr::hud::clearance::GrowFactor(configuredDistance,distance,CyberpunkVR_HudClearanceGrow) : 1.0f)*
-            handOut;
+            handOut*cfScale;
         layer.size={h*width/height,h};
     } else { follow.ResetDelay(); clock.Reset(); }
     if (!follow.valid) return nullptr;

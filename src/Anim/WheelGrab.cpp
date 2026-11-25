@@ -32,6 +32,7 @@
 #include "Anim/WheelSteering.hpp"
 #include "Anim/TrackedWheelSteering.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
 
 #include "Anim/CharacterRig.hpp"
 #include "Anim/HandGestures.hpp"
@@ -459,7 +460,7 @@ void WheelUpdate(float dtSec) {
     // where the hub is. Releasing the grip is what turns a hand at the hub back into a horn.
     int hornMask = 0;
     {
-        const bool hornEnabled = (g_liveControls.xrWheelHorn != 0);
+        const bool hornEnabled = (g_liveControls.xrWheelHorn != 0) && !cvr::cyberfinger::Enabled();
         float hornR = g_liveControls.xrWheelHornRadius;
         if (!(hornR >= kHornRadiusMin) || hornR > kHornRadiusMax) hornR = kHornRadiusDefault;
         const float rIn  = hornR;

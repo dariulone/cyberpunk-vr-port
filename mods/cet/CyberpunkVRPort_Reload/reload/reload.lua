@@ -1520,6 +1520,8 @@ local function yieldAll(weapon)
     end
     -- the slide and everything driven by it
     slideS.grabbed, slideS.releasing, slideS.hand, slideS.grip = false, false, nil, nil
+    slideS.wasOpenAtHandle, slideS.openAtHandle, slideS.input, M.rackReachHand = nil, nil, nil, nil
+    magS.wasOpenAtMag, magS.openAtMag = nil, nil
     slideS.userClosed, slideS.lockBase, slideS.tagged = false, nil, false
     slideS.ejectT, slideS.chaseV, slideS.rack, slideS.drain = nil, nil, 0, 0.0
     -- the game's reload chambers a manual action as it goes
@@ -1722,6 +1724,11 @@ local function wheelOwns(h)
     return (m % (bit * 2)) >= bit
 end
 
+local function wornGearHidden()
+    local holster = type(GetMod) == 'function' and GetMod('CyberpunkVRPort_Holster')
+    return holster and holster.wornGearHidden and holster.wornGearHidden()
+end
+
 -- WHAT THE SHOTGUN MODULE IS HANDED: this file's own helpers, so it never has to reach back into it.
 local function beltCall(name, a, b)
     local m = belt()
@@ -1788,6 +1795,7 @@ M.sgH = {
         sgLtOn = on
         pcall(SetVRLeftTriggerBlock, on and 1 or 0)
     end,
+    wornGearHidden = wornGearHidden,
     beltMagDist = beltMagDist, beltMagRadius = beltMagRadius, beltTaken = beltMagTaken,
     beltShellDist = function(side) return beltCall('shellDist', side) end,
     beltShellRadius = function() return beltCall('shellRadius') or 0.12 end,
@@ -1809,14 +1817,54 @@ M.sgH = {
 -- Shut is handed BACK (VRRigWriteOff), not written as rest: a part pinned at zero would be taken off the game for good.
 -- Out here and not in M.frame, which sits at the upvalue and local ceilings.
 -- WHICH SQUEEZE WORKS A PART. The grip, by default -- the same test M.frame's own gripOf makes, the steering wheel's
--- claim included. 'trigger' for a part worked with the index finger instead: the Militech Crusher's charging handle
--- is on the LEFT trigger, because its grip is the two-hand hold on the
--- magazine and a grip on the handle would be the same squeeze meaning two things.
+-- claim included. Some profiles use the free hand's Trigger to distinguish a
+-- reload input from the ordinary two-hand hold at the same spot.
 function M.squeeze(how, h)
     if how == 'trigger' then return (GetVRSharedSlot(h == 0 and 154 or 160) or 0.0) > 0.5 end
     if wheelOwns(h) then return false end
     return (GetVRSharedSlot(h == 0 and 155 or 49) or 0.0) > 0.5
 end
+
+-- Called only for the nearest in-range handle. A closed hand swept across it
+-- stays a support grip. Releasing the magazine must precede a new grasp.
+function M.slideInput(sc, hand, offerGrip, pinky)
+    if offerGrip and not wheelOwns(hand) then
+        M.rackReachHand = hand
+        if not M.squeeze('grip', hand) then
+            slideS.openAtHandle = hand
+        elseif slideS.wasOpenAtHandle == hand and not magS.gripLock then
+            return 'grip'
+        end
+    end
+    if (not pinky or sc.grabWith == 'trigger')
+       and (sc.grabWith == 'trigger' or not magS.gripLock) and M.squeeze(sc.grabWith, hand) then
+        return sc.grabWith or 'grip'
+    end
+end
+
+-- A seated magazine may also be the two-hand support point. Only offer a plain
+-- CyberFinger grasp when the game reports it empty and no reload is pending.
+function M.seatedMagazineInput(hand, near, grip)
+    if near and slideS.ammo == 0 and (magS.pending or 0) == 0
+       and type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+       and not wheelOwns(hand) and not (slideS.grabbed or slideS.releasing) then
+        if not grip then magS.openAtMag = hand end
+        if not grip or (magS.wasOpenAtMag == hand and not magS.gripLock) then return true end
+    end
+    return M.squeeze('trigger', hand)
+end
+
+-- LeftHandPinky1 in the wrist frame of the player reference rig. The right
+-- hand is its mirror. A wrist-fixed knuckle stays stable as the fingers close.
+function M.pinkyPoint(hand)
+    if type(VRHandRawRot) ~= 'function' then return nil end
+    local wrist, rot = VRHandRawModel(hand), VRHandRawRot(hand)
+    if not wrist or (wrist.w or 0) < 0.5 or not rot then return nil end
+    local sign = hand == 0 and 1 or -1
+    local dx, dy, dz = qrot(rot.i, rot.j, rot.k, rot.r, sign * 0.0697, sign * 0.0387, 0)
+    return wrist.x + dx, wrist.y + dy, wrist.z + dz
+end
+M.sgH.pinkyPoint = M.pinkyPoint
 
 -- A TWO-HAND HOLD TAKEN AWAY. A weapon can be held in several places (TwoHandGrip.cpp, g_cand: the plain hold and
 -- `<weapon>@<where>` ones); `mag.holdAlt` names the one ON THE MAGAZINE -- the Crusher's @mag, index 1 -- and with the
@@ -1837,8 +1885,42 @@ end
 -- magazine hung on the live slot was drawn out of sight while the magnet, reading the same slot, still seated it.
 -- Given the live wrist -> slot relation, this answers the bind one when the two disagree (more than 25 mm or
 -- 16 deg), nil when they agree -- measured on the Osprey and the Copperhead to 0.1 mm and 0.0001, so the guns
--- that were right stay exactly as they were. Left hand only: the right one's bind has not been measured.
-local SLOT_BIND = { [0] = { 0.0873, -0.0421, -0.0209, 0.5064, 0.5079, -0.5138, 0.4707 } }
+-- that were right stay exactly as they were. Both transforms come from the player reference rig.
+local SLOT_BIND = {
+    [0] = { 0.0873, -0.0421, -0.0209, 0.5064, 0.5079, -0.5138, 0.4707 },
+    [1] = { -0.087285, 0.042120, 0.020950, -0.470714, 0.513836, 0.507860, 0.506439 },
+}
+
+-- Contacts are fixed to the moving part. Use measured knob positions when available,
+-- otherwise project the reference hold slot from the recorded wrist into the part's frame.
+-- One-sided knobs stay on their real side regardless of which hand reaches across.
+local pinkyContacts = {}
+function M.handleContacts(sc, weaponBasis)
+    local axis = weaponBasis and 1 or 3
+    pinkyContacts[axis] = pinkyContacts[axis] or {}
+    local cache = pinkyContacts[axis]
+    if cache[sc] then return cache[sc] end
+    local contacts = {}
+    local function add(point)
+        contacts[#contacts + 1] = point
+        if sc.handleSide == 'both' or sc.handleSide == nil then
+            contacts[#contacts + 1] = handGrip(point, 1, axis)
+        end
+    end
+    if sc.cyberFingerPinky then
+        add(sc.cyberFingerPinky)
+    else
+        for _, g in pairs(sc.grips or {}) do
+            if g.rot then
+                local b = SLOT_BIND[0]
+                local x, y, z = qrot(g.rot[1], g.rot[2], g.rot[3], g.rot[4], b[1], b[2], b[3])
+                add({ off = { g.off[1] + x, g.off[2] + y, g.off[3] + z }, radius = 0.032 })
+            end
+        end
+    end
+    cache[sc] = contacts
+    return contacts
+end
 function M.slotBind(side, rx, ry, rz, e1, e2, e3, e4)
     local b = SLOT_BIND[side]
     if not (b and rx and e4) then return nil end
@@ -1870,6 +1952,10 @@ function M.hatchParts(hc, p, st)
 end
 
 function M.frame(weapon, slotComp, holder, dt)
+    -- An open hand must have been at the handle on the preceding frame.
+    slideS.wasOpenAtHandle, slideS.openAtHandle = slideS.openAtHandle, nil
+    magS.wasOpenAtMag, magS.openAtMag = magS.openAtMag, nil
+    M.rackReachHand = nil
     if not havesNatives() then exitAt = 'natives'; return end
     dt = dt or 0.016
     magLitterSweep()
@@ -1918,6 +2004,8 @@ function M.frame(weapon, slotComp, holder, dt)
     local wkey = okId and tostring(wid) or '?'
     if wkey ~= slideS.weaponKey then
         slideS.weaponKey = wkey
+        slideS.wasOpenAtHandle, slideS.input = nil, nil
+        magS.wasOpenAtMag = nil
         slideS.chambered = true          -- a freshly drawn gun is treated as chambered
         slideS.ejectT, slideS.chaseV = nil, nil
         slideS.fired, slideS.ammoLast, slideS.firedAt, slideS.cycleHeld, slideS.racked, slideS.cycleHid = false, nil, nil, false, false, nil
@@ -2497,7 +2585,7 @@ function M.frame(weapon, slotComp, holder, dt)
             -- hands together at the grip, which is exactly the flip case -- and the pinch hand then stayed
             -- rotation-locked forever (the reported bug).
             local H = slideS.hand or free
-            if (not M.squeeze(sc.grabWith, H)) or slideS.trip then
+            if (not M.squeeze(slideS.input or sc.grabWith, H)) or slideS.trip then
                 slideS.grabbed, slideS.releasing, slideS.trip = false, true, nil  -- spring forward, NOT teleport
                 -- COMING OFF THE CATCH, the spring runs to CLOSED, not back to the catch. While the slide is held
                 -- back the rack is counted from the catch, so "rack = 0" means the catch -- and letting go simply
@@ -2731,6 +2819,22 @@ function M.frame(weapon, slotComp, holder, dt)
                     end
                 end
             end
+            local needsGrasp = sc.grips and magS.state == 'in'
+                and ((magS.pending or 0) > 0 or (sc.manual and slideS.fired))
+                and type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+            if needsGrasp and not wheelOwns(free) then
+                local px, py, pz = M.pinkyPoint(free)
+                if px then
+                    for _, contact in ipairs(M.handleContacts(sc, gWeapon)) do
+                        local x, y, z = gripTarget(contact)
+                        local distance = len3(px-x, py-y, pz-z)
+                        if distance <= contact.radius and distance < bestD then
+                            best, bestStyle, bestD = contact, 'pinky', distance
+                        end
+                    end
+                end
+            end
+            local offerGrip = needsGrasp and (sc.grabWith == 'trigger' or bestStyle == 'pinky')
             slideS.dist = (bestD < 1e9) and bestD or -1
             -- WHY a grip was not offered. "dist=-1" alone cannot tell a hand that is far from one whose
             -- orientation failed the style gate, and those want opposite fixes.
@@ -2764,12 +2868,16 @@ function M.frame(weapon, slotComp, holder, dt)
             -- frame's -- so on the press itself the handle saw no magazine at all and took a squeeze meant for it.
             local mD = magS.snapD or -1
             if sc.grabWith == 'trigger' and (magS.snapDpre or -1) >= 0 then mD = magS.snapDpre end
+            -- A newly seated magazine cannot accept a plain grasp while its
+            -- rounds are pending. Its overlapping preview must not veto the handle.
+            if offerGrip and (magS.pending or 0) > 0 and not M.squeeze('trigger', free) then mD = -1 end
             local magNearer = mD >= 0 and (mD < bestD)
             -- a handle on the TRIGGER takes the left trigger off the game while the hand is on it or offered it --
             -- it is the aim everywhere else (sent by the magazine block, which also has a claim on it)
             slideS.ltNear = sc.grabWith == 'trigger' and free == aimHand()
                             and (slideS.grabbed or (best ~= nil and bestD <= (sc.previewRadius or 0.05)))
             if best and bestD <= (sc.previewRadius or 0.05) and not magNearer then
+                local input = M.slideInput(sc, free, offerGrip, bestStyle == 'pinky')
                 -- A HANDLE ON THE TRIGGER IS OFFERED TO THE TRIGGER FINGER, NOT TO THE HAND. The preview's fingers
                 -- are a claim on the hand, and the two-hand hold lets go of -- and spends the grip of -- any hand
                 -- the reload claims. A handle at the fore-end (the Copperhead's lever, the Umbra's, the
@@ -2778,9 +2886,9 @@ function M.frame(weapon, slotComp, holder, dt)
                 -- fought the slide; they are split, the slide on the trigger, the hold on the grip. So it is offered only while
                 -- the index finger is on the trigger -- a light touch shows it, the full press takes it -- and a
                 -- hand that only grips is the hold's.
-                if not (sc.grabWith == 'trigger'
+                if offerGrip or not (sc.grabWith == 'trigger'
                         and ((GetVRSharedSlot(free == 0 and 154 or 160) or 0.0) <= (sc.touchAt or 0.08))) then
-                    fadeIn(free, best)                               -- the preview: fingers curl in over blendTime
+                    if bestStyle == 'pinky' then fadeOut() else fadeIn(free, best) end
                     magS.slideHasPose = true
                     -- gripTarget's point in locals: a call that is not the last argument gives only its first
                     -- value, which shifted the hand's point into the grip's and threw before the squeeze below
@@ -2793,14 +2901,22 @@ function M.frame(weapon, slotComp, holder, dt)
                 -- straight on to the slide the instant the magazine was done, with the grip
                 -- still held. Now it is one lock for both parts, cleared by letting go.
                 -- (a part worked by the TRIGGER -- `grabWith` -- is not the grip's, so the grip's lock does not bind it)
-                if M.squeeze(sc.grabWith, free) and (sc.grabWith == 'trigger' or not magS.gripLock) then
+                if input then
                     -- GRAB, latching the hand (see the grabbed branch for why)
                     slideS.grabbed, slideS.releasing = true, false
-                    slideS.hand = free
+                    slideS.hand, slideS.input = free, input
                     slideS.grip = best
+                    if bestStyle == 'pinky' then
+                        -- Keep the player's approach on this grab. Pin their current
+                        -- wrist offset to the moving lever and leave wrist rotation tracked.
+                        local x, y, z = hx - spx, hy - spy, hz - spz
+                        slideS.grip = { off = { x*gFx + y*gFy + z*gFz,
+                                                x*gDx + y*gDy + z*gDz,
+                                                x*gSx + y*gSy + z*gSz } }
+                    end
                     slideS.hrx, slideS.hry, slideS.hrz = hx, hy, hz  -- rack reference
                     -- ...and spend it, so the magazine cannot have it (a trigger has no grip to spend)
-                    if sc.grabWith ~= 'trigger' then magS.gripLock = true end
+                    if input ~= 'trigger' then magS.gripLock = true end
                     slideS.drain = 0.0                               -- a hand on it outranks a drain in progress
                     -- START FROM WHERE THE SLIDE IS. On the catch that is 40 mm back, not zero: writing zero here
                     -- is what snapped it shut the moment the grip closed.
@@ -3663,7 +3779,8 @@ function M.frame(weapon, slotComp, holder, dt)
             magS.snapDpre = snapD
             if magS.state == 'in' and mc.pullTrigger then
                 magS.ltNear = snapD >= 0 and snapD <= snapR
-                if not M.squeeze('trigger', free) then snapD = -1 end
+                local nearerHandle = magS.slideHasPose and (slideS.dist or -1) >= 0 and slideS.dist < snapD
+                if not M.seatedMagazineInput(free, magS.ltNear and not nearerHandle, grip) then snapD = -1 end
             else
                 magS.ltNear = false
             end
@@ -4304,9 +4421,15 @@ function M.frame(weapon, slotComp, holder, dt)
             -- trigger (the rifles) a grip closed mid-rack would otherwise pull the magazine beside the handle
             if magS.state == 'in' and slideS.grabbed and slideS.hand == free then catchW = 0.0 end
             local takeAnywhere = false
-            if magS.state == 'gone' then
+            if magS.state == 'gone' and wornGearHidden() then
+                catchW, magS.fromBelt, magS.insD = 0, false, -1
+            elseif magS.state == 'gone' then
                 local beltD = beltMagDist(free)
-                local atBody = bodyMagReach(free)
+                -- With a visible CyberFinger Nekomata pouch its highlight and its
+                -- catch use the same distance. Keep the belt-less fallback.
+                local pouchPickup = mc.cyberFingerPouch and beltD ~= nil
+                    and type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+                local atBody = not pouchPickup and bodyMagReach(free)
                 local gx, gy, gz = magFromRaw(free)
                 local goneD = gx and len3(gx - wx, gy - wy, gz - wz) or -1
                 if beltD ~= nil then goneD = beltD end

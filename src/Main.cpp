@@ -28,6 +28,7 @@
 
 #include <windows.h>
 #include "Core/Paths.hpp"
+#include "Anim/FaceTracking.hpp"
 #include "Core/InputConfig.hpp"
 #include "Core/TweakRecords.hpp"
 #include "Core/ArchiveExtensions.hpp"
@@ -46,13 +47,16 @@
 #include "Hooks/RenderDocBridge.hpp"
 #include "Runtimes/OpenXRManager.hpp"
 #include "Overlay/ImGuiOverlay.hpp"
+#include "Overlay/LauncherDialog.hpp"
 #include "Natives/VendorRoute.hpp"
+#include "Natives/HudPanelLifetime.hpp"
 #include "Hooks/PromptButtons.hpp"
 
 extern void Log(const char* fmt, ...);
 
 // Runtime paths (log file, vrport.ini, CET mod folders). Was called from DllMain.
 extern void InitRuntimePaths();
+extern bool ChooseDesktopForThisLaunch();
 // One-shot on a fresh install: copy the shipped UserSettings.json over the game's own. Reads and
 // sets first_launch in vrport.ini, so it happens exactly once and never touches a player's tuning
 // afterwards. As early as we get -- the game may still have read its settings first, in which case
@@ -167,6 +171,12 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
         sdk->gameStates->Add(handle,RED4ext::EGameStateType::Initialization,&signatures);
         RED4ext::v1::GameState signaturesLate{&cvr::natives::CompleteSignatures,nullptr,nullptr};
         sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&signaturesLate);
+        const bool supported = cvr::game_build::Supported();
+        if (supported && ChooseDesktopForThisLaunch()) {
+            g_disabled = true;
+            Log("[launcher] Desktop selected for this launch. Skipping VR scripts, game settings, input and rendering.\n");
+            break;
+        }
         // The port's spawn system joins the game's systems once there is a game instance (Natives/SpawnSystem.cpp).
         RED4ext::v1::GameState spawnSystem{&cvr::spawn::AddToGame,nullptr,nullptr};
         sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&spawnSystem);
@@ -176,7 +186,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
         Log("[vendor-route] main-thread watchdog registered=%d\n",vendorWatchdogReady);
         // THE BUILD GATE, after the natives (the scripts declaring them must still load) and before
         // anything that touches an engine address. See Core/GameBuild.hpp.
-        if (!cvr::game_build::Supported()) {
+        if (!supported) {
             g_disabled = true;
             Log("[build] game %s, port made for %s: NOT the same build -- VR off, nothing installed.\n",
                 cvr::game_build::Running(), cvr::game_build::Expected());
@@ -191,6 +201,15 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
                 cvr::game_build::Running(), cvr::game_build::Expected());
         else
             Log("[build] game %s matches the port's build.\n", cvr::game_build::Running());
+        // HUD widget destructors use the game engine. Plugin Unload / CRT detach
+        // is too late: Alt-F4 can already have destroyed that engine by then.
+        RED4ext::v1::GameState hudRunning{nullptr,nullptr,&cvr::hud::ReleaseNativeWidgets};
+        RED4ext::v1::GameState hudShutdown{&cvr::hud::ReleaseNativeWidgets,nullptr,nullptr};
+        const bool hudRunningReady=sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&hudRunning);
+        const bool hudShutdownReady=sdk->gameStates->Add(handle,RED4ext::EGameStateType::Shutdown,&hudShutdown);
+        cvr::hud::NativeWidgetShutdownRegistered(hudRunningReady || hudShutdownReady);
+        Log("[hud-panel] early widget cleanup registered: running-exit=%d shutdown-enter=%d\n",
+            hudRunningReady,hudShutdownReady);
         // The port's input bindings, before the engine reads its input configuration (Core/InputConfig.hpp).
         cvr::input_config::Apply();
         // The port's TweakDB records, applied as the engine loads its TweakDB (Core/TweakRecords.hpp).
@@ -211,6 +230,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
         Log("[prompt-icon] main-thread refresh registered=%d\n",
             sdk->gameStates->Add(handle,RED4ext::EGameStateType::Running,&promptIcons));
         ApplyFirstLaunchGameSettings();
+        ApplyLauncherSelection();
         ApplyLaunchWindowMode();
         // Must run before the game's D3D12CreateDevice: this is what captures the device and
         // queue, and what patches the descriptor-heap size the second view needs.
@@ -227,6 +247,7 @@ RED4EXT_C_EXPORT bool RED4EXT_CALL Main(RED4ext::v1::PluginHandle handle, RED4ex
     }
     case RED4ext::v1::EMainReason::Unload:
         if (g_disabled) break;
+        cvr::face::Shutdown();
         cvr::vendor_route::Reset(nullptr);
         CyberpunkVR_CloseOwnedExecution();
         // RED4ext unloads the plugin BEFORE the process finishes tearing down the graphics runtime,

@@ -11,6 +11,7 @@ bool WheelArmed(uint64_t now);
 void PublishWheelHold(bool pending, bool held);
 // Rendered index tip, including the last phalanx; false when tracking/rig is unavailable.
 bool FingerWorld(int side, float* world);
+bool RayWorld(int side,float* origin,float* direction);
 // Refreshed by the wait transition; expires if its Lua owner stops updating.
 float BlinkClosure();
 }

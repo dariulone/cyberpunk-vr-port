@@ -40,13 +40,19 @@ bool DrawOverlayPage(LiveControlsUiState& state){
     changed|=widgets::SliderFloat("Maximum distance",&v.maxDistance,v.minDistance+.1f,5,"%.2f m");
     changed|=widgets::SliderFloat("Panel size",&v.scale,.6f,1.5f,"%.2fx");
     changed|=widgets::SliderFloat("Text size",&v.fontScale,.8f,1.4f,"%.2fx");
-    changed|=widgets::Combo("Pointer hand",&v.hand,"Left\0Right\0Automatic\0");
-    changed|=UI::Checkbox("Free look",&v.follow);
-    changed|=widgets::SliderFloat("Free-look cone",&v.cone,5,90,"%.0f deg");
-    changed|=widgets::SliderFloat("Distance speed",&v.depthSpeed,.1f,2,"%.2f m/s");
+    const bool cyberfinger=GetView().cyberfinger;
+    if(cyberfinger){
+        UI::TextUnformatted("CyberFinger pointer: weapon hand preferred; either trigger selects.");
+        UI::TextWrapped("Panels stay in place when you look or lean around them. Panel size also fits native menus and mod windows; reopen those panels to apply a new distance.");
+    }else{
+        changed|=widgets::Combo("Pointer hand",&v.hand,"Left\0Right\0Automatic\0");
+        changed|=UI::Checkbox("Free look",&v.follow);
+        changed|=widgets::SliderFloat("Free-look cone",&v.cone,5,90,"%.0f deg");
+        changed|=widgets::SliderFloat("Distance speed",&v.depthSpeed,.1f,2,"%.2f m/s");
+    }
     if(button("CENTER PANEL",{260,60})){Recenter();v=GetSettings();changed=true;}
     UI::SameLine();if(button("RESET",{200,60})){v={};SetSettings(v);Recenter();changed=true;}
-    UI::TextWrapped("Catch up after 3 seconds at rest when the offset is over 10 degrees inside the cone.");
+    if(!cyberfinger)UI::TextWrapped("Catch up after 3 seconds at rest when the offset is over 10 degrees inside the cone.");
     widgets::Section("FPS OVERLAY");
     changed|=DrawFpsOverlayControls(state);
     return changed;
@@ -73,6 +79,7 @@ void ApplyVrStyle(){
 bool DrawVrShell(LiveControlsUiState& state,bool& foveatedEditing){
     using namespace cvr::vrui;
     static int selected=6;
+    selected=(selected+ConsumeTabStep()+7)%7;
     const char* tabs[]={"GENERAL","FRAMEGEN","HUD","CONTROLS","STEREO","AVATAR","OVERLAY"};
     ImGui::SetNextWindowPos({0,0});ImGui::SetNextWindowSize({CanvasWidth,CanvasHeight});
     ImGui::Begin("##VR controls",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoSavedSettings);
@@ -117,8 +124,19 @@ bool DrawVrShell(LiveControlsUiState& state,bool& foveatedEditing){
     if(selected==6)changed=DrawOverlayPage(state);
     else changed=DrawLiveControls(state,selected,&foveatedEditing);
     ImGui::PopItemWidth();ImGui::EndChild();ImGui::EndChild();ImGui::Separator();
-    ImGui::TextColored(Cyan,"TRIGGER  Select     STICK  Scroll     GRIP  Drag     GRIP + STICK  Distance");
-    ImGui::TextDisabled("F10 / INSERT  Toggle     ESC  Close     L3 + R3  Hold 0.5 sec  VR menu");
+    if(GetView().cyberfinger)
+        ImGui::TextColored(Cyan,"TRIGGER  Select    MENU  Back / Cancel    GRIP  Context / Move title    STICKS  Navigate");
+    else ImGui::TextColored(Cyan,"TRIGGER  Select     STICK  Scroll     GRIP  Drag     GRIP + STICK  Distance");
+    ImGui::TextDisabled(GetView().cyberfinger?"RIGHT PINK  VR menu    BOTH MENU  Hold 0.5 sec  HUD    F10  Settings":
+        "F10 / INSERT  Toggle     ESC  Close     L3 + R3  Hold 0.5 sec  VR menu");
+    if(GetView().cyberfinger && ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && !GetView().dragging)
+        ImGui::OpenPopup("Panel options");
+    if(ImGui::BeginPopup("Panel options")) {
+        if(ImGui::MenuItem("Recenter panel"))Recenter();
+        if(ImGui::MenuItem("Close settings"))Close();
+        ImGui::EndPopup();
+    }
     ImGui::End();
     auto* draw=ImGui::GetForegroundDrawList();
     draw->AddRectFilled({0,0},{4,4},IM_COL32(76,224,240,255));

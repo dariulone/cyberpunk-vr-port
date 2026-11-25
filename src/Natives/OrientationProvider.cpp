@@ -820,6 +820,8 @@ extern "C" __declspec(dllexport) float CyberpunkVR_WeaponKickDeg;
 // This is per-DRAW identity, not per-frame data, so it does not touch the rule that the pose path takes
 // nothing from CET: the pose path reads a string that was fixed the moment the weapon came out.
 extern "C" __declspec(dllexport) char CyberpunkVR_WeaponName[64] = {0};
+std::atomic<bool> g_nekomataFamily{false};
+std::atomic<bool> g_katanaFamily{false};
 
 // The console instrumentation that found the hitscan path -- the targeting-system lookup, the
 // call counters, the argument spy, and the look-at / ray-query / aim-point levers -- lived here.
@@ -842,6 +844,8 @@ void SetVRWeaponName(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*,
         }
     }
     CyberpunkVR_WeaponName[j] = '\0';
+    g_nekomataFamily.store(strcmp(CyberpunkVR_WeaponName, "nekomata") == 0, std::memory_order_relaxed);
+    g_katanaFamily.store(strcmp(CyberpunkVR_WeaponName, "katana") == 0, std::memory_order_relaxed);
 }
 
 void SetVRWeaponKick(RED4ext::IScriptable*, RED4ext::CStackFrame* aFrame, void*, int64_t) {

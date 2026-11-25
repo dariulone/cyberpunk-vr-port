@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.24)
+project(ModUiTests LANGUAGES C CXX)
+enable_testing()
+set(OPENXR_INCLUDE_DIR "" CACHE PATH "OpenXR include directory")
+set(IMGUI_SOURCE_DIR "" CACHE PATH "Owning renderer's ImGui sources")
+add_executable(mod_ui_input main.cpp ../../src/Overlay/VrOverlay.cpp
+    ../vr_overlay_tests/input_host.cpp
+    ${IMGUI_SOURCE_DIR}/imgui.cpp ${IMGUI_SOURCE_DIR}/imgui_draw.cpp
+    ${IMGUI_SOURCE_DIR}/imgui_widgets.cpp ${IMGUI_SOURCE_DIR}/imgui_tables.cpp)
+target_include_directories(mod_ui_input PRIVATE ../../include ../../include/Overlay ../../integrations/cet ${OPENXR_INCLUDE_DIR} ${IMGUI_SOURCE_DIR})
+target_compile_features(mod_ui_input PRIVATE cxx_std_20)
+target_compile_definitions(mod_ui_input PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+foreach(case pointer anchor grab scroll tabs release capture imgui mouse cet_lifetime abi)
+    add_test(NAME mod_ui_${case} COMMAND mod_ui_input ${case})
+endforeach()
+add_library(mod_ui_c_abi OBJECT api.c)
+target_compile_features(mod_ui_c_abi PRIVATE c_std_11)
+target_include_directories(mod_ui_c_abi PRIVATE ../../include)
+add_library(cet_vr_adapter OBJECT cet.cpp)
+target_include_directories(cet_vr_adapter PRIVATE ../../include/Overlay ../../integrations/cet ${IMGUI_SOURCE_DIR})
+target_compile_features(cet_vr_adapter PRIVATE cxx_std_20)
+target_compile_definitions(cet_vr_adapter PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

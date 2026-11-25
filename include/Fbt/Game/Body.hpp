@@ -20,12 +20,19 @@ namespace cvr::fbt::game {
 // calibration has run in this session.
 bool LegsEnabled();
 void SetLegsEnabled(bool on);
+bool StickStepsEnabled();
+void SetStickStepsEnabled(bool on);
+// The routed VR locomotion stick, after menu capture, deadzone and movement tiers.
+void NoteLocomotionStick(bool moving);
 // "* V's spine and head follow the headset" (fbt_settings.ini, spine=0/1), off by default; acts with the legs on.
 bool SpineEnabled();
 void SetSpineEnabled(bool on);
 // "* V's arms follow the controllers" (fbt_settings.ini, arms=0/1), off by default; acts with the legs and spine on.
 bool ArmsEnabled();
 void SetArmsEnabled(bool on);
+// Optional anatomical joint positions from SlimeVR (chest, knees, elbows).
+bool SlimeJointsEnabled();
+void SetSlimeJointsEnabled(bool on);
 
 // THE ARMS (arms v2, the lab's: the elbow from the hand's position, the hand's rotation onto the wrist, V's arms
 // scaled to the calibrated length, the clavicle protracting): in place of the port's VRIK_SolveArm, on the port's

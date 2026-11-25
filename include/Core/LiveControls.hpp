@@ -1,5 +1,6 @@
 #pragma once
 #include "Render/SharpenPolicy.hpp"
+#include "Runtimes/CyberFingerHolsterTypes.hpp"
 
 // ================================================================================================
 // The live settings block -- vrport.ini, re-read whenever the file's timestamp changes.
@@ -155,6 +156,11 @@ struct LiveControls {
     volatile float xrCarryLead = 0.03f;       // s a carried thing is put ahead of the hand
     volatile float xrContactMargin = 0.01f;   // m kept from a surface, because the collision is smaller than the mesh
     volatile int xrWheelAnywhere = 1;
+    volatile int xrCyberFingerGunGestureHolstering = 0;
+    volatile int xrCyberFingerRightHandSwords = 1;
+    volatile int xrCyberFingerAutoFistFight = 1;
+    volatile int xrCyberFingerMeleeGestureHolstering = 1;
+    volatile int xrCyberFingerHolsterTypes = cvr::cyberfinger::holsters::defaults;
 };
 
 extern LiveControls g_liveControls;

@@ -1011,7 +1011,7 @@ local function bFrame(H, sc, weapon, slotComp, holder, dt)
     for k = 1, #B.ch do if B.ch[k].st ~= 'live' then need = need + 1 end end
     local Wr = wristRaw(free, B.Wr); B.Wr = Wr
     local Rel = wristToSlot(free, B.Rel); B.Rel = Rel
-    if not B.held and (B.act == 'open' or B.act == 'opening') and need > 0 and gripEdge and Wr then
+    if not B.held and (B.act == 'open' or B.act == 'opening') and need > 0 and gripEdge and Wr and not H.wornGearHidden() then
         local bd = H.beltMagDist(free)
         local ok = false
         if bd ~= nil then ok = bd <= H.beltMagRadius()
@@ -1304,6 +1304,7 @@ local function pResetAll(H, sc, weapon)
     if sc and P.wrote then pRelease(H, sc) end
     if sc and P.shell then pDropShell(H, sc, false) end
     P.s, P.engaged, P.back, P.gate, P.gateT = 0.0, false, false, 0.0, nil
+    P.openAtPump, P.pumpGripHand = nil, nil
     P.magnet = nil
     local am = weapon and H.magAmmo(weapon) or 0
     P.chambered, P.spentIn = am > 0, false
@@ -1410,6 +1411,8 @@ end
 
 local function pFrame(H, sc, weapon, slotComp, holder, dt)
     local free = (holder == 1) and 0 or 1
+    local wasOpenAtPump = P.openAtPump
+    P.openAtPump = nil
     P.weapon = weapon
     -- THE CYCLE'S HULL. After every shot the game plays the pump's own `cycle_round` (1.83 s), and on the magazine
     -- rig it shows the reload shell -- track `showMagazineReload` -- and throws it out of the port about 0.8 s after
@@ -1429,7 +1432,13 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
     local snd = sc.sounds or {}
     local PW = playerWorld(P.PW); P.PW = PW
     local WW = weaponWorld(weapon, P.WW); P.WW = WW
-    if not (PW and WW) then return 'sg:noframe' end
+    if not (PW and WW) then
+        if P.pumpGripHand ~= nil then
+            P.engaged, P.pumpGripHand = false, nil
+            unpin()
+        end
+        return 'sg:noframe'
+    end
     local Wm = toModel(PW, WW, P.Wm); P.Wm = Wm
     if P.wpos and dt > 1e-4 then
         local a = 0.4
@@ -1457,16 +1466,15 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
     P.ammoLast = am
     local cap = H.magCapacity(weapon) or 0
 
-    -- THE FORE-END, worked by GRIP + TRIGGER of the hand on it and by nothing else: a hand that merely holds the gun
-    -- under the two-hand grip never racks it by accident (the pump moves only with grip +
-    -- trigger held). The stroke is the hand's travel along the barrel MEASURED AGAINST THE GUN, so carrying the
+    -- The original input is Grip + Trigger. CyberFinger also accepts a new grasp
+    -- on the highlighted pump. The stroke is measured against the gun, so carrying the
     -- whole gun -- pulling it in, the recoil -- moves nothing. While the two-hand hold is closed the hand stays the
     -- hold's (its fingers, its weld, the aim it steers) and the hold's support point rides the fore-end
     -- (H.twoHandSlide); with the hand free the module pins it to the fore-end itself.
     local grip = H.gripOf(free)
     local gripEdge = grip and not P.gripPrev
     P.gripPrev = grip
-    local work = grip and H.trigOf(free)
+    local chord = grip and H.trigOf(free)
     local twoH = H.twoHand()
     local Wr = wristRaw(free, P.Wr); P.Wr = Wr
     local Rel = wristToSlot(free, P.Rel); P.Rel = Rel
@@ -1489,21 +1497,39 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
     local Wa = Wr
     if twoH and sup then Wa = H.twoHandCtrl(P.Wc) or Wr; P.Wc = Wa end
     local along = Wa and ((Wa[1] - Wm[1]) * bx + (Wa[2] - Wm[2]) * by + (Wa[3] - Wm[3]) * bz) or 0.0
-    local onFore = (twoH and sup) or dHand <= (pc.grabRadius or 0.10)
+    local cf = type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+    local needsCycle = P.spentIn or (not P.chambered and am > 0)
+    local nearPump = dHand <= (pc.grabRadius or 0.10)
+    local pinky = false
+    if cf and Wr and not P.engaged and not P.shell and (needsCycle or P.s > 0) then
+        local px, py, pz = H.pinkyPoint(free)
+        if px then
+            local x, y, z = qrot(Wm[4], Wm[5], Wm[6], Wm[7], rx, ry, rz)
+            local d = len3(px - (Wm[1] + x + bx*P.s), py - (Wm[2] + y + by*P.s), pz - (Wm[3] + z + bz*P.s))
+            pinky = d <= 0.032 and d < dHand
+        end
+    end
+    local onFore = (twoH and sup) or nearPump or pinky
     -- THE SAME SQUEEZE MUST NOT AIM: the left trigger is the game's aim, and grip + trigger on the fore-end is the
     -- rack. Held off the game for as long as the gripping hand is on the fore-end.
     H.ltBlock(free == H.aimHand() and grip and onFore and not P.shell)
-    -- THE REACH MARKER on the fore-end while a rack is owed (a fired hull in the chamber, or nothing chambered with
-    -- rounds in the tube) and the hand is on it or in reach of it
-    if not P.engaged and onFore and not P.shell and Wr and (P.spentIn or (not P.chambered and am > 0)) then
+    local grasp = false
+    if not P.engaged and onFore and not P.shell and Wr and (needsCycle or (cf and P.s > 0)) then
         H.reachMark(free, T0[1], T0[2], T0[3], Wr[1], Wr[2], Wr[3])
+        if cf and (nearPump or pinky) then
+            if not grip then P.openAtPump = free end
+            grasp = grip and wasOpenAtPump == free
+        end
     end
     if not P.engaged then
-        if work and onFore and not P.shell and Wr then
+        if (chord or grasp) and onFore and not P.shell and Wr then
             P.engaged, P.along0, P.s0, P.viaHold = true, along, P.s, twoH
+            P.pumpGripHand = grasp and not chord and free or nil
+            P.pinkyGrip = P.pumpGripHand ~= nil and pinky
         end
-    elseif not work or (P.viaHold and not twoH) then
-        P.engaged = false
+    elseif (P.pumpGripHand ~= nil and not (cf and grip and Wr and P.pumpGripHand == free))
+        or (P.pumpGripHand == nil and not chord) or (P.viaHold and not twoH) then
+        P.engaged, P.pumpGripHand = false, nil
         unpin()
         if finS.key == pc.pose then finOff() end
     end
@@ -1529,8 +1555,11 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
             -- AND HOME: the next round off the tube goes into the chamber
             if not P.chambered and P.ammoLast > 0 then P.chambered = true end
             H.playSnd(weapon, snd.pumpClose)
+            if P.pumpGripHand ~= nil then
+                P.engaged, P.pumpGripHand, P.s = false, nil, 0.0
+            end
         end
-        if not P.viaHold then
+        if not P.viaHold and not P.pinkyGrip then
             local T = gripAt(s, P.Tg); P.Tg = T
             local w = spring(dt)
             S.owned = pin(free, w, Wr, T)
@@ -1548,7 +1577,7 @@ local function pFrame(H, sc, weapon, slotComp, holder, dt)
     -- SHELLS: off the row on the belt (or out of nowhere without one), into the tube through the loading port -- or,
     -- with the action open and nothing chambered, straight into the chamber. One at a time, or a handful
     -- (`multi`, see above) as many as the tube still takes.
-    if not P.shell and not P.engaged and gripEdge and Wr then
+    if not P.shell and not P.engaged and gripEdge and Wr and not H.wornGearHidden() then
         local bd = H.beltShellDist(free)
         local ok
         if bd ~= nil then ok = bd <= H.beltShellRadius()

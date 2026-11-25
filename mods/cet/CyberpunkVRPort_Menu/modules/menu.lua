@@ -5,6 +5,7 @@ local K = require("modules/ink")
 local D = require("modules/data")
 local V = require("modules/scroll")
 local Stick = require("modules/stick_scroll")
+local CFNav = require("modules/cyberfinger_nav")
 local Hud = require("modules/hud_fade")
 local Set = require("modules/settings")
 local Msg = require("modules/messages")
@@ -1387,6 +1388,7 @@ function build.tabs()
       bg:SetTintColor(K.color((h or selected) and K.YELLOW or K.NAVY));bg:SetOpacity(h and .18 or .12)
       label:SetTintColor(K.color((h or selected) and K.YELLOW or K.TEXT))
     end);b.key="tab:"..t[1]
+    b.cfTab=true;b.cfSelected=function() return S.section==t[1] or (t.shards and S.section=="shards") end
   end
 end
 
@@ -1418,6 +1420,7 @@ function build.panels(anim1, anim2)
   clearButtons("tabs")
   clearButtons("sort")
   S.modalGroup=nil
+  S.cfBack=nil
   dropAnims("p1")
   dropAnims("p2")
   dropGestures()
@@ -1543,6 +1546,7 @@ function M.open(cam,initialSection)
   end
   S.anchor = anchorFor(cam)
   S.open, S.section, S.items, S.vehicle, S.toast, S.closeAt = true, initialSection, nil, nil, nil, nil
+  S.cfNav=nil
   local column=initialSection and 0 or COL_HOME
   S.columnOffset, S.columnTarget, S.columnMove = column, column, nil
   S.panelStart, S.panelInteractiveAt, S.openAnimAt = S.time, S.time, nil
@@ -1817,6 +1821,13 @@ local function busyWith(P, by)
   return P.dragBy == by or (P.pend ~= nil and P.pend.by == by) or (P.scroll ~= nil and P.scroll.by == by)
 end
 
+local function cancelCFPointers()
+  for hand=1,2 do
+    local P=S.hands[hand];Stick.cancel(P);finish(P,hand,"finger",true);finish(P,hand,"trigger",true)
+    P.cfTriggerArmed=false;P.trig=false;P.stickDown=false;P.state="idle";P.lastD=nil
+  end
+end
+
 local function pointers(cam, C, R, U)
   if type(VRMenuPointer) ~= "function" then return end
   local out = nil
@@ -1825,6 +1836,7 @@ local function pointers(cam, C, R, U)
       Vector4.new(U[1], U[2], U[3], 0), Vector4.new(W, H, 0, 0))
   end)
   if out == nil or #out < 8 then
+    S.cfNav=nil
     for hand = 1, 2 do
       local P=S.hands[hand]
       Stick.cancel(P);finish(P,hand,"finger",true);finish(P,hand,"trigger",true)
@@ -1835,12 +1847,47 @@ local function pointers(cam, C, R, U)
     return
   end
   local hover = {}
+  local cf=#out>=11 and out[11].x>.5
+  local cfFocus
+  if cf then
+    if not S.cfNav then
+      S.cfNav=CFNav.new()
+      for hand=1,2 do
+        local P=S.hands[hand];Stick.cancel(P);finish(P,hand,"finger",true);finish(P,hand,"trigger",true)
+        P.cfTriggerArmed=false;P.trig=false;P.stickDown=false
+      end
+    end
+    local nav=CFNav.update(S.cfNav,out,S.time,S.buttons,buttonAt,CW,CH)
+    if nav.back then
+      cancelCFPointers()
+      if S.cfBack then S.cfBack()
+      elseif S.section then openSection(nil,true)
+      else M.close() end
+      return
+    end
+    if nav.secondary then
+      cancelCFPointers()
+      -- Context callbacks open existing options; never substitute an arbitrary
+      -- primary click (which could equip, buy, drop or confirm an item).
+      if nav.context and type(nav.context.context)=="function" then
+        haptic(nav.secondary,HAPTIC_CLICK)
+        invokeClick({click=nav.context.context})
+      end
+      return
+    end
+    if nav.tab~=0 then
+      local b=CFNav.tab(S.buttons,nav.tab)
+      if b then invokeClick(b);return end
+    end
+    cfFocus=nav.button
+  else S.cfNav=nil end
   -- The native XInput bridge publishes the physical R3 button before the game consumes it.
-  local rightStick=type(GetVRSharedSlot)=="function" and GetVRSharedSlot(159) or 0
+  local rightStick=not cf and type(GetVRSharedSlot)=="function" and GetVRSharedSlot(159) or 0
   for hand = 1, 2 do
     local P = S.hands[hand]
     local base = (hand - 1) * 4
     local tip, ray, origin, hit = out[base + 1], out[base + 2], out[base + 3], out[base + 4]
+    local secondaryHeld=cf and (hand==1 and out[10].x or out[10].y)>.5
     local poking, cursor = false, false
     P.pokeButton = nil
     local tipX, tipY = nil, nil
@@ -1864,7 +1911,9 @@ local function pointers(cam, C, R, U)
 
     -- the fingertip: it presses what it pushes into from the front, and what it pressed follows it
     -- along the screen until it comes back out
-    if tip.w > 0.5 then
+    -- Direct fingertip touches remain available on CF. A trigger press or
+    -- directional focus takes ownership so it cannot also become a touch click.
+    if tip.w > 0.5 and (not cf or (not secondaryHeld and origin.w<TRIGGER_OFF and not P.trig and not cfFocus)) then
       local d = tip.z
       local inside = tip.x >= 0 and tip.x <= 1 and tip.y >= 0 and tip.y <= 1
       local x, y = tip.x * CW, tip.y * CH
@@ -1905,6 +1954,7 @@ local function pointers(cam, C, R, U)
 
     -- the pointer, while the finger is not touching
     local trigger = origin.w
+    if cf and trigger<TRIGGER_OFF and not secondaryHeld then P.cfTriggerArmed=true end
     local rayInside = not poking and not busyWith(P, "finger") and ray.w > 0.5
       and ray.x >= 0 and ray.x <= 1 and ray.y >= 0 and ray.y <= 1
     local rb, rayX, rayY = nil, nil, nil
@@ -1912,13 +1962,14 @@ local function pointers(cam, C, R, U)
       rayX, rayY = ray.x * CW, ray.y * CH
       rb = buttonAt(rayX, rayY)
     end
+    if cfFocus then rb=cfFocus;rayX,rayY=CFNav.centre(cfFocus) end
     local rayOn = rb ~= nil
     if rayOn then
       hover[rb] = true
       setCursor(hand, rayX, rayY, (P.trig or P.stickScroll) and 16 or 22, K.YELLOW, 1.0)
       cursor = true
     end
-    if not stickHeld and trigger > TRIGGER_ON and not P.trig then
+    if not stickHeld and not secondaryHeld and (not cf or P.cfTriggerArmed) and trigger > TRIGGER_ON and not P.trig then
       P.trig = true
       -- the trigger presses what the pointer is on, or what the finger hovers when it is that close
       if rayOn then
@@ -1938,7 +1989,15 @@ local function pointers(cam, C, R, U)
     if P.drag ~= nil then hover[P.drag] = true end
 
     if not cursor then setCursor(hand, 0, 0, 40, K.CYAN, 0.0) end
-    beam(hand, rayOn, { origin.x, origin.y, origin.z }, { hit.x, hit.y, hit.z }, ray.z, cam)
+    -- CF beams describe the hand ray, independently of button hover. A miss
+    -- has a finite native endpoint too; invalid tracking produces no length.
+    local beamLength=ray.z
+    if cf and beamLength<=0 then
+      local dx,dy,dz=hit.x-origin.x,hit.y-origin.y,hit.z-origin.z
+      beamLength=math.sqrt(dx*dx+dy*dy+dz*dz)
+    end
+    local beamOn=cf and beamLength>0.01 or rayOn and not cfFocus
+    beam(hand, beamOn, { origin.x, origin.y, origin.z }, { hit.x, hit.y, hit.z }, math.min(beamLength,6), cam)
     S.stats[hand] = { tip = { tip.x, tip.y, tip.z, tip.w }, ray = { ray.x, ray.y, ray.z, ray.w }, trigger = trigger, stick = stick,
                       cursor = cursor, beam = rayOn, hover = (P.pokeButton or rb) and (P.pokeButton or rb).key,
                       state = P.state, drag = P.dragBy, pend = P.pend ~= nil, scroll = P.scroll ~= nil or P.stickScroll ~= nil,

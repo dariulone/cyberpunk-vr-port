@@ -41,6 +41,11 @@ public:
     // The window copy the screen is drawn from holds a picture of this screen, taken this frame. The screen is shown
     // from the first one on, fading in.
     void Hold();
+    bool Clear(ID3D12Device* device, ID3D12GraphicsCommandList* list, ID3D12Resource* target,
+               DXGI_FORMAT format, const D3D12_RECT& rect) {
+        const float black[] = {0, 0, 0, 1};
+        return quads_.Fill(device, list, {target, format, rect}, black);
+    }
     bool Held() const { return held_; }
     // One eye's image -- `target`, a render target now, written through `view` -- made the dark with the screen in it
     // (once it holds a picture) as seen from `pose` with `fov`. `window` is the game's window as drawn this frame, a

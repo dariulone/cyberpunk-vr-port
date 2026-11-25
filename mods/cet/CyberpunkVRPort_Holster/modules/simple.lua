@@ -25,6 +25,7 @@ local PROX_R           = 0.25
 local PROX_L           = 0.40
 local PROX_BACK        = 0.25   -- was 0.35: the over-shoulder anchor also caught a raised
                                 -- weapon-ready wrist at the waist/chest -> zone B misfires
+local CF_STOW_REACH = 0.12      -- wrist distance to the chosen holster anchor, metres
 local BACK_MARGIN      = 0.03   -- B must beat the right-hip distance by a clear margin
 local EQUIP_COOLDOWN_S = 0.6
 
@@ -88,11 +89,15 @@ function M.init()
     for _, s in ipairs(RIGHT_SLOTS) do SlotIDs[s] = TweakDBID.new(s) end
 end
 
-function M.update(dt)
+function M.update(dt, gearHidden)
     dt = dt or 0.016
     cooldown = math.max(0.0, cooldown - dt)
 
     if type(GetVRSharedSlot) ~= 'function' then return end
+    if gearHidden then
+        rightGripPrev = GetVRSharedSlot(drawLeft() and 155 or 49) > 0.5 and 1 or 0
+        return
+    end
     local pl = Game.GetPlayer()
     if not pl then return end
 
@@ -168,6 +173,16 @@ function M.update(dt)
     -- exactly the "it equips again instead of putting away" the katana shows.
     local rightItem = TransactionSystem:GetItemInSlot(pl, left and WeaponLeftSlot or WeaponRightSlot)
     local hasWeapon = rightItem ~= nil
+    local cyberFinger = type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+    local isMelee = false
+    if hasWeapon then
+        if cyberFinger and type(rightItem.IsMelee) == "function" then
+            isMelee = rightItem:IsMelee()
+        else
+            isMelee = classify(TDBID.ToStringDEBUG(rightItem:GetItemID():GetTDBID())) == "melee"
+        end
+        if type(VRAllowsGestureHolstering) == "function" and not VRAllowsGestureHolstering(isMelee) then return end
+    end
 
     -- shared[23]: 0/unset = immersive (classify by visual holster), 1 = simple slot mapping.
     -- (Inverted on the plugin side so the zero-initialised shared block defaults to immersive.)
@@ -182,8 +197,17 @@ function M.update(dt)
         -- is not worth that: put away first, then draw from the zone you want.
         spdlog.info(string.format("[Holster] simple grip zone=%s dR=%.2f dL=%.2f dB=%.2f hasWpn=%s",
             tostring(zone), dR, dL, dB, tostring(hasWeapon)))
+        if hasWeapon and cyberFinger then
+            local distance = zone == 'B' and dB or (zone == 'L' and dL or dR)
+            if distance > CF_STOW_REACH then return end
+            -- The drawing hand can close while the other hand is working a
+            -- magazine or the rack. That same squeeze must not also stow the gun.
+            local mod = GetMod('CyberpunkVRPort_Reload')
+            local reload = mod and mod.reload and mod.reload()
+            local support = left and 1 or 0
+            if reload and (reload.ownedHand == support or reload.rackReachHand == support) then return end
+        end
         if hasWeapon then
-            local isMelee = (classify(TDBID.ToStringDEBUG(rightItem:GetItemID():GetTDBID())) == "melee")
             if isMelee then pl:VRHolsterMelee() else pl:VRUnequipWeapon() end
             lastZone = nil
             spdlog.info("[Holster] simple -> HOLSTER")
@@ -223,7 +247,6 @@ function M.update(dt)
         -- Melee uses VRHolsterMelee: it suppresses the VR swing (so reaching to the holster doesn't fire
         -- an attack that blocks the unequip) and then sends the same UnequipWeapon the keyboard B does.
         -- Ranged never swings, so the plain UnequipWeapon already works for it.
-        local isMelee = (classify(TDBID.ToStringDEBUG(rightItem:GetItemID():GetTDBID())) == "melee")
         if isMelee then pl:VRHolsterMelee() else pl:VRUnequipWeapon() end
         lastZone = nil
         spdlog.info("[Holster] -> HOLSTER (held weapon)")

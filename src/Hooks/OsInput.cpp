@@ -17,6 +17,7 @@
 #include "Utils/DebugGate.hpp"
 #include "Hooks/SwapChainInternal.hpp"
 #include "Render/DesktopMirror.hpp"
+#include "Runtimes/CyberFingerGameMenu.hpp"
 #include <algorithm>
 #include <cmath>
 #include <thread>
@@ -235,9 +236,18 @@ static LONG VirtualEdgeToPhysical(LONG value, bool horizontal, const DesktopCurs
 // The last GetCursorPos answer, diagnostics only: physical screen x,y, then the virtual x,y returned.
 extern "C" __declspec(dllexport) volatile LONG CyberpunkVR_DebugCursorMap[4] = {};
 
+static bool CyberFingerMenuCursor(POINT& point) {
+    float u{},v{};
+    if(!cvr::cfmenu::Cursor(u,v))return false;
+    RECT client{};POINT origin{};
+    const UINT width=GetForcedDisplayModeWidth(),height=GetForcedDisplayModeHeight();
+    if(!width || !height || !GetDesktopPhysicalClientRect(g_gameHwnd,client,origin))return false;
+    point={origin.x+LONG(std::lround(u*(width-1))),origin.y+LONG(std::lround(v*(height-1)))};return true;
+}
 static BOOL WINAPI HookedGetCursorPos(LPPOINT lpPoint) {
     BOOL res = g_origGetCursorPos ? g_origGetCursorPos(lpPoint) : FALSE;
     if(IsLauncherOpen())return res;
+    if(lpPoint && CyberFingerMenuCursor(*lpPoint))return TRUE;
     static int callCount = 0;
     if (g_verboseLog && callCount++ % 1000 == 0) {
         Log("HookedGetCursorPos: called %d times. lpPoint=%p, pos=(%ld,%ld) g_gameHwnd=%p\n",
@@ -256,6 +266,7 @@ static BOOL WINAPI HookedGetCursorPos(LPPOINT lpPoint) {
 }
 
 static BOOL WINAPI HookedSetCursorPos(int X, int Y) {
+    POINT laser{};if(CyberFingerMenuCursor(laser))return TRUE;
     // The settings panel leaves simulation running. Do not let the game's
     // relative-mouse recenter fight desktop pointing or steal the VR cursor.
     // The Lua mods' windows run over the same simulation and point with the same mouse.
@@ -278,6 +289,7 @@ static BOOL WINAPI HookedSetCursorPos(int X, int Y) {
 static BOOL WINAPI HookedGetCursorInfo(PCURSORINFO pci) {
     BOOL res = g_origGetCursorInfo ? g_origGetCursorInfo(pci) : FALSE;
     if(IsLauncherOpen())return res;
+    if(res && pci && CyberFingerMenuCursor(pci->ptScreenPos))return res;
     static int callCount = 0;
     if (g_verboseLog && callCount++ % 1000 == 0) {
         Log("HookedGetCursorInfo: called %d times. ptScreenPos=(%ld,%ld)\n",
@@ -458,6 +470,7 @@ static int WINAPI HookedGetSystemMetrics(int nIndex) {
 static DWORD WINAPI HookedGetMessagePos(VOID) {
     DWORD res = g_origGetMessagePos ? g_origGetMessagePos() : 0;
     if(IsLauncherOpen())return res;
+    POINT laser{};if(CyberFingerMenuCursor(laser))return MAKELONG(laser.x,laser.y);
     if (g_gameHwnd) {
         DesktopCursorTransform transform{};
         if (GetDesktopCursorTransform(transform)) {

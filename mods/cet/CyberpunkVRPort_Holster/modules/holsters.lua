@@ -52,6 +52,7 @@
 -- hand is reaching for, and the grenade stays dark (so the grip is the holster's).
 local P = require("modules/placements")
 local SH = require("modules/shells")
+local Scabbard = require("modules/scabbard")
 local LOOKS = require("data/appearances")
 
 local H = {}
@@ -126,7 +127,7 @@ local function drawLeft() return type(VRLeftHanded) == "function" and VRLeftHand
 -- body are not drawn -- they are still there to reach for, and a drawn weapon is seen from the moment it leaves.
 -- Kept in the mod's folder, apart from saves.
 local PREFS_FILE = "holster_places.json"
-local PREFS = { slots = {}, hidden = false }
+local PREFS = { slots = {}, hidden = false, wornGearHidden = false }
 
 local function loadPrefs()
   local f = io.open(PREFS_FILE, "r")
@@ -142,12 +143,15 @@ local function loadPrefs()
     end
   end
   PREFS.hidden = data.hidden == true
+  PREFS.wornGearHidden = data.wornGearHidden == true
 end
 
 local function savePrefs()
   local slots = {}
   for i = 1, 3 do slots[tostring(i)] = PREFS.slots[i] or "auto" end
-  local ok, text = pcall(function() return json.encode({ slots = slots, hidden = PREFS.hidden }) end)
+  local ok, text = pcall(function()
+    return json.encode({ slots = slots, hidden = PREFS.hidden, wornGearHidden = PREFS.wornGearHidden })
+  end)
   if not ok then return false end
   local f = io.open(PREFS_FILE, "w")
   if not f then return false end
@@ -283,6 +287,7 @@ local function copyWorld(pl, c, s)
   if bp == nil then return nil end
   local p = c.place
   local lp = { p.pos[1], p.pos[2], p.pos[3] }
+  if c.braceOffset then for i = 1, 3 do lp[i] = lp[i] + c.braceOffset[i] end end
   if s and s > 0 and p.pullAxis then
     lp = { lp[1] + p.pullAxis[1] * s, lp[2] + p.pullAxis[2] * s, lp[3] + p.pullAxis[3] * s }
   end
@@ -346,9 +351,12 @@ end
 -- The grasp is set in the frame of the rig's own slot (`now`), and the weapon is held in `hold`. It leaves the slot to the
 -- game's animation.
 local GRASP_BOX = 0
-local function graspOn(side, melee, hold, now)
+-- The scabbard opening is at local +0.012 m. Keep the whole pickup zone on the wrapped handle.
+local HILT_Z, HILT_REACH = -0.065, 0.045
+local katanaGripOffset = { [0]=P.hold("Wea_Katana", true, true).p, [1]=P.hold("Wea_Katana", true, false).p }
+local function graspOn(side, melee, hold, now, hiltZ)
   if type(VRGraspSet) ~= "function" then return end
-  local lp, lq = { 0, 0, -0.02 }, { 0, 0, 0, 1 }
+  local lp, lq = { 0, 0, hiltZ or -0.02 }, { 0, 0, 0, 1 }
   local hx, hy, hz = 0.014, 0.014, 0.05
   if not melee then
     -- the grip axis 16 degrees back from straight down
@@ -395,7 +403,7 @@ local function activeItems(pd, out)
   end
 end
 local function inHands(pl, pd)
-  local out, real = {}, {}
+  local out, real, hands = {}, {}, {}
   SLOT_R = SLOT_R or TweakDBID.new("AttachmentSlots.WeaponRight")
   SLOT_L = SLOT_L or TweakDBID.new("AttachmentSlots.WeaponLeft")
   SLOTS = SLOTS or { SLOT_R, SLOT_L }
@@ -405,11 +413,17 @@ local function inHands(pl, pd)
     local obj = ts:GetItemInSlot(pl, SLOTS[i])
     if obj ~= nil then
       local k = key(obj:GetItemID())
-      out[k], real[k] = true, obj
+      out[k], real[k], hands[i==1 and 1 or 0] = true, obj, obj
     end
   end
+  local mod = GetMod("CyberpunkVRPort_Weapon")
+  local secondary = mod and mod.offhandBlade and mod.offhandBlade(pl)
+  if secondary then
+    local k = key(secondary:GetItemID())
+    out[k], real[k] = true, secondary
+  end
   pcall(activeItems, pd, out)
-  return out, real
+  return out, real, hands, secondary
 end
 
 -- Which of n appearances an item's seed picks: the engine's sum, a PCG output step (sub_140254BE8).
@@ -493,29 +507,32 @@ end
 -- hidden: a weapon still being built gets components switched on after this has switched them off (3 of 7 back within
 -- 0.13 s, measured), and those were seen beside the copy at another angle (2026-11-05: "two copies at
 -- different angles for a moment").
+local unhideReal
 local function hideReal(k, obj)
-  local ok, id = pcall(function() return obj:GetEntityID().hash end)
-  id = ok and id or nil
+  local ok, id = pcall(function() return obj:GetEntityID() end)
+  if not ok or not id then return end
   local rec = S.hiddenReal[k]
-  if rec == nil or rec.id ~= id then
-    rec = { id = id, names = {} }
+  if rec == nil or rec.id.hash ~= id.hash then
+    if rec then unhideReal(rec) end
+    rec = { id = id, components = {} }
     S.hiddenReal[k] = rec
   end
   pcall(function()
     for _, comp in ipairs(Game.VREntityComponents(obj)) do
       if (comp:IsA(CName.new("entIVisualComponent")) or comp:IsA(CName.new("entLightComponent"))) and comp:IsEnabled() then
-        rec.names[NameToString(comp:GetName())] = true
+        rec.components[tostring(Game.VRComponentKey(comp))] = true
         comp:Toggle(false)
       end
     end
   end)
 end
 
-local function unhideReal(rec, obj)
+unhideReal = function(rec, obj)
   pcall(function()
-    if rec.id == nil or obj:GetEntityID().hash ~= rec.id then return end   -- a new object: drawn as the game made it
+    if not obj or obj:GetEntityID().hash ~= rec.id.hash then obj = Game.FindEntityByID(rec.id) end
+    if not obj then return end
     for _, comp in ipairs(Game.VREntityComponents(obj)) do
-      if rec.names[NameToString(comp:GetName())] then comp:Toggle(true) end
+      if rec.components[tostring(Game.VRComponentKey(comp))] then comp:Toggle(true) end
     end
   end)
 end
@@ -574,6 +591,7 @@ end
 local function seat(c, s)
   local p = c.place
   local x, y, z = p.pos[1], p.pos[2], p.pos[3]
+  if c.braceOffset then x, y, z = x+c.braceOffset[1], y+c.braceOffset[2], z+c.braceOffset[3] end
   if s and s > 0 and p.pullAxis then
     x, y, z = x + p.pullAxis[1] * s, y + p.pullAxis[2] * s, z + p.pullAxis[3] * s
   end
@@ -634,8 +652,10 @@ end
 -- The pair first (see THE PAIR at the top), then the places chosen in the menu, then every other weapon its kind's
 -- first free one. A gun of the pair carries `side` (the hand that takes it: 0 left, 1 right), `pair` and `draw` (the
 -- item drawn for either: slot 0's, which brings both).
-local function assign(items, left, body, perk)
+local function assign(items, left, body, perk, mask)
+  mask = mask or P.holsterTypes()
   local taken, out, auto = {}, {}, {}
+  local swords = type(VRCyberFingerRightHandSwords) == "function" and VRCyberFingerRightHandSwords()
   local shells = SH.available()
   local function put(a, place, extra)
     if shells then place = SH.place(place, body) end
@@ -644,27 +664,60 @@ local function assign(items, left, body, perk)
     out[#out + 1] = o
   end
   local by = {}
+  local hipSword, firstKatana, secondKatana
+  local cf = type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled()
   for _, it in ipairs(items) do
     local typeName = itemTypeName(it.id) or ""
-    by[it.slot] = { it = it, typeName = typeName, kind = P.kind(typeName) }
+    local a = { it = it, typeName = typeName, kind = P.kind(typeName), sword = swords and P.sword(typeName) }
+    if P.holsterEnabled(typeName, mask) then
+      by[it.slot] = a
+      if cf and typeName == "Wea_Katana" and it.slot <= 2 and chosen(it.slot,a.kind) == nil then
+        if not firstKatana then firstKatana = a elseif not secondKatana then secondKatana = a end
+      end
+      if not hipSword and a.sword and it.slot <= 2 then
+        local choice = chosen(it.slot, a.kind)
+        if choice == nil or choice == "hip_l" then hipSword = a end
+      end
+    end
+  end
+  local function placeOf(a, name)
+    return P.get(name, left and not a.sword, P.melee(a.typeName), a.sword)
+  end
+  if secondKatana then
+    -- equipped() visits numbered slots in order. Drawing from the wheel must not move either scabbard.
+    local mainLeft = left and not swords
+    hipSword = firstKatana
+    local mainPlace = P.get("hip_l",mainLeft,true,true)
+    local otherPlace = P.get("hip_l",not mainLeft,true,true)
+    taken[mainPlace.name], taken[otherPlace.name] = true, true
+    put(firstKatana, mainPlace, {side=mainLeft and 0 or 1})
+    put(secondKatana, otherPlace, {side=mainLeft and 1 or 0, primary=firstKatana.it.id})
+  elseif hipSword then
+    taken.hip_l = true
+    put(hipSword, placeOf(hipSword, "hip_l"), { side = 1 })
   end
   local r, l = by[0], by[3]
   local pair = perk and r ~= nil and l ~= nil and r.kind == "pistol" and l.kind == "pistol"
   if pair then
     -- both hips, whichever hand draws the rest (the left hip's place is the right one's turned over)
     taken.hip_r, taken.hip_l = true, true
-    put(r, P.get("hip_r", false, false), { side = 1, pair = true, draw = r.it.id })
-    put(l, P.get("hip_r", true, false), { side = 0, pair = true, draw = r.it.id })
+    local firstPlace = secondKatana and P.get("underarm_l", true, false) or P.get("hip_r", false, false)
+    taken[firstPlace.name] = true
+    put(r, firstPlace, { side = 1, pair = true, draw = r.it.id })
+    local partnerPlace = hipSword and P.get("underarm_l", false, false) or P.get("hip_r", true, false)
+    taken[partnerPlace.name] = true
+    put(l, partnerPlace, { side = 0, pair = true, draw = r.it.id })
   end
   for _, it in ipairs(items) do
     local a = by[it.slot]
-    if it.slot <= 2 and not (pair and it.slot == 0) and a.kind and P.ORDER[a.kind] then
+    if a and it.slot <= 2 and a ~= hipSword and a ~= secondKatana and not (pair and it.slot == 0) and a.kind and P.ORDER[a.kind] then
       local c = chosen(it.slot, a.kind)
+      local place = c and c ~= "none" and placeOf(a, c)
       if c == "none" then
         -- not carried on the body
-      elseif c ~= nil and not taken[c] then
-        taken[c] = true
-        put(a, P.get(c, left, P.melee(a.typeName)))
+      elseif place and not taken[place.name] then
+        taken[place.name] = true
+        put(a, place, a.sword and {side = 1} or nil)
       else
         auto[#auto + 1] = a
       end
@@ -672,9 +725,10 @@ local function assign(items, left, body, perk)
   end
   for _, a in ipairs(auto) do
     for _, name in ipairs(P.ORDER[a.kind]) do
-      if not taken[name] then
-        taken[name] = true
-        put(a, P.get(name, left, P.melee(a.typeName)))
+      local place = placeOf(a, name)
+      if not taken[place.name] then
+        taken[place.name] = true
+        put(a, place, a.sword and {side = 1} or nil)
         break
       end
     end
@@ -734,18 +788,38 @@ local function settleShells()
   end
 end
 
+local endPull
 local function scan(pl, pd, enabled)
   local left = drawLeft()
   local body = SH.body()
   local want = {}
   if enabled then
-    for _, a in ipairs(assign(equipped(pd), left, body, dualPerk(pl))) do
+    for _, a in ipairs(assign(equipped(pd), left, body, dualPerk(pl), S.holsterTypes)) do
       local k = key(a.id)
       local look = lookFor(a.id, k)
       if look then
         want[k] = { id = a.id, look = look, place = a.place, kind = a.kind, typeName = a.typeName, side = a.side,
-                    pair = a.pair, draw = a.draw }
+                    pair = a.pair, draw = a.draw, primary = a.primary }
       end
+    end
+  end
+  -- A loadout edit can swap the two slots while both swords are drawn.
+  -- Clear the extra attachment if it no longer belongs to the current pair.
+  local weaponMod = GetMod("CyberpunkVRPort_Weapon")
+  local secondary = weaponMod and weaponMod.offhandBlade and weaponMod.offhandBlade(pl)
+  if secondary then
+    local id = secondary:GetItemID()
+    local placement = want[key(id)]
+    if enabled and not P.holsterEnabled("Wea_Katana", S.holsterTypes) then
+      -- Validate the equipped pair independently of its scabbards while they are hidden.
+      for _, a in ipairs(assign(equipped(pd), left, body, dualPerk(pl), 255)) do
+        if key(a.id) == key(id) then placement = a; break end
+      end
+    end
+    local main = pl:GetActiveWeapon()
+    if not placement or not placement.primary or not main or key(placement.primary) ~= key(main:GetItemID()) then
+      weaponMod.stowOffhand(pl,id)
+      S.returnBlade=nil
     end
   end
   for k, c in pairs(S.copies) do
@@ -753,7 +827,8 @@ local function scan(pl, pd, enabled)
     -- (a new place waits until the copy is home: it is what is seen in the hand until the weapon is)
     local busy = c.mode == "hand" or c.mode == "stow" or c.mode == "homing" or (S.pull ~= nil and S.pull.key == k)
     if w == nil or (not busy and (w.look ~= c.look or w.place ~= c.place)) then
-      if S.pull and S.pull.key == k then S.pull = nil; magnetOff() end
+      if S.pull and S.pull.key == k then endPull(c) end
+      if c.mode == "hand" and c.side ~= nil then graspOff(c.side) end
       despawn(c)
       S.copies[k] = nil
     end
@@ -767,7 +842,9 @@ local function scan(pl, pd, enabled)
     end
     -- (a pistol at the right hip keeps its copy as the pair comes and goes: only the hand and the item drawn change.
     -- Its hold in the hand is the dual wielding one in the pair: `holdKey`)
-    c.handSide, c.pair, c.drawItem = w.side, w.pair == true, w.draw
+    c.handSide, c.pair, c.drawItem, c.primary = w.side, w.pair == true, w.draw, w.primary
+    c.cfKatana = c.typeName == "Wea_Katana" and type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled()
+    c.cfScabbard = c.cfKatana and Scabbard.isHipKatana(c)
     c.holdKey = w.pair and (k .. "|pair") or k
   end
   scanShells(body)
@@ -814,7 +891,7 @@ end
 -- both at once and the other gun stays in its holster until the animation has it in its hand, and it is put away
 -- the same way; for every other weapon the item drawn or held (seen at once, as the request goes in).
 local function inHand(c, held, real)
-  if c.pair then return real[c.key] ~= nil end
+  if c.pair or c.cfKatana then return real[c.key] ~= nil end
   return held[c.key] == true
 end
 
@@ -856,9 +933,9 @@ local function stow(pl, c, side, weaponObj)
   if p.pullAxis then mouth = { mouth[1] + p.pullAxis[1] * over, mouth[2] + p.pullAxis[2] * over, mouth[3] + p.pullAxis[3] * over } end
   c.stowFrom, c.stowMouth, c.stowAt, c.mode = { p = lp, q = lq }, mouth, S.t, "stow"
   setLocal(c, lp, lq)
-  show(c, true)
-  -- the weapon going out of the hand stays out of sight: the copy is what is seen going home
-  if weaponObj ~= nil then hideReal(c.key, weaponObj) end
+  show(c, not (c.cfKatana and weaponObj))
+  -- The game owns the visible katana until it actually detaches. It may reuse that entity on a wheel draw.
+  if weaponObj ~= nil and not c.cfKatana then hideReal(c.key, weaponObj) end
   return true
 end
 
@@ -870,11 +947,9 @@ local function revealReal(real)
   for k, rec in pairs(S.hiddenReal) do
     local c = S.copies[k]
     local busy = c ~= nil and (c.mode == "stow" or c.mode == "homing" or c.mode == "hand")
-    if real[k] ~= nil and not busy then
+    if not busy or not real[k] or c.cfKatana then
       unhideReal(rec, real[k])
       S.hiddenReal[k] = nil
-    elseif c == nil and real[k] == nil then
-      S.hiddenReal[k] = nil   -- no longer carried: nothing left to show
     end
   end
 end
@@ -895,6 +970,30 @@ local function stowTick(c)
   setLocal(c, pos, q)
   -- home, and seen there while the game is still taking the weapon out of the hand
   if u >= 1 then c.mode = "homing" end
+end
+
+-- Record equipment and mesh transitions separately so a game-requested unequip
+-- can be distinguished from an invisible weapon that is still in the hand.
+local function traceKatana(c, held, obj)
+  c.traceAt = S.t + 0.20
+  if (GetVRSharedSlot(156) or 0) <= 0.5 or not (obj or held or c.mode == "hand" or c.traceState) then return end
+  local pl = Game.GetPlayer()
+  local defs = Game.GetAllBlackboardDefs().PlayerStateMachine
+  local board = Game.GetBlackboardSystem():GetLocalInstanced(pl:GetEntityID(), defs)
+  local visible, total = 0, 0
+  if obj then
+    for _, comp in ipairs(Game.VREntityComponents(obj)) do
+      if comp:IsA(CName.new("entIVisualComponent")) then
+        total = total + 1
+        if comp:IsEnabled() then visible = visible + 1 end
+      end
+    end
+  end
+  local snapshot = string.format("selected=%s attached=%s meshes=%d/%d copy=%s shown=%s sceneTier=%s noWeapons=%s",
+    tostring(held == true), tostring(obj and obj:GetEntityID().hash), visible, total, tostring(c.mode), tostring(c.shown),
+    tostring(board and board:GetInt(defs.SceneTier)), tostring(StatusEffectSystem.ObjectHasStatusEffectWithTag(pl, CName.new("NoWeapons"))))
+  if snapshot ~= c.traceState then spdlog.info("[Holster] katana " .. c.key .. " " .. snapshot) end
+  c.traceState = (obj or held or c.mode == "hand") and snapshot or nil
 end
 
 -- Each copy found once spawned, put on its bone, then shown or hidden by what is in the hands.
@@ -932,7 +1031,7 @@ local function settle(held, real)
           graspOff(c.side)
           local now = slotInWrist(Game.GetPlayer(), c.side)
           local reached = now == nil or c.hold == nil or qangle(now.q, c.hold.q) < HOLD_REACHED
-          if reached or S.t - c.realAt > HOLD_WAIT then
+          if c.cfKatana or reached or S.t - c.realAt > HOLD_WAIT then
             home(c)
           else
             hideReal(k, real[k])
@@ -943,11 +1042,11 @@ local function settle(held, real)
         end
       elseif c.mode == "stow" then
         stowTick(c)
-        show(c, not S.scene)
-        if real[k] ~= nil then hideReal(k, real[k]) end
+        show(c, not S.scene and not (c.cfKatana and real[k]))
+        if real[k] ~= nil and not c.cfKatana then hideReal(k, real[k]) end
       elseif c.mode == "homing" then
-        show(c, not S.scene)
-        if real[k] ~= nil then hideReal(k, real[k]) end
+        show(c, not S.scene and not (c.cfKatana and real[k]))
+        if real[k] ~= nil and not c.cfKatana then hideReal(k, real[k]) end
         if not (held[k] or inHand(c, held, real)) or S.t - c.stowAt > IN_HAND_WAIT then c.mode = "place" end
       else
         -- (hidden holsters: unseen on the body, seen once the hand draws it; none in a scene)
@@ -955,6 +1054,7 @@ local function settle(held, real)
         show(c, not S.scene and (pulling or (not inHand(c, held, real) and not PREFS.hidden)))
       end
     end
+    if c.cfKatana and S.t >= (c.traceAt or 0) then pcall(traceKatana, c, held[k], real[k]) end
   end
 end
 
@@ -973,6 +1073,17 @@ local function dist(a, b)
   return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local function palmPos(side)
+  local pos = VRPalmWorldPos(side)
+  if pos and pos.w > 0.5 then return {pos.x, pos.y, pos.z} end
+end
+
+-- Weapon-local points in the same frame as the visible scabbard mesh.
+local function axialPoint(origin, rotation, z)
+  local offset = qrot(rotation, {0, 0, z})
+  return {origin[1]+offset[1], origin[2]+offset[2], origin[3]+offset[3]}
+end
+
 local function worldPos(e)
   local w = e:GetWorldPosition()
   return { w.x, w.y, w.z }
@@ -985,13 +1096,18 @@ local function reachable(c) return c.entity ~= nil and c.attached and (c.mode ==
 -- (over the shoulder) the far end of the handle or the stock too, `grab` metres out along it (placements.lua): the
 -- hand is measured to the nearest point of that stretch.
 local function grabSpan(pl, c)
+  if c.cfScabbard then
+    local origin, rotation = copyWorld(pl, c, 0)
+    if origin then return axialPoint(origin, rotation, HILT_Z), nil, HILT_REACH end
+    return nil
+  end
   local o = worldPos(c.entity)
   local g = c.place.grab
-  if g == nil then return o, nil end
+  if g == nil then return o, nil, c.place.reach end
   local _, wq = copyWorld(pl, c, 0)
-  if wq == nil then return o, nil end
+  if wq == nil then return o, nil, c.place.reach end
   local d = qrot(wq, c.place.pullLocal)
-  return o, { o[1] + d[1] * g, o[2] + d[2] * g, o[3] + d[3] * g }
+  return o, { o[1] + d[1] * g, o[2] + d[2] * g, o[3] + d[3] * g }, c.place.reach
 end
 
 -- The distance from p to the stretch a..b (to a alone when b is nil).
@@ -1005,6 +1121,23 @@ local function spanDist(p, a, b)
     t = math.max(0, math.min(1, t))
   end
   return dist(p, { a[1] + ab[1] * t, a[2] + ab[2] * t, a[3] + ab[3] * t })
+end
+
+-- VRPalmModelPos is the solved wrist. Rotate the measured katana grip into that
+-- hand's frame so both a relaxed hand and a fist reach the hilt with their fingers.
+local function hiltDistance(side, worldTarget)
+  if not (side == 0 and GetLeftVRHandValid() or side == 1 and GetRightVRHandValid()) then return nil end
+  local wrist = VRPalmModelPos(side)
+  if not wrist or wrist.w < 0.5 then return nil end
+  local target = VRWorldToModel(Vector4.new(worldTarget[1], worldTarget[2], worldTarget[3], 1))
+  if not target or target.w < 0.5 then return nil end
+  local rot = VRPalmModelRot(side)
+  local grip = qrot({rot.i, rot.j, rot.k, rot.r}, katanaGripOffset[side])
+  return dist({wrist.x+grip[1], wrist.y+grip[2], wrist.z+grip[3]}, {target.x, target.y, target.z})
+end
+
+local function scabbardSound(pl, event)
+  pcall(function() Game.GetAudioSystem():Play(CName.new(event), pl:GetEntityID(), CName.new("")) end)
 end
 
 local function draw(pl, c)
@@ -1046,6 +1179,72 @@ local function holsterHeld(pl)
   print("[Holster] put away")
 end
 
+-- Tokens pair a physical press with one operation on one item, including wheel swaps.
+local offered = {[0]={}, [1]={}}
+local nextToken = 0
+local function offerToken(side, field, identity)
+  local hand = offered[side]
+  if hand[field] ~= identity then
+    nextToken = nextToken % 2147483646 + 1
+    hand[field], hand[field.."Token"] = identity, nextToken
+  end
+  return identity and hand[field.."Token"] or 0
+end
+
+local function katanaButtons(pl, hands, secondary, real, allowDraw)
+  if type(VRCyberFingerKatanaGrip) ~= "function" or not VRCyberFingerEnabled() then return end
+  local main, mainSide
+  for side=0,1 do
+    local actor=hands[side]
+    if actor and WeaponObject.IsOfType(actor:GetItemID(),gamedataItemType.Wea_Katana) then
+      main,mainSide=actor,side
+      break
+    end
+  end
+  local drawSide=drawLeft() and 0 or 1
+  for side=0,1 do
+    local held=side==mainSide and main or (main and secondary)
+    local candidate
+    if not held and allowDraw and not PREFS.hidden and not S.pull and not S.brace then
+      local best=math.huge
+      for k,c in pairs(S.copies) do
+        if c.cfKatana and c.shown and reachable(c) and sideOf(c,drawSide)==side and not real[k]
+            and (not c.primary or main and key(c.primary)==key(main:GetItemID())) then
+          local a,b,r=grabSpan(pl,c)
+          local distance
+          if a and c.cfScabbard then distance=hiltDistance(side,a)
+          elseif a then
+            local palm=palmPos(side)
+            if palm then distance=spanDist(palm,a,b) end
+          end
+          if distance and distance<=r and distance<best then candidate,best=c,distance end
+        end
+      end
+    end
+    if candidate and gripOwnedElsewhere(pl,side==0) then candidate=nil end
+    local equipKey=held and ("stow:"..key(held:GetItemID())) or (candidate and ("draw:"..candidate.key))
+    local supportKey=main and not secondary and side~=mainSide and key(main:GetItemID())
+    local tapped=VRCyberFingerKatanaGrip(side,offerToken(side,"equipment",equipKey),offerToken(side,"support",supportKey))
+    if tapped then
+      if held then
+        local mod=secondary and GetMod("CyberpunkVRPort_Weapon")
+        if mod and mod.stowOffhand then mod.stowOffhand(pl,secondary:GetItemID()) end
+        if held==main then pl:VRHolsterMelee() end
+      elseif candidate then
+        if candidate.primary then
+          local mod=GetMod("CyberpunkVRPort_Weapon")
+          if not mod or not mod.drawOffhand(pl,candidate.primary,candidate.item,side) then return end
+        else
+          draw(pl,candidate)
+        end
+      end
+      scabbardSound(pl,held and "w_melee_katana_unequip" or "w_melee_katana_equip")
+      S.cooldown=COOLDOWN
+      return
+    end
+  end
+end
+
 -- A gun of the pair into its own hand at once, the fingers round its grip: the other hand is drawing the pair, or has.
 -- `waits`: taken while the other hand is still pulling its gun out (let go before that, and this one goes back too).
 local function takePartner(c, side, waits)
@@ -1061,7 +1260,7 @@ end
 
 -- A pull let go before the weapon was out: the copy back in its place, and a gun of the pair taken by the other hand
 -- meanwhile back in its own (nothing is drawn).
-local function endPull(c)
+endPull = function(c)
   if c ~= nil and c.entity ~= nil then seat(c, 0) end
   if S.pull ~= nil then graspOff(S.pull.side) end
   S.pull = nil
@@ -1088,6 +1287,12 @@ local function pullTick(pl, grip)
   -- along the holster: out of it, the weapon's -Y (a gun, grip first) or -Z (a blade, along its handle)
   local d = qrot(wq, c.place.pullLocal)
   local s = (hp[1] - S.pull.h0[1]) * d[1] + (hp[2] - S.pull.h0[2]) * d[2] + (hp[3] - S.pull.h0[3]) * d[3]
+  if S.pull.startProjection then
+    -- Measure against the moving hip and the braced scabbard, including body turns.
+    local mouth = copyWorld(pl, c, 0)
+    if not mouth then endPull(c) return end
+    s = (hp[1]-mouth[1])*d[1] + (hp[2]-mouth[2])*d[2] + (hp[3]-mouth[3])*d[3] - S.pull.startProjection
+  end
   s = math.max(0, math.min(c.place.pull, s))
   S.pull.s = s
   seat(c, s)
@@ -1106,7 +1311,17 @@ local function pullTick(pl, grip)
     for _, o in pairs(S.copies) do
       if o.pairWait then o.pairWait, o.until_ = nil, S.t + IN_HAND_WAIT end
     end
-    draw(pl, c)
+    if c.primary then
+      local mod = GetMod("CyberpunkVRPort_Weapon")
+      if not mod or not mod.drawOffhand or not mod.drawOffhand(pl,c.primary,c.item,side) then
+        graspOff(side)
+        home(c)
+        return
+      end
+    else
+      draw(pl, c)
+    end
+    if c.cfScabbard then scabbardSound(pl, "w_melee_katana_equip") end
     S.cooldown = COOLDOWN
   end
 end
@@ -1119,11 +1334,21 @@ local function grab(pl, held, real, side, drawSide)
   local nearest, nd = nil, 1e9
   for _, c in pairs(S.copies) do
     if reachable(c) and sideOf(c, drawSide) == side then
-      local d = spanDist(hp, grabSpan(pl, c))
-      if d < c.place.reach and d < nd then nearest, nd = c, d end
+      local a, b, reach = grabSpan(pl, c)
+      if a then
+        local d
+        if c.cfScabbard then d=hiltDistance(side,a) else d=spanDist(hp,a,b) end
+        if d and d <= reach and d < nd then nearest, nd = c, d end
+      end
     end
   end
   if nearest == nil then return end
+  if nearest.primary then
+    if type(GetVRTwoHandActive) == "function" and GetVRTwoHandActive() then return end
+    local main=pl:GetActiveWeapon()
+    if not main or key(main:GetItemID())~=key(nearest.primary) or PREFS.hidden then return end
+    if real[nearest.key] then return end
+  end
 
   if nearest.pair then
     local other = partnerOf(nearest)
@@ -1145,6 +1370,8 @@ local function grab(pl, held, real, side, drawSide)
   if inHand(nearest, held, real) then
     -- the weapon in hand at its own place: it goes home by itself -- the pair both, each from its own hand
     if not held[nearest.key] then return end   -- (the game is already taking it out of the hand)
+    if nearest.cfScabbard and not PREFS.hidden then return end   -- scabbardTick owns the sword-hand release
+    if type(VRAllowsGestureHolstering) == "function" and not VRAllowsGestureHolstering(P.melee(nearest.typeName)) then return end
     stow(pl, nearest, side, real[nearest.key])
     local other = partnerOf(nearest)
     if other ~= nil and reachable(other) and real[other.key] ~= nil then
@@ -1156,15 +1383,127 @@ local function grab(pl, held, real, side, drawSide)
   end
   -- (another weapon in hand: the grip on a different copy takes that one instead, the game switching them)
   if nearest.place.pull then
-    S.pull = { key = nearest.key, side = side, h0 = hp, s = 0, rel = holdOf(nearest, left) }
-    graspOn(side, nearest.place.melee, S.pull.rel, P.holdEmpty(left))
     local wp, wq = copyWorld(pl, nearest, 0)
+    local rel = holdOf(nearest, left)
+    if nearest.cfScabbard or nearest.place.knucklesUp then
+      local wrist, rot = VRHandRawModel(side), VRHandRawRot(side)
+      if not wp or not wrist or wrist.w < 0.5 or not rot then return end
+      if nearest.place.knucklesUp and not P.knucklesUp(rot, left) then return end
+      local inv = qconj({rot.i,rot.j,rot.k,rot.r})
+      local weaponRot = qmul(inv,modelQ(wq))
+      if nearest.cfScabbard then
+        -- The hilt in weapon space must land at the fist centre in wrist space,
+        -- including as the preview copy follows the hand during the draw.
+        local hilt = qrot(weaponRot,{0,0,HILT_Z})
+        local fist = katanaGripOffset[side]
+        rel = {p={fist[1]-hilt[1],fist[2]-hilt[2],fist[3]-hilt[3]}, q=weaponRot}
+      else
+        local m = VRWorldToModel(Vector4.new(wp[1], wp[2], wp[3], 1))
+        if not m or m.w < 0.5 then return end
+        rel = {p=qrot(inv,{m.x-wrist.x,m.y-wrist.y,m.z-wrist.z}), q=weaponRot}
+      end
+    end
+    S.pull = { key = nearest.key, side = side, h0 = hp, s = 0, rel = rel }
+    if nearest.cfScabbard and wp then
+      local d = qrot(wq, nearest.place.pullLocal)
+      S.pull.startProjection = (hp[1]-wp[1])*d[1] + (hp[2]-wp[2])*d[2] + (hp[3]-wp[3])*d[3]
+    end
+    graspOn(side, nearest.place.melee, rel, P.holdEmpty(left), nearest.cfScabbard and HILT_Z)
     if wp ~= nil and S.pull.rel ~= nil then magnetTo(side, S.pull.rel, wp, wq) end
     return
   end
   show(nearest, false)
   draw(pl, nearest)
   S.cooldown = COOLDOWN
+end
+
+-- Offset is in the hip slot's space, so walking or turning cannot pull the scabbard off the belt.
+local function moveScabbard(c, sh, delta)
+  c.braceOffset = delta
+  if sh and sh.attached then
+    local p = c.place.pos
+    if delta then p = {p[1]+delta[1], p[2]+delta[2], p[3]+delta[3]} end
+    setLocal(sh, p, c.place.rot)
+  end
+  if reachable(c) then seat(c, S.pull and S.pull.key == c.key and S.pull.s or 0) end
+end
+
+local function releaseScabbard()
+  local b = S.brace
+  if not b then return end
+  S.brace = nil
+  graspOff(b.side)
+  if type(VRCyberFingerScabbardHand) == "function" then VRCyberFingerScabbardHand(-1) end
+  if S.copies[b.copy.key] == b.copy then moveScabbard(b.copy, S.shells["scabbard_" .. b.copy.key], nil) end
+end
+
+local function scabbardTick(pl, real, grips, edges, drawSide)
+  local b = S.brace
+  local weaponMod=GetMod("CyberpunkVRPort_Weapon")
+  if PREFS.hidden or type(VRCyberFingerScabbardHand) ~= "function" or
+      (type(GetVRTwoHandActive) == "function" and GetVRTwoHandActive()) or
+      (weaponMod and weaponMod.offhandBlade and weaponMod.offhandBlade(pl)) then releaseScabbard() return end
+  if b and (S.t - b.lastTick > 0.25 or Game.GetSystemRequestsHandler():IsGamePaused()) then
+    releaseScabbard()
+    return
+  end
+  if not b then
+    if not edges[0] and not edges[1] then return end
+    for _, c in pairs(S.copies) do
+      local side = 1 - sideOf(c, drawSide)
+      local sh = S.shells["scabbard_" .. c.key]
+      if edges[side] and not c.primary and c.cfScabbard and sh and sh.attached and reachable(c)
+          and not gripOwnedElsewhere(pl, side == 0) then
+        local hp = handPos(side == 0)
+        local p, q = copyWorld(pl, c)
+        if hp and p then
+          local throat = axialPoint(p, q, 0.075)
+          local swordHand = real[c.key] and handPos(side ~= 0)
+          if dist(hp, throat) <= 0.095 and (not swordHand or dist(swordHand, hp) > 0.17) then
+            b = {copy = c, side = side}
+            S.brace = b
+            graspOn(side, true)
+            break
+          end
+        end
+      end
+    end
+    if not b then return end
+  end
+  b.lastTick = S.t
+  local c, side = b.copy, b.side
+  local sh = S.shells["scabbard_" .. c.key]
+  if S.copies[c.key] ~= c or not c.cfScabbard or sideOf(c, drawSide) == side or not sh or not sh.attached
+      or not GetLeftVRHandValid() or not GetRightVRHandValid() or not VRCyberFingerScabbardHand(side) then
+    releaseScabbard()
+    return
+  end
+  edges[side] = false
+  local support, sword = handPos(side == 0), handPos(side ~= 0)
+  local hip, hipQ = slotWorld(pl, c.place.comp, c.place.slot)
+  if not support or not sword or not hip then releaseScabbard() return end
+  local hand = qrot(qconj(hipQ), {support[1]-hip[1], support[2]-hip[2], support[3]-hip[3]})
+  b.start = b.start or hand
+  local travel = dist(hand, b.start)
+  if travel > 0.36 then releaseScabbard() return end
+  if grips[side] and not b.releaseAt then
+    local scale = 0.22 / math.max(0.22, travel)
+    moveScabbard(c, sh, {(hand[1]-b.start[1])*scale, (hand[2]-b.start[2])*scale, (hand[3]-b.start[3])*scale})
+  end
+  local mouth = copyWorld(pl, c)
+  if not mouth then releaseScabbard() return end
+  local canStow = S.cooldown <= 0 and not S.pull and reachable(c) and real[c.key] ~= nil
+      and VRAllowsGestureHolstering(true)
+  local action = Scabbard.returnStep(b, S.t, canStow, grips[side], grips[1-side], edges[1-side],
+      dist(sword, mouth), travel <= 0.14)
+  if action ~= "hold" then
+    releaseScabbard()
+    if action == "stow" and stow(pl, c, 1-side, real[c.key]) then
+      holsterHeld(pl)
+      scabbardSound(pl, "w_melee_katana_unequip")
+      S.cooldown = COOLDOWN
+    end
+  end
 end
 
 -- THE HANDS: the drawing hand takes and puts back every weapon but the pair's left (right) gun, which is the other
@@ -1180,9 +1519,39 @@ local function hand(pl, held, real, dt, enabled)
   -- Sample even while suspended: neither a held press nor a missed release
   -- may be carried across a scene, mode switch, or player detach.
   if not enabled then
+    S.returnBlade=nil
+    releaseScabbard()
     if S.pull ~= nil then endPull(S.copies[S.pull.key]) end
     return
   end
+  local docked
+  if dt and dt>0.25 then S.returnBlade=nil end
+  if not PREFS.hidden and S.cooldown<=0 then
+    for k,c in pairs(S.copies) do
+      if c.primary and real[k] and real[key(c.primary)] and reachable(c) and VRAllowsGestureHolstering(true)
+          and not Game.GetSystemRequestsHandler():IsGamePaused() then
+        local side=c.handSide
+        local shell=S.shells["scabbard_"..k]
+        local sword, support=palmPos(side), palmPos(1-side)
+        local mouth, rotation=copyWorld(pl,c,0)
+        if shell and shell.attached and GetLeftVRHandValid() and GetRightVRHandValid()
+            and sword and support and mouth and dist(sword,mouth)<=0.13
+            and dist(support,axialPoint(mouth,rotation,0.075))<=0.095 then
+          local grip=VRCyberFingerMeleeHand(side,true)
+          if grip==1 then docked=c
+          elseif grip==0 and S.returnBlade==c then
+            local mod=GetMod("CyberpunkVRPort_Weapon")
+            if mod and mod.stowOffhand and mod.stowOffhand(pl,c.item) then
+              scabbardSound(pl,"w_melee_katana_unequip")
+              S.cooldown=COOLDOWN
+            end
+          end
+        end
+      end
+    end
+  end
+  S.returnBlade=docked
+  scabbardTick(pl, real, grips, edges, drawSide)
   if S.pull ~= nil then pullTick(pl, grips[S.pull.side]) end
   -- the drawing hand first: the same grip on both sides in one frame starts its pull, the other hand comes along
   for _, side in ipairs({ drawSide, 1 - drawSide }) do
@@ -1193,6 +1562,12 @@ end
 ---------------------------------------------------------------- the frame
 
 function H.update(dt, enabled)
+  if H.wornGearHidden() then
+    if not S.suspended then H.release(); S.suspended = true end
+    for side = 0, 1 do S.gripPrev[side] = (GetVRSharedSlot(gripSlot(side == 0)) or 0) > 0.5 end
+    return
+  end
+  if S.suspended then S.suspended, S.scanAt = false, -1 end
   dt = dt or 0
   S.t = S.t + dt
   S.cooldown = math.max(0, S.cooldown - dt)
@@ -1201,8 +1576,10 @@ function H.update(dt, enabled)
   if pl == nil then hand(nil, nil, nil, dt, false) return end
   local es, pd = playerData(pl)
   if pd == nil then hand(pl, nil, nil, dt, false) return end
-  local held, real = inHands(pl, pd)
+  local held, real, hands, secondary = inHands(pl, pd)
   S.scene = sceneNow(S.t)
+  local mask = P.holsterTypes()
+  if mask ~= S.holsterTypes then S.holsterTypes, S.scanAt = mask, -1 end
   if S.t - S.scanAt >= SCAN_EVERY then
     S.scanAt = S.t
     scan(pl, pd, enabled)
@@ -1210,23 +1587,23 @@ function H.update(dt, enabled)
   settle(held, real)
   revealReal(real)
   learnHolds(pl, real, drawLeft() and 0 or 1)
+  if not S.scene and not Game.GetSystemRequestsHandler():IsGamePaused() then
+    katanaButtons(pl,hands,secondary,real,enabled)
+  end
   settleShells()
   hand(pl, held, real, dt, enabled and not S.scene)
   graspTick(dt)
 end
 
+function H.handBusy(side)
+  return (S.pull and S.pull.side==side) or (S.brace and S.brace.side==side) or S.returnBlade~=nil
+end
+
 function H.release()
+  S.returnBlade=nil
+  releaseScabbard()
   if S.pull ~= nil then endPull(S.copies[S.pull.key]) end
-  pcall(function()
-    local pl = Game.GetPlayer()
-    if pl == nil then return end
-    local _, pd = playerData(pl)
-    if pd == nil then return end
-    local _, real = inHands(pl, pd)
-    for k, rec in pairs(S.hiddenReal) do
-      if real[k] ~= nil then unhideReal(rec, real[k]) end
-    end
-  end)
+  for _, rec in pairs(S.hiddenReal) do unhideReal(rec) end
   S.hiddenReal = {}
   magnetOff()
   for side = 0, 1 do
@@ -1242,6 +1619,7 @@ end
 -- nearest holstered weapon hand `side` could take or put back there (the drawing hand's, or its gun of the pair),
 -- within that place's reach; nil when none.
 function H.near(x, y, z, side)
+  if H.wornGearHidden() then return nil end
   local drawSide = drawLeft() and 0 or 1
   local best = nil
   local pl = Game.GetPlayer()
@@ -1253,9 +1631,18 @@ function H.near(x, y, z, side)
   end
   for _, c in pairs(S.copies) do
     if reachable(c) and sideOf(c, drawSide) == side then
-      local a, b = grabSpan(pl, c)
-      local d = spanDist({ x, y, z }, model(a), model(b))
-      if d < c.place.reach and (best == nil or d < best) then best = d end
+      local a, b, reach = grabSpan(pl, c)
+      if a then
+        local d
+        if c.cfScabbard then d=hiltDistance(side,a) else d=spanDist({x,y,z},model(a),model(b)) end
+        if d and d <= reach and (best == nil or d < best) then best = d end
+      end
+    elseif c.cfScabbard and not PREFS.hidden and reachable(c) then
+      local p, q = copyWorld(pl, c)
+      if p then
+        local d = dist({x,y,z}, model(axialPoint(p,q,0.075)))
+        if d <= 0.095 and (best == nil or d < best) then best = d end
+      end
     end
   end
   return best
@@ -1274,9 +1661,10 @@ function H.slotInfo(slot)
   if not ItemID.IsValid(id) then return nil end
   local typeName = itemTypeName(id) or ""
   local kind = P.kind(typeName)
-  if kind == nil or P.CHOICES[kind] == nil then return nil end
+  if kind == nil or P.CHOICES[kind] == nil or not P.holsterEnabled(typeName) then return nil end
   local left = drawLeft()
-  local function shown(n) return left and (P.MIRROR_NAME[n] or n) or n end
+  local sword = P.sword(typeName) and type(VRCyberFingerRightHandSwords) == "function" and VRCyberFingerRightHandSwords()
+  local function shown(n) return left and not sword and (P.MIRROR_NAME[n] or n) or n end
   local place, pair = nil, false
   local k = key(id)
   for _, a in ipairs(assign(equipped(pd), left, SH.body(), dualPerk(pl))) do
@@ -1295,6 +1683,79 @@ function H.setPlace(slot, name)
   if type(slot) ~= "number" or slot < 0 or slot > 2 then return false end
   PREFS.slots[slot + 1] = (name == nil or name == "") and "auto" or name
   S.scanAt = -1
+  return savePrefs()
+end
+
+-- Keep the existing saved preference so upgrading preserves the player's choice.
+function H.grenadeHolsterEnabled() return P.holsterEnabled("Gad_Grenade") end
+
+local publishedOffensiveMode
+local NOTICE_OFF, NOTICE_ON, NOTICE_HOLSTERING = 1, 2, 3
+local lastVisible
+function H.resetModeNotice() lastVisible = nil end
+local combatVisible, emptyTime = false, 0
+local function combatItemHeld(pl, belt)
+  if belt and belt.grenade then
+    if belt.grenade.held() then return true end
+    return pl:VRHasDrawnCombatItem(belt.grenade.reservedSlots())
+  end
+  return pl:VRHasDrawnCombatItem(false, false, false)
+end
+
+function H.syncOffensiveMode(dt)
+  local enabled = not PREFS.wornGearHidden
+  if enabled or type(VRCyberFingerEnabled) ~= "function" or not VRCyberFingerEnabled() then
+    combatVisible, emptyTime = false, 0
+  else
+    local pl = Game.GetPlayer()
+    if not pl then
+      combatVisible, emptyTime = false, 0
+    elseif not Game.GetSystemRequestsHandler():IsGamePaused() then
+      if combatItemHeld(pl, GetMod("CyberpunkVRPort_TacticalBelt")) then
+        enabled, combatVisible, emptyTime = true, true, 0
+      elseif combatVisible then
+        -- Briefly empty attachment slots are normal when switching weapons.
+        emptyTime = emptyTime + (dt or 0)
+        if emptyTime >= 0.20 then combatVisible = false end
+      end
+    end
+  end
+  local visible = not H.wornGearHidden()
+  if lastVisible ~= visible then
+    local pl = Game.GetPlayer()
+    if lastVisible ~= nil and pl and type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled() then
+      VRCyberFingerShowModeNotice(visible and NOTICE_ON or NOTICE_OFF)
+    end
+    lastVisible = pl and visible
+  end
+  -- The visual grace period never extends the empty-hand Trigger shortcut.
+  if enabled ~= publishedOffensiveMode and type(VRCyberFingerSetOffensiveMode) == "function" then
+    VRCyberFingerSetOffensiveMode(enabled)
+    publishedOffensiveMode = enabled
+  end
+end
+
+function H.wornGearHidden()
+  return PREFS.wornGearHidden and not combatVisible and type(VRCyberFingerEnabled) == "function" and VRCyberFingerEnabled()
+end
+
+function H.toggleWornGear()
+  if type(VRCyberFingerEnabled) ~= "function" or not VRCyberFingerEnabled() then return false end
+  local pl = Game.GetPlayer()
+  if not pl or Game.GetSystemRequestsHandler():IsGamePaused() then return false end
+  local belt = GetMod("CyberpunkVRPort_TacticalBelt")
+  lastVisible = not H.wornGearHidden()
+  if combatItemHeld(pl, belt) then
+    VRCyberFingerShowModeNotice(NOTICE_HOLSTERING)
+    combatVisible, emptyTime = true, 0
+    if belt and belt.grenade then belt.grenade.stow(pl) end
+    pl:VRHolsterAllForOffensiveMode()
+    PREFS.wornGearHidden = true
+  else
+    PREFS.wornGearHidden = not H.wornGearHidden()
+    combatVisible, emptyTime = false, 0
+  end
+  H.syncOffensiveMode()
   return savePrefs()
 end
 

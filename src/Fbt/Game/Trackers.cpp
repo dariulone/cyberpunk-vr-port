@@ -18,13 +18,24 @@ constexpr const char* kRolePath[kRoleCount] = {
     "/user/vive_tracker_htcx/role/waist",
     "/user/vive_tracker_htcx/role/left_foot",
     "/user/vive_tracker_htcx/role/right_foot",
+    "/user/vive_tracker_htcx/role/chest",
+    "/user/vive_tracker_htcx/role/left_knee",
+    "/user/vive_tracker_htcx/role/right_knee",
+    "/user/vive_tracker_htcx/role/left_elbow",
+    "/user/vive_tracker_htcx/role/right_elbow",
 };
 constexpr const char* kBindingPath[kRoleCount] = {
     "/user/vive_tracker_htcx/role/waist/input/grip/pose",
     "/user/vive_tracker_htcx/role/left_foot/input/grip/pose",
     "/user/vive_tracker_htcx/role/right_foot/input/grip/pose",
+    "/user/vive_tracker_htcx/role/chest/input/grip/pose",
+    "/user/vive_tracker_htcx/role/left_knee/input/grip/pose",
+    "/user/vive_tracker_htcx/role/right_knee/input/grip/pose",
+    "/user/vive_tracker_htcx/role/left_elbow/input/grip/pose",
+    "/user/vive_tracker_htcx/role/right_elbow/input/grip/pose",
 };
-constexpr const char* kRoleName[kRoleCount] = {"waist", "left foot", "right foot"};
+constexpr const char* kRoleName[kRoleCount] = {"waist", "left foot", "right foot", "chest", "left knee", "right knee",
+                                             "left elbow", "right elbow"};
 constexpr const char* kProfile = "/interaction_profiles/htc/vive_tracker_htcx";
 
 bool g_enabled = false, g_available = false;
@@ -107,6 +118,7 @@ void Enumerate() {
 }
 
 void ChooseExtensions(const std::vector<XrExtensionProperties>& available, std::vector<const char*>& enabled) {
+    g_available = false;
     g_enabled = ReadSetting() == 1;
     if (!g_enabled) return;
     for (const auto& p : available)
@@ -191,6 +203,8 @@ void OnSessionDestroying() {
     std::lock_guard lock(g_poseMutex);
     for (auto& p : g_poses) p = {};
     for (auto& h : g_hands) h = {};
+    g_headStageValid = false;
+    g_poseAction = XR_NULL_HANDLE; // the owning action set is destroyed after this callback
 }
 
 void Locate(XrSpace base, XrSpace view, XrTime time, const XrPosef& head) {

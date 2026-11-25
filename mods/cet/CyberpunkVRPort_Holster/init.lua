@@ -35,34 +35,46 @@ local errorAt = -10
 local clock = 0
 
 registerForEvent('onInit', function()
+  Holsters.syncOffensiveMode()
   pcall(Simple.init)
   -- the copies belong to the world the player is in: let them go with it
-  pcall(function() ObserveBefore('PlayerPuppet', 'OnDetach', function() pcall(Holsters.release) end) end)
+  pcall(function() ObserveBefore('PlayerPuppet', 'OnDetach', function()
+    Holsters.resetModeNotice()
+    pcall(Holsters.release)
+  end) end)
 end)
 
 registerForEvent('onUpdate', function(dt)
   dt = dt or 0.016
   clock = clock + dt
   if type(GetVRSharedSlot) ~= 'function' then return end
+  Holsters.syncOffensiveMode(dt)
   local simple = GetVRSharedSlot(23) > 0.5
   local ok, err = pcall(Holsters.update, dt, not simple)
   if not ok and clock - errorAt > 5 then
     errorAt = clock
     print('[Holster] ' .. tostring(err))
   end
-  if simple then pcall(Simple.update, dt) end
+  if simple then pcall(Simple.update, dt, Holsters.wornGearHidden()) end
 end)
 
-registerForEvent('onShutdown', function() pcall(Holsters.release) end)
+registerForEvent('onShutdown', function()
+  pcall(Holsters.release)
+  if type(VRCyberFingerSetOffensiveMode) == 'function' then VRCyberFingerSetOffensiveMode(true) end
+end)
 
 return {
   state = function() return Holsters.state() end,
   -- the VR menu's inventory: a weapon slot's holster (H.slotInfo), its choice, and hiding them all
   slotInfo = function(slot) return Holsters.slotInfo(slot) end,
   setPlace = function(slot, name) return Holsters.setPlace(slot, name) end,
+  wornGearHidden = function() return Holsters.wornGearHidden() end,
+  grenadeHolsterEnabled = function() return Holsters.grenadeHolsterEnabled() end,
+  toggleWornGear = function() return Holsters.toggleWornGear() end,
   hidden = function() return Holsters.hidden() end,
   setHidden = function(on) return Holsters.setHidden(on) end,
   holsters = function() return Holsters end,
+  handBusy = function(side) return Holsters.handBusy(side) end,
   -- GetMod('CyberpunkVRPort_Holster').hot() -> 'ok' or the error; the old module stays if the new one fails
   hot = function()
     local ok, new = pcall(hotLoad, 'modules/holsters')

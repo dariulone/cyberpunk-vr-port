@@ -316,6 +316,7 @@ if (g_VRRecordFK) {
                 // the resting hand -- the capture had photographed its own output. Anything that reads the
                 // animation must run before everything that replaces it.
                 cvr::anim::TwoHandCapture(boneBuf);
+                cvr::anim::FitLeftFirearmGrip(boneBuf);
 
                 // HEAD AIM: the weapon takes the head's orientation. Needs the view packet latched
                 // even when VRIK is not solving, because the packet IS the orientation it applies --

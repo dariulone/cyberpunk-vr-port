@@ -17,6 +17,10 @@
 using Microsoft::WRL::ComPtr;
 using namespace cvr::hud;
 LiveControls g_liveControls{};
+namespace cvr::cyberfinger {
+bool HudVisible(){return true;}
+float HudScale(){return 1.f;}
+}
 extern "C" int CyberpunkVR_RuntimeDiagnostics=0;
 extern "C" std::atomic<uint32_t> CyberpunkVR_HudSubmitRing;
 extern "C" cvr::hud::PoseDebug CyberpunkVR_HudPoseDebug;
@@ -173,11 +177,11 @@ void TestVehicleAnchor() {
     Check(BuildVehicleMinimapPose(wheel,movedCamera,turnedCamera,head,base,1,false,pose) &&
         std::abs(pose.position.x-.48f)<1e-5f && std::abs(pose.position.z-2.9f)<1e-5f,"recenter basis omitted");
     Check(!BuildVehicleMinimapPose(wheel,camera,rotation,head,base,0,false,pose),"zero world scale accepted");
-    // A bike: over the middle of the bars and a hand above them, half a metre from the eye, facing it.
+    // A bike: 8 cm above the bars (upstream's lowered placement), facing the rider.
     {
         const float bars[3]={0,.45f,1.15f};XrPosef straight{{0,0,0,1},{0,1.6f,0}},bike{};
         Check(BuildVehicleMinimapPose(bars,camera,rotation,straight,{{0,0,0,1},{}},1,true,bike),"bike anchor refused");
-        Check(std::abs(bike.position.y-(1.6f+1.15f+.12f-1.6f))<1e-5f && std::abs(bike.position.z+(.45f+.06f))<1e-5f,
+        Check(std::abs(bike.position.y-(1.6f+1.15f+.08f-1.6f))<1e-5f && std::abs(bike.position.z+(.45f+.06f))<1e-5f,
             "bike map not over the bars");
         const auto n=RotateVector(bike.orientation,{0,0,1});
         Check(n.y>.4f && n.z>.6f,"bike map not leaned toward the rider");

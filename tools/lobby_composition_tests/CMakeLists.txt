@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(LobbyCompositionTests LANGUAGES CXX)
+enable_testing()
+add_executable(lobby_composition_tests main.cpp)
+target_include_directories(lobby_composition_tests PRIVATE ../../include)
+target_compile_features(lobby_composition_tests PRIVATE cxx_std_17)
+add_test(NAME lobby_composition_layouts COMMAND lobby_composition_tests)

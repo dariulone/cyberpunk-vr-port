@@ -1,0 +1,11 @@
+; Copy as config/cyberfinger.ini beside the plugin. Restart the game after changing.
+; Opt-in: finger-close grabs with bounded tracking-loss grace and proximity-only
+; world grabs. Requires SteamVR hand skeletons and the app binding in the guide.
+enabled=1
+; HUD size multiplier for CyberFinger, 1.0 to 2.0; restart after changing.
+hud_scale=1.25
+; Raw stick travel for dash/crouch, independent of movement speed mode.
+; 0.50 to 0.95; 0.80 accommodates the measured 0.85 backward travel. Restart.
+stick_action_threshold=0.80
+; Weapon handedness is configured in vrport.ini, not this file. Merge the
+; companion cyberfinger-vrport.ini.example for the left-handed preset.

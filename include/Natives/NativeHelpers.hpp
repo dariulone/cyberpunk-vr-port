@@ -12,6 +12,9 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace RED4ext::anim { struct AnimatedObject; }
+namespace RED4ext::world { struct AnimationSystem; }
+
 // Is this address safe to dereference? The natives walk engine pointers, so every dump guards.
 // Signature copied from the definition in src/Natives/Natives.cpp. I first wrote
 // `const void*` here from memory; it takes a uintptr_t, because the callers are walking

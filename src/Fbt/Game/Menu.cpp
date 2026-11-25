@@ -25,13 +25,19 @@ void DrawSettingsSection() {
             if (UI::Button("Step 2: arms down, look down, then press both triggers (press to cancel)")) CancelCalibration();
             if (UI::IsItemHovered()) UI::SetTooltip("Release both triggers, take the pose, then pull both together.");
         } else {
-            if (UI::Button("Step 3: face the cross: head on its top, arms straight out along its arms, until the countdown ends (press to keep V's arms)")) CancelCalibration();
+            if (UI::Button("Step 3: face the cross: head on its top, arms straight out along its arms, until the countdown ends (press to keep V's arms)")) FinishWithDefaultArms();
             if (UI::IsItemHovered()) UI::SetTooltip("Stand facing the cross; the dots turn green on their marks, then the countdown runs.");
         }
         bool legs = LegsEnabled();
+        bool slimeJoints = SlimeJointsEnabled();
+        if (UI::Checkbox("SlimeVR chest, knees and elbows", &slimeJoints)) SetSlimeJointsEnabled(slimeJoints);
+        if (UI::IsItemHovered()) UI::SetTooltip("Use SlimeVR's anatomical joint trackers, assigned Chest, Left/Right Knee and Left/Right Elbow in SteamVR.\nCalibrate with the chest tracker active. Knees require legs; chest requires spine; elbows require arms.\nMissing optional trackers fall back to the normal IK. Physical Vive trackers need different joint offsets.");
         if (UI::Checkbox("V's legs follow the trackers", &legs)) SetLegsEnabled(legs);
         if (UI::IsItemHovered()) UI::SetTooltip("V's hips and legs follow your waist and foot trackers (needs a calibration).\nThe spine, head and arms stay as before.");
         UI::BeginDisabled(!legs);
+        bool steps = StickStepsEnabled();
+        if (UI::Checkbox("Animate feet during stick movement", &steps)) SetStickStepsEnabled(steps);
+        if (UI::IsItemHovered()) UI::SetTooltip("Adds steps at your in-game walking or running speed. Moving your real feet takes priority.");
         bool spine = SpineEnabled();
         if (UI::Checkbox("V's spine and head follow the headset", &spine)) SetSpineEnabled(spine);
         if (UI::IsItemHovered()) UI::SetTooltip("V's spine bends from your hips to your headset, V's eyes on your view (with the legs on).\nThe arms stay as before.");

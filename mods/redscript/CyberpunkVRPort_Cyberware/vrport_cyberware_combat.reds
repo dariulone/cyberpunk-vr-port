@@ -116,11 +116,12 @@ public func VRCyberwareBeginSwing(weapon: wref<WeaponObject>, side: Int32, stron
   let number: Int32 = side == 0 ? 1 : 0;
   if side < 0 || side > 1 || !IsDefined(weapon) || this.VRHolsterIntentActive(1.00) { return false; };
   item = GameInstance.GetTransactionSystem(this.GetGame()).GetItemInSlot(this, VRLeftHandedWeapon.HeldSlot(this));
-  if !IsDefined(item) || item.GetItemID() != weapon.GetItemID() { return false; };
+  let offhand = side == 0 && this.VRIsOffhandMelee(weapon);
+  if !offhand && (!IsDefined(item) || item.GetItemID() != weapon.GetItemID()) { return false; };
   // Hand-held weapons and fists walk the game's light combo; arm cyberware keeps
   // its per-arm records, which drive the arm animation.
-  let chained = this.VRCyberwareKind(weapon) == 0 && !strong;
-  if this.VRCyberwareKind(weapon) == 0 {
+  let chained = !offhand && this.VRCyberwareKind(weapon) == 0 && !strong;
+  if !offhand && this.VRCyberwareKind(weapon) == 0 {
     if strong { this.VRMeleeChainReset(); } else { attack = this.VRMeleeChainAttack(weapon, number); };
   };
   if strong { attack = weapon.GetAttack(StringToName("MeleeStrongAttack" + IntToString(number))) as Attack_GameEffect; };
@@ -166,17 +167,23 @@ public func VRCyberwareUpdateSwing(weapon: wref<WeaponObject>, side: Int32, spee
 public func VRCyberwareOrdinaryContact(weapon: wref<WeaponObject>, target: wref<GameObject>, contact: Vector4, hit: Vector4, passive: Bool) -> Int32 {
   let swing: ref<VrCyberwareSwing>;
   let touched: Bool;
+  let lane: Int32 = 1;
   if ArraySize(this.vrCyberwareSwings) < 2 || !IsDefined(weapon) || this.VRHolsterIntentActive(1.00) { return 0; };
-  swing = this.vrCyberwareSwings[1];
+  if IsDefined(this.vrCyberwareSwings[0]) && this.vrCyberwareSwings[0].weapon == weapon && this.VRIsOffhandMelee(weapon) { lane = 0; };
+  swing = this.vrCyberwareSwings[lane];
   if !IsDefined(swing) || swing.weapon != weapon { return 0; };
   if !IsDefined(target) { return 0; };
   touched = ArrayContains(swing.targets, target.GetEntityID());
   // Ordinary weapons hit a target once per deliberate stroke. A new physical
   // reversal can cut again without first leaving an oversized body capsule.
   if passive || touched { return 0; };
-  if this.VRCyberwareAttack(swing, contact, hit, 1, target.GetEntityID(), 0.175) {
+  if this.VRCyberwareAttack(swing, contact, hit, lane, target.GetEntityID(), 0.175) {
     ArrayPush(swing.targets, target.GetEntityID());
-    VRHapticEvent(14, VRPortGuardHands(this));   // the blow landed: felt in the hand holding the weapon
+    if lane == 0 {
+      VRHapticEvent(14, VRLeftHandedWeapon.InHand(this) ? 2 : 1);
+    } else {
+      VRHapticEvent(14, VRPortGuardHands(this));
+    };
     return 1;
   };
   return 0;

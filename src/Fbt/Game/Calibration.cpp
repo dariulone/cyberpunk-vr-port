@@ -7,6 +7,7 @@
 #include "Core/VrCoreShared.hpp"
 #include "Hooks/RoomscaleMove.hpp"
 #include "Lobby/MenuLobby.hpp"
+#include "Overlay/VrOverlay.hpp"
 #include <Windows.h>
 #include <atomic>
 #include <algorithm>
@@ -60,8 +61,11 @@ void Progress() { g_lastProgress = GetTickCount64(); }
 std::atomic<float> g_trigger[2]{0.0f, 0.0f};
 bool g_armed = false;
 constexpr float kTriggerOn = 0.8f, kTriggerOff = 0.2f;
-Calibration g_calibration{};
+CalibrationProfile g_active{}, g_candidate{};
+bool g_checkedProfile = false;
 std::mutex g_calibrationMutex;
+// Menu, session teardown and tracker ticks can all finish a calibration.
+std::mutex g_stepsMutex;
 wrpuppets::fbt::Skeleton g_skeleton;
 wrpuppets::fbt::Calibrator g_calibrator;
 bool g_calibratorReady = false;
@@ -103,7 +107,7 @@ struct Cross {
 };
 Cross g_cross;
 std::mutex g_crossMutex;
-void Save(const Calibration& c);
+void CommitCandidate();
 wrpuppets::fbt::RoomPose ToRoomImpl(bool valid, const XrPosef& p);
 CrossView g_crossView;          // the last frame's, for the helpers
 ULONGLONG g_holdStart = 0;      // when all three marks were reached (0 = not held)
@@ -209,11 +213,7 @@ void CrossTick(XrSpace view, XrSpace stage, XrTime time, const Pose hands[2], co
         if (!g_holdStart) { g_holdStart = now; Log("[fbt-calib] step 3: on the cross, countdown\n"); }
         Progress();
         // The widest span over the hold: the arms are straightest there (a bent elbow only shortens it).
-        Calibration c;
-        {
-            std::lock_guard lock(g_calibrationMutex);
-            c = g_calibration;
-        }
+        Calibration c = g_candidate.body;
         if (headOk && g_calibrator.MeasureArmsOut(c, ToRoomImpl(true, headStage.pose), devices) && c.armLength[0] > g_bestArm)
             g_bestArm = c.armLength[0];
         const float held = float(now - g_holdStart) / 1000.0f;
@@ -225,15 +225,12 @@ void CrossTick(XrSpace view, XrSpace stage, XrTime time, const Pose hands[2], co
                     "shoulders, or the arms' length out of 0.6..1.5 x V's): hold it again\n");
                 Refuse(kRefuseArm);
             } else {
-                {
-                    std::lock_guard lock(g_calibrationMutex);
-                    g_calibration.armLength[0] = g_calibration.armLength[1] = g_bestArm;
-                    c = g_calibration;
-                }
+                c.armLength[0] = c.armLength[1] = g_bestArm;
+                g_candidate.body = c;
                 Accept();
                 Log("[fbt-calib] step 3 captured: arms %.3f m each (V's scale, from the widest span) -> V's arms x %.3f / x %.3f. "
                     "Calibrated\n", g_bestArm, g_calibrator.ArmScale(c, 0), g_calibrator.ArmScale(c, 1));
-                Save(c);
+                CommitCandidate();
                 g_step.store(0, std::memory_order_relaxed);
                 Log("[fbt-calib] calibration mode off\n");
             }
@@ -274,24 +271,42 @@ wrpuppets::fbt::RoomPose ToRoomImpl(bool valid, const XrPosef& p) {
     return r;
 }
 
-void Save(const Calibration& c) {
-    const std::string path = cvr::paths::FileA(cvr::paths::Folder::Config, "fbt_calibration.ini");
-    FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "w") != 0 || !f) { Log("[fbt-calib] could not write %s\n", path.c_str()); return; }
-    fprintf(f, "; Full-body tracking calibration (src/Fbt/FbtCalibration). Room = STAGE in V's model axes, metres.\n");
-    fprintf(f, "version=2\nscale=%.7f\nplayer_eye_height=%.5f\nv_eye_height=%.5f\n", c.scale, c.playerEyeHeight, c.avatarEyeHeight);
-    fprintf(f, "origin=%.6f,%.6f,%.6f\nyaw_inverse=%.7f,%.7f,%.7f,%.7f\nhead_rot_inverse=%.7f,%.7f,%.7f,%.7f\n", c.origin.x, c.origin.y,
-            c.origin.z, c.yawInverse.x, c.yawInverse.y, c.yawInverse.z, c.yawInverse.w, c.headRotInverse.x, c.headRotInverse.y,
-            c.headRotInverse.z, c.headRotInverse.w);
-    fprintf(f, "arm_length=%.5f,%.5f\n", c.armLength[0], c.armLength[1]);
-    const char* key[wrpuppets::fbt::kCalCount] = {"waist", "left_foot", "right_foot", "left_hand", "right_hand"};
-    for (int i = 0; i < wrpuppets::fbt::kCalCount; ++i) {
-        if (!c.valid[i]) continue;
-        fprintf(f, "%s_offset=%.6f,%.6f,%.6f\n%s_rot_inverse=%.7f,%.7f,%.7f,%.7f\n", key[i], c.offset[i].x, c.offset[i].y, c.offset[i].z,
-                key[i], c.rotInverse[i].x, c.rotInverse[i].y, c.rotInverse[i].z, c.rotInverse[i].w);
+std::filesystem::path ProfilePath() {
+    return cvr::paths::File(cvr::paths::Folder::Config, L"fbt_calibration.ini");
+}
+
+// Called with g_calibrationMutex held. A legacy file is read as-is until the next capture.
+void RestoreOnce() {
+    if (g_checkedProfile) return;
+    g_checkedProfile = true;
+    const auto result = LoadCalibrationProfile(ProfilePath(), g_active);
+    if (result == ProfileRead::Loaded) {
+        ++g_active.chest.revision;
+        Log("[fbt-calib] restored fbt_calibration.ini: eye height %.3f m, arms %.3f/%.3f m, chest %s\n",
+            g_active.body.playerEyeHeight, g_active.body.armLength[0], g_active.body.armLength[1],
+            g_active.chest.valid ? "calibrated" : "absent from file");
+    } else if (result == ProfileRead::Invalid) {
+        Log("[fbt-calib] unreadable or invalid fbt_calibration.ini; use Calibrate full-body tracking in F10\n");
     }
-    fclose(f);
-    Log("[fbt-calib] saved %s\n", path);
+}
+
+void CommitCandidate() {
+    if (!SaveCalibrationProfile(ProfilePath(), g_candidate)) {
+        Log("[fbt-calib] could not save new profile; previous calibration retained\n");
+        return;
+    }
+    std::lock_guard lock(g_calibrationMutex);
+    g_candidate.chest.revision = g_active.chest.revision + 1;
+    g_active = g_candidate;
+    g_checkedProfile = true;
+    Log("[fbt-calib] saved fbt_calibration.ini (chest %s)\n", g_active.chest.valid ? "calibrated" : "absent");
+}
+
+// Before there is a previous calibration, step 2 alone is usable with V's default arms.
+void FinishInterruptedBodyCapture() {
+    Calibration previous;
+    if (ReadCalibration(&previous)) Log("[fbt-calib] incomplete recalibration; keeping previous profile\n");
+    else CommitCandidate();
 }
 
 void CalibrationStepTick(XrSpace view, XrSpace g_stage, XrTime time, const Pose poses[kRoleCount], const Pose hands[2]) {
@@ -387,10 +402,19 @@ void CalibrationStepTick(XrSpace view, XrSpace g_stage, XrTime time, const Pose 
         }
         Accept();
         Progress();
-        c.armLength[0] = c.armLength[1] = 0;   // a hanging length is not a scale: step 2 measures the arms
+        c.armLength[0] = c.armLength[1] = 0;   // step 3 measures the arms
+        g_candidate = {};
+        g_candidate.body = c;
         {
-            std::lock_guard lock(g_calibrationMutex);
-            g_calibration = c;
+            const int chest = g_skeleton.Role("spine3");
+            if (chest >= 0 && poses[cvr::trackers::kChest].stageValid) {
+                const auto room = ToRoomImpl(true, poses[cvr::trackers::kChest].stage);
+                const auto ref = g_skeleton.ReferencePose();
+                g_candidate.chest.valid = true;
+                g_candidate.chest.offset = ref.modelPos[chest] - g_calibrator.ToModel(c, room.pos);
+                g_candidate.chest.rotationInverse = wrpuppets::fbt::Conjugate(wrpuppets::fbt::Normalize(c.yawInverse * room.rot));
+                g_candidate.chest.referenceRotation = ref.modelRot[chest];
+            }
         }
         Log("[fbt-calib] step 2 captured: player eye height %.3f m, V's %.3f m -> scale %.4f; waist %s, feet %s/%s, hands %s/%s. "
             "Now the T-pose on the cross\n", c.playerEyeHeight, c.avatarEyeHeight, c.scale,
@@ -398,8 +422,8 @@ void CalibrationStepTick(XrSpace view, XrSpace g_stage, XrTime time, const Pose 
             c.valid[wrpuppets::fbt::kCalRightFoot] ? "ok" : "MISSING", c.valid[wrpuppets::fbt::kCalLeftHand] ? "ok" : "missing",
             c.valid[wrpuppets::fbt::kCalRightHand] ? "ok" : "missing");
         if (!SetUpCross(c, poses[kLeftFoot], poses[kRightFoot])) {
-            Log("[fbt-calib] V's reference is not available for the cross: arms not measured, V's kept. Calibrated\n");
-            Save(c);
+            Log("[fbt-calib] V's reference is not available for the cross: arms not measured\n");
+            FinishInterruptedBodyCapture();
             g_step.store(0, std::memory_order_relaxed);
             return;
         }
@@ -407,9 +431,17 @@ void CalibrationStepTick(XrSpace view, XrSpace g_stage, XrTime time, const Pose 
         return;
     }
 }
+
+void CancelSteps() {
+    const int step = g_step.exchange(0, std::memory_order_relaxed);
+    if (step) Log("[fbt-calib] calibration cancelled at step %d\n", step);
+    if (step == 3) FinishInterruptedBodyCapture();
+}
 }  // namespace
 
 void CalibrationTick(XrSpace view, XrSpace stage, XrTime time, const Pose poses[kRoleCount], const Pose hands[2]) {
+    std::lock_guard lock(g_stepsMutex);
+    if (!Calibrating()) return;
     const ULONGLONG now = GetTickCount64();
     const uintptr_t player = cvr::roomscale::PlayerIdentity();
     g_menuSince = g_menuModeValue != 0 ? (g_menuSince ? g_menuSince : now) : 0;
@@ -418,7 +450,7 @@ void CalibrationTick(XrSpace view, XrSpace stage, XrTime time, const Pose poses[
                     : now - g_lastProgress > 120000 ? "2 minutes without a step" : nullptr;
     if (why) {
         Log("[fbt-calib] calibration cancelled: %s\n", why);
-        CancelCalibration();
+        CancelSteps();
         return;
     }
     CalibrationStepTick(view, stage, time, poses, hands);
@@ -427,8 +459,13 @@ void CalibrationTick(XrSpace view, XrSpace stage, XrTime time, const Pose poses[
 bool CalibrationAvailable() { return !cvr::lobby::Active() && cvr::roomscale::PlayerIdentity() != 0; }
 
 void StartCalibration() {
+    std::lock_guard lock(g_stepsMutex);
+    if (Calibrating()) return;
     if (!CalibrationAvailable()) { Log("[fbt-calib] not started: the full-body calibration runs in game only (load a save)\n"); return; }
     if (!cvr::trackers::Running()) { Log("[fbt-calib] Vive trackers are off (xr_vive_trackers=0): nothing to calibrate\n"); return; }
+    // The F10 canvas replaces the world overlay that draws the horizon and cross.
+    // Resume the game through the same bridge as closing F10 by hand.
+    if (cvr::vrui::Visible()) cvr::vrui::Close();
     g_armed = false;
     Accept();
     g_calibrationPlayer = cvr::roomscale::PlayerIdentity();
@@ -442,17 +479,14 @@ void StartCalibration() {
     else Log("[fbt-calib] V's reference pose is not available yet\n");
 }
 void CancelCalibration() {
-    const int step = g_step.exchange(0, std::memory_order_relaxed);
-    if (step == 1 || step == 2) Log("[fbt-calib] calibration cancelled\n");
-    if (step == 3) {
-        Calibration c;
-        {
-            std::lock_guard lock(g_calibrationMutex);
-            c = g_calibration;
-        }
-        Save(c);
-        Log("[fbt-calib] arms step cancelled: an arm not measured keeps V's length\n");
-    }
+    std::lock_guard lock(g_stepsMutex);
+    CancelSteps();
+}
+void FinishWithDefaultArms() {
+    std::lock_guard lock(g_stepsMutex);
+    if (CalibrationStep() != 3) return;
+    CommitCandidate();
+    g_step.store(0, std::memory_order_relaxed);
 }
 bool ReadCross(CrossView* out) {
     if (g_step.load(std::memory_order_relaxed) != 3 || !out) return false;
@@ -491,10 +525,12 @@ std::string RefusalText() {
 void NoteTrigger(int hand, float value) {
     if (hand == 0 || hand == 1) g_trigger[hand].store(value, std::memory_order_relaxed);
 }
-bool ReadCalibration(Calibration* out) {
+bool ReadCalibration(Calibration* out, ChestCalibration* chest) {
     std::lock_guard lock(g_calibrationMutex);
-    if (!out || !g_calibration.done) return false;
-    *out = g_calibration;
+    RestoreOnce();
+    if (!out || !g_active.body.done) return false;
+    *out = g_active.body;
+    if (chest) *chest = g_active.chest;
     return true;
 }
 

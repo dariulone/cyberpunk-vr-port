@@ -3,6 +3,8 @@
 [![Full-body tracking in Cyberpunk 2077 VR: the calibration and walking around](https://img.youtube.com/vi/tEELPU7dMhs/maxresdefault.jpg)](https://www.youtube.com/watch?v=tEELPU7dMhs)
 
 Three Vive Trackers (waist, left foot, right foot) drive V's legs, hips and spine, and V's arms reach the controllers.
+Optional SlimeVR chest, knee and elbow targets are described in the
+[CyberFinger / SlimeVR patch guide](../../../docs/cyberfinger-patch.md).
 Without trackers, or before a calibration, nothing changes: the port runs as it does without this folder.
 
 The full-body IK is the [wrpuppets-fbt-ik](https://github.com/Syncher-source/wrpuppets-fbt-ik) library (MIT,
@@ -15,12 +17,14 @@ outside the game, records and replays sessions: FBT bug reports go there, with a
 1. In SteamVR, *Manage Vive Trackers*: give each tracker its role, **Waist**, **Left Foot** and **Right Foot**. The
    trackers are found by these roles (OpenXR `XR_HTCX_vive_tracker_interaction`), not by their order.
 2. `xr_vive_trackers=1` in `vrport.ini` (read at the start of the session).
-3. Load a save, then *Calibrate full-body tracking* in the settings (in game only, not in the lobby), at every
-   session: belts and straps move.
+3. Load a save. The plugin restores the last calibration from `config/fbt_calibration.ini`.
+   Choose *Calibrate full-body tracking* the first time or when the tracker mounts or floor height change.
    1. look ahead at the horizon line, both triggers: eye height and heading;
    2. arms along the body, look down, both triggers: scale and the trackers' offsets to V's hips and feet;
    3. the T-pose on the cross drawn in front of you (centred on your feet): head on its top, arms along its arms,
-      until the 4 s countdown ends: the arms' length.
+      until the 4 s countdown ends: the arms' length. Finishing replaces the saved calibration. The step 3
+      button explicitly accepts V's default arm lengths instead. An interrupted retry preserves the last profile.
+      Older version 2 profiles restore the body and arms. A new capture also records an active chest tracker.
 
 Switches in `fbt_settings.ini` (and the settings): V's legs follow the trackers; V's spine and head follow the headset;
 V's arms on the full-body IK.

@@ -3,6 +3,7 @@ project(NativeFramegenTests LANGUAGES CXX)
 enable_testing()
 add_test(NAME framegen_presentation_period COMMAND framegen_tests presentation_period)
 set(root "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(OPENXR_INCLUDE_DIR "${root}/build/_deps/openxr-src/include" CACHE PATH "OpenXR headers")
 # The main build's pinned SDKs (cmake/NativeFramegen.cmake); pass -DCVR_SDK_BUILD=<its build dir> for another one.
 set(CVR_SDK_BUILD "${root}/build/patchday/sdk25-build" CACHE PATH "Main build folder holding fidelityfx-native and dlss-sdk")
 set(sdk "${CVR_SDK_BUILD}/fidelityfx-native/sdk")
@@ -16,7 +17,7 @@ add_executable(framegen_tests main.cpp replay.cpp
 target_compile_features(framegen_tests PRIVATE cxx_std_20)
 target_compile_definitions(framegen_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12)
 find_path(CVR_OPENXR_INCLUDE openxr/openxr.h HINTS
-    "${CVR_SDK_BUILD}/_deps/openxr-src/include" "${root}/build/_deps/openxr-src/include" REQUIRED)
+    "${OPENXR_INCLUDE_DIR}" "${CVR_SDK_BUILD}/_deps/openxr-src/include" "${root}/build/_deps/openxr-src/include" REQUIRED)
 target_include_directories(framegen_tests PRIVATE ${root}/include ${CVR_OPENXR_INCLUDE}
     ${sdk}/include ${root}/externals/nvidia-optical-flow)
 target_compile_options(framegen_tests PRIVATE /Zi)

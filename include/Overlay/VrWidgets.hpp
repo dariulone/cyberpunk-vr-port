@@ -10,5 +10,5 @@ bool Combo(const char* label,int* selected,const char* const* items,int count,in
 bool Combo(const char* label,int* selected,const char* zeroSeparatedItems,int height=-1);
 void Section(const char* label);
 void Tabs(const char* id,int& selected,const char* const* labels,int count);
-void DrawBindings();
+void DrawBindings(bool cyberfinger=false);
 }

@@ -62,6 +62,9 @@ void OnSessionDestroying();
 // Per frame and hand (0 = left, 1 = right): measures the fingers; -1 = finger tracking off or no finger data yet, else
 // the grip from them, 0 or 1 (the caller uses it only with GripFromFingers()).
 int Evaluate(int hand, XrSpace base, XrTime time);
+// CyberFinger: bounded tracking-loss/release grace, no physical-grip fallback.
+// Evaluate must have run for this hand in the same frame.
+float ProximityValue(int hand, bool poseValid, bool allowStart=true);
 // xr_grip_from_fingers: the grip input from the fingers' position instead of the grip sensor. Live; any thread.
 bool GripFromFingers();
 void SetGripFromFingers(bool on);
@@ -69,6 +72,7 @@ void SetGripFromFingers(bool on);
 // ring, little; 0 = straight, 1 = fully bent. False until that hand has sent finger data; then the last values.
 // Any thread.
 bool TrackedCurl(int hand, float curl[5]);
+bool BothGripsFresh();
 // The finger spread for V's hand (xr_finger_spread): thumb-index, index-middle, middle-ring, ring-little, 0 touching ..
 // 1 apart, measured from the hand joints. False when none is fresher than 250 ms. Any thread.
 bool TrackedSplay(int hand, float splay[4]);

@@ -3,7 +3,6 @@
 #include "Overlay/LiveControlsUi.hpp"
 #include "Core/LiveControls.hpp"
 LiveControls g_liveControls{};
-namespace cvr::fingergrip { bool GripFromFingers(){return false;} }
 
 extern "C" void GetLiveControlsUiState(LiveControlsUiState* outState) {
     if (outState) *outState = LiveControlsUiState{};

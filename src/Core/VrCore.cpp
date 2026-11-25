@@ -1,5 +1,6 @@
 #include "Utils/DebugGate.hpp"
 #include "Core/Paths.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
 #include <windows.h>
 #include "Stereo/VrcamConfig.hpp"   // cname_hash, for the device camera name
 #include "Stereo/EngineStereo.hpp"
@@ -102,30 +103,47 @@ void WriteVrikSettingsFile() {
 
 extern "C" int GetLauncherEngineStereo();
 
+// The choice must precede engine hooks, game settings and external script registration.
+bool ChooseDesktopForThisLaunch() {
+    LoadLauncherConfig();
+    if (!g_launcherShow) return false;
+    // Read only the fields displayed in the dialog. The full live-controls poll can
+    // configure render hooks and write preferences, so defer it until VR is chosen.
+    if (FILE* file = _fsopen(g_liveControlPath, "r", _SH_DENYNO)) {
+        char line[256];
+        int value;
+        while (fgets(line, sizeof(line), file)) {
+            if (sscanf_s(line, "xr_runtime = %d", &value) == 1) g_liveControls.xrRuntime = ClampRuntimeMode(value);
+            if (sscanf_s(line, "xr_lobby = %d", &value) == 1) cvr::lobby::SetEnabled(value != 0);
+            if (sscanf_s(line, "xr_vr_interface = %d", &value) == 1) g_liveControls.xrVrInterface = value != 0;
+            if (sscanf_s(line, "xr_hand_physics = %d", &value) == 1) g_liveControls.xrHandPhysics = value != 0;
+        }
+        fclose(file);
+    }
+    return ShowLauncherDialog() != 0;
+}
+
 extern "C" void PrepareStartupLiveControls() {
-    static bool g_dialogShown = false;
+    static bool unattendedWaitHandled = false;
     EnsureLiveControlFileExists();
     PollLiveControls();
     LoadLauncherConfig();
 
-    if (!g_dialogShown) {
-        g_dialogShown = true;
-        if (g_launcherShow) ShowLauncherDialog();
-        else {
-            // A pick from a ladder that has since been reshaped names a VRCAM component that no longer
-            // exists, and an entry only engine stereo offers has none: no second eye. The dialog would move it;
-            // without the dialog, move it here.
-            const int savedWidth = g_launcherWidth, savedHeight = g_launcherHeight;
-            const bool keepCustom = g_launcherCustomRes && GetLauncherEngineStereo();
-            if (!keepCustom && SnapLauncherResolution(g_launcherHmdType, &g_launcherWidth, &g_launcherHeight)) {
-                Log("Launcher: %dx%d is not in HMD type %d's ladder -> %dx%d (nearest in cost)\n",
-                    savedWidth, savedHeight, g_launcherHmdType, g_launcherWidth, g_launcherHeight);
-                SaveLauncherConfig(g_launcherWidth, g_launcherHeight);
-            }
-            Log("Launcher skipped (show_launcher=0): %dx%d, HMD type %d; startup wait %d ms\n",
-                g_launcherWidth, g_launcherHeight, g_launcherHmdType, g_launcherDelayMs);
-            WaitForLauncherStartup(static_cast<unsigned int>(g_launcherDelayMs));
+    if (!g_launcherShow && !unattendedWaitHandled) {
+        unattendedWaitHandled = true;
+        // A pick from a ladder that has since been reshaped names a VRCAM component that no longer
+        // exists, and an entry only engine stereo offers has none: no second eye. The dialog would move it;
+        // without the dialog, move it here.
+        const int savedWidth = g_launcherWidth, savedHeight = g_launcherHeight;
+        const bool keepCustom = g_launcherCustomRes && GetLauncherEngineStereo();
+        if (!keepCustom && SnapLauncherResolution(g_launcherHmdType, &g_launcherWidth, &g_launcherHeight)) {
+            Log("Launcher: %dx%d is not in HMD type %d's ladder -> %dx%d (nearest in cost)\n",
+                savedWidth, savedHeight, g_launcherHmdType, g_launcherWidth, g_launcherHeight);
+            SaveLauncherConfig(g_launcherWidth, g_launcherHeight);
         }
+        Log("Launcher skipped (show_launcher=0): %dx%d, HMD type %d; startup wait %d ms\n",
+            g_launcherWidth, g_launcherHeight, g_launcherHmdType, g_launcherDelayMs);
+        WaitForLauncherStartup(static_cast<unsigned int>(g_launcherDelayMs));
     }
 }
 
@@ -181,12 +199,7 @@ extern "C" int GetLauncherDebug() {
 extern "C" int GetLauncherEngineStereo() {
     return cvr::engine_stereo::Enabled() ? 1 : 0;
 }
-// Re-arms the gate on the spot. The plugin loads vrport-launcher.ini during RED4ext Main,
-// which is long before the launcher dialog can be shown (that happens at swapchain
-// creation), so the startup gate necessarily runs on the PREVIOUS session's value. Applying
-// again here is what makes ticking the box take effect in the session you ticked it in,
-// instead of the next one -- the same one-launch-behind trap the resolution pick had.
-
+// Apply the selected debug mode before the VR hooks begin this launch.
 extern "C" void SetLauncherDebugAndPersist(int on) {
     g_launcherDebug = on != 0 ? 1 : 0;
     SaveLauncherConfig(g_launcherWidth, g_launcherHeight);
@@ -1515,7 +1528,7 @@ extern "C" uint32_t GetRenderedCameraSeq() {
 
 
 extern "C" int GetMenuMode() {
-    return g_menuModeValue;
+    return g_menuModeValue?g_menuModeValue:(cvr::cyberfinger::Context()==cvr::cyberfinger::MenuContext::PictureFrame?1:0);
 }
 
 void NormalizeQuat(float& x, float& y, float& z, float& w) {

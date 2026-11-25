@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
 project(VrikChainTests LANGUAGES CXX)
 enable_testing()
+set(OPENXR_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../build/_deps/openxr-src/include" CACHE PATH "OpenXR SDK headers")
+add_executable(vrik_mirror_pose mirror_pose.cpp)
+target_compile_features(vrik_mirror_pose PRIVATE cxx_std_20)
+target_include_directories(vrik_mirror_pose PRIVATE ../../include "${OPENXR_INCLUDE_DIR}")
+add_test(NAME vrik_mirror_proportions COMMAND vrik_mirror_pose "${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 set(VR_CHAIN_CHARACTER_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Anim/CharacterRig.cpp" CACHE FILEPATH "Solver source (override only for regression probes)")
 set(VR_CHAIN_SNAPSHOT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../src/Anim/HandSnapshot.cpp" CACHE FILEPATH "Packet reader source (override only for regression probes)")
 add_executable(vrik_chain_tests main.cpp stubs.cpp
@@ -8,7 +13,7 @@ add_executable(vrik_chain_tests main.cpp stubs.cpp
 target_compile_features(vrik_chain_tests PRIVATE cxx_std_20)
 target_include_directories(vrik_chain_tests PRIVATE ../../include
     ../../externals/RED4ext.SDK/include ../../externals/minhook/include
-    ../../build/_deps/openxr-src/include ../../build/_deps/imgui-src)
+    "${OPENXR_INCLUDE_DIR}" ../../build/_deps/imgui-src)
 target_compile_definitions(vrik_chain_tests PRIVATE
     NOMINMAX WIN32_LEAN_AND_MEAN XR_USE_PLATFORM_WIN32 XR_USE_GRAPHICS_API_D3D12
     VR_CHAIN_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")

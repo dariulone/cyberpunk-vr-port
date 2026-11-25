@@ -14,6 +14,7 @@
 // of half-applied states, which is visible in the headset.
 
 #include "Anim/WheelGrab.hpp"
+#include "Anim/FaceTracking.hpp"
 #include "Anim/WheelRange.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
 #include "Anim/VehiclePosePolicy.hpp"
@@ -23,6 +24,10 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/EyeTracking.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/CyberFingerUi.hpp"
+#include "Runtimes/CyberFingerHolsterTypes.hpp"
 #include "Fbt/Game/Menu.hpp"
 extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
@@ -178,6 +183,7 @@ bool DrawFovControl(LiveControlsUiState& state) {
 // shared memory (OpenXRManager::SetVRHandCalib). Defaults mirror the plugin's
 // baked calibration so the rig behaves identically before anything is touched.
 void DrawVRHandsControls() {
+    cvr::face::DrawSettings();
     // Tracking toggle (writes shared-mem slot [32]; plugin installs hooks + arms
     // and sets g_VRBind = this value). Must be 4 = full-arm IK (the mode the CET
     // "Start VR Tracking" button uses). Mode 2 is the legacy direct bone-write
@@ -839,27 +845,33 @@ static bool DrawDrivingControls(LiveControlsUiState& state) {
                 }
 
                 UI::Spacing();
-                changed |= CheckboxInt("Trigger fires the gun while driving", &state.xrVehicleGunTrigger);
-                if (UI::IsItemHovered()) {
-                    UI::SetTooltip(
-                        "Draw a weapon in the driver seat and the RIGHT TRIGGER stops being the\n"
-                        "throttle and becomes the gun: drive with the left hand on the wheel and\n"
-                        "shoot with the right.\n\n"
-                        "The throttle LATCHES at whatever it was when the weapon came out, so the\n"
-                        "car keeps rolling, and the LEFT STICK forward/back trims that speed while\n"
-                        "you shoot. Holster the weapon and the trigger is the throttle again.\n\n"
-                        "While the weapon is out the left stick's forward/back is taken by the\n"
-                        "trim: no lean / rock and no autodrive gesture until you holster.");
-                }
-                float tt = state.xrVehicleThrottleTrim > 0.0f ? state.xrVehicleThrottleTrim : 0.5f;
-                if (widgets::SliderFloat("Throttle trim rate (/s)", &tt, 0.05f, 3.0f, "%.2f")) {
-                    state.xrVehicleThrottleTrim = tt;
-                    changed = true;
-                }
-                if (UI::IsItemHovered()) {
-                    UI::SetTooltip("How much of the throttle's full travel the left stick adds or\n"
-                                      "removes per second while a weapon is out.\n"
-                                      "0.5 = two seconds held to go from idle to floored.");
+                if (cvr::cyberfinger::Enabled()) {
+                    changed |= CheckboxInt("Weapon-hand Trigger fires while driving", &state.xrVehicleGunTrigger);
+                    if (UI::IsItemHovered())
+                        UI::SetTooltip("Right stick forward accelerates, back brakes or reverses. The other Trigger aims a drawn gun.");
+                } else {
+                    changed |= CheckboxInt("Trigger fires the gun while driving", &state.xrVehicleGunTrigger);
+                    if (UI::IsItemHovered()) {
+                        UI::SetTooltip(
+                            "Draw a weapon in the driver seat and the RIGHT TRIGGER stops being the\n"
+                            "throttle and becomes the gun: drive with the left hand on the wheel and\n"
+                            "shoot with the right.\n\n"
+                            "The throttle LATCHES at whatever it was when the weapon came out, so the\n"
+                            "car keeps rolling, and the LEFT STICK forward/back trims that speed while\n"
+                            "you shoot. Holster the weapon and the trigger is the throttle again.\n\n"
+                            "While the weapon is out the left stick's forward/back is taken by the\n"
+                            "trim: no lean / rock and no autodrive gesture until you holster.");
+                    }
+                    float tt = state.xrVehicleThrottleTrim > 0.0f ? state.xrVehicleThrottleTrim : 0.5f;
+                    if (widgets::SliderFloat("Throttle trim rate (/s)", &tt, 0.05f, 3.0f, "%.2f")) {
+                        state.xrVehicleThrottleTrim = tt;
+                        changed = true;
+                    }
+                    if (UI::IsItemHovered()) {
+                        UI::SetTooltip("How much of the throttle's full travel the left stick adds or\n"
+                                          "removes per second while a weapon is out.\n"
+                                          "0.5 = two seconds held to go from idle to floored.");
+                    }
                 }
 
                 // LIVE STATE, so "it did not grab" and "it steers the wrong way" are both answerable
@@ -1115,13 +1127,13 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                     UI::Text("DLSS GPU: native %.2f ms / foveated %.2f ms",status.nativeMs,status.totalMs);
                 }
             }
-            changed|=CheckboxInt("Shared sun shadows",&state.monoCascades);
-            if(UI::IsItemHovered())UI::SetTooltip("Render sun cascades once for both eyes. Shadow quality and distance remain controlled by the game.");
-            changed|=SliderIntClamped("Scope lens stabilization",&state.scopeStabilize,0,100);
-            if(UI::IsItemHovered())UI::SetTooltip("Magnifying scope lenses while the view moves: share of the stabilised image (percent). Higher: no blinking of lights and grates, softer. 0 = off. Standing still the lens is untouched.");
             if (UI::CollapsingHeader("VARIABLE RATE SHADING", ImGuiTreeNodeFlags_DefaultOpen)) {
                 UI::PushID("fixedVrs");
                 auto& v=state.vrs;
+                if(UI::Checkbox("Eye-tracked foveated rendering",&v.eyeTracked)) {
+                    changed=true;if(v.eyeTracked && !v.mode)v.mode=1;
+                }
+                if(UI::IsItemHovered())UI::SetTooltip("Move the full-quality region with your eyes. Requires eye tracking shared with OpenXR and VRS Tier 2. Missing gaze restores full quality. Uses the shading settings below, independently of DLSS.");
                 changed|=widgets::Combo("Peripheral shading",&v.mode,"Off\0 2 x 2\0 4 x 4\0");
                 if(UI::IsItemHovered())UI::SetTooltip("Opaque scene materials in both eyes. The center stays 1 x 1. Unsupported 4 x 4 falls back to 2 x 2.");
                 UI::BeginDisabled(v.mode==0);
@@ -1129,18 +1141,31 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 changed|=widgets::SliderFloat("Center height",&v.height,20,100,"%.1f %%");
                 v=cvr::vrs::Normalize(v);
                 const float x=(100-v.width)*.5f,y=(100-v.height)*.5f;
-                UI::BeginDisabled(x==0);changed|=widgets::SliderFloat("Center offset X",&v.offsetX,-x,x,"%.1f %%");UI::EndDisabled();
-                UI::BeginDisabled(y==0);changed|=widgets::SliderFloat("Center offset Y",&v.offsetY,-y,y,"%.1f %%");UI::EndDisabled();
+                UI::BeginDisabled(v.eyeTracked || x==0);changed|=widgets::SliderFloat("Center offset X",&v.offsetX,-x,x,"%.1f %%");UI::EndDisabled();
+                UI::BeginDisabled(v.eyeTracked || y==0);changed|=widgets::SliderFloat("Center offset Y",&v.offsetY,-y,y,"%.1f %%");UI::EndDisabled();
                 UI::EndDisabled();
                 const auto s=cvr::vrs::GetStatus();
+                if(v.eyeTracked && v.mode) {
+                    const auto tracking=cvr::eye_tracking::GetState();
+                    if(tracking==cvr::eye_tracking::State::Unavailable)UI::TextDisabled("Eye tracking unavailable from OpenXR; full quality");
+                    else if(tracking==cvr::eye_tracking::State::Error)UI::TextDisabled("Eye tracking initialization failed; full quality");
+                    else if(tracking==cvr::eye_tracking::State::ProjectionUnavailable)UI::TextDisabled("Eye tracking needs asymmetric projection; full quality");
+                    else if(!s.gazeFresh)UI::TextDisabled("Waiting for eye tracking; full quality");
+                    else UI::TextDisabled("Eye tracking active");
+                }
                 if(v.mode) {
                     if(s.failed)UI::TextDisabled("Unavailable: GPU resource error");
                     else if(s.checked && !s.supported)UI::TextDisabled("VRS Tier 2 unavailable");
-                    else if(!s.readyMaps)UI::TextDisabled("Preparing");
+                    else if(cvr::engine_stereo::Enabled() && !v.eyeTracked)UI::TextDisabled("Fixed shading needs legacy stereo; enable eye tracking for native stereo");
+                    else if(!s.readyMaps)UI::TextDisabled("Preparing shading maps; full quality until ready");
                     else UI::TextDisabled("%s | %u px tiles",v.mode==2 && s.additionalRates?"4 x 4":"2 x 2",s.tileSize);
                 }
                 UI::PopID();
             }
+            changed|=CheckboxInt("Shared sun shadows",&state.monoCascades);
+            if(UI::IsItemHovered())UI::SetTooltip("Render sun cascades once for both eyes. Shadow quality and distance remain controlled by the game.");
+            changed|=SliderIntClamped("Scope lens stabilization",&state.scopeStabilize,0,100);
+            if(UI::IsItemHovered())UI::SetTooltip("Magnifying scope lenses while the view moves: share of the stabilised image (percent). Higher: no blinking of lights and grates, softer. 0 = off. Standing still the lens is untouched.");
             // The hidden-area mask is not offered in the settings (the VR menu's settings are this panel): it stays
             // reachable through xr_hidden_area / xr_hidden_area_radius in vrport.ini only.
             if (UI::CollapsingHeader("GAME MENUS", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1226,7 +1251,17 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
         }
 
         if (section>=0 ? section==2 : UI::BeginTabItem("HUD")) {
+            if(cvr::cyberfinger::Enabled()) {
+                bool hidden=cvr::cyberfinger::HudHidden();
+                if(UI::Checkbox("Hide HUD (CyberFinger)",&hidden))cvr::cyberfinger::SetHudHidden(hidden);
+                if(UI::IsItemHovered())UI::SetTooltip("Same preference as holding both Menu buttons for 0.5 seconds.\nResets when the game restarts. Dialogue, subtitles, interactions and cinematics temporarily reveal the HUD.");
+                if(const auto* reason=cvr::cyberfinger::HudRevealReason())
+                    UI::TextWrapped("HUD temporarily shown: %s. It will hide again when this ends.",reason);
+                else UI::TextDisabled(hidden?"HUD hidden during gameplay":"HUD shown during gameplay");
+                UI::Separator();
+            }
             changed |= CheckboxInt("Enable HUD panel", &state.xrHudPanel);
+            if(UI::IsItemHovered())UI::SetTooltip("Use the VR panel to render the HUD.\nTurning this off restores native HUD rendering; it does not hide the HUD.");
             const char* followModes[] = {"Head / free-look cone", "Body rotation"};
             changed |= widgets::Combo("Follow", &state.xrHudFollowMode, followModes, 2);
             UI::BeginDisabled(state.xrHudFollowMode != 0);
@@ -1291,7 +1326,7 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             static const char* pages[]={"GENERAL","DRIVING","BINDINGS"};
             widgets::Tabs("controls-pages",page,pages,3);
             if(page==1)changed|=DrawDrivingControls(state);
-            else if(page==2)widgets::DrawBindings();
+            else if(page==2)widgets::DrawBindings(cvr::cyberfinger::Enabled());
             else {
             UI::TextWrapped("Movement, weapon aiming and physical interaction shortcuts.");
 
@@ -1461,20 +1496,46 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             }
 
             UI::Separator();
-            UI::TextUnformatted("Weapon holsters (reach + right grip)");
+            UI::TextUnformatted("Weapon holsters");
+            if (cvr::cyberfinger::Configured()) {
+                changed |= CheckboxInt("CyberFinger gun gesture holstering", &state.xrCyberFingerGunGestureHolstering);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("Close the weapon hand at its holster to put away a gun. Off by default.");
+                changed |= CheckboxInt("CyberFinger melee gesture holstering", &state.xrCyberFingerMeleeGestureHolstering);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("Bring the closed sword hand to the scabbard and open it there. Hold the first scabbard with your other hand. For the second blade, keep that other hand near the scabbard. At other holsters, close the weapon hand to stow. Drawing works with either setting.");
+                changed |= CheckboxInt("CyberFinger swords in right hand", &state.xrCyberFingerRightHandSwords);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("Draw swords in the right hand with either weapon-hand preference. The automatic sword holster uses the left hip.");
+                changed |= CheckboxInt("Auto fist fight mode (CyberFinger)", &state.xrCyberFingerAutoFistFight);
+                if (UI::IsItemHovered())
+                    UI::SetTooltip("With Offensive mode on and empty hands raised, tap both Triggers together or punch once with each hand to equip fists.");
+            }
             changed |= CheckboxInt("Immersive holsters", &state.xrImmersiveHolsters);
             if (UI::IsItemHovered()) {
                 UI::SetTooltip(
-                    "ON  - every equipped weapon hangs on the body where it belongs:\n"
+                    "ON  - equipped weapons with enabled holsters hang on the body:\n"
                     "      pistols on the right hip, blades and clubs on the left hip,\n"
                     "      rifles and shotguns over the shoulders, knives on the chest.\n"
                     "      Reach for one and squeeze the grip to draw it (a blade at the\n"
-                    "      hip is pulled out along its handle); grip at its place to put it away.\n"
+                    "      hip is pulled out along its handle).\n"
                     "OFF - no weapons on the body, fixed slot per zone:\n"
                     "      over-shoulder = EquipmentSlot1, right hip = Slot2, left hip = Slot3.");
             }
 
             UI::Separator();
+            if (cvr::cyberfinger::Configured()) {
+                UI::TextUnformatted("CyberFinger holster types");
+                for (const auto& category : cvr::cyberfinger::holsters::categories) {
+                    bool enabled = (state.xrCyberFingerHolsterTypes & category.bit) != 0;
+                    if (UI::Checkbox(category.label, &enabled)) {
+                        if (enabled) state.xrCyberFingerHolsterTypes |= category.bit;
+                        else state.xrCyberFingerHolsterTypes &= ~category.bit;
+                        changed = true;
+                    }
+                }
+                UI::Separator();
+            }
             UI::TextUnformatted("Physical reload");
             changed |= CheckboxInt("Reload highlight", &state.xrReloadGlow);
             if (UI::IsItemHovered()) {
@@ -1504,6 +1565,8 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 UI::SetTooltip("Hold the left stick forward: the stick held at the stop for a moment sprints (default).\n"
                                   "Click the left stick: a click sprints until the stick is let go.");
             }
+            if(cvr::cyberfinger::Enabled() && state.xrSprintMode!=1)
+                UI::TextWrapped("CyberFinger: tap and release the left stick to jump on foot.");
             const char* moveSrcNames[] = { "Game (camera)", "HMD (head)", "Left hand", "Right hand" };
             int moveSrc = state.xrMovementSource;
             if (moveSrc < 0 || moveSrc > 3) moveSrc = state.xrMovementControl != 0 ? 1 : 0;

@@ -169,7 +169,7 @@ void Tabs(const char* id,int& selected,const char* const* labels,int count) {
     }
     ImGui::PopID();ImGui::Spacing();
 }
-void DrawBindings() {
+void DrawBindings(bool cyberfinger) {
     struct Binding { const char* input;const char* action; };
     const bool recording=cvr::uirec::Recording();
     auto group=[recording](const char* title,const Binding* rows,int count) {
@@ -188,6 +188,77 @@ void DrawBindings() {
         }
         ImGui::PopStyleVar();
     };
+    if(cyberfinger) {
+        UI::TextWrapped("CyberFinger default layout. Left and right refer to physical hands; firing follows your weapon hand.");
+        static const Binding foot[]{
+            {"MOVEMENT / TURN STICKS","Left moves and right turns on foot. With a left-handed gun drawn, right moves and left turns. Push the turn stick forward to dash or back to crouch."},
+            {"LEFT STICK CLICK + RIGHT STICK","Up holsters drawn weapons and hides gear, or restores gear when hidden. Hold the right black wrist button to heal. Down opens phone/notifications, Left opens radio, Right calls a vehicle."},
+            {"WEAPON-HAND TRIGGER","Draw away from prompts with Offensive mode on. Turning it off hides worn gear on V and in the mirror. Fire with a gun drawn."},
+            {"AT A WORLD PROMPT","Trigger takes or interacts. Grip uses the secondary choice. Use the hand opposite your configured movement stick."},
+            {"LEFT GRAB BUTTON","Toggle scanner."},
+            {"RIGHT GRIP WITH A FIREARM","Tap to crouch. Hold 0.65 seconds for slide release or hammer. The chamber handle also accepts a physical grab."},
+            {"LEFT MENU","Tap: next weapon. Hold: weapon wheel."},
+            {"RIGHT MENU","Tap: inventory. Hold 0.65 seconds: operating-system cyberware."},
+            {"BLACK WRIST TAP","Weapon side ejects. Other side quick-reloads."},
+            {"BLACK WRIST HOLD","Left pauses. Right heals."},
+            {"CLOSE FINGERS NEAR AN OBJECT","Grab; open to release. Menu gestures do not click."}
+        };
+        group("ON FOOT",foot,IM_ARRAYSIZE(foot));
+        static const Binding combat[]{
+            {"GUN DRAWN","Weapon Trigger fires. Opposite Trigger aims. Right-handed gun: strafe with left stick. Left-handed gun: strafe with right stick."},
+            {"FREE HAND","Reach to the magazine or highlighted chamber handle for a tracked reload. The black wrist taps are button alternatives where supported."},
+            {"EMPTY HANDS","Release the weapon Trigger alone to draw. Auto fist fight mode: raise both hands and tap both Triggers together or punch once with each hand."},
+            {"FISTS BLOCK","With bare fists equipped, hold both Triggers with both hands raised. Release either Trigger or lower a hand to drop the block."},
+            {"FISTS OR OTHER MELEE","Swing for a normal attack. Hold either Trigger before swinging for a strong attack. Off-hand Grip toggles fists and equipped melee away from a katana hilt."},
+            {"KATANA","Tap Grip near the sheathed hilt to draw from Holstered or Fists. Tap Grip on the hand holding the blade to put it away."},
+            {"KATANA EQUIPPED","One hand: fast attack. Tap the other Grip at the lower hilt for strong two-handed swings. Tap it again to release. Swap hands for a left-hand sword."},
+            {"TWO KATANAS","With Auto holsters and the default sword hand, the lower weapon slot goes on the left hip for the right hand. The next goes on the right hip for the left hand. Place your fist around the handle below the guard."},
+            {"RETURN TO SCABBARD","Melee gesture holstering defaults to on. Gun gesture holstering defaults to off. To put away the second blade, keep your other hand near its scabbard and open the blade hand there. For the first blade, hold its scabbard as you release."}
+        };
+        group("FIREARMS, MELEE AND KATANAS",combat,IM_ARRAYSIZE(combat));
+        static const Binding driving[]{
+            {"RIGHT STICK","Forward for gas, back for brake/reverse. Center to coast. Click for handbrake."},
+            {"DRIVING","Left stick steers. Weapon Trigger or tap Left Menu draws. Opposite Trigger sounds the horn."},
+            {"DRIVER COMBAT","Weapon Trigger fires with vehicle gun trigger enabled. Opposite Trigger aims. Right stick still controls the pedals."},
+            {"RIGHT GRIP","Cycle camera view. D-pad Right also cycles view."},
+            {"BLACK WRISTS / RIGHT PINK","Same taps and holds as on foot. Right pink opens the VR menu."},
+            {"DRIVER D-PAD","Hold left stick click. Push right stick up to heal, down for phone/notification, left for lights, right for camera."},
+            {"DRIVER DIALOGUE","Right stick up/down highlights a choice. Press either Trigger or click the right stick to confirm. Center the stick to resume driving."},
+            {"LEFT GRIP BUTTON","Hold to exit the vehicle (default 0.4 seconds)."},
+            {"CLOSE FINGERS AT THE WHEEL","Grab the wheel or handlebars to steer."}
+        };
+        group("DRIVING",driving,IM_ARRAYSIZE(driving));
+        static const Binding menus[]{
+            {"POINT + SAME-HAND TRIGGER","Select with either hand. Fingertip touch also works in the world-space VR menu."},
+            {"LEFT STICK / RIGHT STICK","Left moves the highlight. Right up/down scrolls lists, including Esc > Load Game. Right sideways switches tabs."},
+            {"MENU BUTTON","Back / cancel / close, on release. Hold both: toggle HUD."},
+            {"GRIP BUTTON","Context / secondary action; X in native menus. Hold on F10's title to move it."},
+            {"CONVERSATION CHOICES","Right stick up/down highlights a choice. Either Trigger confirms. Left stick moves and right stick left/right turns."}
+        };
+        group("MENUS AND CONVERSATIONS",menus,IM_ARRAYSIZE(menus));
+        static const Binding devices[]{
+            {"SCANNER","Left Grip toggles. Push the movement stick fully up/down to page quickhacks. Trigger on the opposite hand applies the selected hack."},
+            {"COMPUTER","Point with the hand opposite the movement stick. Its Trigger clicks, Grip goes back and stick scrolls. Either Menu exits."},
+            {"APARTMENT PICTURE FRAME","Aim and press Trigger, or move the left stick and press Trigger to confirm the highlight. Grip removes. Either Menu closes."},
+            {"MAP","Weapon hand points: Trigger selects, Grip tracks a waypoint and stick up/down zooms. Opposite Trigger jumps to V. Opposite Grip opens the journal."},
+            {"JOURNAL","Weapon hand points and selects. Opposite Trigger sorts. Right stick sideways switches tabs on both map and journal."}
+        };
+        group("SCANNER, DEVICES AND GAME MENUS",devices,IM_ARRAYSIZE(devices));
+        static const Binding panels[]{
+            {"WORLD-SPACE VR MENU","Right pink opens. Point and press Trigger or touch a button. Grip opens available item options. Menu backs out."},
+            {"F10 SETTINGS","Open from the keyboard. Point and press Trigger. Grip opens context options or moves the panel by its title strip. Menu cancels or closes."},
+            {"CET MOD PANELS","Point and press the same Trigger to click. Grip right-clicks or moves the panel by its strip. Laser-hand stick scrolls. Opposite stick sideways changes tabs."}
+        };
+        group("VR AND MOD PANELS",panels,IM_ARRAYSIZE(panels));
+        static const Binding shortcuts[]{
+            {"BOTH MENU BUTTONS","Hold 0.5 seconds: toggle HUD. Prompts and conversations temporarily reveal it."},
+            {"RIGHT PINK","Open/close VR menu. Left pink remains the SteamVR dashboard."},
+            {"F10 / INSERT (KEYBOARD)","Settings overlay; no CyberFinger shortcut."},
+            {"F7","Recenter."}
+        };
+        group("SHORTCUTS",shortcuts,IM_ARRAYSIZE(shortcuts));
+        return;
+    }
     UI::TextWrapped("VR shortcuts and default game actions. Button names follow the Touch / Xbox convention; game actions use your controller bindings.");
     static const Binding foot[]{
         {"LEFT STICK","Move. Hold fully forward for 0.2 seconds to sprint."},

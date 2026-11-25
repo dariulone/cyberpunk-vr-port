@@ -54,6 +54,9 @@ bool LoadingDark();
 // game, a fast travel, the way back after a death -- is hung in the dark before the player (Render/LoadingScreen.hpp)
 // rather than shutting the eyes (CyberpunkVR_LoadingInSpace 0 shuts them, as before).
 bool LoadingInSpace();
+// Capture asks only while it has an ongoing loading panel. The empty loading layer
+// also ticks in a fully open lobby, so the panel waits for the actual foreground to clear.
+bool WaitingForReturnLobby();
 // The main menu's controller was uninitialised (main thread, Natives/EngineStereoMenu.cpp), before engine stereo
 // hears of it.
 void NoteMainMenuClosed();

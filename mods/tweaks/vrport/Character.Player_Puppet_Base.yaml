@@ -15,6 +15,8 @@ Character.Player_Puppet_Base:
   attachmentSlots:
     # The belt itself (AttachmentSlots.VRPortWaist.yaml), in place of EquipmentEX's OutfitSlots.Waist.
     - !append-once AttachmentSlots.VRPortWaist
+    - !append-once AttachmentSlots.VRPortOffhandLeft
+    - !append-once AttachmentSlots.VRPortOffhandRight
     - !append-once AttachmentSlots.VRPortBeltR
     - !append-once AttachmentSlots.VRPortBelt1
     - !append-once AttachmentSlots.VRPortBelt2

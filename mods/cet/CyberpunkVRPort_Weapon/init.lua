@@ -52,6 +52,7 @@ local installed = false
 local installTimer = 0.0
 local cyberware = require('cyberware')
 local physicalThrow = require('physical_throw')
+local offhand = require('katana_offhand')
 local cyberwareLastError
 
 -- Ordinary melee uses the same tracking/swing/native-damage module as arm cyberware.
@@ -86,6 +87,7 @@ local GUARD_PARRY_WINDOW = 0.25  -- s of IsDeflecting right after guard entry (g
 local guardClock = 0.0           -- accumulated onUpdate time (drives the parry window)
 local guardParryUntil = -1.0
 local guardWasOn = false
+local fistBlocking = false
 local guardBlockMod = nil        -- IsBlocking stat modifier handle (applied = guarding)
 local guardParryMod = nil        -- IsDeflecting stat modifier handle (applied = parry window)
 
@@ -307,6 +309,9 @@ local function recoilProfile(wpn)
         pcall(function() it = TweakDB:GetFlat(key .. '.itemType') end)
         if it then pcall(function() itName = TDBID.ToStringDEBUG(it) end) end
         local low = string.lower(tostring(itName or ''))
+        if low:match('wea_katana$') and type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled() then
+            famName = 'katana'
+        end
         -- shotgun first: it is the one class that wants both halves, and 'shotgundual' contains none
         -- of the other tokens
         if string.find(low, 'shotgun', 1, true) then cls = 3
@@ -866,6 +871,10 @@ local function carryTick(dt)
         local w = ts:GetItemInSlot(pl, RIGHT)
         if not w then return end
         local id = w:GetItemID()
+        -- The second grip on a CyberFinger katana belongs to the two-hand pose.
+        -- Transferring the live item between stock hand slots also changes its rendering plane.
+        if type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+            and WeaponObject.IsOfType(id, gamedataItemType.Wea_Katana) then return end
 
         -- THE PLACEMENT, MEASURED BEFORE ANYTHING MOVES: the weapon's own transform against the target
         -- bone's frame. PropLeft rides the same bone as WeaponLeft and is never displaced, so it is the
@@ -971,6 +980,11 @@ local restoreWatch = nil    -- seconds the watch still runs; nil when no load is
 local restoreHeld = 0.0     -- seconds the current finding has held
 
 registerForEvent('onInit', function()
+    ObserveBefore('PlayerPuppet','OnDetach',function(pl)
+        if guardParryMod or guardBlockMod then guardStats(pl,false,false) end
+        fistBlocking,guardWasOn=false,false
+        offhand.release(pl)
+    end)
     logf("weapon-aim init")
     Observe('PlayerPuppet', 'OnGameAttached', function() restoreWatch, restoreHeld = RESTORE_WATCH, 0.0 end)
 end)
@@ -982,21 +996,21 @@ end)
 -- or hands that stay full for REHAND_WAIT seconds, call the redraw off.
 local REHAND_WAIT = 3.0
 local handedWas = nil
+local rightSwordsWas = nil
 local rehandLeft = nil      -- seconds the redraw still waits for empty hands
 
 -- What the load left in the hands: 'draw' (the save's left-hand weapon, not drawn), 'rehand' (a lone weapon in the
 -- hand the controls do not use), 'done' (a weapon where it belongs), or nil while there is nothing to go on yet.
-local function restoreFinding(pl, left)
+local function restoreFinding(pl)
     local r = Game.GetSystemRequestsHandler()
     if r:IsPreGame() or r:IsGamePaused() then return nil end
     local rw, lw = GameObject.GetRightActiveWeapon(pl), GameObject.GetLeftActiveWeapon(pl)
-    if (left and rw and not lw) or (not left and lw and not rw) then return 'rehand' end
-    if rw or lw then return 'done' end
+    if rw or lw then return pl:VRWeaponNeedsRehand() and 'rehand' or 'done' end
     if pl:VRLeftHandedRestorePending() then return 'draw' end
     return nil
 end
 
-local function restoreFrame(pl, dt, left)
+local function restoreFrame(pl, dt)
     if type(pl.VRLeftHandedRestorePending) ~= 'function' then restoreWatch = nil; return end
     restoreWatch = restoreWatch - dt
     if restoreWatch <= 0.0 then
@@ -1004,7 +1018,7 @@ local function restoreFrame(pl, dt, left)
         logf('handedness: nothing to restore after the load')
         return
     end
-    local f = restoreFinding(pl, left)
+    local f = restoreFinding(pl)
     if f == 'done' then restoreWatch = nil; return end
     restoreHeld = f and (restoreHeld + dt) or 0.0
     if not f or restoreHeld < RESTORE_SETTLE then return end
@@ -1022,13 +1036,22 @@ local function handednessFrame(pl, dt)
     if type(VRLeftHanded) ~= 'function' or type(pl.VRLeftHandedRehand) ~= 'function' then return end
     dt = dt or 0.016
     local now = VRLeftHanded() == true
-    if handedWas ~= nil and now ~= handedWas then
+    -- Losing OpenXR input focus also turns off the live CF actions. It is not a
+    -- settings edit and must not put away a sword already drawn in the right hand.
+    local swordSettingChanged = false
+    if type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled()
+        and type(VRCyberFingerRightHandSwords) == 'function' then
+        local swords = VRCyberFingerRightHandSwords()
+        swordSettingChanged = rightSwordsWas ~= nil and swords ~= rightSwordsWas
+        rightSwordsWas = swords
+    end
+    if handedWas ~= nil and (now ~= handedWas or swordSettingChanged) then
         local away = pl:VRLeftHandedRehand()
         rehandLeft = away and REHAND_WAIT or nil
         logAlways('handedness: left-handed=%s, weapon put away to change hands=%s', tostring(now), tostring(away))
     end
     handedWas = now
-    if restoreWatch and not rehandLeft then restoreFrame(pl, dt, now) end
+    if restoreWatch and not rehandLeft then restoreFrame(pl, dt) end
     if not rehandLeft then return end
     rehandLeft = rehandLeft - (dt or 0.016)
     if pl:VRLeftHandedHandsFree() then
@@ -1040,8 +1063,22 @@ local function handednessFrame(pl, dt)
     end
 end
 
--- The per-frame weapon work as a plain function: `pcall(function() ... end)` built a closure every frame,
--- and the mods' per-frame garbage is what CET's collector pays for (the GC step in CyberpunkVRPort_Stereo).
+local function updateFistGuard(pl,wpn)
+    local fists = meleeEnabled and pl and wpn and type(VRCyberFingerEnabled)=="function" and VRCyberFingerEnabled()
+        and WeaponObject.IsOfType(wpn:GetItemID(),gamedataItemType.Wea_Fists)
+    local block = type(VRCyberFingerFistBlock)=="function" and
+        VRCyberFingerFistBlock(fists==true and not Game.GetSystemRequestsHandler():IsGamePaused())
+    if fists then
+        guardStats(pl,false,block)
+        guardWasOn=false
+    elseif fistBlocking and pl then
+        guardStats(pl,false,false)
+    end
+    fistBlocking=block and fists==true
+    return fists
+end
+
+-- Keep a plain callback here to avoid allocating a closure for every frame.
 local function weaponFrame(dt)
     local pl = Game.GetPlayer()
     local wpn = pl and pl:GetActiveWeapon()
@@ -1098,6 +1135,7 @@ local function weaponFrame(dt)
     end
 
     guardClock = guardClock + (dt or 0.016)
+    if updateFistGuard(pl,wpn) then return end
     local cyberwareKind=cyberware.kind(wpn,pl)
     if cyberwareKind~=0 then
         -- Never run the ordinary 1.25m right-weapon trace on arm cyberware,
@@ -1210,8 +1248,10 @@ local function combatFrame(dt)
     elseif cyberware.inputKind()==5 and meleeEnabled and not throwing then
         local pos=wpn:GetWorldPosition()
         local forward=wpn:VRMeleeDirection()
-        if pos and forward then cyberware.ordinary(dt,pl,wpn,pos,forward,pl:GetWorldPosition()) end
+        if pos and forward then cyberware.ordinary(dt,pl,wpn,pos,forward,pl:GetWorldPosition(),fistBlocking) end
     end
+    local cf=type(VRCyberFingerEnabled)=="function" and VRCyberFingerEnabled()
+    offhand.update(dt,pl,wpn,cf and meleeEnabled and not throwing and kind==0)
 end
 
 registerForEvent('onUpdate',function(dt)
@@ -1227,9 +1267,11 @@ registerForEvent('onUpdate',function(dt)
 end)
 
 registerForEvent('onShutdown', function()
+    pcall(offhand.release,Game.GetPlayer())
     pcall(function()
         local pl = Game.GetPlayer()
         if pl then guardStats(pl, false, false) end
     end)
 end)
-return {CyberwareStatus=function() return cyberware.state end,ThrowStatus=function() return physicalThrow.state end}
+return {CyberwareStatus=function() return cyberware.state end,ThrowStatus=function() return physicalThrow.state end,
+    drawOffhand=offhand.draw, stowOffhand=offhand.stow, offhandBlade=offhand.blade}

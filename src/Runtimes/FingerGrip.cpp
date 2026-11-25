@@ -1,5 +1,7 @@
 #include "Runtimes/FingerGrip.hpp"
 #include "Runtimes/FingerFilter.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/ProximityGrip.hpp"
 #include "Core/Paths.hpp"
 #include <Windows.h>
 #include <atomic>
@@ -25,6 +27,8 @@ XrHandTrackerEXT g_tracker[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
 // SteamVR fails xrLocateHandJointsEXT (XR_ERROR_VALIDATION_FAILURE) for a source state on a tracker made without them.
 bool g_sources[2] = {false, false};
 bool g_gripping[2] = {false, false};
+bool g_fresh[2]{};
+cvr::cyberfinger::ProximityGrip g_proximity[2];
 // Once a hand has sent finger data, a pause in it keeps the last state instead of falling back to the squeeze value.
 bool g_had[2] = {false, false};
 int Hold(int hand) { return g_had[hand] ? (g_gripping[hand] ? 1 : 0) : -1; }
@@ -77,6 +81,7 @@ float ThumbCurl(const XrHandJointLocationEXT* j) {
 // Last measured bend and spread per hand, for the animation thread. Curl: five bytes (thumb..little); spread: four
 // bytes (thumb-index .. ring-little); both with a 23-bit millisecond stamp at bit 40 and bit 63 set once stored.
 std::atomic<uint64_t> g_curl[2]{};
+std::atomic<uint64_t> g_gripSampleAt[2]{};
 std::atomic<uint64_t> g_splay[2]{};
 constexpr uint64_t kStampMask = (1ull << 23) - 1;
 uint64_t Byte(float v) { return uint64_t((v < 0 ? 0.0f : (v > 1 ? 1.0f : v)) * 255.0f + 0.5f); }
@@ -130,6 +135,7 @@ int Use(int hand, float thumb, const float curl[4]) {
     const bool was = g_gripping[hand];
     g_gripping[hand] = Update(was, curl);
     const ULONGLONG now = GetTickCount64();
+    g_gripSampleAt[hand].store(now, std::memory_order_relaxed);
     if (thumb >= 0.0f)
         g_curl[hand].store((1ull << 63) | ((now & kStampMask) << 40) | Byte(thumb) | (Byte(curl[0]) << 8) |
                            (Byte(curl[1]) << 16) | (Byte(curl[2]) << 24) | (Byte(curl[3]) << 32),
@@ -138,6 +144,7 @@ int Use(int hand, float thumb, const float curl[4]) {
 }
 
 int EvaluateOpenXr(int hand, XrSpace base, XrTime time) {
+    g_fresh[hand] = false;
     if (g_tracker[hand] == XR_NULL_HANDLE || !pLocate || base == XR_NULL_HANDLE) return -1;
     XrHandJointLocationEXT joints[XR_HAND_JOINT_COUNT_EXT]{};
     XrHandJointLocationsEXT locations{XR_TYPE_HAND_JOINT_LOCATIONS_EXT};
@@ -164,7 +171,10 @@ int EvaluateOpenXr(int hand, XrSpace base, XrTime time) {
     NoteState(hand, !g_sources[hand] || !source.isActive ? 3
                     : source.dataSource == XR_HAND_TRACKING_DATA_SOURCE_CONTROLLER_EXT ? 2 : 1);
     for (int j = XR_HAND_JOINT_THUMB_METACARPAL_EXT; j <= XR_HAND_JOINT_LITTLE_TIP_EXT; ++j)
-        if (!(joints[j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) return Hold(hand);
+        if (!(joints[j].locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
+            !std::isfinite(joints[j].pose.position.x) || !std::isfinite(joints[j].pose.position.y) ||
+            !std::isfinite(joints[j].pose.position.z)) return Hold(hand);
+    g_fresh[hand] = true;
     const float raw[4] = {Curl(joints, XR_HAND_JOINT_INDEX_METACARPAL_EXT), Curl(joints, XR_HAND_JOINT_MIDDLE_METACARPAL_EXT),
                           Curl(joints, XR_HAND_JOINT_RING_METACARPAL_EXT), Curl(joints, XR_HAND_JOINT_LITTLE_METACARPAL_EXT)};
     const ULONGLONG now = GetTickCount64();
@@ -182,6 +192,15 @@ std::atomic<bool> g_gripFromFingers{false};
 }
 bool GripFromFingers() { return g_gripFromFingers.load(std::memory_order_relaxed); }
 void SetGripFromFingers(bool on) { g_gripFromFingers.store(on, std::memory_order_relaxed); }
+
+bool BothGripsFresh() {
+    const auto now = GetTickCount64();
+    for (const auto& sample : g_gripSampleAt) {
+        const auto at = sample.load(std::memory_order_relaxed);
+        if (!at || (now >= at && now - at >= cvr::cyberfinger::ProximityGrip::kLossMs)) return false;
+    }
+    return true;
+}
 
 bool TrackedCurl(int hand, float curl[5]) {
     if (hand < 0 || hand > 1) return false;
@@ -206,6 +225,7 @@ bool TrackedSplay(int hand, float splay[4]) {
 // saw no fingers move and nothing say why. Enabled and unused, the extensions change nothing; the trackers are made
 // only once the switch is on (EnsureTrackers).
 void ChooseExtensions(const std::vector<XrExtensionProperties>& available, std::vector<const char*>& enabled) {
+    g_handTracking = g_motionRange = g_dataSource = false;
     for (const auto& p : available) {
         if (std::strcmp(p.extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME) == 0) g_handTracking = true;
         if (std::strcmp(p.extensionName, XR_EXT_HAND_JOINTS_MOTION_RANGE_EXTENSION_NAME) == 0) g_motionRange = true;
@@ -281,17 +301,26 @@ void OnSessionDestroying() {
     for (auto& t : g_tracker) if (t != XR_NULL_HANDLE && pDestroy) { pDestroy(t); t = XR_NULL_HANDLE; }
     g_gripping[0] = g_gripping[1] = false;
     g_had[0] = g_had[1] = false;
+    g_fresh[0] = g_fresh[1] = false;
+    g_proximity[0] = {}; g_proximity[1] = {};
     g_state[0] = g_state[1] = -1;
     g_sources[0] = g_sources[1] = false;
     g_locateError[0] = g_locateError[1] = XR_SUCCESS;
     g_session = XR_NULL_HANDLE;
     g_tried = false;
     g_curl[0].store(0); g_curl[1].store(0);
+    for (auto& sample : g_gripSampleAt) sample.store(0, std::memory_order_relaxed);
     g_splay[0].store(0); g_splay[1].store(0);
 }
 
 int Evaluate(int hand, XrSpace base, XrTime time) {
-    if (hand < 0 || hand > 1 || CyberpunkVR_FingerBones == 0 || !EnsureTrackers()) return -1;
+    if (hand < 0 || hand > 1) return -1;
+    g_fresh[hand] = false;
+    if ((CyberpunkVR_FingerBones == 0 && !cvr::cyberfinger::Configured()) || !EnsureTrackers()) return -1;
     return EvaluateOpenXr(hand, base, time);
+}
+float ProximityValue(int hand, bool poseValid, bool allowStart) {
+    if (hand < 0 || hand > 1) return 0.0f;
+    return g_proximity[hand].Update(poseValid && g_fresh[hand], g_gripping[hand], GetTickCount64(),allowStart) ? 1.0f : 0.0f;
 }
 }

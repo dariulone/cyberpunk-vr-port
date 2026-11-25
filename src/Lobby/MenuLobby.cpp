@@ -1,12 +1,18 @@
 // The main menu as a place (Lobby/MenuLobby.hpp). Verified against game 2.5 (Core/GameBuild.hpp) with IDA headless and a
 // RenderDoc capture of the main menu (composition shader a4dc07ba..., the dispatch before the final copy).
 #include "Lobby/MenuLobby.hpp"
+#include "Lobby/CompositionBlock.hpp"
+#include "Runtimes/CapturedPresentation.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include "Stereo/StereoInternal.hpp"
 #include "Stereo/DetourRegistry.hpp"
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/GameEngine.hpp>
 #include <RED4ext/Scripting/Natives/inkLayer.hpp>
+#include <RED4ext/Scripting/Natives/inkControllerProcessor.hpp>
+#include <RED4ext/Scripting/Natives/Generated/ink/IWidgetController.hpp>
+#include <RED4ext/Scripting/Natives/inkWidget.hpp>
+#include <RED4ext/Scripting/Utils.hpp>
 #include <d3d12.h>
 #include <windows.h>
 #include <algorithm>
@@ -79,6 +85,8 @@ constexpr ULONGLONG kCurtainUnanswered = 20000;
 std::atomic<float> g_curtain{1.0f};
 std::atomic<bool> g_curtainAnswered{false};
 std::atomic<ULONGLONG> g_menuUpTick{0};
+using cvr::capture::LobbyReturn;
+std::atomic<LobbyReturn> g_return{LobbyReturn::Idle};
 constexpr ULONGLONG kLeavingMax = 5000;
 std::atomic<ULONGLONG> g_leavingTick{0};
 
@@ -328,9 +336,51 @@ bool WorldShown() {
     return g_forced && Active() && GetTickCount64() - g_composedTick.load(std::memory_order_relaxed) < 500;
 }
 
+// Called by the lobby script's game-thread update. These are the same two
+// foreground loading controllers checked by the port's VRCAM selector.
+static bool LoadingWidgetVisible() {
+    auto* layer = FindInkLayer("inkLoadingLayer");
+    if (!layer || !layer->active || !layer->controllerProcessor) return false;
+    for (const auto& controller : layer->controllerProcessor->controllers) {
+        if (!controller) continue;
+        auto* type = controller->GetType();
+        const auto name = type->GetName();
+        if (name != RED4ext::CName("inkInitialLoadingControllerSupervisor") &&
+            name != RED4ext::CName("inkFastTravelLoadingControllerSupervisor")) continue;
+        auto* getRoot = type->GetFunction("GetRootWidget");
+        if (!getRoot || !getRoot->returnType || !getRoot->returnType->type) continue;
+        const auto result = getRoot->returnType->type->GetName();
+        RED4ext::Handle<RED4ext::ink::Widget> widget;
+        if (result == RED4ext::CName("whandle:inkWidget")) {
+            RED4ext::WeakHandle<RED4ext::ink::Widget> weak;
+            if (RED4ext::ExecuteFunction(controller.GetPtr(), getRoot, &weak)) widget = weak.Lock();
+        } else if (result == RED4ext::CName("handle:inkWidget")) {
+            RED4ext::ExecuteFunction(controller.GetPtr(), getRoot, &widget);
+        }
+        for (unsigned depth = 0; widget && depth < 64; ++depth) {
+            if (!widget->visible || widget->opacity <= 0.0f) break;
+            auto parent = widget->parentWidget.Lock();
+            if (!parent) return true;
+            widget = std::move(parent);
+        }
+    }
+    return false;
+}
+
+bool WaitingForReturnLobby() {
+    if (!Active() || !CyberpunkVR_LoadingInSpace) return false;
+    const auto start = g_menuUpTick.load(std::memory_order_relaxed);
+    if (!start || GetTickCount64() - start > kCurtainUnanswered) return false;
+    auto state = g_return.load(std::memory_order_acquire);
+    if (state == LobbyReturn::Idle)
+        g_return.compare_exchange_strong(state, LobbyReturn::Waiting, std::memory_order_acq_rel);
+    return state != LobbyReturn::Ready;
+}
+
 void NoteMainMenu() {
     // The eyes shut till the lobby is up -- not for one held up while it is (the new game's screens walked).
     if (engine_stereo::MainMenusUp() <= 1) {
+        g_return.store(LobbyReturn::Idle, std::memory_order_release);
         g_curtain.store(1.0f, std::memory_order_relaxed);
         g_curtainAnswered.store(false, std::memory_order_relaxed);
     }
@@ -380,6 +430,13 @@ float Curtain() {
 }
 
 void SetCurtain(float closure) {
+    const auto state = g_return.load(std::memory_order_acquire);
+    if (state == LobbyReturn::Waiting || state == LobbyReturn::ClearOnce) {
+        const bool waitingForWorld = CyberpunkVR_LobbyCompose &&
+            (g_composedTick.load(std::memory_order_relaxed) < g_menuUpTick.load(std::memory_order_relaxed));
+        g_return.store(cvr::capture::ObserveReturn(state, closure >= 1.0f || waitingForWorld || LoadingWidgetVisible()),
+                       std::memory_order_release);
+    }
     g_curtain.store(std::clamp(closure, 0.0f, 1.0f), std::memory_order_relaxed);
     g_curtainAnswered.store(true, std::memory_order_relaxed);
     g_curtainTick.store(GetTickCount64(), std::memory_order_relaxed);
@@ -424,8 +481,8 @@ void Tick() {
 
 // fxCompositionShaderParams, 432 bytes (main menu, menuRender.rdc event 7261, its b6):
 //   row 1 = uiFactor, uiPassthroughFactor, mainRenderFactor, blurredRenderFactor; row 2.x = backgroundTextureFactor;
-//   rows 4-8 = the grading the HUD composite also carries (Stereo/Grading.cpp), repeated in rows 22-26 but for
-//   26.zw: the block's last 8 bytes are padding the engine never writes (stack left-overs, see CompositionBlock);
+//   rows 4-8 = the grading the HUD composite also carries (Stereo/Grading.cpp), with a repeated prefix at row 22;
+//   26.zw is unused; DrawHUD's shorter layout leaves all of rows 24-26 uninitialized (see CompositionBlock);
 //   rows 10, 15, 17 and 21 hold integers; row 16.zw = the target's width and height.
 // Other 432-byte blocks go through the same upload. A weight read from an integer is a denormal and passes a plain
 // 0..1 test, and 1.0 written over an index sends a shader to a descriptor that does not exist (three GPU page faults
@@ -433,27 +490,12 @@ void Tick() {
 // block holds: real weights, a whole-pixel target and the repeated grading.
 // 0 = a composition block, else what it failed: 2 weights, 3 target size, 4 repeated grading, 5 grading values
 // (CyberpunkVR_LobbyComposeStats indices).
-static int CompositionBlock(const float* b) {
-    const auto weight = [](float v) { return v == 0.0f || (v >= 1e-3f && v <= 1.0f); };
-    for (const int i : {1 * 4 + 0, 1 * 4 + 1, 1 * 4 + 2, 1 * 4 + 3, 2 * 4 + 0})
-        if (!weight(b[i])) return 2;
-    const float w = b[16 * 4 + 2], h = b[16 * 4 + 3];
-    if (!(w >= 64.0f && w <= 16384.0f && h >= 64.0f && h <= 16384.0f) || w != float(int(w)) || h != float(int(h)))
-        return 3;
-    // Rows 22-25 and 26.xy: 26.zw is padding with whatever the stack held. With frame generation on it held a pointer
-    // (0x00007FFE65594504) and, compared with it, 62 of 66 main-menu blocks a second were turned away: the backdrop
-    // came back in those frames and the menu blinked, on the monitor too, and the frames counted as a menu went to
-    // the headset as a flat panel (2026-11-04). Without it the stack happened to hold the grading's own words.
-    if (std::memcmp(b + 4 * 4, b + 22 * 4, 4 * 16 + 8) != 0) return 4;
-    // The grading is real: saturation set, aberration tiny.
-    const float sat = b[6 * 4 + 2], ab = b[6 * 4 + 3];
-    return sat >= 1e-3f && sat <= 4.0f && ab >= 0.0f && ab < 0.01f ? 0 : 5;
-}
-
 bool ComposeWorld(float* block) {
     if (!block || !CyberpunkVR_LobbyCompose || !Active()) return false;
     CyberpunkVR_LobbyComposeStats[0].fetch_add(1, std::memory_order_relaxed);
-    if (const int why = CompositionBlock(block)) {
+    const bool drawHudNode = Base() &&
+        cvr::detail::t_current_node_work == Base() + cvr::detail::DRAWHUD_WORK_RVA;
+    if (const int why = detail::CompositionBlock(block, drawHudNode)) {
         CyberpunkVR_LobbyComposeStats[why].fetch_add(1, std::memory_order_relaxed);
         std::memcpy(CyberpunkVR_LobbyComposeRejected, block, sizeof(CyberpunkVR_LobbyComposeRejected));
         if (Base() && cvr::detail::t_current_node_work > Base())
@@ -462,6 +504,9 @@ bool ComposeWorld(float* block) {
         return false;
     }
     CyberpunkVR_LobbyComposeStats[1].fetch_add(1, std::memory_order_relaxed);
+    static std::atomic<bool> compositionLogged{false};
+    if (!compositionLogged.exchange(true, std::memory_order_relaxed))
+        Log("[lobby] world composition recognized: %.0fx%.0f\n", block[66], block[67]);
     block[1 * 4 + 2] = 1.0f;
     block[1 * 4 + 3] = 0.0f;
     block[2 * 4 + 0] = 0.0f;

@@ -24,6 +24,8 @@ public:
 };
 // Called with raw XR buttons before deferred L3/D-pad and grip consumers.
 bool UpdateCyberwareChord(bool l3,float grip,bool r3,bool inputActive);
+// A dedicated controller button uses the same guarded delivery as the chord.
+void RequestCyberwareButton();
 // Called by the game's input poll. Delivers a single direct native-action key
 // only while this process owns the foreground; never types into another app.
 // With the window behind it leaves the activation to the script side instead.

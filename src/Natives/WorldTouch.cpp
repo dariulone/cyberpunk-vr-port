@@ -2,6 +2,7 @@
 // including mesh-bound curved displays, rather than an assumed rectangle or gaze.
 #include "Natives/NativeFunctions.hpp"
 #include "Natives/VrMenu.hpp"
+#include "Natives/WorldPointer.hpp"
 #include "Core/GameBuild.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Hooks/Hook.hpp"
@@ -92,6 +93,15 @@ bool Visible(Handle<ink::Widget> widget) {
 
 extern "C" void CvrWorldTouchTriangleAfter(bool found,const RED4ext::Vector4* hit) {
     if(found && queryContact){queryContact->hit=true;queryContact->point=*hit;}
+}
+bool cvr::worldpointer::ScreenRay(const Handle<IScriptable>& component,ink::Widget* window,int hand,Vector2& local,Vector2& cursor) {
+    if(!ready || !component || !window)return false;
+    Ray ray{};if(!cvr::vrmenu::RayWorld(hand,ray.origin,ray.direction))return false;
+    WorldHit hit{};bool behind=false;
+    if(!meshPick(nullptr,&component,&ray,&hit,&behind) && !planePick(nullptr,&component,&ray,&hit,&behind))return false;
+    if(behind || hit.window.instance!=window || hit.component.instance!=component.GetPtr() ||
+        !std::isfinite(hit.local.X+hit.local.Y+hit.cursor.X+hit.cursor.Y))return false;
+    local=hit.local;cursor=hit.cursor;return true;
 }
 
 // component, world centre and outward unit normal (current component transform).

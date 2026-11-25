@@ -2,9 +2,11 @@
 #include "Runtimes/AsymmetricProjection.hpp"
 struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Runtimes/SteamFrameInput.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
 #include "Framegen/Presenter.hpp"
 #include "Framegen/StatsOverlay.hpp"
 #include "Overlay/VrPanel.hpp"
+#include "Runtimes/CyberFingerMenuLaser.hpp"
 
 #include <windows.h>
 #include <d3d12.h>
@@ -26,6 +28,7 @@ struct AsymEyeWindows { cvr::projection::EyeWindow eye[2]; };
 #include "Runtimes/HudQuad.hpp"
 #include "Render/IntroOverlay.hpp"
 #include "Render/LoadingScreen.hpp"
+#include "Runtimes/CapturedPresentation.hpp"
 #include "Runtimes/RoomscaleMovement.hpp"
 #include "Runtimes/TrackingReset.hpp"
 #include "Runtimes/HandPublication.hpp"
@@ -63,6 +66,7 @@ struct OpenXRHeadPose {
 // mirror XInput's XINPUT_GAMEPAD_* constants so we can OR them directly.
 struct VRControllerState {
     uint16_t buttons = 0;
+    uint16_t cyberFingerButtons = 0; // named game actions; merged after physical handedness mapping
     float    leftTrigger  = 0.0f;
     float    rightTrigger = 0.0f;
     float    leftThumbX   = 0.0f;
@@ -71,6 +75,11 @@ struct VRControllerState {
     float    rightThumbY  = 0.0f;
     float    leftGrip     = 0.0f;
     float    rightGrip    = 0.0f;
+    // Physical CyberFinger buttons, independent of finger-derived world grabs.
+    bool     leftGrabButton=false,rightGrabButton=false;
+    bool     leftMenuButton=false,rightMenuButton=false; // physical, before gameplay tap/hold conversion
+    uint64_t cameraExitUntil = 0; // StopDeviceControl pulse from physical Right Menu
+    bool     leftStickButton=false,rightStickButton=false;
     bool     leftHandValid  = false;
     bool     rightHandValid = false;
     bool     psvr2SystemPressed = false;
@@ -989,6 +998,10 @@ private:
     XrAction m_hapticAction = XR_NULL_HANDLE;            // Vibration OUTPUT, per hand
     XrAction m_psvr2TriangleTouchAction = XR_NULL_HANDLE;
     cvr::input::SteamFrameActions m_steamFrameActions{};
+    cvr::cyberfinger::Actions m_cyberFingerActions{};
+    uint64_t m_nextHintBindingCheck{};
+    std::atomic<bool> m_hintBindingsChanged{true};
+    void RefreshCyberFingerHintBindings();
     XrPath m_handPaths[2] = { XR_NULL_PATH, XR_NULL_PATH };
     XrSpace m_handSpaces[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE };
     // Latest controller snapshot, owned by the frame thread.
@@ -1128,6 +1141,8 @@ private:
     struct LastSubmission {
         bool valid = false;
         bool menuQuad = false;
+        cvr::capture::Presentation presentation = cvr::capture::Presentation::Scene;
+        uint64_t origin = 0;
         uint32_t viewCount = 0;
         XrTime submittedAt = 0;
         XrSpace localSpace = XR_NULL_HANDLE;
@@ -1216,6 +1231,7 @@ private:
         // The dark with the boot's notice, nothing else (Render/LoadingScreen.hpp, at the intro's heading): one picture
         // drawn for the main eye, submitted to both eyes with the turn it was drawn for.
         bool oneTurn = false;
+        cvr::capture::Presentation presentation = cvr::capture::Presentation::Scene;
         // The eye this picture is: CyberpunkVR_MainIsRightEye as it stood for the frame -- under AFW it turns over
         // every frame (Render/Afw.hpp), and the submit routes the frame it carries, not the switch's state now.
         int8_t mainEye = 1;
@@ -1229,6 +1245,7 @@ private:
     cvr::framegen::Presenter m_framegen;
     cvr::depth::Renderer m_stereoDepth;
     cvr::framegen::StatsOverlay m_framegenOverlay;
+    cvr::framegen::StatsOverlay m_modeNoticeOverlay;
     // [DEPTH] Game scene-depth snapshot for the XR depth layer (parallel to color).
     ID3D12Resource* m_depthSnapshot = nullptr;
     uint32_t m_depthSnapshotW = 0;
@@ -1257,7 +1274,7 @@ public:
     // anything the runtime does with the image. Nothing when they are the same queue.
     void OrderRuntimeAfter(ID3D12CommandQueue* used);
 private:
-    ID3D12Resource* AcquireCapturedVrcamLocked(uint64_t serial,uint32_t maxReuse,
+    ID3D12Resource* AcquireCapturedVrcamLocked(uint64_t serial,cvr::capture::Presentation presentation,uint32_t maxReuse,
         XrPosef* pose,XrFovf* fov,uint64_t* poseId,bool* reused);
 
     // ---- right eye (VRCAM) ---------------------------------------------------------------
@@ -1307,7 +1324,10 @@ private:
     static constexpr int kVrcamEyeSlots = 4; // as kMonoSlots
     ID3D12Resource* m_vrcamEyePool[kVrcamEyeSlots] = {};
     uint64_t        m_vrcamEyePoolSerial[kVrcamEyeSlots] = {};
-    struct CapturedEyeLabel { XrPosef pose{};XrFovf fov{};uint64_t poseId{},imageGeneration{};bool valid{}; };
+    struct CapturedEyeLabel {
+        XrPosef pose{};XrFovf fov{};uint64_t poseId{},imageGeneration{};bool valid{};
+        cvr::capture::Presentation presentation = cvr::capture::Presentation::Scene;
+    };
     CapturedEyeLabel m_vrcamEyeLabels[kVrcamEyeSlots]{};
     int             m_vrcamEyeSlot = 0;
     uint32_t        m_vrcamEyeW = 0;
@@ -1431,6 +1451,8 @@ private:
     // Capture only.
     cvr::loading::Screen m_loadingScreen;
     bool m_loadingScreenIsNotice = false;
+    bool m_loadingPanelActive = false;
+    bool m_loadingArtworkReady = false; // retained mono image in m_menuWindow for this load
     // Engine present pacing: see openxr_manager.cpp OnPresent. The HMD-paced gate is
     // m_frameSyncEvent.
     std::atomic<int64_t> m_predictedDisplayPeriodNs{0};
@@ -1548,6 +1570,8 @@ private:
     cvr::hud::Quad m_hitMarkerQuad{cvr::hud::Channel::HitMarker};
     cvr::hud::Quad m_vehicleMinimapQuad{cvr::hud::Channel::VehicleMinimap};
     cvr::vrui::Panel m_settingsPanel;
+    cvr::vrui::Panel m_modPanel;
+    cvr::cfmenu::Laser m_cfMenuLaser;
     cvr::hud::Follow m_menuFollow;
     cvr::hud::DisplayClock m_menuClock;
     bool  m_menuEyeAnchorValid = false;// projection-path per-eye anchor latched

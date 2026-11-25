@@ -3,6 +3,7 @@
 local M = {}
 local tuning=require('melee_tuning')
 local ordinary=require('ordinary_melee')
+local strength=require('melee_strength')
 M.state={ticks=0}
 local cachedId, cachedKind, hands = nil, 0, {}
 local cachedOrdinary=false
@@ -60,8 +61,8 @@ function M.handEquipment(player)
     Game.VRHandEquipment(mask)
 end
 
-function M.ordinary(dt,player,weapon,position,forward,origin)
-    ordinary.update(dt,player,weapon,position,forward,origin,M.state)
+function M.ordinary(dt,player,weapon,position,forward,origin,blocking)
+    ordinary.update(dt,player,weapon,position,forward,origin,M.state,nil,nil,nil,blocking)
 end
 
 function M.update(dt,player,weapon,kind,now,supplied,ordinaryLever)
@@ -166,8 +167,7 @@ function M.update(dt,player,weapon,kind,now,supplied,ordinaryLever)
             else s.quietSince=nil
             end
             if s.armed and speed>=threshold and now>=s.mute and now-(s.lastBegin or -10)>=.12 then
-                local trigger=Game.GetVRSharedSlot(side==0 and 154 or 160)
-                s.strong=trigger>.5
+                s.strong=strength.strong(side)
                 s.episode=player:VRCyberwareBeginSwing(weapon,side,s.strong,speed)
                 s.lastBegin=now
                 if kind==3 and s.episode then s.wireLiveUntil=now+.45 end

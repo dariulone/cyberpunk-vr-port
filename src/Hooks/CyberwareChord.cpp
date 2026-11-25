@@ -31,6 +31,9 @@ bool cvr::input::UpdateCyberwareChord(bool l3,float grip,bool r3,bool inputActiv
     else if(result.fire)pendingUntil.store(now+200,std::memory_order_release);
     return result.claimed;
 }
+void cvr::input::RequestCyberwareButton() {
+    if(Allowed())pendingUntil.store(GetTickCount64()+200,std::memory_order_release);
+}
 void cvr::input::DispatchCyberwareChord() {
     const auto until=pendingUntil.exchange(0,std::memory_order_acq_rel);
     if(!until || GetTickCount64()>=until || !Allowed())return;

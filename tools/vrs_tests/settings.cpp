@@ -1,4 +1,5 @@
 #include "Render/FixedVrs.hpp"
+#include "Runtimes/EyeGazeProjection.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -29,6 +30,34 @@ int main()try{
     Check(ParseSetting("xr_vrs = 2",parsed));Check(ParseSetting("xr_vrs_width=80",parsed));
     Check(ParseSetting("xr_vrs_height=60",parsed));Check(ParseSetting("xr_vrs_offset_x=-5",parsed));Check(ParseSetting("xr_vrs_offset_y=10",parsed));
     Check(!ParseSetting("xr_vrs_extra=1",parsed));Check(parsed==Settings{2,80,60,-5,10});
+    Check(!Settings{}.eyeTracked);Check(ParseSetting("xr_vrs_eye_tracked=1",parsed) && parsed.eyeTracked);
+    FILE* file{};Check(tmpfile_s(&file)==0 && file);WriteSettings(file,parsed);rewind(file);
+    Settings roundTrip;char line[256];while(fgets(line,sizeof(line),file))Check(ParseSetting(line,roundTrip));fclose(file);
+    Check(roundTrip==parsed);
+    float gx{},gy{};
+    using cvr::eye_tracking::Project;
+    Check(Project({0,0,0,1},-2,1,-1,1,gx,gy) && std::abs(gx-2.f/3)<1e-5f && gy==.5f);
+    Check(Project({0,0,0,1},-1,2,-1,1,gx,gy) && std::abs(gx-1.f/3)<1e-5f);
+    Check(Project({0,-std::sin(.2f),0,std::cos(.2f)},-1,1,-1,1,gx,gy) && gx>.5f);
+    Check(Project({std::sin(.2f),0,0,std::cos(.2f)},-1,1,-1,1,gx,gy) && gy<.5f);
+    Check(!Project({0,1,0,0},-1,1,-1,1,gx,gy));Check(!Project({0,0,0,0},-1,1,-1,1,gx,gy));
+    Check(!Project({0,0,0,1},std::nanf(""),1,-1,1,gx,gy));
+    Check(cvr::eye_tracking::FreshSample(1000000000,950000000));
+    Check(!cvr::eye_tracking::FreshSample(1000000000,0));Check(!cvr::eye_tracking::FreshSample(1000000000,800000000));
+    Check(!cvr::eye_tracking::FreshSample(1000000000,1100000000));
+    // Every point in the requested moving rectangle stays fine after grid rounding,
+    // clipping at the eye edge, and a stereo seam that cuts through a hardware tile.
+    for(unsigned tile:{8u,16u,32u})for(unsigned w:{130u,512u})for(float x:{0.f,.23f,.5f,.77f,1.f}) {
+        constexpr unsigned h=192;
+        const std::array regions{GazeRegion({2,30,25},x,.31f),GazeRegion({2,30,25},1-x,.69f)};
+        const auto map=BuildStereoRates(regions,w,h,tile,true);Check(!map.empty());
+        for(unsigned py=0;py<h;++py)for(unsigned px=0;px<w;++px) {
+            const unsigned eye=px/(w/2);
+            const float nx=(float(px%(w/2))+.5f)/(w/2),ny=(py+.5f)/h;
+            if(std::abs(nx-(eye?1-x:x))<.15f && std::abs(ny-(eye?.69f:.31f))<.125f)
+                Check(map[size_t(py/tile)*((w+tile-1)/tile)+px/tile]==0);
+        }
+    }
     D3D12_GRAPHICS_PIPELINE_STATE_DESC d{};d.VS.BytecodeLength=d.PS.BytecodeLength=1;d.NumRenderTargets=3;d.SampleDesc.Count=1;d.DepthStencilState.DepthEnable=TRUE;
     Check(EligiblePipeline(d));d.BlendState.RenderTarget[0].BlendEnable=TRUE;Check(!EligiblePipeline(d));d.BlendState={};
     d.NumRenderTargets=1;Check(!EligiblePipeline(d));d.NumRenderTargets=4;d.SampleDesc.Count=4;Check(!EligiblePipeline(d));

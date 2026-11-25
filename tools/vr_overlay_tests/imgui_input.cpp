@@ -77,6 +77,34 @@ void PointerRouting(ImGuiIO& io){
     input.Reset(io);input.MouseMove(540,280,now);
     Check(at(frame({},{}),540,280),"reopened panel retained old pointer ownership");
     Check(GImGui->InputEventsQueue.Size==0,"source transitions left deferred pointer events");
+    input.MouseButton(540,280,true,now,1);frame({},{});
+    Check(io.MouseDown[1] && !io.MouseDown[0],"desktop right-click did not survive pointer routing");
+    input.MouseFocusLost(now);frame({},{});frame({},{});
+    Check(!io.MouseDown[1],"desktop right-click stuck after focus loss");
+}
+void KeyboardNavigation(ImGuiIO& io) {
+    io.ConfigFlags|=ImGuiConfigFlags_NavEnableKeyboard;
+    ImGuiPointerFeed feed;int activated=0;ImGuiID second{};
+    auto frame=[&](PointerEvent e,bool initial=false){
+        feed.Submit(io,std::span<const PointerEvent>(&e,1),300,300);
+        ImGui::NewFrame();ImGui::SetNextWindowPos({0,0});ImGui::SetNextWindowSize({900,700});
+        if(initial)ImGui::SetNextWindowFocus();
+        ImGui::Begin("CF navigation",nullptr,ImGuiWindowFlags_NoSavedSettings);
+        if(initial)ImGui::SetKeyboardFocusHere();
+        ImGui::Button("First");second=ImGui::GetID("Second");
+        if(ImGui::Button("Second"))++activated;
+        ImGui::Button("Third");ImGui::End();ImGui::EndFrame();
+    };
+    PointerEvent neutral;neutral.focus=true;
+    frame(neutral,true);frame(neutral);frame(neutral);
+    PointerEvent down=neutral;down.direction=2;frame(down);
+    for(int i=0;i<3;++i)frame(neutral);
+    Check(GImGui->NavId==second,"left stick did not move actual ImGui highlight");
+    Check(io.MousePos.x==-FLT_MAX,"ray position fought keyboard focus");
+    PointerEvent trigger=neutral;trigger.activate=true;frame(trigger);
+    for(int i=0;i<3;++i)frame(neutral);
+    Check(activated==1,"trigger did not activate highlighted ImGui button once");
+    Check(GImGui->InputEventsQueue.Size==0,"keyboard navigation accumulated queued input");
 }
 int main()try{
     ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DisplaySize={1440,1080};io.DeltaTime=1.0f/30;
@@ -110,5 +138,28 @@ int main()try{
     feed.Submit(io,delayed,313,300);ImGui::NewFrame();Check(std::abs(io.MouseWheel)<=.2501f,"render stall replayed an entire scroll history");Pane();ImGui::EndFrame();
     feed.Submit(io,delayed,-1,-1);ImGui::NewFrame();Check(io.MouseWheel==0,"ray outside panel kept scrolling");Pane();ImGui::EndFrame();
     PointerRouting(io);
-    ImGui::DestroyContext();std::cout<<"PASS stick scroll and cursor ownership: noisy desktop input, tracking recovery, source handoff, click targets\n";return 0;
+    KeyboardNavigation(io);
+    // Secondary input stays separate from primary clicks. Menu first cancels
+    // an actual ImGui popup, then requests closing an idle settings panel.
+    feed.Reset();
+    std::array<PointerEvent,1> secondary{{{320,300,0,false,0,false,false,true}}};
+    feed.Submit(io,secondary,320,300);ImGui::NewFrame();
+    Check(io.MouseDown[1] && !io.MouseDown[0],"Grip was not an independent right mouse press");
+    Pane();ImGui::EndFrame();
+    feed.Submit(io,neutral,320,300);ImGui::NewFrame();
+    Check(io.MouseReleased[1] && !io.MouseDown[0],"Grip release leaked a primary click");
+    Pane();ImGui::EndFrame();
+    feed.Submit(io,neutral,320,300);ImGui::NewFrame();
+    ImGui::Begin("Back test");ImGui::OpenPopup("Options");
+    if(ImGui::BeginPopup("Options")){ImGui::Text("Context actions");ImGui::EndPopup();}
+    ImGui::End();ImGui::EndFrame();
+    Check(GImGui->OpenPopupStack.Size>0,"test popup failed to open");
+    std::array<PointerEvent,1> back{{{-1,-1,0,false,0,false,false,false,true}}};
+    feed.Submit(io,back,-1,-1);Check(!feed.ConsumeClose(),"Menu closed panel instead of dismissing popup");
+    ImGui::NewFrame();Pane();ImGui::EndFrame();
+    feed.Submit(io,neutral,320,300);ImGui::NewFrame();Pane();ImGui::EndFrame();
+    Check(GImGui->OpenPopupStack.Size==0,"Menu did not dismiss ImGui popup");
+    feed.Submit(io,back,-1,-1);Check(feed.ConsumeClose(),"Menu did not close an idle panel");
+    Check(!feed.ConsumeClose(),"Menu close request repeated");
+    ImGui::DestroyContext();std::cout<<"PASS scrolling, pointer ownership, secondary input and popup-aware Back\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

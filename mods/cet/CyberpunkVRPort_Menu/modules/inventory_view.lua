@@ -347,10 +347,11 @@ function V.draw(kit,p,p2)
     local group={};for i=first,math.min(#shown,first+cols-1) do group[#group+1]=shown[i] end
     rows[#rows+1]={h=rowH,build=function(c,it,v)
       for i,item in ipairs(group) do
-        tile(kit,c,kit.at(v.x,it.y,v),(i-1)*(cellW+12),4,cellW,rowH-12,item,nil,function() s.selection=item.key;s.confirm=nil;I.inspect(ctx,item);C.redraw(kit) end,s.selection==item.key,"inventoryItem:"..item.key,function(on)
+        local b=tile(kit,c,kit.at(v.x,it.y,v),(i-1)*(cellW+12),4,cellW,rowH-12,item,nil,function() s.selection=item.key;s.confirm=nil;I.inspect(ctx,item);C.redraw(kit) end,s.selection==item.key,"inventoryItem:"..item.key,function(on)
           if on then state.invHover=item.key;state.invHoverAt=kit.S.time
           elseif state.invHover==item.key then state.invHover=nil;state.invHoverAt=kit.S.time end
         end)
+        b.context=b.click -- select the item to show its existing action panel
       end
     end}
   end

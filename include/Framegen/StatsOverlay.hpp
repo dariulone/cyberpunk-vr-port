@@ -13,7 +13,12 @@ namespace cvr::framegen {
 class StatsOverlay {
 public:
     const XrCompositionLayerBaseHeader* Prepare(XrSession,XrSpace,ID3D12Device*,ID3D12CommandQueue*,
-        XrSpace local=XR_NULL_HANDLE,const XrPosef* head=nullptr,uint64_t origin=0,XrTime displayTime=0);
+        XrSpace local=XR_NULL_HANDLE,const XrPosef* head=nullptr,uint64_t origin=0,XrTime displayTime=0,
+        const char* notice=nullptr);
+    bool Owns(const XrCompositionLayerBaseHeader* candidate) const {
+        return candidate == reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer);
+    }
+    bool Displays(const char* notice) const { return notice && notice == renderedNotice; }
     void Shutdown(bool wait=false);
 private:
     XrSwapchain swapchain{};
@@ -24,6 +29,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Fence> fence;
     XrCompositionLayerQuad layer{XR_TYPE_COMPOSITION_LAYER_QUAD};
     uint64_t fenceValue{};double nextUpdate{};
+    const char* renderedNotice{}; // Only static message literals from ModeNoticeText().
     uint32_t acquiredIndex{};bool acquired{},published{};
     uint32_t width{},height{},rowPitch{};
     std::vector<uint32_t> pixels;

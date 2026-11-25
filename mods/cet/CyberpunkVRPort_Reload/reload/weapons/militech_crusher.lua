@@ -52,6 +52,8 @@ return {
         releaseSpeed = 1.20,
         gripSnap   = true,
         previewRadius = 0.05,
+        -- Exposed end of the in-game handle, relative to vrp_reload_handle.
+        cyberFingerPinky = { off = { -0.027, 0, 0 }, radius = 0.032 },
         blendTime  = 0.15,
         pullSndAt  = 0.20,
         -- one grip, so no orientation test to choose between grips

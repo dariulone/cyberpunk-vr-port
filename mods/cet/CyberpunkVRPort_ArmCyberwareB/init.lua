@@ -10,6 +10,12 @@ local function update(dt)
     if not player or type(GetVRSharedSlot) ~= 'function' then
         previousDown = true; return
     end
+    -- CyberFinger reserves B for eject/back and chooses weapons through its
+    -- Menu wheel. Do not let the stock-controller shortcut steal that button.
+    if type(VRCyberFingerEnabled) == 'function' and VRCyberFingerEnabled() then
+        player:VRArmBSetInputGuard(false)
+        previousDown = true; return
+    end
     if launcherPending > 0 then
         launcherPending = math.max(0, launcherPending - (dt or 0))
         if launcherPending == 0 then player.vrArmBLauncherPending = false end

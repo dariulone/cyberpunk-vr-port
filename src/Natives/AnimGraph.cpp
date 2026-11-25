@@ -9,6 +9,7 @@
 // check is cheap and it is the same lesson as every other generator in this restructure.
 #include <RED4ext/RED4ext.hpp>
 #include "Anim/WheelGrab.hpp"
+#include "Anim/FaceTracking.hpp"
 #include <RED4ext/GameEngine.hpp>
 #include <sstream>
 #include <locale>
@@ -296,6 +297,7 @@ void UpdateVRIKAnimInputs(RED4ext::IScriptable* aContext, RED4ext::CStackFrame* 
     aFrame->code++;
 
     // --- In-VR overlay activation -------------------------------------------
+    cvr::face::Tick();
     // The in-headset menu (imgui_overlay) writes a tracking-request code into
     // shared-memory slot [32] (0 = off, 2 = position+rotation). CET calls us
     // every frame on the game thread, so installing the hooks / arming the

@@ -1,5 +1,9 @@
 #include "Natives/NativeFunctions.hpp"
 #include "Hooks/KeypadInput.hpp"
+#include "Runtimes/CyberFingerInput.hpp"
+#include "Runtimes/CyberFingerMenuPolicy.hpp"
+#include "Natives/WorldPointer.hpp"
+#include "Natives/VrMenu.hpp"
 #include "Core/VrCoreShared.hpp"
 #include "Core/LiveControls.hpp"
 #include "Overlay/VrOverlay.hpp"
@@ -34,6 +38,9 @@ struct Scope {
     WeakHandle<ink::Layer> layer;
 };
 std::atomic<std::shared_ptr<const Scope>> scope;
+std::atomic<std::shared_ptr<const Scope>> computerScope;
+std::atomic<uint64_t> computerStamp{},computerHit{};
+std::atomic<bool> computerBack{};
 
 // CP2077 2.31's world-widget hit record (RVA 8BB5B0 / 2446050 / 24468B8).
 // These are WEAK handles, including the game's temporary output. Copying them
@@ -71,10 +78,13 @@ bool Visible(Handle<ink::Widget> widget) {
 
 WorldHit* Query(uintptr_t tester, WorldHit* out, const Vector2* screen) {
     auto* result = originalQuery(tester, out, screen);
-    const auto current = scope.load(std::memory_order_acquire);
+    const bool computer=cvr::input::ComputerInputActive();
+    const WorldHit nativeHit=*out;
+    if(computer){*out={};computerHit.store(0,std::memory_order_release);}
+    const auto current = computer?computerScope.load(std::memory_order_acquire):scope.load(std::memory_order_acquire);
     std::lock_guard lock(cursorMutex);
     auto& state = cursorState;
-    if (!current || !cvr::input::KeypadInputActive()) {
+    if (!current || (!computer && !cvr::input::KeypadInputActive())) {
         state = {}; return result;
     }
     const auto root = current->root.Lock();
@@ -90,8 +100,8 @@ WorldHit* Query(uintptr_t tester, WorldHit* out, const Vector2* screen) {
     if (state.owner != current || state.tester != tester || state.device != device) {
         state = {}; state.owner = current; state.tester = tester; state.device = device;
     }
-    const bool headHit = out->window.instance == window.GetPtr() && bool(out->component.Lock());
-    if (headHit) state.hit = *out;
+    const bool headHit = nativeHit.window.instance == window.GetPtr() && bool(nativeHit.component.Lock());
+    if (headHit) state.hit = nativeHit;
     // CET may identify the keypad a frame after the player looks away. Use the
     // tester's last genuine hit to arm it, but only for this exact window.
     if (!state.hit.window.instance) {
@@ -100,7 +110,20 @@ WorldHit* Query(uintptr_t tester, WorldHit* out, const Vector2* screen) {
             state.hit = previous;
     }
     if (state.hit.window.instance != window.GetPtr() || !state.hit.component.Lock()) {
+        if(computer){*out={};computerHit.store(0);}
         state = {}; return result;
+    }
+    if(computer) {
+        // The head can identify the device on entry, but never positions or
+        // clicks its cursor. Use the native mesh UV picker with the hand ray.
+        Vector2 local{},point{};
+        const Handle<IScriptable> component=state.hit.component.Lock();
+        const bool hit=cvr::worldpointer::ScreenRay(component,window.GetPtr(),
+            cvr::cyberfinger::MouseHand(g_liveControls.xrLeftHanded!=0,g_liveControls.xrLeftHandedBindings),local,point);
+        computerHit.store(hit?GetTickCount64():0,std::memory_order_release);
+        if(hit){*out=state.hit;out->local=local;out->cursor=point;out->screen=*screen;}
+        else *out={};
+        return result;
     }
     const auto now = Clock::now();
     const float dt = state.time.time_since_epoch().count() ? std::chrono::duration<float>(now-state.time).count() : 0.f;
@@ -154,13 +177,20 @@ bool cvr::input::KeypadInputActive() {
         g_liveControls.xrXInputHook && !cvr::vrui::CapturesInput() &&
         KeypadInputFresh(activeStamp.load(std::memory_order_acquire), GetTickCount64());
 }
+bool cvr::input::ComputerInputActive() {
+    return cvr::cyberfinger::Enabled() && hookReady.load() && g_menuModeValue==0 && g_liveControls.xrXInputHook &&
+        !cvr::vrui::CapturesInput() && !cvr::vrmenu::CapturesButtons() &&
+        KeypadInputFresh(computerStamp.load(std::memory_order_acquire),GetTickCount64());
+}
+bool cvr::input::ComputerPointerHit(){const auto stamp=computerHit.load(std::memory_order_acquire);return ComputerInputActive() && stamp && GetTickCount64()-stamp<150;}
+void cvr::input::ComputerBack(){if(ComputerInputActive())computerBack.store(true);}
 
 void cvr::input::PublishKeypadStick(float x, float y, float deadzone) {
     stickBits.store(std::bit_cast<uint64_t>(KeypadPoint{KeypadCursorAxis(x,deadzone),KeypadCursorAxis(y,deadzone)}), std::memory_order_relaxed);
     stickStamp.store(GetTickCount64(), std::memory_order_release);
 }
 
-void VRKeypadUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t* out, int64_t) {
+static void UpdateScope(RED4ext::CStackFrame* frame,int32_t* out,bool computer) {
     using namespace RED4ext;
     Handle<ink::Widget> root;
     GetParameter(frame, &root); ++frame->code;
@@ -173,24 +203,30 @@ void VRKeypadUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame, int32_t*
         if (proxy) layer = proxy->layer.Lock();
         current = current->parentWidget.Lock();
     }
-    const bool active = root && window && Visible(root) && layer &&
+    const bool active = (!computer || cvr::cyberfinger::Enabled()) && root && window && Visible(root) && layer &&
         layer->GetType()->GetName() == CName("inkWorldLayer") && g_menuModeValue == 0 &&
         hookReady.load(std::memory_order_acquire) && !cvr::vrui::CapturesInput();
-    const auto previous = scope.load(std::memory_order_acquire);
+    auto& targetScope=computer?computerScope:scope;
+    auto& targetStamp=computer?computerStamp:activeStamp;
+    const auto previous = targetScope.load(std::memory_order_acquire);
     if (!active) {
-        activeStamp.store(0, std::memory_order_release);
+        targetStamp.store(0, std::memory_order_release);
         stickStamp.store(0, std::memory_order_release);
-        scope.store({}, std::memory_order_release);
+        targetScope.store({}, std::memory_order_release);
+        if(computer){computerHit.store(0);computerBack.store(false);}
     } else if (!previous || previous->root.instance != root.GetPtr() || previous->window.instance != window.GetPtr()) {
         auto next = std::make_shared<Scope>();
         next->root = root; next->window = window; next->layer = layer;
         stickStamp.store(0, std::memory_order_release);
-        scope.store(std::move(next), std::memory_order_release);
+        targetScope.store(std::move(next), std::memory_order_release);
+        if(computer){computerHit.store(0);computerBack.store(false);}
     }
-    activeStamp.store(active ? GetTickCount64() : 0, std::memory_order_release);
+    targetStamp.store(active ? GetTickCount64() : 0, std::memory_order_release);
     CVR_DIAGNOSTIC(
         CyberpunkVR_KeypadRoot = reinterpret_cast<uintptr_t>(root.GetPtr());
         CyberpunkVR_KeypadLayer = reinterpret_cast<uintptr_t>(layer.GetPtr());
     );
-    if (out) *out = active ? 1 : 0;
+    if (out) *out = active ? (1 | (computer && computerBack.exchange(false)?2:0)) : 0;
 }
+void VRKeypadUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame,int32_t* out,int64_t){UpdateScope(frame,out,false);}
+void VRComputerUpdate(RED4ext::IScriptable*, RED4ext::CStackFrame* frame,int32_t* out,int64_t){UpdateScope(frame,out,true);}

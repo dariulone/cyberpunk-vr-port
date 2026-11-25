@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CyberFinger controls — Cyberpunk VR</title>
+<style>body{margin:auto;max-width:960px;padding:16px;background:#122028;color:#f3f6f7;font:16px/1.5 system-ui}nav{display:flex;gap:8px;flex-wrap:wrap}a{color:#7ce6d0}nav a{padding:5px 10px;border:1px solid #52656c;border-radius:5px;text-decoration:none}nav a[aria-current]{background:#7ce6d0;color:#122028}img{display:block;width:100%;height:auto;margin:16px 0}footer{padding:12px 0}</style>
+</head><body><nav aria-label="Control context"><a href="cyberfinger-controls.svg" aria-current="true">Normal · On foot</a> <a href="cyberfinger-combat.svg">Combat · Firearm</a> <a href="cyberfinger-melee.svg">Combat · Fists and melee</a> <a href="cyberfinger-katana.svg">Katana · Drawn or at the hip</a> <a href="cyberfinger-car.svg">Car · Driving</a> <a href="cyberfinger-car-combat.svg">Car + combat · Gun drawn</a> <a href="cyberfinger-dialogue.svg">Conversation choices · On foot</a> <a href="cyberfinger-scanner.svg">Scanner · Quickhacks</a> <a href="cyberfinger-game-menus.svg">Cyberpunk menus · Esc, inventory and wardrobe</a> <a href="cyberfinger-map.svg">Map</a> <a href="cyberfinger-journal.svg">Journal</a> <a href="cyberfinger-vr-menu.svg">VR menu</a> <a href="cyberfinger-f10.svg">F10 · VR settings</a> <a href="cyberfinger-cet.svg">CET · Mod windows</a> <a href="cyberfinger-computer.svg">Computer</a> <a href="cyberfinger-picture-frame.svg">Apartment picture frame</a></nav>
+<img src="cyberfinger-controls.svg" alt="Normal · On foot controller diagram">
+<footer><a href="../../README_CYBRFNGR.md">Quick reference</a> · <a href="ARTWORK.md">Controller artwork</a></footer>
+<script>
+const links = document.querySelectorAll('nav a');
+const diagram = document.querySelector('img');
+for (const link of links) link.addEventListener('click', event => {
+  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  for (const item of links) item.removeAttribute('aria-current');
+  link.setAttribute('aria-current', 'true');
+  diagram.src = link.href;
+  diagram.alt = link.textContent + ' controller diagram';
+});
+</script></body></html>

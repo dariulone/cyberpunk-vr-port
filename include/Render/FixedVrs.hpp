@@ -10,13 +10,16 @@ namespace cvr::vrs {
 struct Settings {
     int mode=0; // Off, 2x2, 4x4 (with a 2x2 transition).
     float width=70, height=65, offsetX=0, offsetY=0;
+    bool eyeTracked=false;
     bool operator==(const Settings&) const = default;
 };
 struct Status {
     bool checked{},supported{},additionalRates{},failed{};
     unsigned tileSize{},readyMaps{};
+    unsigned trackedLists{},stateFailures{};
     uint64_t draws[2]{};
     uint64_t sceneDraws[2]{},eligibleDraws[2]{};
+    bool gazeFresh{};
 };
 Settings Normalize(Settings);
 Settings GetSettings();
@@ -24,6 +27,11 @@ void SetSettings(Settings);
 bool ParseSetting(const char*,Settings&);
 void WriteSettings(FILE*,Settings);
 std::vector<uint8_t> BuildRates(Settings,unsigned width,unsigned height,unsigned tileSize,bool additionalRates);
+using GazeCenters=std::array<std::array<float,2>,2>;
+// Normalized rendered-eye coordinates. A zero timestamp immediately invalidates gaze.
+void UpdateGaze(GazeCenters,uint64_t tickMs);
+Settings GazeRegion(Settings,float x,float y);
+std::vector<uint8_t> BuildStereoRates(const std::array<Settings,2>&,unsigned width,unsigned height,unsigned tileSize,bool additionalRates);
 bool EligiblePipeline(const D3D12_GRAPHICS_PIPELINE_STATE_DESC&);
 Status GetStatus();
 extern std::atomic<bool> enabled;
@@ -34,7 +42,7 @@ void Reset(ID3D12GraphicsCommandList*,bool rateKnown,ID3D12PipelineState*);
 void Invalidate(ID3D12GraphicsCommandList*);
 void Pipeline(ID3D12GraphicsCommandList*,ID3D12PipelineState*);
 void Viewports(ID3D12GraphicsCommandList*,UINT,const D3D12_VIEWPORT*);
-void Targets(ID3D12GraphicsCommandList*,UINT,bool depth);
+void Targets(ID3D12GraphicsCommandList*,UINT,bool depth,unsigned width=0,unsigned height=0);
 void ShadingRate(ID3D12GraphicsCommandList*,D3D12_SHADING_RATE,const D3D12_SHADING_RATE_COMBINER*);
 void ShadingImage(ID3D12GraphicsCommandList*,ID3D12Resource*);
 void Tick(ID3D12Device*,ID3D12CommandQueue*);

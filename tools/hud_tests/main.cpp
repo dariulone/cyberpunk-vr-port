@@ -9,16 +9,6 @@ extern "C" { int CyberpunkVR_RuntimeDiagnostics=0; }
 #include "Runtimes/OpenXRManager.hpp"
 #include "Runtimes/HudClearance.hpp"
 namespace cvr::anim { bool WheelReadMinimapAnchor(uint64_t,cvr::hud::VehicleMinimapAnchor&) {return false;} }
-// Standalone panel tests have no game-world depth query or tracked hands.
-extern "C" int CyberpunkVR_InteractionAnchor=0,CyberpunkVR_HudClearance=0,CyberpunkVR_HudClearanceHands=0;
-extern "C" float CyberpunkVR_HudClearanceGrow=0,CyberpunkVR_HudClearanceHandsScale=1;
-namespace cvr::interaction {float TargetDepth(uint64_t) {return 0;}}
-namespace cvr::hud::clearance {
-float Published(uint64_t) {return kFree;}
-float GrowFactor(float,float,float) {return 1;}
-}
-OpenXRManager& OpenXRManager::Get() {std::abort();}
-bool OpenXRManager::GetHandPose(int,OpenXRHeadPose*) const {return false;}
 #include "Render/GpuStageProfile.hpp"
 extern "C" { extern cvr::hud::PoseDebug CyberpunkVR_HudPoseDebug; extern std::atomic<uint32_t> CyberpunkVR_HudPoseDebugSeq; }
 #include "Core/LiveControls.hpp"
@@ -49,6 +39,24 @@ namespace cvr::optics::probe { void Capture(ID3D12Device*,ID3D12CommandQueue*) {
 // The engine's own HUD bend, kept by Stereo/Hud.cpp (not linked here) for the panel composite.
 extern "C" float CyberpunkVR_HudEngineCurvature[2]={0.0f,0.0f};
 constexpr float rad=0.01745329252f;
+bool cfHudVisible=true;float cfHudScale=1.f;
+namespace cvr::cyberfinger {
+bool HudVisible(){return cfHudVisible;}
+float HudScale(){return cfHudScale;}
+}
+// No tracked hands or engine interaction targets in these synthetic HUD frames.
+// Fail if a fixture accidentally enables an engine-dependent clearance path.
+extern "C" {
+int CyberpunkVR_InteractionAnchor=0,CyberpunkVR_HudClearance=0,CyberpunkVR_HudClearanceHands=0;
+float CyberpunkVR_HudClearanceGrow=0,CyberpunkVR_HudClearanceHandsScale=1.f;
+}
+OpenXRManager& OpenXRManager::Get(){throw std::runtime_error("unexpected live XR access in HUD test");}
+bool OpenXRManager::GetHandPose(int,OpenXRHeadPose*)const{return false;}
+namespace cvr::interaction {float TargetDepth(uint64_t){throw std::runtime_error("unexpected interaction depth");}}
+namespace cvr::hud::clearance {
+float Published(uint64_t){throw std::runtime_error("unexpected world clearance");}
+float GrowFactor(float,float,float){throw std::runtime_error("unexpected clearance scaling");}
+}
 
 LiveControls g_liveControls{};
 ComPtr<ID3D12Resource> testHudConstants,testFrameConstants;
@@ -287,6 +295,20 @@ void GpuTest(bool leases, const std::string& quadCase = "") {
                 Check(std::abs(2*std::atan2(l->pose.orientation.y,l->pose.orientation.w)-100*rad)<2.1f*rad,"interaction catch-up did not settle");
                 g_liveControls.xrInteractionPanel=0;
                 Check(!prepare() && !cvr::hud::ConsumerReady(cvr::hud::Channel::Interaction) && cvr::hud::ConsumerReady(),"disabling interaction changed main HUD readiness");
+            } else if(quadCase=="gpu_quad_cyberfinger") {
+                auto layer=reinterpret_cast<const XrCompositionLayerQuad*>(prepare());
+                Check(layer!=nullptr,"baseline HUD missing");
+                const auto normal=layer->size;
+                cfHudScale=1.25f;
+                layer=reinterpret_cast<const XrCompositionLayerQuad*>(prepare());
+                Check(layer && std::abs(layer->size.width-normal.width*1.25f)<1e-5f &&
+                      std::abs(layer->size.height-normal.height*1.25f)<1e-5f,"CF HUD size not applied");
+                cfHudVisible=false;
+                Check(!prepare() && !quad.SecondEye(),"hidden HUD still submitted");
+                Check(cvr::hud::ConsumerReady(),"hiding HUD restored duplicate native HUD");
+                cfHudVisible=true;cfHudScale=1.f;
+                layer=reinterpret_cast<const XrCompositionLayerQuad*>(prepare());
+                Check(layer && std::abs(layer->size.width-normal.width)<1e-5f,"restoring normal HUD failed");
             } else if(quadCase=="gpu_quad_timeout") {
                 xrtest::timeout=true;Check(!prepare(),"timeout was treated as successful wait");
                 Check(xrtest::acquireCalls==1 && xrtest::releaseCalls==0,"timed out image was released");

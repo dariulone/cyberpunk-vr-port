@@ -3,9 +3,9 @@
 #include <string>
 #include <vector>
 
-// VIVE TRACKERS (xr_vive_trackers) for full-body tracking: waist, left foot and right foot, read through OpenXR
+// TRACKERS (xr_vive_trackers) for full-body tracking: waist, feet, chest, knees and elbows, read through OpenXR
 // XR_HTCX_vive_tracker_interaction. SteamVR exposes each tracker with the role assigned in Settings > Controllers >
-// Manage Vive Trackers. One pose action with the three role paths as subactions, in the gameplay action set.
+// Manage Vive Trackers. One pose action with eight role paths as subactions, in the gameplay action set.
 //
 // The trackers are located in the same space and at the same instant as the hands, and stored the same way:
 // head-relative, rel = inverse(headOri) * (trackerPos - headPos). Raw, no filter.
@@ -21,7 +21,9 @@
 // The HTCX reading follows purraricat's fork of the port (src/vr/openxr/openxr_vive_trackers.cpp, MIT).
 namespace cvr::trackers {
 
-enum Role { kWaist = 0, kLeftFoot = 1, kRightFoot = 2, kRoleCount = 3 };
+// Keep the original indices stable: the three-point calibration uses them.
+enum Role { kWaist = 0, kLeftFoot = 1, kRightFoot = 2, kChest, kLeftKnee, kRightKnee,
+            kLeftElbow, kRightElbow, kRoleCount };
 
 struct Pose {
     bool valid = false;
