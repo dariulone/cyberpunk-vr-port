@@ -18,6 +18,29 @@
 local M = {}
 M.gripArc = require('reload/grip_arc')
 
+-- HOW CLOSE IS CLOSE ENOUGH, and how far the squeeze has to come out to let go. One number each, for every
+-- weapon, on purpose.
+--
+-- A grip's `previewRadius` is measured against the recorded animation wrist and sized for one reach: 5 cm of
+-- air around a point that is itself NOT on the gun (the Unity's overhand sits 7.8 cm back and 7.6 cm below the
+-- bore). That is a small target with a controller in your hand, and its failure mode is the one players report
+-- as "falling out of the reload": the finger pose fades out from under a hand that is visibly on the part. The
+-- per-weapon numbers keep their measured RELATIVE sizes; this scales all of them at once.
+--
+-- On the module table and not in a local: M.frame sits at the upvalue ceiling ("Out here and not in M.frame",
+-- see below), and a field costs it nothing.
+M.GRIP_ROOM = 1.4
+
+-- THE SQUEEZE HAD ONE EDGE. `M.squeeze` answered "is the button in" -- a single frame's reading against 0.5 --
+-- for the CATCH and for the LOSE alike, so a grip axis resting near the middle let go of the slide mid-rack (it
+-- sprang home) or dropped the magazine. Narrow to catch, wide to lose, exactly as the cylinder's zone already
+-- does: once a part is latched it holds until the button is really released.
+M.RELEASE_LEVEL = 0.25
+
+-- The room a grip is looked for in. `preview` moves only the point the hand is MEASURED against (see
+-- gripTarget), so this never moves the hold.
+function M.previewR(sc) return (sc.previewRadius or 0.05) * M.GRIP_ROOM end
+
 local CONFIGS = {}
 do
     -- The list of weapons is DATA (reload/weapons/index.lua), not a literal here: a new pistol is a config file
@@ -1818,6 +1841,16 @@ function M.squeeze(how, h)
     return (GetVRSharedSlot(h == 0 and 155 or 49) or 0.0) > 0.5
 end
 
+-- THE OTHER EDGE OF THE SAME SQUEEZE. `M.squeeze` is the CATCH: it asks for a real press on one frame's reading.
+-- A part that is already latched is not caught again every frame -- it is HELD -- and it lets go at RELEASE_LEVEL
+-- instead of 0.5, so an analog grip relaxing through the middle of its travel no longer releases the slide mid-
+-- stroke or drops the magazine. Same axes as M.squeeze, so a part worked by the trigger gets the same two edges.
+function M.held(how, h)
+    if how == 'trigger' then return (GetVRSharedSlot(h == 0 and 154 or 160) or 0.0) > M.RELEASE_LEVEL end
+    if wheelOwns(h) then return false end
+    return (GetVRSharedSlot(h == 0 and 155 or 49) or 0.0) > M.RELEASE_LEVEL
+end
+
 -- A TWO-HAND HOLD TAKEN AWAY. A weapon can be held in several places (TwoHandGrip.cpp, g_cand: the plain hold and
 -- `<weapon>@<where>` ones); `mag.holdAlt` names the one ON THE MAGAZINE -- the Crusher's @mag, index 1 -- and with the
 -- magazine out of the well that one has nothing to close on (with no magazine it must not hold on to the air),
@@ -2497,7 +2530,9 @@ function M.frame(weapon, slotComp, holder, dt)
             -- hands together at the grip, which is exactly the flip case -- and the pinch hand then stayed
             -- rotation-locked forever (the reported bug).
             local H = slideS.hand or free
-            if (not M.squeeze(sc.grabWith, H)) or slideS.trip then
+            -- THE LOSE IS NOT THE CATCH. `M.held` is the same axis at RELEASE_LEVEL, so the slide stays in the
+            -- hand through a relaxed grip and only springs when the button is really let go.
+            if (not M.held(sc.grabWith, H)) or slideS.trip then
                 slideS.grabbed, slideS.releasing, slideS.trip = false, true, nil  -- spring forward, NOT teleport
                 -- COMING OFF THE CATCH, the spring runs to CLOSED, not back to the catch. While the slide is held
                 -- back the rack is counted from the catch, so "rack = 0" means the catch -- and letting go simply
@@ -2719,7 +2754,12 @@ function M.frame(weapon, slotComp, holder, dt)
                                     a = 2.0 * math.deg(math.acos(dq))
                                     if dbgAng == nil or a < dbgAng then dbgAng = a end
                                     if ga == nil or a < ga then ga = a end
-                                    angOk = a <= (sc.styleAngleMax or 60.0)
+                                    -- THE ANGLE GATE IS FOR FINDING THE PART, NOT FOR STANDING ON IT. It is measured
+                                    -- against the recorded animation wrist, which a rolled or canted gun swings round
+                                    -- the axis -- so a hand 2 cm from the slide failed it and was offered nothing.
+                                    -- At close range the hand is visibly on the part and the distance is the whole
+                                    -- test; beyond it the cone still decides which grip style was meant.
+                                    angOk = (a <= (sc.styleAngleMax or 60.0)) or (d <= (sc.closeGrabRadius or 0.03))
                                 end
                                 if angOk then best, bestStyle, bestD = g, styleName, d end
                             end
@@ -2768,8 +2808,8 @@ function M.frame(weapon, slotComp, holder, dt)
             -- a handle on the TRIGGER takes the left trigger off the game while the hand is on it or offered it --
             -- it is the aim everywhere else (sent by the magazine block, which also has a claim on it)
             slideS.ltNear = sc.grabWith == 'trigger' and free == aimHand()
-                            and (slideS.grabbed or (best ~= nil and bestD <= (sc.previewRadius or 0.05)))
-            if best and bestD <= (sc.previewRadius or 0.05) and not magNearer then
+                            and (slideS.grabbed or (best ~= nil and bestD <= M.previewR(sc)))
+            if best and bestD <= M.previewR(sc) and not magNearer then
                 -- A HANDLE ON THE TRIGGER IS OFFERED TO THE TRIGGER FINGER, NOT TO THE HAND. The preview's fingers
                 -- are a claim on the hand, and the two-hand hold lets go of -- and spends the grip of -- any hand
                 -- the reload claims. A handle at the fore-end (the Copperhead's lever, the Umbra's, the
@@ -4316,7 +4356,7 @@ function M.frame(weapon, slotComp, holder, dt)
                 -- distant slide than a low pouch must not block the body zone.
                 local busy = slideS.grabbed or slideS.releasing
                     or (magS.slideHasPose and slD2 >= 0
-                        and (atBody and slD2 <= (sc.previewRadius or 0.05)
+                        and (atBody and slD2 <= M.previewR(sc)
                              or not atBody and goneD >= 0 and slD2 < goneD))
                 if atBody then catchW = 1.0 end
                 if busy then catchW = 0.0 end
@@ -4577,7 +4617,10 @@ function M.frame(weapon, slotComp, holder, dt)
                 -- READ THE SQUEEZE FROM THE HAND THAT HOLDS IT. `grip` above is sampled on `free`, and the two are
                 -- not always the same wrist -- one flickered holder frame and the magazine was released because the
                 -- OTHER hand happened not to be squeezing.
-                grip = gripOf(H)
+                -- NARROW TO CATCH, WIDE TO LOSE, for the hand as well as the well: the squeeze that TOOK the
+                -- magazine had to be a press (gripTake above, still M.squeeze), but keeping it only needs the
+                -- button not to be really let go. A relaxed grip used to drop the magazine mid-insert.
+                grip = M.held(nil, H)
                 local tx, ty, tz, qi, qj, qk, qr, lx, ly, lz, k1, k2, k3, k4 = handTarget(H)
                 if tx then placeMag(tx, ty, tz, qi, qj, qk, qr, H, lx, ly, lz, k1, k2, k3, k4) end
                 magS.hand = H
