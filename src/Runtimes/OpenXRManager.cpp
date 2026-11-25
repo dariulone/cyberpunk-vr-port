@@ -669,6 +669,73 @@ void OpenXRManager::SetMonoSubmitEnabled(bool enabled) {
 
 // [mono capture + submit-resource methods (EnsureMonoCaptureResource ... EnsureMonoSubmitResources) moved to openxr_capture.cpp]
 
+// Optional XR_KHR_visibility_mask optical boundary (tangent-space vertices per eye).
+// Stored file-locally (no header change) and exposed via C linkage for Render/HiddenArea.cpp.
+namespace {
+bool s_visMaskSupported = false;
+std::mutex s_visMaskMutex;
+std::vector<XrVector2f> s_visMaskVerts[2];
+
+void QueryOpticalVisibilityMasks(XrInstance instance, XrSession session) {
+    if (!s_visMaskSupported || instance == XR_NULL_HANDLE || session == XR_NULL_HANDLE) return;
+    PFN_xrGetVisibilityMaskKHR pfnGetMask = nullptr;
+    if (XR_FAILED(xrGetInstanceProcAddr(instance, "xrGetVisibilityMaskKHR",
+                                        reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetMask))) || !pfnGetMask) {
+        return;
+    }
+    for (uint32_t eye = 0; eye < 2; ++eye) {
+        XrVisibilityMaskKHR mask{XR_TYPE_VISIBILITY_MASK_KHR};
+        XrVisibilityMaskTypeKHR kind = XR_VISIBILITY_MASK_TYPE_LINE_LOOP_KHR;
+        if (XR_FAILED(pfnGetMask(session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, eye, kind, &mask)) ||
+            mask.vertexCountOutput == 0) {
+            mask = {XR_TYPE_VISIBILITY_MASK_KHR};
+            kind = XR_VISIBILITY_MASK_TYPE_VISIBLE_TRIANGLE_MESH_KHR;
+            if (XR_FAILED(pfnGetMask(session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, eye, kind, &mask)) ||
+                mask.vertexCountOutput == 0) {
+                continue;
+            }
+        }
+        std::vector<XrVector2f> verts(mask.vertexCountOutput);
+        std::vector<uint32_t> indices(std::max<uint32_t>(1u, mask.indexCountOutput));
+        mask.vertexCapacityInput = static_cast<uint32_t>(verts.size());
+        mask.vertices = verts.data();
+        mask.indexCapacityInput = mask.indexCountOutput;
+        mask.indices = mask.indexCountOutput ? indices.data() : nullptr;
+        if (XR_SUCCEEDED(pfnGetMask(session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, eye, kind, &mask)) &&
+            mask.vertexCountOutput > 0) {
+            verts.resize(mask.vertexCountOutput);
+            {
+                std::lock_guard<std::mutex> lock(s_visMaskMutex);
+                s_visMaskVerts[eye] = std::move(verts);
+            }
+            Log("OpenXRManager: XR_KHR_visibility_mask eye=%u verts=%u (exact optical lens boundary active)\n",
+                eye, mask.vertexCountOutput);
+        }
+    }
+}
+} // namespace
+
+extern "C" bool CyberpunkVR_GetOpticalMaskRadiusPct(int eye, float tanL, float tanR, float tanU, float tanD, float* outRadiusPct) {
+    if (eye < 0 || eye > 1 || !outRadiusPct || !(tanL < 0.0f && tanR > 0.0f && tanU > 0.0f && tanD < 0.0f)) return false;
+    std::lock_guard<std::mutex> lock(s_visMaskMutex);
+    const auto& verts = s_visMaskVerts[eye];
+    if (verts.empty()) return false;
+    float maxR = 0.0f;
+    for (const auto& v : verts) {
+        const float ex = v.x < 0.0f ? -tanL : tanR;
+        const float ey = v.y < 0.0f ? -tanD : tanU;
+        if (ex <= 0.0f || ey <= 0.0f) continue;
+        const float nx = v.x / ex;
+        const float ny = v.y / ey;
+        const float r = std::sqrt(nx * nx + ny * ny);
+        if (r > maxR) maxR = r;
+    }
+    if (!(maxR > 0.5f && maxR < 2.0f)) return false;
+    // Add +2.0% optical safety margin so zero visible edge pixels are ever clipped.
+    *outRadiusPct = std::clamp(maxR * 100.0f + 2.0f, 75.0f, 145.0f);
+    return true;
+}
+
 bool OpenXRManager::Init() {
     std::lock_guard<std::mutex> initLock(m_initMutex);
     if (m_initialized) return true;
@@ -686,8 +753,9 @@ bool OpenXRManager::Init() {
         XR_KHR_D3D12_ENABLE_EXTENSION_NAME
     };
     bool steamFrameEnabled=false;
+    s_visMaskSupported = false;
 
-    // Optional depth submission and native Steam Frame controller bindings.
+    // Optional depth submission, headset optical visibility mask, and native Steam Frame controller bindings.
     {
         uint32_t extCount = 0;
         xrEnumerateInstanceExtensionProperties(nullptr, 0, &extCount, nullptr);
@@ -698,6 +766,9 @@ bool OpenXRManager::Init() {
                 if (strcmp(p.extensionName, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME) == 0) {
                     m_depthLayerSupported = true;
                     extensions.push_back(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME);
+                } else if (strcmp(p.extensionName, XR_KHR_VISIBILITY_MASK_EXTENSION_NAME) == 0) {
+                    s_visMaskSupported = true;
+                    extensions.push_back(XR_KHR_VISIBILITY_MASK_EXTENSION_NAME);
                 } else if(strcmp(p.extensionName,cvr::input::SteamFrameExtension)==0) {
                     steamFrameEnabled=true;
                     extensions.push_back(cvr::input::SteamFrameExtension);
@@ -707,6 +778,7 @@ bool OpenXRManager::Init() {
         cvr::trackers::ChooseExtensions(props, extensions);     // only with xr_vive_trackers=1
         cvr::fingergrip::ChooseExtensions(props, extensions);   // hand tracking, whenever offered
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
+        Log("OpenXRManager: visibility-mask (XR_KHR_visibility_mask) supported=%d\n", s_visMaskSupported ? 1 : 0);
         Log("OpenXRManager: Steam Frame controller (%s) supported=%d\n",cvr::input::SteamFrameExtension,steamFrameEnabled?1:0);
     }
 
@@ -1176,6 +1248,7 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
         return false;
     }
     cvr::fingergrip::OnSessionCreated(m_instance, m_systemId, m_session);
+    QueryOpticalVisibilityMasks(m_instance, m_session);
 
     m_runtimeFovLogInitialized = false;
     m_loggedRuntimeEyeFovs[0] = {};
@@ -2600,6 +2673,11 @@ void OpenXRManager::Shutdown() {
     if (m_session != XR_NULL_HANDLE) {
         cvr::trackers::OnSessionDestroying();
         cvr::fingergrip::OnSessionDestroying();
+        {
+            std::lock_guard<std::mutex> lock(s_visMaskMutex);
+            s_visMaskVerts[0].clear();
+            s_visMaskVerts[1].clear();
+        }
         xrDestroySession(m_session);
         m_session = XR_NULL_HANDLE;
     }
