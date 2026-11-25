@@ -86,6 +86,11 @@
 #include "Stereo/EngineRvas.hpp"
 #include "Stereo/StereoPairProbe.hpp"
 #include "Stereo/SinglePass.hpp"
+#include "Runtimes/EyeGazeMath.hpp"
+#include "Camera/PoseIdentity.hpp"
+#include "Stereo/EngineStereo.hpp"
+
+extern "C" extern int CyberpunkVR_MainIsRightEye;
 
 namespace cvr {
 namespace detail {
@@ -2063,6 +2068,25 @@ void STDMETHODCALLTYPE hk_ClearDepthStencilView(ID3D12GraphicsCommandList* self,
         base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,e->cleardsv_original);
 }
 
+static int vrs_physical_eye(int viewSide) {
+    if (viewSide < 0 || viewSide > 1) return viewSide;
+    const int8_t afwEye = cvr::camera::CurrentNodePoseIdentity().head.afwEye;
+    return int(cvr::eyegaze::PhysicalEyeForRenderView(
+        unsigned(viewSide), cvr::engine_stereo::Enabled(), CyberpunkVR_MainIsRightEye != 0, afwEye));
+}
+static void STDMETHODCALLTYPE vrs_set_shading_rate(ID3D12GraphicsCommandList5* list,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* combiners) {
+    const CommandListVtableHook* e=command_list_hook_entry(list);
+    if(!e || !e->shading_rate_original)return;
+    if(!cvr::stereo::probe::internalCommands && cvr::single_pass::ShadingRate(list,rate,combiners))return;
+    e->shading_rate_original(list,rate,combiners);
+}
+static void STDMETHODCALLTYPE vrs_set_shading_image(ID3D12GraphicsCommandList5* list,ID3D12Resource* image) {
+    const CommandListVtableHook* e=command_list_hook_entry(list);
+    if(!e || !e->shading_image_original)return;
+    if(!cvr::stereo::probe::internalCommands && cvr::single_pass::ShadingImage(list,image))return;
+    e->shading_image_original(list,image);
+}
+
  void STDMETHODCALLTYPE hk_DrawInstanced(ID3D12GraphicsCommandList* self,
         UINT vtx, UINT inst, UINT sv, UINT si) {
     cvr::stereo::copy_windows::UnknownDraw(self);
@@ -2088,7 +2112,7 @@ void STDMETHODCALLTYPE hk_ClearDepthStencilView(ID3D12GraphicsCommandList* self,
     cascade_draw_seen();
     {
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
-        cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,t_view_side,e->shading_rate_original,e->shading_image_original);
+        cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,vrs_physical_eye(t_view_side),e->shading_rate_original?vrs_set_shading_rate:nullptr,e->shading_image_original?vrs_set_shading_image:nullptr);
         cvr::stereo::target_handoff::Draw(self);cvr::stereo::target_access::Shader(self,true);
         const auto costAction=geometry_cost_action(self);
         const uint32_t singleArgs[5]{vtx,inst,sv,si,0};
@@ -2171,7 +2195,7 @@ static void lens_mask(ID3D12GraphicsCommandList* self,const CommandListVtableHoo
         cvr::vrs::Restore(self);
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
         const auto node=base && t_current_node_work>base?uint32_t(t_current_node_work-base):0;
-        cvr::optics::FullRateDraw fullRate(self,t_current_pso,e->shading_rate_original);
+        cvr::optics::FullRateDraw fullRate(self,t_current_pso,e->shading_rate_original?vrs_set_shading_rate:nullptr);
         if(cvr::stereo::native_probe::Draw(self,t_current_pso,node,t_view_side,idx,inst,si,bv,sinst,&retainedObserved))return;
     }
     if(!retainedObserved && cvr::stereo::retained_geometry::Active())cvr::stereo::retained_geometry::Flush(self,17);
@@ -2221,10 +2245,10 @@ static void lens_mask(ID3D12GraphicsCommandList* self,const CommandListVtableHoo
         draw_probe(t_current_pso);
     {
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
-        cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,t_view_side,e->shading_rate_original,e->shading_image_original);
+        cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,vrs_physical_eye(t_view_side),e->shading_rate_original?vrs_set_shading_rate:nullptr,e->shading_image_original?vrs_set_shading_image:nullptr);
         cvr::stereo::target_handoff::Draw(self);cvr::stereo::target_access::Shader(self,true);
         const auto costAction=geometry_cost_action(self);
-        cvr::optics::FullRateDraw fullRate(self,t_current_pso,e->shading_rate_original);
+        cvr::optics::FullRateDraw fullRate(self,t_current_pso,e->shading_rate_original?vrs_set_shading_rate:nullptr);
         const uint32_t singleArgs[5]{idx,inst,si,uint32_t(bv),sinst};
         if(costAction!=cvr::stereo::geometry_cost::Action::Skip &&
            !cvr::single_pass::Draw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,2,singleArgs)){
@@ -2309,7 +2333,7 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_DebugEiNullArgs = 0;
     cvr::stereo::early_depth::Unsupported(self,3);
     {
         const auto base=reinterpret_cast<uintptr_t>(g_exe_base);
-        cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,t_view_side,e->shading_rate_original,e->shading_image_original);
+        cvr::vrs::PrepareDraw(self,base && t_current_node_work>base?uint32_t(t_current_node_work-base):0,vrs_physical_eye(t_view_side),e->shading_rate_original?vrs_set_shading_rate:nullptr,e->shading_image_original?vrs_set_shading_image:nullptr);
         if(!cvr::cascades::SkipIndirect(self,sig)){
             if(cvr::stereo::indirect_policy::PureDrawStride(sig))cvr::stereo::target_handoff::Draw(self);
             else cvr::stereo::target_handoff::Unknown(self,9);

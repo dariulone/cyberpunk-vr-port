@@ -32,7 +32,7 @@ class FoveatedGpu {
 public:
     PreparedRegion center, periphery;
     bool Initialize(ID3D12Device*,const Region&,const Region&);
-    bool Prepare(ID3D12GraphicsCommandList*,const Source&,bool central);
+    bool Prepare(ID3D12GraphicsCommandList*,const Source&,bool central,float cropDeltaX=0.0f,float cropDeltaY=0.0f);
     bool Composite(ID3D12GraphicsCommandList*,const Source&,bool boundary);
 };
 }

@@ -5,6 +5,7 @@
 #include "Fbt/Game/Trackers.hpp"
 #include "Runtimes/PresenceRecenter.hpp"
 #include "Runtimes/FingerGrip.hpp"
+#include "Runtimes/EyeGaze.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/HybridBodyYaw.hpp"
@@ -706,6 +707,7 @@ bool OpenXRManager::Init() {
         }
         cvr::trackers::ChooseExtensions(props, extensions);     // only with xr_vive_trackers=1
         cvr::fingergrip::ChooseExtensions(props, extensions);   // hand tracking, whenever offered
+        cvr::eyegaze::ChooseExtensions(props, extensions);      // XR_EXT_eye_gaze_interaction, whenever offered
         Log("OpenXRManager: depth-layer (XR_KHR_composition_layer_depth) supported=%d\n", m_depthLayerSupported ? 1 : 0);
         Log("OpenXRManager: Steam Frame controller (%s) supported=%d\n",cvr::input::SteamFrameExtension,steamFrameEnabled?1:0);
     }
@@ -719,6 +721,7 @@ bool OpenXRManager::Init() {
     XrResult res = xrCreateInstance(&createInfo, &m_instance);
     if (XR_FAILED(res)) {
         Log("OpenXRManager: Failed to create XrInstance (res=%d)\n", res);
+        cvr::eyegaze::Shutdown();
         return false;
     }
     cvr::trackers::OnInstanceCreated(m_instance);
@@ -755,6 +758,7 @@ bool OpenXRManager::Init() {
     res = xrGetSystem(m_instance, &systemInfo, &m_systemId);
     if (XR_FAILED(res)) {
         Log("OpenXRManager: Failed to get XrSystemId (res=%d)\n", res);
+        cvr::eyegaze::Shutdown();
         xrDestroyInstance(m_instance);
         m_instance = XR_NULL_HANDLE;
         return false;
@@ -781,6 +785,7 @@ bool OpenXRManager::Init() {
             systemProps.trackingProperties.positionTracking ? 1 : 0,
             systemProps.trackingProperties.orientationTracking ? 1 : 0);
     }
+    cvr::eyegaze::InspectSystem(m_instance, m_systemId);
 
     uint32_t viewCount = 0;
     if (XR_SUCCEEDED(xrEnumerateViewConfigurationViews(m_instance, m_systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 0, &viewCount, nullptr)) && viewCount > 0) {
@@ -867,6 +872,7 @@ bool OpenXRManager::Init() {
             if(steamFrameEnabled)m_steamFrameActions.Create(makeAction);
         }
         cvr::trackers::CreateActions(m_instance, m_actionSet);
+        cvr::eyegaze::CreateActions(m_instance);
         Log("OpenXRManager[Input]: gameplay action set %s (xr_input_actions=%d)\n",
             inputActionsEnabled ? "ENABLED" : "DISABLED (pose-only)", (int)inputActionsEnabled);
 
@@ -1239,9 +1245,14 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
 
     // [HANDS] Attach action sets and create spaces
     if (m_actionSet != XR_NULL_HANDLE) {
+        XrActionSet actionSets[2]{m_actionSet, XR_NULL_HANDLE};
+        uint32_t actionSetCount = 1;
+        if (const XrActionSet gazeSet = cvr::eyegaze::ActionSet(); gazeSet != XR_NULL_HANDLE) {
+            actionSets[actionSetCount++] = gazeSet;
+        }
         XrSessionActionSetsAttachInfo attachInfo{XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
-        attachInfo.countActionSets = 1;
-        attachInfo.actionSets = &m_actionSet;
+        attachInfo.countActionSets = actionSetCount;
+        attachInfo.actionSets = actionSets;
         xrAttachSessionActionSets(m_session, &attachInfo);
 
         for (int i = 0; i < 2; i++) {
@@ -1260,6 +1271,7 @@ bool OpenXRManager::InitGraphics(ID3D12Device* device, ID3D12CommandQueue* queue
             }
         }
         cvr::trackers::OnSessionCreated(m_session, m_handSpaces);
+        cvr::eyegaze::OnSessionCreated(m_session);
     }
 
     m_stopFrameThread.store(false, std::memory_order_relaxed);
@@ -1297,6 +1309,7 @@ void OpenXRManager::EndSession() {
     if (m_session == XR_NULL_HANDLE || !m_sessionRunning.load(std::memory_order_relaxed)) return;
     xrEndSession(m_session);
     m_sessionRunning.store(false, std::memory_order_relaxed);
+    cvr::eyegaze::OnSessionStopped();
     Log("OpenXRManager: Session ended.\n");
 }
 
@@ -1341,9 +1354,11 @@ void OpenXRManager::PollEvents() {
                 cvr::haptics::Clear();
                 EndSession();
             } else if (m_sessionState == XR_SESSION_STATE_EXITING || m_sessionState == XR_SESSION_STATE_LOSS_PENDING) {
+                cvr::eyegaze::OnSessionStopped();
                 m_stopFrameThread.store(true, std::memory_order_relaxed);
             }
         } else if (event.type == XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED) {
+            cvr::eyegaze::OnInteractionProfileChanged();
             // A successful binding suggestion is not proof the runtime selected
             // that profile. Report the actual per-hand profile for input reports.
             if (m_session != XR_NULL_HANDLE) {
@@ -2600,6 +2615,7 @@ void OpenXRManager::Shutdown() {
     if (m_session != XR_NULL_HANDLE) {
         cvr::trackers::OnSessionDestroying();
         cvr::fingergrip::OnSessionDestroying();
+        cvr::eyegaze::OnSessionDestroying();
         xrDestroySession(m_session);
         m_session = XR_NULL_HANDLE;
     }
@@ -2607,6 +2623,7 @@ void OpenXRManager::Shutdown() {
         xrDestroyActionSet(m_actionSet);
         m_actionSet = XR_NULL_HANDLE;
     }
+    cvr::eyegaze::Shutdown();
     // Actions belong to the action set and are destroyed with it; the handles are cleared so a
     // second Shutdown, or a re-init, cannot hand the runtime a dangling one.
     m_handPoseAction = XR_NULL_HANDLE;

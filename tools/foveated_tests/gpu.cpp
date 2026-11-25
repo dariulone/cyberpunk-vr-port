@@ -15,17 +15,17 @@ void Hr(HRESULT value){Check(SUCCEEDED(value),"D3D12 failure");}
 void Barrier(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESOURCE_STATES from,D3D12_RESOURCE_STATES to){
     D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={resource,0,from,to};list->ResourceBarrier(1,&b);}
 int main()try{
-    ComPtr<ID3D12Debug> debug;Hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));debug->EnableDebugLayer();
+    ComPtr<ID3D12Debug> debug;if(FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))){char req[8]{};if(GetEnvironmentVariableA("CVR_REQUIRE_D3D12_DEBUG",req,sizeof(req))==1 && req[0]=='1')Check(false,"D3D12 debug layer missing");std::cout<<"SKIP D3D12 debug layer missing\n";return 77;}debug->EnableDebugLayer();
     ComPtr<IDXGIFactory4> factory;Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));ComPtr<IDXGIAdapter> adapter;Hr(factory->EnumWarpAdapter(IID_PPV_ARGS(&adapter)));
     ComPtr<ID3D12Device> device;Hr(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_11_0,IID_PPV_ARGS(&device)));
     ComPtr<ID3D12CommandQueue> queue;D3D12_COMMAND_QUEUE_DESC q{};Hr(device->CreateCommandQueue(&q,IID_PPV_ARGS(&queue)));
     ComPtr<ID3D12CommandAllocator> allocator;Hr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&allocator)));
     ComPtr<ID3D12GraphicsCommandList> list;Hr(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator.Get(),nullptr,IID_PPV_ARGS(&list)));
     auto texture=[&](unsigned w,unsigned h,DXGI_FORMAT format,D3D12_RESOURCE_STATES state){
-        D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Format=format;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;d.DepthOrArraySize=d.MipLevels=1;d.SampleDesc.Count=1;d.Format=format;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         D3D12_HEAP_PROPERTIES heap{};heap.Type=D3D12_HEAP_TYPE_DEFAULT;ComPtr<ID3D12Resource> r;Hr(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,state,nullptr,IID_PPV_ARGS(&r)));return r;};
     auto buffer=[&](UINT64 bytes,D3D12_HEAP_TYPE type,D3D12_RESOURCE_STATES state){
-        D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;d.Width=bytes;d.Height=d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;d.Width=bytes;d.Height=1;d.DepthOrArraySize=d.MipLevels=1;d.SampleDesc.Count=1;d.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         D3D12_HEAP_PROPERTIES heap{};heap.Type=type;ComPtr<ID3D12Resource> r;Hr(device->CreateCommittedResource(&heap,D3D12_HEAP_FLAG_NONE,&d,state,nullptr,IID_PPV_ARGS(&r)));return r;};
     std::vector<ComPtr<ID3D12Resource>> uploads;
     auto upload=[&](ID3D12Resource* image,unsigned components){
@@ -51,6 +51,14 @@ int main()try{
         D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=image;to.pResource=r.buffer.Get();to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=r.fp;
         list->CopyTextureRegion(&to,0,0,0,&from,nullptr);Barrier(list.Get(),image,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);return r;};
     auto centerDepth=read(gpu.center.depth.Get()),centerMotion=read(gpu.center.motion.Get()),peripheralMotion=read(gpu.periphery.motion.Get()),centerColor=read(gpu.center.color.Get());
+    // Dynamic gaze step without re-initializing FoveatedGpu: crop moves (+4, -2) render px.
+    for(auto* pass:{&gpu.center,&gpu.periphery}) for(auto* tex:{pass->color.Get(),pass->depth.Get(),pass->motion.Get()})
+        Barrier(list.Get(),tex,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    gpu.center.region.sourceX=12;gpu.center.region.sourceY=22;gpu.center.region.x=24;gpu.center.region.y=44;
+    Check(gpu.Prepare(list.Get(),source,true,4.0f,-2.0f),"shifted center preparation");
+    Check(gpu.Prepare(list.Get(),source,false,4.0f,-2.0f),"shifted periphery preparation");
+    auto shiftedCenterMotion=read(gpu.center.motion.Get()),shiftedPeripheralMotion=read(gpu.periphery.motion.Get());
+    gpu.center.region.sourceX=8;gpu.center.region.sourceY=24;gpu.center.region.x=16;gpu.center.region.y=48;
     ComPtr<ID3D12DescriptorHeap> clearHeap;D3D12_DESCRIPTOR_HEAP_DESC hd{};hd.NumDescriptors=2;
     hd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;hd.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     Hr(device->CreateDescriptorHeap(&hd,IID_PPV_ARGS(&clearHeap)));ID3D12DescriptorHeap* heaps[]{clearHeap.Get()};list->SetDescriptorHeaps(1,heaps);
@@ -78,6 +86,15 @@ int main()try{
             else if(r==&centerColor)Check(reinterpret_cast<const uint16_t*>(row)[x*4]==uint16_t(0x3400+(x+8)*16),"offset color crop was filtered or shifted");
             else {const auto* value=reinterpret_cast<const float*>(row)+x*2;const float scale=r==&centerMotion?1.0f:.5f;
                 Check(value[0]==8*scale && value[1]==-3*scale,"motion displacement scale mismatch");}}
+        r->buffer->Unmap(0,nullptr);
+    }
+    for(auto* r:{&shiftedCenterMotion,&shiftedPeripheralMotion}){
+        void* p{};Hr(r->buffer->Map(0,nullptr,&p));
+        for(unsigned y=0;y<24;++y)for(unsigned x=0;x<32;++x){
+            const auto* value=reinterpret_cast<const float*>(static_cast<const char*>(p)+y*r->fp.Footprint.RowPitch)+x*2;
+            if(r==&shiftedCenterMotion)Check(value[0]==12.0f && value[1]==-5.0f,"central cropDelta motion compensation mismatch");
+            else Check(value[0]==4.0f && value[1]==-1.5f,"peripheral motion must ignore central cropDelta");
+        }
         r->buffer->Unmap(0,nullptr);
     }
     void* composed{};Hr(composite.buffer->Map(0,nullptr,&composed));

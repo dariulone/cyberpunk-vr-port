@@ -59,6 +59,7 @@ extern "C" __declspec(dllexport) int CyberpunkVR_PoseReadBack;
 #include "Runtimes/OpenXRManager.hpp"
 #include "Render/FoveatedDlss.hpp"
 #include "Render/FixedVrs.hpp"
+#include "Render/Afw.hpp"
 #include "Runtimes/OpenXRInternal.hpp"
 #include "Utils/XrMath.hpp"
 #include "Utils/SharedSlots.hpp"
@@ -68,6 +69,7 @@ extern "C" __declspec(dllexport) extern float CyberpunkVR_VrikBatchGapMs;
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugHandPerFrameLocates;
 #include "Anim/CharacterRig.hpp"   // g_VrikFrameEpoch: the frame counter VRIK keys on
 #include "Runtimes/RuntimeFovCorrection.hpp"
+#include "Runtimes/EyeGaze.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include <cstdarg>
 #include <cstdio>
@@ -94,6 +96,7 @@ extern "C" __declspec(dllexport) extern float CyberpunkVR_DebugYawLagWriteDeg;
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawWritesAll;
 extern "C" __declspec(dllexport) extern unsigned long long CyberpunkVR_DebugYawWritesPlayer;
 extern "C" __declspec(dllexport) extern uint64_t CyberpunkVR_DebugHeadingLedComps;
+extern "C" extern int32_t CyberpunkVR_MonoView;
 
 // WHERE THE GAME'S PRESENT WAITS INSIDE OnPresent, accumulated microseconds per phase, with RuntimeDiagnostics on
 // only: 0 hand lock, 1 FlushHandsToShared, 2 view lock, 3 render pose lock, 4 mono capture, 5 foveated/VRS ticks,
@@ -736,7 +739,24 @@ void OpenXRManager::OnPresent(IDXGISwapChain* swapChain) {
 
     const uint64_t tickPhase = PhaseStart();
     cvr::foveated::Tick(m_d3dDevice,m_d3dQueue);
-    cvr::vrs::Tick(m_d3dDevice,m_d3dQueue);
+    cvr::vrs::DynamicEyeOffsets vrsGaze{};
+    const auto vrsSettings = cvr::vrs::GetAppliedSettings();
+    if (vrsSettings.mode != 0 && vrsSettings.eyeTracked) {
+        const float maxX = (100.0f - vrsSettings.width) * 0.5f;
+        const float maxY = (100.0f - vrsSettings.height) * 0.5f;
+        for (unsigned physEye = 0; physEye < 2; ++physEye) {
+            cvr::eyegaze::ResolveEyeOffsets(physEye, vrsSettings.offsetX, vrsSettings.offsetY,
+                                            maxX, maxY, vrsGaze.offsetX[physEye], vrsGaze.offsetY[physEye]);
+        }
+        if (CyberpunkVR_MonoView && !cvr::afw::Active()) {
+            const float midX = 0.5f * (vrsGaze.offsetX[0] + vrsGaze.offsetX[1]);
+            const float midY = 0.5f * (vrsGaze.offsetY[0] + vrsGaze.offsetY[1]);
+            vrsGaze.offsetX[0] = vrsGaze.offsetX[1] = midX;
+            vrsGaze.offsetY[0] = vrsGaze.offsetY[1] = midY;
+        }
+        vrsGaze.active = true;
+    }
+    cvr::vrs::Tick(m_d3dDevice, m_d3dQueue, &vrsGaze);
     PhaseEnd(5, tickPhase);
     const uint64_t hudPhase = PhaseStart();
     cvr::hud::Capture(m_d3dDevice,m_d3dQueue);

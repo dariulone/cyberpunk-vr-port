@@ -1,15 +1,23 @@
 #include "Render/FixedVrs.hpp"
 #include "Render/CommandResources.hpp"
+#include "Render/ViewInstancedPipeline.hpp"
 #include <wrl/client.h>
 #include <dxgi1_6.h>
 #include <d3d12sdklayers.h>
 #include <d3dcompiler.h>
+#include <array>
 #include <chrono>
 #include <thread>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <source_location>
+#include <utility>
+#include <vector>
+#if defined(VRS_HAVE_VI_SHADERS)
+#include "vi_vs.h"
+#include "vi_ps.h"
+#endif
 using Microsoft::WRL::ComPtr;
 using namespace cvr::vrs;
 static ComPtr<ID3D12InfoQueue> debugInfo;
@@ -32,13 +40,13 @@ static void Barrier(ID3D12GraphicsCommandList* l,ID3D12Resource* r,D3D12_RESOURC
     D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={r,0,from,to};l->ResourceBarrier(1,&b);
 }
 int main()try{
-    ComPtr<ID3D12Debug> debug;Hr(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)));debug->EnableDebugLayer();
+    ComPtr<ID3D12Debug> debug;if(FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))){char req[8]{};if(GetEnvironmentVariableA("CVR_REQUIRE_D3D12_DEBUG",req,sizeof(req))==1 && req[0]=='1')Check(false,"D3D12 debug layer missing");std::cout<<"SKIP D3D12 debug layer missing\n";return 77;}debug->EnableDebugLayer();
     ComPtr<IDXGIFactory6> factory;Hr(CreateDXGIFactory1(IID_PPV_ARGS(&factory)));ComPtr<IDXGIAdapter1> adapter;
     Hr(factory->EnumAdapterByGpuPreference(0,DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,IID_PPV_ARGS(&adapter)));
     ComPtr<ID3D12Device> device;Hr(D3D12CreateDevice(adapter.Get(),D3D_FEATURE_LEVEL_12_0,IID_PPV_ARGS(&device)));
     Hr(device.As(&debugInfo));
     D3D12_FEATURE_DATA_D3D12_OPTIONS6 options{};Hr(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6,&options,sizeof(options)));
-    if(options.VariableShadingRateTier<D3D12_VARIABLE_SHADING_RATE_TIER_2){std::cout<<"SKIP hardware has no VRS Tier 2\n";return 0;}
+    if(options.VariableShadingRateTier<D3D12_VARIABLE_SHADING_RATE_TIER_2){std::cout<<"SKIP hardware has no VRS Tier 2\n";return 77;}
     ComPtr<ID3D12CommandQueue> queue;D3D12_COMMAND_QUEUE_DESC q{};Hr(device->CreateCommandQueue(&q,IID_PPV_ARGS(&queue)));
     ComPtr<ID3D12Fence> fence;Hr(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)));uint64_t serial=0;
     auto wait=[&]{Hr(queue->Signal(fence.Get(),++serial));HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);Hr(fence->SetEventOnCompletion(serial,event));
@@ -66,10 +74,10 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
     ComPtr<ID3D12PipelineState> pso;Hr(device->CreateGraphicsPipelineState(&pd,IID_PPV_ARGS(&pso)));GraphicsCreated(pso.Get(),pd);
     auto resource=[&](D3D12_RESOURCE_DESC d,D3D12_HEAP_TYPE type,D3D12_RESOURCE_STATES state){D3D12_HEAP_PROPERTIES h{};h.Type=type;ComPtr<ID3D12Resource> r;
         Hr(device->CreateCommittedResource(&h,D3D12_HEAP_FLAG_NONE,&d,state,nullptr,IID_PPV_ARGS(&r)));return r;};
-    auto buffer=[&](UINT64 bytes){D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;d.Width=bytes;d.Height=d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;d.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    auto buffer=[&](UINT64 bytes){D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;d.Width=bytes;d.Height=1;d.DepthOrArraySize=d.MipLevels=1;d.SampleDesc.Count=1;d.Layout=D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         return resource(d,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_STATE_COPY_DEST);};
     constexpr UINT width=256,height=192;
-    D3D12_RESOURCE_DESC texture{};texture.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;texture.Width=width;texture.Height=height;texture.DepthOrArraySize=texture.MipLevels=texture.SampleDesc.Count=1;
+    D3D12_RESOURCE_DESC texture{};texture.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;texture.Width=width;texture.Height=height;texture.DepthOrArraySize=texture.MipLevels=1;texture.SampleDesc.Count=1;
     texture.Format=DXGI_FORMAT_R8G8B8A8_UNORM;texture.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     std::array<ComPtr<ID3D12Resource>,3> colors;for(auto& c:colors)c=resource(texture,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_RENDER_TARGET);
     texture.Format=DXGI_FORMAT_D32_FLOAT;texture.Flags=D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
@@ -88,8 +96,9 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
         Viewports(list.Get(),1,&viewport);list->OMSetRenderTargets(3,&rtv,TRUE,&dsv);Targets(list.Get(),3,true);
         Rate(list5.Get(),D3D12_SHADING_RATE_1X1,nullptr);Image(list5.Get(),nullptr);ShadingRate(list.Get(),D3D12_SHADING_RATE_1X1,nullptr);ShadingImage(list.Get(),nullptr);
     };
-    SetSettings({1,70,65,0,0});std::this_thread::sleep_for(std::chrono::milliseconds(1010));Tick(device.Get(),queue.Get());
-    begin();PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    auto waitDebounce=[&]{const auto targetTick=GetTickCount64()+1000;while(GetTickCount64()<=targetTick)std::this_thread::sleep_for(std::chrono::milliseconds(15));Tick(device.Get(),queue.Get());};
+    SetSettings({1,70,65,0,0});waitDebounce();
+    begin();PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());Hr(list->Close());
     Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());Check(GetStatus().readyMaps==1,"Map did not become ready");
     struct Result{std::vector<uint8_t> pixels;uint64_t invocations{};};
     auto render=[&](int mode,int eye,uint32_t node){
@@ -114,7 +123,7 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
         for(UINT y=0;y<height;++y)std::memcpy(result.pixels.data()+y*width*4,static_cast<uint8_t*>(data)+fp.Offset+y*fp.Footprint.RowPitch,width*4);readback->Unmap(0,nullptr);
         Hr(counters->Map(0,nullptr,&data));result.invocations=static_cast<D3D12_QUERY_DATA_PIPELINE_STATISTICS*>(data)->PSInvocations;counters->Unmap(0,nullptr);return result;
     };
-    const auto baseline=render(0,0,0),main=render(1,0,0x23A938),vr=render(1,1,0x23A938),restored=render(2,0,0x23A938),hud=render(1,0,0x111111);
+    const auto baseline=render(0,0,0),main=render(1,0,kRenderElementsNode),vr=render(1,1,kRenderElementsNode),restored=render(2,0,kRenderElementsNode),hud=render(1,0,0x111111);
     Check(main.pixels==vr.pixels,"Eye policies differ");Check(restored.pixels==baseline.pixels && hud.pixels==baseline.pixels,"VRS escaped scene scope");
     Check(main.invocations<baseline.invocations*.85,"Pixel shading did not decrease");
     const auto rates=BuildRates({1,70,65,0,0},width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
@@ -131,18 +140,259 @@ float4 ps(float4 p:SV_Position):SV_Target { return float4(frac(p.x/31),frac(p.y/
     const D3D12_SHADING_RATE_COMBINER nativeCombiners[]{D3D12_SHADING_RATE_COMBINER_MAX,D3D12_SHADING_RATE_COMBINER_MIN};
     Rate(list5.Get(),D3D12_SHADING_RATE_2X1,nativeCombiners);Image(list5.Get(),lastMap);
     ShadingRate(list.Get(),D3D12_SHADING_RATE_2X1,nativeCombiners);ShadingImage(list.Get(),lastMap);
-    PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());
     Check(observedRate==D3D12_SHADING_RATE_2X1 && observedImage==savedMap && observedCombiners[0]==nativeCombiners[0] && observedCombiners[1]==nativeCombiners[1],"Non-default native state lost");
-    Invalidate(list.Get());PrepareDraw(list.Get(),0x23A938,0,Rate,Image);
+    Invalidate(list.Get());PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
     Check(observedRate==D3D12_SHADING_RATE_2X1,"Unknown bundle state overridden");Hr(list->Close());
-    SetSettings({2,40,40,15,10});std::this_thread::sleep_for(std::chrono::milliseconds(1010));Tick(device.Get(),queue.Get());
-    begin();PrepareDraw(list.Get(),0x23A938,0,Rate,Image);Restore(list.Get());Hr(list->Close());Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
-    const auto strong=render(1,0,0x23A938);Check(strong.invocations<main.invocations,"Second configuration not applied");
+    SetSettings({2,40,40,15,10});waitDebounce();
+    begin();PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());Hr(list->Close());Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
+    const auto strong=render(1,0,kRenderElementsNode);Check(strong.invocations<main.invocations,"Second configuration not applied");
     std::cout<<"PASS GPU native image/rate/combiners, unknown-state refusal and 4x4/settings rebuild; PS invocations "<<strong.invocations<<"\n";
-    SetSettings({});const auto off=render(1,0,0x23A938);Check(off.pixels==baseline.pixels,"Off is not pass-through");
+    SetSettings({});const auto off=render(1,0,kRenderElementsNode);Check(off.pixels==baseline.pixels,"Off is not pass-through");
+
+    // EngineStereo side-by-side (512 x 192) D3D12 hardware test block.
+    constexpr UINT stereoWidth=512,stereoHeight=192,eyeWidth=256;
+    D3D12_RESOURCE_DESC sTexture{};sTexture.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;sTexture.Width=stereoWidth;sTexture.Height=stereoHeight;
+    sTexture.DepthOrArraySize=sTexture.MipLevels=1;sTexture.SampleDesc.Count=1;
+    sTexture.Format=DXGI_FORMAT_R8G8B8A8_UNORM;sTexture.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    std::array<ComPtr<ID3D12Resource>,3> stereoColors;for(auto& c:stereoColors)c=resource(sTexture,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_RENDER_TARGET);
+    sTexture.Format=DXGI_FORMAT_D32_FLOAT;sTexture.Flags=D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    auto stereoDepth=resource(sTexture,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    ComPtr<ID3D12DescriptorHeap> sRtvs,sDsvs;D3D12_DESCRIPTOR_HEAP_DESC sHd{};sHd.NumDescriptors=3;sHd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    Hr(device->CreateDescriptorHeap(&sHd,IID_PPV_ARGS(&sRtvs)));
+    sHd.NumDescriptors=1;sHd.Type=D3D12_DESCRIPTOR_HEAP_TYPE_DSV;Hr(device->CreateDescriptorHeap(&sHd,IID_PPV_ARGS(&sDsvs)));
+    auto sRtv=sRtvs->GetCPUDescriptorHandleForHeapStart();
+    for(unsigned i=0;i<3;++i)device->CreateRenderTargetView(stereoColors[i].Get(),nullptr,{sRtv.ptr+i*stride});
+    auto sDsv=sDsvs->GetCPUDescriptorHandleForHeapStart();device->CreateDepthStencilView(stereoDepth.Get(),nullptr,sDsv);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT sFp{};UINT64 sBytes{};const auto sColorDesc=stereoColors[0]->GetDesc();
+    device->GetCopyableFootprints(&sColorDesc,0,1,0,&sFp,nullptr,nullptr,&sBytes);auto stereoReadback=buffer(sBytes);
+    D3D12_VIEWPORT vpLeft{0,0,float(eyeWidth),float(stereoHeight),0,1};
+    D3D12_VIEWPORT vpRight{float(eyeWidth),0,float(eyeWidth),float(stereoHeight),0,1};
+    D3D12_VIEWPORT vpMismatch{64,0,float(eyeWidth),float(stereoHeight),0,1};
+    D3D12_RECT scLeft{0,0,LONG(eyeWidth),LONG(stereoHeight)};
+    D3D12_RECT scRight{LONG(eyeWidth),0,LONG(stereoWidth),LONG(stereoHeight)};
+    auto beginStereo=[&](const D3D12_VIEWPORT& vp,const D3D12_RECT& sc,bool blocked){
+        Hr(allocator->Reset());Hr(list->Reset(allocator.Get(),pso.Get()));cvr::gpu::ResetCommandResources(list.Get());Reset(list.Get(),true,pso.Get());
+        list->SetGraphicsRootSignature(root.Get());list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list->RSSetViewports(1,&vp);list->RSSetScissorRects(1,&sc);Viewports(list.Get(),1,&vp);
+        list->OMSetRenderTargets(3,&sRtv,TRUE,&sDsv);Targets(list.Get(),3,true,stereoWidth,stereoHeight,blocked);
+        Rate(list5.Get(),D3D12_SHADING_RATE_1X1,nullptr);Image(list5.Get(),nullptr);ShadingRate(list.Get(),D3D12_SHADING_RATE_1X1,nullptr);ShadingImage(list.Get(),nullptr);
+    };
+    auto finishAndReadStereo=[&]{
+        list->EndQuery(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0);
+        list->ResolveQueryData(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0,1,counters.Get(),0);
+        Barrier(list.Get(),stereoColors[0].Get(),D3D12_RESOURCE_STATE_RENDER_TARGET,D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=stereoColors[0].Get();to.pResource=stereoReadback.Get();
+        to.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;to.PlacedFootprint=sFp;
+        list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
+        Barrier(list.Get(),stereoColors[0].Get(),D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_RENDER_TARGET);
+        Hr(list->Close());ID3D12CommandList* lists[]{list.Get()};auto resources=cvr::gpu::PrepareCommandResources(1,lists);
+        queue->ExecuteCommandLists(1,lists);cvr::gpu::SubmitCommandResources(queue.Get(),std::move(resources));wait();
+        Result result;void* data{};Hr(stereoReadback->Map(0,nullptr,&data));result.pixels.resize(size_t(stereoWidth)*stereoHeight*4);
+        for(UINT y=0;y<stereoHeight;++y)std::memcpy(result.pixels.data()+y*stereoWidth*4,static_cast<uint8_t*>(data)+sFp.Offset+y*sFp.Footprint.RowPitch,stereoWidth*4);
+        stereoReadback->Unmap(0,nullptr);
+        Hr(counters->Map(0,nullptr,&data));result.invocations=static_cast<D3D12_QUERY_DATA_PIPELINE_STATISTICS*>(data)->PSInvocations;counters->Unmap(0,nullptr);
+        return result;
+    };
+    const Settings stereoSettings{2,50,50,0,0};
+    SetSettings(stereoSettings);waitDebounce();
+    beginStereo(vpLeft,scLeft,false);PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    Tick(device.Get(),queue.Get());wait();Tick(device.Get(),queue.Get());
+    Check(GetStatus().readyMaps==1,"Stereo map did not become ready");
+
+    // Scope-optics blocked test.
+    beginStereo(vpLeft,scLeft,true);PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage==nullptr,"VRS was not refused when scope-optics blocked");
+    Restore(list.Get());Hr(list->Close());
+
+    // Target-dimension mismatch test.
+    beginStereo(vpMismatch,scLeft,false);PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage==nullptr,"VRS was not refused on mismatched viewport");
+    Restore(list.Get());Hr(list->Close());
+
+    // Side-by-side stereo render test: baseline.
+    beginStereo(vpLeft,scLeft,false);list->BeginQuery(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0);
+    list->DrawInstanced(3,1,0,0);
+    list->RSSetViewports(1,&vpRight);list->RSSetScissorRects(1,&scRight);Viewports(list.Get(),1,&vpRight);
+    list->DrawInstanced(3,1,0,0);
+    const auto stereoBaseline=finishAndReadStereo();
+
+    // Side-by-side stereo render test: VRS.
+    const auto beforeStatus=GetStatus();
+    beginStereo(vpLeft,scLeft,false);list->BeginQuery(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage!=nullptr,"Stereo VRS map not bound on left half");
+    list->DrawInstanced(3,1,0,0);
+    const auto bindsAfterLeft=std::pair{rateCalls,imageCalls};
+    list->RSSetViewports(1,&vpRight);list->RSSetScissorRects(1,&scRight);Viewports(list.Get(),1,&vpRight);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    list->DrawInstanced(3,1,0,0);
+    Check(std::pair{rateCalls,imageCalls}==bindsAfterLeft,"Redundant VRS rebind between left and right stereo draws");
+    const auto afterStatus=GetStatus();
+    Check(afterStatus.draws[0]==beforeStatus.draws[0]+1 && afterStatus.draws[1]==beforeStatus.draws[1]+1,"Stereo draws not attributed to both eyes");
+    Restore(list.Get());
+    const auto stereoVrs=finishAndReadStereo();
+
+    Check(stereoVrs.invocations<stereoBaseline.invocations*.75,"Stereo pixel shading did not decrease");
+    const auto stereoRates=BuildStereoRates(stereoSettings,stereoSettings,stereoWidth,stereoHeight,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    const UINT stereoCols=(stereoWidth+options.ShadingRateImageTileSize-1)/options.ShadingRateImageTileSize;
+    unsigned leftDiff=0,rightDiff=0;
+    for(UINT y=0;y<stereoHeight;++y)for(UINT x=0;x<stereoWidth;++x){
+        const auto offset=(size_t(y)*stereoWidth+x)*4;
+        const bool same=std::memcmp(stereoBaseline.pixels.data()+offset,stereoVrs.pixels.data()+offset,4)==0;
+        if(stereoRates[size_t(y/options.ShadingRateImageTileSize)*stereoCols+x/options.ShadingRateImageTileSize]==0)Check(same,"Stereo fine center changed");
+        if(!same){if(x<eyeWidth)++leftDiff;else ++rightDiff;}
+    }
+    Check(leftDiff>0 && rightDiff>0,"Stereo peripheral shader rate did not affect both halves");
+
+    // View-instanced dual-viewport compatibility test (SinglePass).
+    D3D12_FEATURE_DATA_D3D12_OPTIONS3 opt3{};Hr(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3,&opt3,sizeof(opt3)));
+    bool viewInstancedTested=false;
+#if defined(VRS_HAVE_VI_SHADERS)
+    D3D12_FEATURE_DATA_SHADER_MODEL sm{D3D_SHADER_MODEL_6_1};
+    if(opt3.ViewInstancingTier>=D3D12_VIEW_INSTANCING_TIER_1 && SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL,&sm,sizeof(sm))) && sm.HighestShaderModel>=D3D_SHADER_MODEL_6_1){
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC viPd=pd;viPd.VS={g_vi_vs,sizeof(g_vi_vs)};viPd.PS={g_vi_ps,sizeof(g_vi_ps)};
+        cvr::stereo::ViewInstancedLayout layout;layout.locations={{{0,0},{1,0}}};
+        ComPtr<ID3D12Device2> device2;Hr(device.As(&device2));
+        ComPtr<ID3D12PipelineState> viPso;Hr(cvr::stereo::CreateViewInstancedPipeline(device2.Get(),viPd,layout,&viPso));
+        beginStereo(vpLeft,scLeft,false);list->BeginQuery(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0);
+        Pipeline(list.Get(),pso.Get());Viewports(list.Get(),1,&vpLeft);Targets(list.Get(),3,true,stereoWidth,stereoHeight,false);
+        PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+        Check(observedImage!=nullptr,"Stereo VRS map not bound before view-instanced draw");
+        list->SetPipelineState(viPso.Get());
+        const D3D12_VIEWPORT vps[2]{vpLeft,vpRight};const D3D12_RECT scs[2]{scLeft,scRight};
+        list->RSSetViewports(2,vps);list->RSSetScissorRects(2,scs);
+        list->DrawInstanced(3,1,0,0);
+        Restore(list.Get());
+        const auto viVrs=finishAndReadStereo();
+        Check(viVrs.pixels==stereoVrs.pixels,"View-instanced stereo VRS output did not match two-draw output");
+        viewInstancedTested=true;
+    }
+#endif
+    std::cout<<"PASS GPU EngineStereo 512x192 side-by-side, scope/mismatch refusal, zero eye-switch rebinds, view-instanced="
+             <<(viewInstancedTested?"tested":"skipped")<<"; PS invocations "<<stereoBaseline.invocations<<" -> "<<stereoVrs.invocations<<"\n";
+
+    // Phase 2 Dynamic Eye-Tracked Ring Buffer & Tile-Quantized Skip D3D12 hardware test block.
+    SetSettings({2,40,40,0,0,true});{const auto t=GetTickCount64()+1000;while(GetTickCount64()<=t)std::this_thread::sleep_for(std::chrono::milliseconds(15));}
+    DynamicEyeOffsets gaze{true,{0.f,0.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);
+    beginStereo(vpLeft,scLeft,false);PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    Check(GetStatus().readyMaps>=1,"Eye-tracked stereo map pool did not become ready");
+
+    // Immediate SameAllocation offset update test (no 1000 ms sleep).
+    const auto beforeImmediate=GetStatus();
+    SetSettings({2,40,40,5,-5,false});
+    Tick(device.Get(),queue.Get(),nullptr);
+    Check(GetStatus().uploads>beforeImmediate.uploads,"SameAllocation offset update did not upload immediately");
+    wait();Tick(device.Get(),queue.Get(),nullptr);
+    SetSettings({2,40,40,0,0,true});
+
+    // Sub-tile micro-jitter dirty skip test.
+    gaze={true,{0.f,0.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    const auto beforeMicro=GetStatus();
+    gaze={true,{0.02f,-0.02f},{0.02f,-0.02f}};
+    Tick(device.Get(),queue.Get(),&gaze);
+    const auto afterMicro=GetStatus();
+    Check(afterMicro.uploads==beforeMicro.uploads,"Sub-tile micro-jitter triggered redundant VRS upload");
+    Check(afterMicro.skippedTicks>beforeMicro.skippedTicks,"Sub-tile micro-jitter did not increment skippedTicks");
+
+    // Zero-dropout in-flight dynamic gaze sweep, ring reuse & independent per-eye vergence test.
+    ComPtr<ID3D12CommandAllocator> heldAllocator;
+    Hr(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,IID_PPV_ARGS(&heldAllocator)));
+    ComPtr<ID3D12GraphicsCommandList> heldList;
+    Hr(device->CreateCommandList(0,D3D12_COMMAND_LIST_TYPE_DIRECT,heldAllocator.Get(),pso.Get(),IID_PPV_ARGS(&heldList)));
+    ComPtr<ID3D12GraphicsCommandList5> heldList5;Hr(heldList.As(&heldList5));
+    cvr::gpu::ResetCommandResources(heldList.Get());Reset(heldList.Get(),true,pso.Get());
+    heldList->SetGraphicsRootSignature(root.Get());heldList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    heldList->RSSetViewports(1,&vpLeft);heldList->RSSetScissorRects(1,&scLeft);Viewports(heldList.Get(),1,&vpLeft);
+    heldList->OMSetRenderTargets(3,&sRtv,TRUE,&sDsv);Targets(heldList.Get(),3,true,stereoWidth,stereoHeight,false);
+    Rate(heldList5.Get(),D3D12_SHADING_RATE_1X1,nullptr);Image(heldList5.Get(),nullptr);
+    ShadingRate(heldList.Get(),D3D12_SHADING_RATE_1X1,nullptr);ShadingImage(heldList.Get(),nullptr);
+    PrepareDraw(heldList.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage!=nullptr,"Held command list failed to acquire initial SlotLease VRS map");
+
+    for(int step=1;step<=12;++step){
+        const float gx=-25.f+step*4.f;
+        gaze={true,{gx,-gx},{0.f,0.f}};
+        Tick(device.Get(),queue.Get(),&gaze);
+        beginStereo(vpLeft,scLeft,false);
+        PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+        Check(observedImage!=nullptr,"VRS dropped out while dynamic gaze slot upload was in-flight");
+        Restore(list.Get());Hr(list->Close());
+        wait();Tick(device.Get(),queue.Get(),&gaze);
+    }
+    Check(GetStatus().allocations<=8,"Dynamic gaze sweep exceeded bounded ring-buffer allocation count");
+    Restore(heldList.Get());Hr(heldList->Close());cvr::gpu::ResetCommandResources(heldList.Get());
+
+    gaze={true,{22.f,-22.f},{-12.f,12.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    beginStereo(vpLeft,scLeft,false);list->BeginQuery(queries.Get(),D3D12_QUERY_TYPE_PIPELINE_STATISTICS,0);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage!=nullptr,"Vergence VRS map not bound on left half");
+    list->DrawInstanced(3,1,0,0);
+    list->RSSetViewports(1,&vpRight);list->RSSetScissorRects(1,&scRight);Viewports(list.Get(),1,&vpRight);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    list->DrawInstanced(3,1,0,0);
+    Restore(list.Get());
+    const auto vergenceVrs=finishAndReadStereo();
+
+    const auto vergenceRates=BuildStereoRates({2,40,40,22.f,-12.f,true},{2,40,40,-22.f,12.f,true},
+        stereoWidth,stereoHeight,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    unsigned vergenceLeftDiff=0,vergenceRightDiff=0;
+    for(UINT y=0;y<stereoHeight;++y)for(UINT x=0;x<stereoWidth;++x){
+        const auto offset=(size_t(y)*stereoWidth+x)*4;
+        const bool same=std::memcmp(stereoBaseline.pixels.data()+offset,vergenceVrs.pixels.data()+offset,4)==0;
+        if(vergenceRates[size_t(y/options.ShadingRateImageTileSize)*stereoCols+x/options.ShadingRateImageTileSize]==0)
+            Check(same,"Vergence fine center changed");
+        if(!same){if(x<eyeWidth)++vergenceLeftDiff;else ++vergenceRightDiff;}
+    }
+    Check(vergenceLeftDiff>0 && vergenceRightDiff>0,"Vergence peripheral shader rate did not affect both halves");
+    std::cout<<"PASS GPU Phase 2 dynamic eye-tracked ring-buffer VRS, micro-jitter skip, zero-dropout sweep and independent vergence centers\n";
+
+    // R1: Mid-recording revision pin test (mid-batch revision bump must never rebind VRS).
+    gaze={true,{20.f,-20.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    beginStereo(vpLeft,scLeft,false);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    ID3D12Resource* const pinnedImg=observedImage;
+    const auto pinnedCalls=std::pair{rateCalls,imageCalls};
+    Check(pinnedImg!=nullptr,"Mid-recording pin test failed to bind initial VRS map");
+    gaze={true,{-20.f,20.f},{0.f,0.f}};
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    list->RSSetViewports(1,&vpRight);list->RSSetScissorRects(1,&scRight);Viewports(list.Get(),1,&vpRight);
+    PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);
+    Check(observedImage==pinnedImg && std::pair{rateCalls,imageCalls}==pinnedCalls,"Mid-recording revision bump rebound VRS");
+    Restore(list.Get());Hr(list->Close());
+
+    // R5: Pause-menu dormancy status test (>30 ticks without PrepareDraw must keep readyMaps >= 1).
+    for(int tickIdx=0;tickIdx<35;++tickIdx)Tick(device.Get(),queue.Get(),&gaze);
+    Check(GetStatus().readyMaps>=1,"Pause-menu dormancy dropped readyMaps below 1");
+
+    // R7: Single-eye eyeTracked=true dual-pool test (256 x 192).
+    gaze={true,{20.f,-20.f},{-10.f,10.f}};
+    Tick(device.Get(),queue.Get(),&gaze);
+    begin();PrepareDraw(list.Get(),kRenderElementsNode,0,Rate,Image);Restore(list.Get());Hr(list->Close());
+    begin();PrepareDraw(list.Get(),kRenderElementsNode,1,Rate,Image);Restore(list.Get());Hr(list->Close());
+    Tick(device.Get(),queue.Get(),&gaze);wait();Tick(device.Get(),queue.Get(),&gaze);
+    Check(GetStatus().readyMaps==2,"Single-eye eye-tracked dual-pool did not reach readyMaps == 2");
+    const auto leftSingle=render(1,0,kRenderElementsNode),rightSingle=render(1,1,kRenderElementsNode);
+    Check(leftSingle.pixels!=rightSingle.pixels,"Single-eye eye-tracked Left and Right pixels did not diverge");
+    const auto leftSingleRates=BuildRates({2,40,40,20.f,-10.f,true},width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    const auto rightSingleRates=BuildRates({2,40,40,-20.f,10.f,true},width,height,options.ShadingRateImageTileSize,options.AdditionalShadingRatesSupported!=FALSE);
+    const UINT singleCols=(width+options.ShadingRateImageTileSize-1)/options.ShadingRateImageTileSize;
+    for(UINT y=0;y<height;++y)for(UINT x=0;x<width;++x){
+        const auto offset=(size_t(y)*width+x)*4;
+        const size_t tileIdx=size_t(y/options.ShadingRateImageTileSize)*singleCols+x/options.ShadingRateImageTileSize;
+        if(leftSingleRates[tileIdx]==0)Check(std::memcmp(baseline.pixels.data()+offset,leftSingle.pixels.data()+offset,4)==0,"Single-eye left fine center changed");
+        if(rightSingleRates[tileIdx]==0)Check(std::memcmp(baseline.pixels.data()+offset,rightSingle.pixels.data()+offset,4)==0,"Single-eye right fine center changed");
+    }
+    std::cout<<"PASS GPU R1 mid-recording pin, R5 pause-menu dormancy status, and R7 single-eye eye-tracked dual-pool\n";
+
     cvr::gpu::CollectCommandResources();Shutdown();
     ComPtr<ID3D12InfoQueue> info;Hr(device.As(&info));
     for(UINT64 i=0;i<info->GetNumStoredMessages();++i){SIZE_T n=0;info->GetMessage(i,nullptr,&n);std::vector<char> storage(n);auto* m=reinterpret_cast<D3D12_MESSAGE*>(storage.data());Hr(info->GetMessage(i,m,&n));
-        if(m->Severity<=D3D12_MESSAGE_SEVERITY_ERROR){std::cerr<<m->pDescription<<'\n';throw std::runtime_error("D3D12 validation error");}}
+        if(m->Severity<=D3D12_MESSAGE_SEVERITY_WARNING){std::cerr<<m->pDescription<<'\n';throw std::runtime_error("D3D12 validation error");}}
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

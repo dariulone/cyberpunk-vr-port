@@ -24,6 +24,8 @@ cbuffer Constants : register(b0) {
     float2 pixelScale;
     uint4 flags; // low-res motion, inverted depth, original output width/height
     uint4 region; // output x/y/width/height
+    float2 cropDelta; // central crop origin delta (curr - prev) in render pixels
+    float2 reserved;
 }
 [numthreads(8,8,1)] void Prepare(uint3 id : SV_DispatchThreadID) {
     if (any(id.xy >= dimensions.xy)) return;
@@ -44,7 +46,7 @@ cbuffer Constants : register(b0) {
     DepthOut[id.xy] = depth;
     float2 mpos = (p+0.5) / dimensions.zw * (flags.x ? dimensions.zw : flags.zw);
     float2 motion = Motion.Load(int3(motionBase+uint2(mpos),0));
-    MotionOut[id.xy] = motion * pixelScale;
+    MotionOut[id.xy] = motion * pixelScale + cropDelta;
 }
 Texture2D<float4> Center : register(t3);
 Texture2D<float4> Peripheral : register(t4);
@@ -69,8 +71,9 @@ RWTexture2D<float4> Output : register(u3);
 struct Constants {
     float rect[4]; unsigned dimensions[4],bases[4],motionBase[2]; float pixelScale[2];
     unsigned flags[4],region[4];
+    float cropDelta[2],reserved[2];
 };
-static_assert(sizeof(Constants)==96);
+static_assert(sizeof(Constants)==112);
 DXGI_FORMAT ViewFormat(DXGI_FORMAT format) {
     switch(format) {
     case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_D32_FLOAT:return DXGI_FORMAT_R32_FLOAT;
@@ -142,7 +145,7 @@ FoveatedGpu::Binding* FoveatedGpu::Bind(const Source& source) {
     if(bindings.size()>=8)bindings.erase(bindings.begin());
     bindings.push_back(std::move(b));return &bindings.back();
 }
-bool FoveatedGpu::Prepare(ID3D12GraphicsCommandList* list,const Source& s,bool central) {
+bool FoveatedGpu::Prepare(ID3D12GraphicsCommandList* list,const Source& s,bool central,float cropDeltaX,float cropDeltaY) {
     auto* binding=Bind(s);if(!binding)return false;
     auto& pass=central?center:periphery;const auto& r=pass.region;
     if(!cvr::gpu::KeepCommandResources(list,{binding->heap.Get(),s.color,s.depth,s.motion,s.output,root.Get(),prepare.Get(),
@@ -158,6 +161,7 @@ bool FoveatedGpu::Prepare(ID3D12GraphicsCommandList* list,const Source& s,bool c
     const float motionW=s.lowMotion?data.rect[2]:(central?float(r.width):float(s.outputW));
     const float motionH=s.lowMotion?data.rect[3]:(central?float(r.height):float(s.outputH));
     data.pixelScale[0]=s.motionScaleX*r.inputW/motionW;data.pixelScale[1]=s.motionScaleY*r.inputH/motionH;
+    data.cropDelta[0]=central?cropDeltaX:0.0f;data.cropDelta[1]=central?cropDeltaY:0.0f;
     auto gpu=binding->heap->GetGPUDescriptorHandleForHeapStart();
     ID3D12DescriptorHeap* heaps[]{binding->heap.Get()};list->SetDescriptorHeaps(1,heaps);
     list->SetComputeRootSignature(root.Get());list->SetPipelineState(prepare.Get());

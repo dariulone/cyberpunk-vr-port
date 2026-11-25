@@ -2,6 +2,7 @@
 #include "Runtimes/HapticRouting.hpp"
 #include "Fbt/Game/Calibration.hpp"
 #include "Runtimes/FingerGrip.hpp"
+#include "Runtimes/EyeGaze.hpp"
 #include "Utils/DebugGate.hpp"
 #include "Core/LiveControls.hpp"
 #include "Runtimes/Psvr2HapticChannel.hpp"
@@ -1360,6 +1361,8 @@ DWORD OpenXRManager::FrameThreadMain() {
             m_menuEyeAnchorValid = false;
         }
         const bool monoReady = monoEnabled && EnsureMonoSubmitResources() && !m_eyeSwapchains.empty();
+        cvr::eyegaze::FrustumTangents eyeGazeWindows[2]{};
+        bool eyeGazeWindowsValid = false;
         if (monoReady && !m_views.empty()) {
             XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
             viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -1390,9 +1393,33 @@ DWORD OpenXRManager::FrameThreadMain() {
                 cvr::projection::EyeWindow gazeWindows[2];
                 const XrFovf gazeFovs[]{m_views[0].fov,m_views[1].fov};
                 const XrQuaternionf gazeEyes[]{m_views[0].pose.orientation,m_views[1].pose.orientation};
-                cvr::gaze::Publish(cvr::projection::Active() && cvr::projection::Windows(gazeFovs,gazeEyes,gazeWindows)
+                const bool asymWindowsOk = cvr::projection::Active() && cvr::projection::Windows(gazeFovs,gazeEyes,gazeWindows);
+                cvr::gaze::Publish(asymWindowsOk
                     ? cvr::gaze::FromWindows(gazeWindows[0].u,gazeWindows[0].d,gazeWindows[1].u,gazeWindows[1].d)
                     : cvr::gaze::Center{});
+                if (asymWindowsOk) {
+                    for (int e = 0; e < 2; ++e) {
+                        eyeGazeWindows[e] = {gazeWindows[e].l, gazeWindows[e].r, gazeWindows[e].d, gazeWindows[e].u};
+                    }
+                    eyeGazeWindowsValid = true;
+                } else {
+                    const float hDeg = GetGameRenderFovDeg();
+                    const float vDeg = GetGameRenderVerticalFovDeg();
+                    if (hDeg > 1.0f && hDeg < 170.0f && vDeg > 1.0f && vDeg < 179.0f) {
+                        const float tx = std::tan(hDeg * 0.5f * 3.1415926535f / 180.0f);
+                        const float ty = std::tan(vDeg * 0.5f * 3.1415926535f / 180.0f);
+                        eyeGazeWindows[0] = eyeGazeWindows[1] = {-tx, tx, -ty, ty};
+                        eyeGazeWindowsValid = true;
+                    } else {
+                        for (int e = 0; e < 2; ++e) {
+                            eyeGazeWindows[e] = {
+                                std::tan(m_views[e].fov.angleLeft), std::tan(m_views[e].fov.angleRight),
+                                std::tan(m_views[e].fov.angleDown), std::tan(m_views[e].fov.angleUp)
+                            };
+                        }
+                        eyeGazeWindowsValid = true;
+                    }
+                }
                 MaybeLogRuntimeFovDetails(
                     m_views[0].fov,
                     m_views[1].fov,
@@ -1442,6 +1469,7 @@ DWORD OpenXRManager::FrameThreadMain() {
             (location.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
         if (!headPoseLocated) externalResetLock.unlock();
 
+        bool eyeGazeUpdated = false;
         if (headPoseLocated) {
             XrPosef basePose{};
             bool baseReset = false;
@@ -1617,14 +1645,24 @@ DWORD OpenXRManager::FrameThreadMain() {
             bool doHandLog = g_verboseLog && (s_handLogCounter++ % 120 == 0);
 
             if (m_actionSet != XR_NULL_HANDLE) {
-                XrActiveActionSet activeActionSet{};
-                activeActionSet.actionSet = m_actionSet;
-                activeActionSet.subactionPath = XR_NULL_PATH;
+                XrActiveActionSet activeActionSets[2]{};
+                activeActionSets[0].actionSet = m_actionSet;
+                activeActionSets[0].subactionPath = XR_NULL_PATH;
+                uint32_t activeActionSetCount = 1;
+                if (const XrActionSet gazeSet = cvr::eyegaze::ActionSet(); gazeSet != XR_NULL_HANDLE) {
+                    activeActionSets[activeActionSetCount].actionSet = gazeSet;
+                    activeActionSets[activeActionSetCount].subactionPath = XR_NULL_PATH;
+                    ++activeActionSetCount;
+                }
 
                 XrActionsSyncInfo syncInfo{XR_TYPE_ACTIONS_SYNC_INFO};
-                syncInfo.countActiveActionSets = 1;
-                syncInfo.activeActionSets = &activeActionSet;
+                syncInfo.countActiveActionSets = activeActionSetCount;
+                syncInfo.activeActionSets = activeActionSets;
                 XrResult syncRes = xrSyncActions(m_session, &syncInfo);
+                cvr::eyegaze::Update(m_session, m_sessionState, m_viewSpace, locateTime,
+                                     syncRes == XR_SUCCESS, eyeGazeWindows, eyeGazeWindowsValid,
+                                     m_runtimeIpd.load(std::memory_order_relaxed));
+                eyeGazeUpdated = true;
                 // Vibration queued since the last frame, played where the actions are synced.
                 if (XR_SUCCEEDED(syncRes) && m_sessionState == XR_SESSION_STATE_FOCUSED) cvr::haptics::Tick();
                 else cvr::haptics::Clear();
@@ -2111,6 +2149,12 @@ DWORD OpenXRManager::FrameThreadMain() {
             std::lock_guard lock(m_roomscaleSampleMutex);
             m_roomscaleSample.valid = false;
             if (resetStable) m_coherentHeadPose.valid = false;
+        }
+
+        if (!eyeGazeUpdated) {
+            cvr::eyegaze::Update(m_session, m_sessionState, m_viewSpace, locateTime,
+                                 false, eyeGazeWindows, eyeGazeWindowsValid,
+                                 m_runtimeIpd.load(std::memory_order_relaxed));
         }
 
         if (monoReady && viewCountOutput == m_eyeSwapchains.size()) {

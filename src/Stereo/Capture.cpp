@@ -770,7 +770,17 @@ void STDMETHODCALLTYPE hk_OMSetRenderTargets(
         cvr::stereo::target_handoff::Targets(self,count,handles,contiguous,depth);
         cvr::stereo::target_access::Targets(self,count,handles,contiguous,depth);return;}
     if(cvr::stereo::retained_geometry::Active())cvr::stereo::retained_geometry::BeforeTargets(self,count,handles,contiguous,depth);
-    cvr::vrs::Targets(self,handles?count:0,depth && depth->ptr);
+    uint32_t vrsW = 0, vrsH = 0;
+    bool vrsBlocked = cvr::optics::camera::NodeActive();
+    if (!vrsBlocked && cvr::vrs::enabled.load(std::memory_order_relaxed) && handles && count >= 3 && depth && depth->ptr) {
+        __try {
+            if (!rtv_dim_lookup(handles[0].ptr, &vrsW, &vrsH) || !vrsW || !vrsH) vrsBlocked = true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            vrsW = vrsH = 0;
+            vrsBlocked = true;
+        }
+    }
+    cvr::vrs::Targets(self, handles ? count : 0, depth && depth->ptr, vrsW, vrsH, vrsBlocked);
     cvr::optics::Targets(self,count,handles,contiguous,depth);
     if(handles && cvr::menu_surface::Waiting()) {
         const UINT step=g_game_device?g_game_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV):0;
