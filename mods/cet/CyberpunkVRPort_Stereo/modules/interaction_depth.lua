@@ -8,6 +8,7 @@
 local M = { depth = 0, error = nil }
 local elapsed = 0
 local staticGroup = nil
+local cachedDefs = nil
 local MAX_RAY = 6.0
 
 local function promptVisible(boards, defs)
@@ -20,7 +21,8 @@ end
 local function measure()
     local player = Game.GetPlayer()
     if not player then return 0 end
-    local defs = GetAllBlackboardDefs()
+    cachedDefs = cachedDefs or GetAllBlackboardDefs()
+    local defs = cachedDefs
     local boards = Game.GetBlackboardSystem()
     if not boards or not promptVisible(boards, defs) then return 0 end
     local cam = Game.GetCameraSystem()

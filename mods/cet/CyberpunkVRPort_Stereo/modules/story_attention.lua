@@ -2,12 +2,14 @@
 -- Native leases expire if CET stops updating. No game object survives a tick.
 local M = { mode=0, error=nil }
 local elapsed=0
+local cachedDefs=nil
 
 local function context(overlayOpen)
     if overlayOpen then return nil end
     local player=Game.GetPlayer()
     if not player then return nil end
-    local defs=GetAllBlackboardDefs()
+    cachedDefs=cachedDefs or GetAllBlackboardDefs()
+    local defs=cachedDefs
     local boards=Game.GetBlackboardSystem()
     local menu=boards:Get(defs.UI_System)
     if not menu or menu:GetBool(defs.UI_System.IsInMenu) then return nil end

@@ -82,6 +82,8 @@ Stereo.gc = { stepKB = 16, stepMaxKB = 1024, restGrowth = 0, menuStepKB = 192 }
 local gcResumeAt, gcLastKB = nil, nil
 
 local gcUiDefs
+local gcMenuCached = true
+local gcMenuElapsed = 1.0
 local function menuForGc()
     local requests = Game.GetSystemRequestsHandler()
     if not requests or requests:IsPreGame() or requests:IsGamePaused() then return true end
@@ -91,12 +93,17 @@ local function menuForGc()
     return not board or board:GetBool(gcUiDefs.IsInMenu)
 end
 
-local function paceGc()
+local function paceGc(dt)
     -- In-game map/settings keep IsPreGame false, but the host's world-tick wait may not run. Keep stepping
-    -- here instead of leaving the stopped collector to that wait's catch-up path. Read the current UI/pause
-    -- before VrcamSel.tick; an unavailable state also keeps collection on this safe path.
-    local ok, inMenu = pcall(menuForGc)
-    local menuGc = not ok or inMenu
+    -- here instead of leaving the stopped collector to that wait's catch-up path. Poll at 10 Hz instead of
+    -- every frame to avoid ~400 RTTI game calls/s on the GameThread while preserving fast menu transitions.
+    gcMenuElapsed = gcMenuElapsed + math.max(tonumber(dt) or 0.016, 0)
+    if gcMenuElapsed >= 0.10 then
+        gcMenuElapsed = 0
+        local ok, inMenu = pcall(menuForGc)
+        gcMenuCached = not ok or inMenu
+    end
+    local menuGc = gcMenuCached
     -- IN THE GAME THE PLUGIN'S LUA HOST PACES IT (src/Lua/HostGc.cpp): its steps run while the game thread waits
     -- for the world tick, off the frame's path, and only the finalizers run before onUpdate. The menus keep the
     -- pacing below (VRLuaHostGc(false)).
@@ -123,7 +130,7 @@ local function paceGc()
 end
 
 registerForEvent("onUpdate", function(dt)
-    paceGc()
+    paceGc(dt)
     if not Stereo.ready then return end
     VrcamSel.tick(dt)
     HudPanel.tick()

@@ -643,6 +643,103 @@ struct GameCallTimer
 };
 } // namespace
 
+void LuaDummyFunction(RED4ext::IScriptable*, RED4ext::CStackFrame* apFrame, void*, int64_t);
+
+namespace
+{
+constexpr uint32_t kFuncMetaCacheSize = 512;
+constexpr uint32_t kStackParamLimit = 16;
+
+struct FuncMetaCacheEntry
+{
+    RED4ext::CBaseFunction* func{nullptr};
+    uint32_t minArgs{0};
+    uint32_t maxArgs{0};
+    bool hasOut{false};
+};
+
+inline const FuncMetaCacheEntry& GetFuncMeta(RED4ext::CBaseFunction* apFunc, RED4ext::CBaseRTTIType* apGameInstanceType)
+{
+    static thread_local FuncMetaCacheEntry s_cache[kFuncMetaCacheSize]{};
+    const uint32_t slot = static_cast<uint32_t>((reinterpret_cast<uintptr_t>(apFunc) >> 4) & (kFuncMetaCacheSize - 1));
+    auto& entry = s_cache[slot];
+    if (entry.func == apFunc)
+        return entry;
+
+    uint32_t minArgs = 0u;
+    uint32_t maxArgs = 0u;
+    bool hasOut = false;
+    const uint32_t paramCount = apFunc->params.Size();
+    for (uint32_t i = 0u; i < paramCount; ++i)
+    {
+        const auto cpParam = apFunc->params[i];
+        if (cpParam->flags.isOut)
+        {
+            hasOut = true;
+        }
+        else if (cpParam->type != apGameInstanceType)
+        {
+            ++maxArgs;
+            if (!cpParam->flags.isOptional)
+                ++minArgs;
+        }
+    }
+    entry = {apFunc, minArgs, maxArgs, hasOut};
+    return entry;
+}
+
+bool ExecuteFunctionSpan(
+    RED4ext::CRTTISystem* apRtti, RED4ext::CBaseFunction* apFunc, RED4ext::IScriptable* apContext,
+    const RED4ext::CStackType* apArgs, RED4ext::CStackType& aResult)
+{
+    static RED4ext::UniversalRelocFunc<TCallScriptFunction> CallScriptFunction(RED4ext::Detail::AddressHashes::CBaseFunction_InternalExecute);
+
+    constexpr auto NopOp = 0;
+    constexpr auto ParamOp = 27;
+    constexpr auto ParamEndOp = 38;
+    constexpr auto MaxCodeSize = 264;
+    constexpr auto PointerSize = sizeof(void*);
+
+    char code[MaxCodeSize];
+    RED4ext::CStackFrame frame(nullptr, code);
+
+    const uint32_t paramCount = apFunc->params.Size();
+    for (uint32_t i = 0; i < paramCount; ++i)
+    {
+        const auto& param = apFunc->params[i];
+        const auto& arg = apArgs[i];
+
+        if (param->flags.isOptional && !arg.value)
+        {
+            *frame.code = NopOp;
+            ++frame.code;
+        }
+        else
+        {
+            *frame.code = ParamOp;
+            ++frame.code;
+
+            *reinterpret_cast<void**>(frame.code) = arg.type;
+            frame.code += PointerSize;
+
+            *reinterpret_cast<void**>(frame.code) = arg.value;
+            frame.code += PointerSize;
+        }
+    }
+
+    *frame.code = ParamEndOp;
+    frame.code = code; // Rewind
+
+    static auto* s_dummyContext = reinterpret_cast<RED4ext::IScriptable*>(apRtti->GetClass("entEntity")->CreateInstance());
+    static auto* s_dummyFunction = RED4ext::CGlobalFunction::Create("$Lua", "$Lua", &LuaDummyFunction);
+
+    // Some functions expect a non-empty call stack so we set the caller to a dummy function
+    frame.func = s_dummyFunction;
+
+    return CallScriptFunction(apFunc, apContext ? apContext : s_dummyContext, &frame, aResult.value, aResult.type);
+}
+} // namespace
+
 sol::variadic_results RTTIHelper::ExecuteFunction(
     RED4ext::CBaseFunction* apFunc, RED4ext::IScriptable* apContext, sol::variadic_args aLuaArgs, uint64_t aLuaArgOffset, std::string& aErrorMessage, bool aAllowNull) const
 {
@@ -653,34 +750,16 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
     if (!m_pRtti)
         return {};
 
-    // Out params
-    // There are cases when out param must be passed to the function.
-    // These functions cannot be used until more complex logic for input
-    // args is implemented (should check if a compatible arg is actually
-    // passed at the expected position + same for optionals).
-
     if (!apFunc->flags.isStatic && !apContext && !aAllowNull)
     {
         aErrorMessage = fmt::format("Function '{}' context must be '{}'.", apFunc->shortName.ToString(), apFunc->GetParent()->name.ToString());
         return {};
     }
 
-    auto numArgs = aLuaArgs.size() - aLuaArgOffset;
-    auto minArgs = 0u;
-    auto maxArgs = 0u;
-
-    for (auto i = 0u; i < apFunc->params.Size(); ++i)
-    {
-        const auto cpParam = apFunc->params[i];
-
-        if (!cpParam->flags.isOut && cpParam->type != m_pGameInstanceType)
-        {
-            maxArgs++;
-
-            if (!cpParam->flags.isOptional)
-                minArgs++;
-        }
-    }
+    const auto numArgs = aLuaArgs.size() - aLuaArgOffset;
+    const auto& meta = GetFuncMeta(apFunc, m_pGameInstanceType);
+    const auto minArgs = meta.minArgs;
+    const auto maxArgs = meta.maxArgs;
 
     if (numArgs < minArgs || numArgs > maxArgs)
     {
@@ -704,12 +783,31 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
                 s_scratchMemory.Reset();
         });
 
-    auto pAllocator = TiltedPhoques::Allocator::Get();
-    TiltedPhoques::Allocator::Set(&s_scratchMemory);
-    TiltedPhoques::Vector<RED4ext::CStackType> callArgs(apFunc->params.Size());
-    TiltedPhoques::Vector<uint32_t> callArgToParam(apFunc->params.Size());
-    TiltedPhoques::Vector<bool> ownedArgs(apFunc->params.Size(), false);
-    TiltedPhoques::Allocator::Set(pAllocator);
+    const uint32_t paramCount = apFunc->params.Size();
+    RED4ext::CStackType stackArgs[kStackParamLimit]{};
+    uint32_t stackArgToParam[kStackParamLimit]{};
+    uint8_t stackOwned[kStackParamLimit]{};
+
+    TiltedPhoques::Vector<RED4ext::CStackType> heapArgs;
+    TiltedPhoques::Vector<uint32_t> heapArgToParam;
+    TiltedPhoques::Vector<uint8_t> heapOwned;
+
+    RED4ext::CStackType* callArgs = stackArgs;
+    uint32_t* callArgToParam = stackArgToParam;
+    uint8_t* ownedArgs = stackOwned;
+
+    if (paramCount > kStackParamLimit)
+    {
+        auto pAllocator = TiltedPhoques::Allocator::Get();
+        TiltedPhoques::Allocator::Set(&s_scratchMemory);
+        heapArgs.resize(paramCount);
+        heapArgToParam.resize(paramCount);
+        heapOwned.assign(paramCount, 0u);
+        TiltedPhoques::Allocator::Set(pAllocator);
+        callArgs = heapArgs.data();
+        callArgToParam = heapArgToParam.data();
+        ownedArgs = heapOwned.data();
+    }
 
     RED4ext::CStackType result;
     uint32_t callArgOffset = 0u;
@@ -719,7 +817,7 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
         {
             for (auto j = 0u; j < callArgOffset; ++j)
             {
-                Scripting::DestructRED(callArgs[j], ownedArgs[j]);
+                Scripting::DestructRED(callArgs[j], ownedArgs[j] != 0u);
             }
 
             if (result.value)
@@ -728,7 +826,7 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
             }
         });
 
-    for (auto i = 0u; i < apFunc->params.Size(); ++i)
+    for (auto i = 0u; i < paramCount; ++i)
     {
         const auto cpParam = apFunc->params[i];
 
@@ -750,14 +848,9 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
         }
         else if (cpParam->flags.isOut)
         {
-            // It looks like constructing value with ToRED for out params is not required,
-            // and memory allocation is enough.
             callArgs[callArgOffset].type = cpParam->type;
             callArgs[callArgOffset].value = NewPlaceholder(cpParam->type, &s_scratchMemory);
-            ownedArgs[callArgOffset] = true;
-
-            // But ToRED conversion is necessary for implementing required out params.
-            // callArgs[callArgOffset] = Scripting::ToRED(sol::nil, cpParam->type, &s_scratchMemory);
+            ownedArgs[callArgOffset] = 1u;
         }
         else if (cpParam->flags.isOptional)
         {
@@ -767,7 +860,6 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
                 callArgs[callArgOffset] = Scripting::ToRED(argValue, cpParam->type, &s_scratchMemory);
             }
 
-            // Create a placeholder if value is incompatible or omitted
             if (!callArgs[callArgOffset].value)
             {
                 callArgs[callArgOffset].type = cpParam->type;
@@ -806,7 +898,7 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
         result.type->Construct(result.value);
     }
 
-    const auto success = ExecuteFunction(apFunc, apContext, callArgs, result);
+    const auto success = ExecuteFunctionSpan(m_pRtti, apFunc, apContext, callArgs, result);
 
     if (!success)
     {
@@ -815,21 +907,21 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
         return {};
     }
 
-    auto lockedState = m_lua.Lock();
-
     sol::variadic_results results;
-
-    if (hasReturnType)
+    if (hasReturnType || meta.hasOut)
     {
-        results.emplace_back(Scripting::ToLua(lockedState, result));
-    }
-
-    for (auto i = 0u; i < callArgOffset; ++i)
-    {
-        const auto cpParam = apFunc->params[callArgToParam[i]];
-
-        if (cpParam->flags.isOut)
-            results.emplace_back(Scripting::ToLua(lockedState, callArgs[i]));
+        auto lockedState = m_lua.Lock();
+        if (hasReturnType)
+            results.emplace_back(Scripting::ToLua(lockedState, result));
+        if (meta.hasOut)
+        {
+            for (auto i = 0u; i < callArgOffset; ++i)
+            {
+                const auto cpParam = apFunc->params[callArgToParam[i]];
+                if (cpParam->flags.isOut)
+                    results.emplace_back(Scripting::ToLua(lockedState, callArgs[i]));
+            }
+        }
     }
 
     return results;
@@ -843,50 +935,7 @@ void LuaDummyFunction(RED4ext::IScriptable*, RED4ext::CStackFrame* apFrame, void
 bool RTTIHelper::ExecuteFunction(
     RED4ext::CBaseFunction* apFunc, RED4ext::IScriptable* apContext, TiltedPhoques::Vector<RED4ext::CStackType>& aArgs, RED4ext::CStackType& aResult) const
 {
-    static RED4ext::UniversalRelocFunc<TCallScriptFunction> CallScriptFunction(RED4ext::Detail::AddressHashes::CBaseFunction_InternalExecute);
-
-    constexpr auto NopOp = 0;
-    constexpr auto ParamOp = 27;
-    constexpr auto ParamEndOp = 38;
-    constexpr auto MaxCodeSize = 264;
-    constexpr auto PointerSize = sizeof(void*);
-
-    char code[MaxCodeSize];
-    RED4ext::CStackFrame frame(nullptr, code);
-
-    for (uint32_t i = 0; i < apFunc->params.Size(); ++i)
-    {
-        const auto& param = apFunc->params[i];
-        const auto& arg = aArgs[i];
-
-        if (param->flags.isOptional && !arg.value)
-        {
-            *frame.code = NopOp;
-            ++frame.code;
-        }
-        else
-        {
-            *frame.code = ParamOp;
-            ++frame.code;
-
-            *reinterpret_cast<void**>(frame.code) = arg.type;
-            frame.code += PointerSize;
-
-            *reinterpret_cast<void**>(frame.code) = arg.value;
-            frame.code += PointerSize;
-        }
-    }
-
-    *frame.code = ParamEndOp;
-    frame.code = code; // Rewind
-
-    static auto* s_dummyContext = reinterpret_cast<RED4ext::IScriptable*>(m_pRtti->GetClass("entEntity")->CreateInstance());
-    static auto* s_dummyFunction = RED4ext::CGlobalFunction::Create("$Lua", "$Lua", &LuaDummyFunction);
-
-    // Some functions expect a non-empty call stack so we set the caller to a dummy function
-    frame.func = s_dummyFunction;
-
-    return CallScriptFunction(apFunc, apContext ? apContext : s_dummyContext, &frame, aResult.value, aResult.type);
+    return ExecuteFunctionSpan(m_pRtti, apFunc, apContext, aArgs.data(), aResult);
 }
 
 void* RTTIHelper::NewPlaceholder(RED4ext::rtti::IType* apType, TiltedPhoques::Allocator* apAllocator) const
