@@ -1,14 +1,18 @@
-# Fixed Foveated DLSS
+# Fixed and Eye-Tracked Foveated DLSS
 
-General > Fixed Foveated Rendering uses the port's own D3D12/NGX implementation.
+General > Foveated Rendering uses the port's own D3D12/NGX implementation.
 The center inherits the game's DLSS/DLAA quality and render-preset hints. Only
 peripheral quality is selected in the overlay. The game's render resolution,
 graphics settings and DLSS configuration are not changed.
 
 This reduces DLSS reconstruction work, not geometry, raster shading or ray
 tracing work. It is not VRS. NVIDIA RTX and active game DLSS Super Resolution
-or DLAA are required. No eye tracker, external DLL, proxy or OpenXR layer is
-needed. Ray Reconstruction uses a separate NGX feature and is not implemented.
+or DLAA are required. Both **Fixed** and optional **Eye-tracked (OpenXR)**
+(`XR_EXT_eye_gaze_interaction`) region tracking are supported with no external
+proxy DLL or third-party OpenXR layer required; when eye tracking is
+unavailable, unbound, or loses tracking, the center automatically falls back to
+the configured center offsets. Ray Reconstruction uses a separate NGX feature
+and is not implemented.
 
 ## Controls
 
@@ -24,17 +28,26 @@ setting. For example, with game DLSS Balanced, the center remains Balanced in
 all three profiles. Peripheral output is reconstructed at the smaller
 resolution and spatially scaled to the eye image.
 
+`Region tracking` selects `Fixed` (default) or `Eye-tracked (OpenXR)`. In
+`Eye-tracked (OpenXR)` mode, the port queries `XR_EXT_eye_gaze_interaction`
+directly and steers each eye's central crop dynamically, holding through brief
+blinks before decaying smoothly back to `Center offset X/Y` on extended
+tracking loss.
+
 `Center width` and `Center height` independently set 20..100% of each eye image,
 with defaults of 70% width and 65% height. `Center offset X/Y` shifts the region in percentages
-of the eye image; zero is centered, positive X moves right, and positive Y
-moves down toward the hands. Travel is limited by the selected region size so
-the entire region remains in bounds. X defaults to 0%, Y to -10%.
+of the eye image (and acts as the fallback position in eye-tracked mode); zero
+is centered, positive X moves right, and positive Y moves down toward the
+hands. Travel is limited by the selected region size so the entire region
+remains in bounds. X defaults to 0%, Y to -10%.
 
-Reconstruction changes apply once, one second after editing stops. Holding a
-slider still or using numeric entry keeps the previous region active until
-release, followed by the full one-second delay. Rapid INI changes are also
-debounced. Closing the panel ends the hold. Off and the boundary toggle remain
-immediate; they do not require rebuilding private DLSS features.
+Peripheral quality (`mode`) and dimension (`Center width` / `Center height`)
+changes apply once, one second after editing stops. Holding a slider still or
+using numeric entry keeps the previous region active until release, followed by
+the full one-second delay. Rapid INI changes to those allocation settings are
+also debounced. Closing the panel ends the hold. `Off`, `Show region boundary`,
+`Region tracking`, and same-size `Center offset X/Y` changes apply immediately
+without rebuilding private DLSS features.
 
 A 4% feather blends the two results. `Show region
 boundary` enables a diagnostic border. At 100% on both axes, the private center
@@ -48,6 +61,7 @@ Settings in `vrport.ini`:
 - `xr_foveated_boundary=0`: diagnostic border.
 - `xr_foveated_offset_x=0.00`: horizontal center displacement in percent.
 - `xr_foveated_offset_y=-10.00`: vertical center displacement in percent, positive down.
+- `xr_foveated_eye_tracked=0`: region tracking (`Fixed` = 0, `Eye-tracked (OpenXR)` = 1).
 
 The former `xr_foveated_edges` key migrates to `100 - 2*edges` on each axis.
 Explicit width/height keys take precedence regardless of INI line order.
@@ -55,9 +69,13 @@ Explicit width/height keys take precedence regardless of INI line order.
 ## Rendering
 
 Each eye has independent center and peripheral NGX features and temporal
-histories. Region or resolution changes rebuild these features. Ordinary head
-movement does not reset their histories. Disabling foveation resets the game's
-original DLSS history once before resuming normal full-frame processing.
+histories. Region dimension or peripheral resolution changes rebuild these
+features. Same-size offset changes and dynamic eye-gaze shifts reposition the
+crop without rebuilding NGX features, applying per-frame central motion-vector
+compensation with a large-saccade history reset guard (>60% of center input
+width or height). Ordinary head movement does not reset their histories.
+Disabling foveation resets the game's original DLSS history once before
+resuming normal full-frame processing.
 
 The center is cropped on the original input pixel grid. Color, depth and motion
 are packed into zero-origin private textures. Depth and motion use matching
@@ -108,9 +126,12 @@ the original INI and pose. `--smoke --framegen` tests a region with frame
 generation enabled. GPU timings measure this DLSS path per evaluation, not
 total frame time or an equivalent FPS improvement.
 `--offset-y 15 --debounce` additionally checks a lowered region and rapid
-settings changes without intermediate DLSS rebuilds. The settings test uses a
-deterministic clock to cover stationary holds, the release delay, repeated INI
-polls, immediate Off, and image-edge clamping.
+settings changes without intermediate DLSS rebuilds. `--eye-gaze` drives
+synthetic OpenXR eye gaze (smooth pursuit, saccade step, blink hold, and
+extended dropout) via exported test controls while keeping default runs
+read-only, and always restores the override and INI afterward. The settings
+test uses a deterministic clock to cover stationary holds, the release delay,
+repeated INI polls, immediate Off, and image-edge clamping.
 
 On 2026-09-30, the native preset-inheritance build (SHA-256
 `4c373e3f0812bf7a70191fb99d3054c9b7d92df4a377254fd32cb6cb90e7e11e`)

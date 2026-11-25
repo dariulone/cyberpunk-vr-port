@@ -8,6 +8,7 @@
 #include "Hooks/FarInlineHook.hpp"
 #include "Stereo/EngineStereo.hpp"
 #include "Stereo/EngineStereoDlss.hpp"
+#include "Runtimes/EyeGaze.hpp"
 #include <MinHook.h>
 #include <json/json.h>
 #include <algorithm>
@@ -19,6 +20,7 @@
 
 extern void Log(const char*,...);
 extern "C" int GetMenuMode();
+extern "C" int CyberpunkVR_MainIsRightEye;
 extern "C" {
 __declspec(dllexport) char CyberpunkVR_FoveatedReport[32768]{};
 __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_FoveatedReportSeq{};
@@ -102,10 +104,12 @@ struct State : Owned {
     ngx::Release release{};
     const ngx::Handle* original{};
     unsigned renderW{},renderH{},outputW{},outputH{},flags{},quality{};
+    unsigned allocatedInputW{},allocatedInputH{},allocatedW{},allocatedH{};
+    unsigned prevSourceX{},prevSourceY{};
     std::array<unsigned,6> presets{};
     Settings settings;
     uint64_t evaluations{},resets{};
-    bool first=true;
+    bool first=true,havePrevCrop=false;
     ~State() override {
         // Destruction can occur under the command-resource registry's lock.
         // Defer NGX callbacks to Present to avoid re-entering D3D from that lock.
@@ -155,14 +159,15 @@ ComPtr<State> CreateState(ID3D12GraphicsCommandList* list,const Source& s,Settin
     state->settings=settings;state->original=original;state->flags=config.flags;state->quality=config.quality;
     state->presets=config.presets;
     state->renderW=s.renderW;state->renderH=s.renderH;state->outputW=s.outputW;state->outputH=s.outputH;state->release=route.release;
+    state->allocatedInputW=center.inputW;state->allocatedInputH=center.inputH;state->allocatedW=center.width;state->allocatedH=center.height;
     Log("[foveated-native] center %ux%u -> %ux%u at %u,%u quality=%u peripheral=%ux%u\n",
         center.inputW,center.inputH,center.width,center.height,center.x,center.y,config.quality,peripheral.width,peripheral.height);
     return state;
 }
 ngx::Result EvaluateRegion(ID3D12GraphicsCommandList* list,ngx::Parameters* p,const Source& source,State& state,
-                          const Route& route,bool central,bool reset) {
+                          const Route& route,bool central,bool reset,float cropDeltaX=0.0f,float cropDeltaY=0.0f) {
     auto& pass=central?state.gpu.center:state.gpu.periphery;const auto& r=pass.region;
-    if(!state.gpu.Prepare(list,source,central))return 0xBAD00005;
+    if(!state.gpu.Prepare(list,source,central,cropDeltaX,cropDeltaY))return 0xBAD00005;
     ngx::Override change(p);
     change.Set("Color",pass.color.Get());change.Set("Depth",pass.depth.Get());change.Set("MotionVectors",pass.motion.Get());change.Set("Output",pass.output.Get());
     change.Set("Width",r.inputW);change.Set("Height",r.inputH);change.Set("OutWidth",r.width);change.Set("OutHeight",r.height);
@@ -215,17 +220,41 @@ ngx::Result Process(unsigned routeIndex,ID3D12GraphicsCommandList* list,const ng
     auto& state=views[eye];
     if(!state || state->original!=handle || state->renderW!=source.renderW || state->renderH!=source.renderH ||
         state->outputW!=source.outputW || state->outputH!=source.outputH || state->flags!=flags || state->quality!=quality || state->presets!=config.presets ||
-        !state->settings.SameReconstruction(settings))
+        !state->settings.SameAllocation(settings))
         state=CreateState(list,source,settings,handle,config,route);
     if(!state || !cvr::gpu::KeepCommandResources(list,{state.Get()})) {Message("Foveated resource initialization failed");return native();}
     cvr::stereo::probe::Scope privateCommands;
+    Settings effective=settings;
+    const unsigned physEye=cvr::eyegaze::PhysicalEyeForRenderView(
+        eye,engine_stereo::Enabled(),CyberpunkVR_MainIsRightEye,pose.head.afwEye);
+    if(settings.eyeTracked) {
+        const float maxX=(100.0f-settings.widthPercent)*0.5f;
+        const float maxY=(100.0f-settings.heightPercent)*0.5f;
+        cvr::eyegaze::ResolveEyeOffsets(physEye,settings.offsetXPercent,settings.offsetYPercent,
+                                        maxX,maxY,effective.offsetXPercent,effective.offsetYPercent);
+    }
+    effective=Normalize(effective);
+    Region center=CenterRegion(effective,source.renderW,source.renderH,source.outputW,source.outputH);
+    center.inputW=state->allocatedInputW;
+    center.inputH=state->allocatedInputH;
+    center.width=state->allocatedW;
+    center.height=state->allocatedH;
+    center.sourceX=std::min(center.sourceX,source.renderW-center.inputW);
+    center.sourceY=std::min(center.sourceY,source.renderH-center.inputH);
+    center.x=std::min(unsigned(double(center.sourceX)*source.outputW/source.renderW),source.outputW-center.width);
+    center.y=std::min(unsigned(double(center.sourceY)*source.outputH/source.renderH),source.outputH-center.height);
+    state->gpu.center.region=center;
+    state->settings=effective;
     const bool reset=state->first || ngx::Integer(params,"Reset")!=0;
+    const auto cropStep=ComputeCropStep(reset,state->havePrevCrop,state->prevSourceX,state->prevSourceY,center);
     auto timer=Timer(list,false);
-    auto result=EvaluateRegion(list,p,source,*state.Get(),route,false,reset);Stamp(list,timer.Get(),1);
-    if(ngx::Success(result))result=EvaluateRegion(list,p,source,*state.Get(),route,true,reset);Stamp(list,timer.Get(),2);
+    auto result=EvaluateRegion(list,p,source,*state.Get(),route,false,reset,0.0f,0.0f);Stamp(list,timer.Get(),1);
+    if(ngx::Success(result))result=EvaluateRegion(list,p,source,*state.Get(),route,true,cropStep.centralReset,
+        cropStep.deltaX,cropStep.deltaY);Stamp(list,timer.Get(),2);
     if(ngx::Success(result) && state->gpu.Composite(list,source,settings.showBoundary)) {
         Stamp(list,timer.Get(),3);FinishTimer(list,timer,4);
-        state->first=false;++state->evaluations;state->resets+=reset;++viewCalls[eye];++active;nativeReset[eye]=true;
+        state->first=false;state->prevSourceX=center.sourceX;state->prevSourceY=center.sourceY;state->havePrevCrop=true;
+        ++state->evaluations;state->resets+=cropStep.centralReset;++viewCalls[eye];++active;nativeReset[eye]=true;
         Message("Active");return result;
     }
     ++failed;Log("[foveated-native] evaluation failed result=0x%08X; native fallback\n",result);
@@ -301,6 +330,7 @@ void Install() {
 }
 void Publish() {
     const auto settings=GetAppliedSettings();Json::Value root;root["backend"]="native";root["enabled"]=Enabled(settings);
+    root["eye_tracked"]=settings.eyeTracked;root["gaze_state"]=int(cvr::eyegaze::GetSnapshot().state);
     root["pending_settings"]=!(settings==GetSettings());Status current;
     {std::lock_guard lock(statsMutex);status.loaded=installed;status.ready=installed;
         status.evaluations=calls;status.processed=active;status.views=unsigned(bool(views[0]))+unsigned(bool(views[1]));

@@ -22,9 +22,14 @@ bool Enabled(Settings value) {
 }
 void SettingsDelay::Request(Settings value,uint64_t now) {
     value=Normalize(value);
-    if(!value.SameReconstruction(requested))applyAfter=now+1000;
+    if(!value.SameAllocation(requested))applyAfter=now+1000;
     requested=value;
     applied.showBoundary=value.showBoundary;
+    if(applied.SameAllocation(value)) {
+        applied.offsetXPercent=value.offsetXPercent;
+        applied.offsetYPercent=value.offsetYPercent;
+        applied.eyeTracked=value.eyeTracked;
+    }
     if(!Enabled(value))applied=value; // Off never waits for a pending expensive rebuild.
 }
 void SettingsDelay::SetEditing(bool active,uint64_t now) {
@@ -74,11 +79,12 @@ bool ParseSetting(const char* line, Settings& value) {
         return true;
     }
     if (sscanf_s(line, "xr_foveated_boundary = %d", &number) == 1) { value.showBoundary = number != 0; return true; }
+    if (sscanf_s(line, "xr_foveated_eye_tracked = %d", &number) == 1) { value.eyeTracked = number != 0; return true; }
     return false;
 }
 void WriteSettings(FILE* file, Settings value) {
     value = Normalize(value);
-    std::fprintf(file, "xr_foveated_dlss=%d\nxr_foveated_width=%.2f\nxr_foveated_height=%.2f\nxr_foveated_boundary=%d\nxr_foveated_offset_x=%.2f\nxr_foveated_offset_y=%.2f\n",
-        value.mode, value.widthPercent, value.heightPercent, value.showBoundary ? 1 : 0, value.offsetXPercent, value.offsetYPercent);
+    std::fprintf(file, "xr_foveated_dlss=%d\nxr_foveated_width=%.2f\nxr_foveated_height=%.2f\nxr_foveated_boundary=%d\nxr_foveated_offset_x=%.2f\nxr_foveated_offset_y=%.2f\nxr_foveated_eye_tracked=%d\n",
+        value.mode, value.widthPercent, value.heightPercent, value.showBoundary ? 1 : 0, value.offsetXPercent, value.offsetYPercent, value.eyeTracked ? 1 : 0);
 }
 }

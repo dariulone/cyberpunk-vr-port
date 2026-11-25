@@ -23,6 +23,7 @@
 #include "Overlay/ImGuiOverlay.hpp"
 #include "Overlay/LiveControlsUi.hpp"
 #include "Runtimes/OpenXRManager.hpp"
+#include "Runtimes/EyeGaze.hpp"
 #include "Fbt/Game/Menu.hpp"
 extern "C" float GetGameRenderVerticalFovDeg();
 #include <algorithm>
@@ -1083,11 +1084,17 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
             if (UI::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 UI::SetTooltip("Contrast-adaptive sharpening for both eyes. 0 = off, 1 = full strength. Disabled automatically with game DLAA.");
             UI::EndDisabled();
-            if (UI::CollapsingHeader("FIXED FOVEATED RENDERING", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (UI::CollapsingHeader("FOVEATED RENDERING", ImGuiTreeNodeFlags_DefaultOpen)) {
                 auto& foveated = state.foveated;
                 changed |= widgets::Combo("Peripheral quality", &foveated.mode, "Off\0Quality\0Balanced\0Performance\0");
                 if (UI::IsItemHovered()) UI::SetTooltip("The center follows game DLSS/DLAA. Peripheral DLAA uses 100%% / 75%% / 50%% of the game's render resolution.");
                 UI::BeginDisabled(foveated.mode == 0);
+                int trackingMode = foveated.eyeTracked ? 1 : 0;
+                if (widgets::Combo("Region tracking", &trackingMode, "Fixed\0Eye-tracked (OpenXR)\0")) {
+                    foveated.eyeTracked = (trackingMode != 0);
+                    changed = true;
+                }
+                if (UI::IsItemHovered()) UI::SetTooltip("Fixed keeps the center region at the offsets below. Eye-tracked follows OpenXR eye gaze (XR_EXT_eye_gaze_interaction) with automatic fallback when unavailable.");
                 changed |= widgets::SliderFloat("Center width", &foveated.widthPercent, 20.0f, 100.0f, "%.1f %%");
                 bool editing=UI::IsItemActive();
                 if (UI::IsItemHovered()) UI::SetTooltip("Full-quality region width as a percentage of each eye image.");
@@ -1098,16 +1105,29 @@ bool DrawLiveControls(LiveControlsUiState& state,int section,bool* foveatedEditi
                 const float maxX=(100.0f-foveated.widthPercent)*.5f, maxY=(100.0f-foveated.heightPercent)*.5f;
                 UI::BeginDisabled(maxX==0);
                 changed |= widgets::SliderFloat("Center offset X", &foveated.offsetXPercent, -maxX, maxX, "%.1f %%");
-                editing|=UI::IsItemActive();
-                if (UI::IsItemHovered()) UI::SetTooltip("Percentage of eye-image width. Negative = left, positive = right.");
+                if (UI::IsItemHovered()) UI::SetTooltip(foveated.eyeTracked
+                    ? "Fallback horizontal center offset (percentage of eye width) when eye gaze is unavailable."
+                    : "Percentage of eye-image width. Negative = left, positive = right.");
                 UI::EndDisabled();
                 UI::BeginDisabled(maxY==0);
                 changed |= widgets::SliderFloat("Center offset Y", &foveated.offsetYPercent, -maxY, maxY, "%.1f %%");
-                editing|=UI::IsItemActive();
-                if (UI::IsItemHovered()) UI::SetTooltip("Percentage of eye-image height. Negative = up, positive = down toward the hands.");
+                if (UI::IsItemHovered()) UI::SetTooltip(foveated.eyeTracked
+                    ? "Fallback vertical center offset (percentage of eye height) when eye gaze is unavailable."
+                    : "Percentage of eye-image height. Negative = up, positive = down toward the hands.");
                 UI::EndDisabled();
                 if(foveatedEditing)*foveatedEditing=editing;
                 changed |= UI::Checkbox("Show region boundary", &foveated.showBoundary);
+                if (foveated.eyeTracked) {
+                    const auto gaze = cvr::eyegaze::GetSnapshot();
+                    if (gaze.state == cvr::eyegaze::TrackingState::Active) {
+                        UI::TextDisabled("Eye gaze: Active  (L %+.1f%%, %+.1f%% | R %+.1f%%, %+.1f%%)",
+                            gaze.offsetX[0], gaze.offsetY[0], gaze.offsetX[1], gaze.offsetY[1]);
+                    } else if (gaze.state == cvr::eyegaze::TrackingState::HoldingBlink) {
+                        UI::TextDisabled("Eye gaze: Blink hold");
+                    } else {
+                        UI::TextDisabled("Eye gaze unavailable -- using fallback offset");
+                    }
+                }
                 UI::EndDisabled();
                 const auto status = cvr::foveated::GetStatus();
                 UI::TextDisabled("%s", status.text);

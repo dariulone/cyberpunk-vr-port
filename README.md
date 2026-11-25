@@ -64,9 +64,9 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
   neither eye accumulates the other's history (blur and an IPD-wide ghost).
 - **FSR3 frame generation** is available under **F10 → FRAMEGEN → Frame generator**. Interpolation shows a midpoint between two captures. Extrapolation shows the real pair first and uses its motion vectors to predict the next view when a display cycle is available. The interpolation mode also supports optional FidelityFX optical flow.
 - **Experimental DLSS 5 Neural Rendering** is under **F10 → STEREO**. Enable DLSS in the game, then enable Neural Rendering for the session. Each eye gets its own model history. The installed NVIDIA NGX runtime must expose the NR feature for Cyberpunk 2077. If NGX declines the request, the panel reports its result and the game continues with ordinary DLSS. Both rendering features are adapted from the [iPowerTech fork](https://github.com/iPowerTech/cyberpunk-vr-port/tree/8845f83e309dae130ee2df0aed1f82674eb58fd6).
-- **Optional GPU savers**: fixed foveated DLSS, fixed peripheral VRS and sun shadows rendered once for both
-  eyes. (The hidden-area mask for the lens edges is no longer offered in the settings; `xr_hidden_area` in
-  `vrport.ini` still turns it on.)
+- **Optional GPU savers**: fixed or OpenXR eye-tracked foveated DLSS, fixed peripheral VRS and sun shadows
+  rendered once for both eyes. (The hidden-area mask for the lens edges is no longer offered in the settings;
+  `xr_hidden_area` in `vrport.ini` still turns it on.)
 - **The F10 overlay in both eyes**, so a settings panel no longer costs you
   stereo the way a full-screen game menu does.
 - **The two views agree.** Sun cascade shadows, the shader clock, the foliage
@@ -451,13 +451,16 @@ General, Framegen, HUD, Controls, Stereo, Avatar, Driving and Bindings.
   size, motion prediction, reuse-last-clean-frame, pose pair-lock, and the head
   offset (X right / Y forward / Z up), with a second set that applies only in a
   car and a third only on a motorcycle (*Controls → Driving*).
-- **Fixed Foveated DLSS** in General — Off, Quality, Balanced and Performance,
-  with independent center width and height from 20–100% of each eye image.
-  The center follows the game's DLSS/DLAA settings; the profile controls the
-  periphery. Horizontal and vertical offsets reposition the region, including
-  toward the hands. Slider changes apply one second after release.
-  Requires NVIDIA RTX and DLSS. No additional runtime or eye tracker
-  is needed. The boundary preview marks the central region.
+- **Foveated DLSS** in General — Off, Quality, Balanced and Performance,
+  with independent center width and height from 20–100% of each eye image and
+  **Region tracking** (`Fixed` or `Eye-tracked (OpenXR)`). The center follows
+  the game's DLSS/DLAA settings; the profile controls the periphery. Horizontal
+  and vertical offsets reposition the fixed region (and act as the fallback
+  when eye tracking is unavailable or unbound), including toward the hands.
+  Profile and size changes apply one second after release, while Off, boundary
+  preview, tracking mode and offsets apply immediately. Requires NVIDIA RTX
+  and DLSS; no external proxy DLL or third-party OpenXR layer is needed. The
+  boundary preview marks the central region.
 - Also in **General** — CAS sharpening, shared sun shadows, scope lens
   stabilization and variable rate shading for the periphery.
 - **Controls** — decoupled weapon aim and its laser dot, locomotion source
