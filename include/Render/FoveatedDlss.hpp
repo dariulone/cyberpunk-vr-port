@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -13,10 +14,14 @@ struct Settings {
     float offsetXPercent = 0.0f;
     float offsetYPercent = -10.0f;
     uint8_t parsedDimensions = 0; // INI migration only; explicit axes take precedence.
-    bool SameReconstruction(const Settings& other) const {
+    bool eyeTracked = false;
+    bool SameAllocation(const Settings& other) const {
         return mode == other.mode && widthPercent == other.widthPercent &&
-            heightPercent == other.heightPercent && offsetXPercent == other.offsetXPercent &&
-            offsetYPercent == other.offsetYPercent;
+            heightPercent == other.heightPercent;
+    }
+    bool SameReconstruction(const Settings& other) const {
+        return SameAllocation(other) && offsetXPercent == other.offsetXPercent &&
+            offsetYPercent == other.offsetYPercent && eyeTracked == other.eyeTracked;
     }
     bool operator==(const Settings& other) const { return SameReconstruction(other) && showBoundary == other.showBoundary; }
 };
@@ -24,6 +29,30 @@ struct Region {
     unsigned x{}, y{}, width{}, height{}, inputW{}, inputH{}, sourceX{}, sourceY{};
     bool operator==(const Region&) const = default;
 };
+struct CropStep {
+    float deltaX = 0.0f;
+    float deltaY = 0.0f;
+    bool saccadeReset = false;
+    bool centralReset = false;
+};
+inline CropStep ComputeCropStep(bool engineOrFirstReset, bool havePrevCrop,
+                                unsigned prevSourceX, unsigned prevSourceY,
+                                const Region& center) {
+    CropStep step{};
+    if (!engineOrFirstReset && havePrevCrop) {
+        step.deltaX = float(int(center.sourceX) - int(prevSourceX));
+        step.deltaY = float(int(center.sourceY) - int(prevSourceY));
+        step.saccadeReset =
+            std::fabs(step.deltaX) > 0.6f * float(center.inputW) ||
+            std::fabs(step.deltaY) > 0.6f * float(center.inputH);
+    }
+    step.centralReset = engineOrFirstReset || step.saccadeReset;
+    if (step.centralReset) {
+        step.deltaX = 0.0f;
+        step.deltaY = 0.0f;
+    }
+    return step;
+}
 // Explicit time makes release/hold behavior testable without sleeping.
 class SettingsDelay {
     Settings requested, applied;
