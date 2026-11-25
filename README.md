@@ -16,8 +16,8 @@ show shared controls first, then right-handed and left-handed assignments. The i
 Install this variant with `install_cyberfinger.cmd` (defaults to the GOG folder);
 see the [installer prerequisites and options](docs/cyberfinger-patch.md#installer).
 
-For launch steps, physical controls and troubleshooting, use the
-[CyberFinger quick-start guide](README_CYBRFNGR.md).
+For katana handling, Offensive mode and the HUD gesture, see the [CyberFinger controls](#cyberfinger-controls).
+For setup and troubleshooting, use the [CyberFinger quick-start guide](README_CYBRFNGR.md).
 
 > ⚠️ Experimental community mod. Not affiliated with CD PROJEKT RED. Use at your
 > own risk and keep backups of your saves.
@@ -81,6 +81,11 @@ For launch steps, physical controls and troubleshooting, use the
   AMD VRS and native stereo. Enable it under General, immediately below fixed
   foveation; unavailable or stale gaze restores full quality. See
   [setup and limitations](docs/cyberfinger-patch.md#eye-tracked-foveated-rendering).
+- **Quest Pro face tracking in mirrors (experimental).** Enable face sharing and ALT OSC output
+  on port `9015` in Steam Link, then turn on **F10 → Avatar → Face tracking → Quest Pro face tracking in mirrors**.
+  Choose **Look in the mirror** in V’s apartment to see your smile, jaw movement, blinks and gaze
+  on V’s reflection. Eyebrow tracking has its own switch and defaults to off.
+  [Quest Pro mirror setup and compatibility](docs/quest-pro-face-tracking.md).
 - **The F10 overlay in both eyes**, so a settings panel no longer costs you
   stereo the way a full-screen game menu does.
 - **The two views agree.** Sun cascade shadows, the shader clock, the foliage
@@ -205,13 +210,14 @@ For launch steps, physical controls and troubleshooting, use the
   latches so the car keeps rolling.
 - **World-map head-lock** — DLSS/NGX handling (the second
   view gets its own upscaler viewport automatically).
-- **19 headsets, 188 resolutions**, every ladder shaped to that headset's measured
-  eye window, picked before launch: Quest 2 / 3 / 3S, Pico 4 / 4 Ultra, Pimax
+- **20 headset profiles with 199 resolution presets.** Before launch, choose your
+  headset and per-eye render size. Profiles cover Meta Quest 2, Quest 3, Quest 3S
+  and **Quest Pro**, Pico 4 / 4 Ultra, Pimax
   Crystal OG / Light / Super / Ultra Wide and Dream Air, Valve Index, PSVR2,
   Bigscreen Beyond 2/2e, Steam Frame, HP Reverb G2, MeganeX superlight 8K,
   Samsung Galaxy XR, HTC Vive and HTC Vive Pro / Pro Eye. Up to 3500 px the
-  steps are at most 1.12 per side; 49 of them need engine stereo (the default)
-  and are not listed when it is off.
+  steps are at most 1.12 per side. Of the 199 presets, 53 require engine stereo,
+  which is enabled by default.
 - **HUD placement is built into the port.** The HUD page controls native VR
   panels and their elements. HUDitor is not required and its old layout is not
   installed by the release package.
@@ -455,6 +461,23 @@ Hotkeys:
 - `L3` + `R3`, held for 0.5 s — open / close the VR menu; its Settings section has the same pages
 - `L3` + left Grip, held for 0.5 s — activate iconic cyberware in gameplay
 
+### CyberFinger controls
+
+**Traditional katana handling.** With immersive holsters and Offensive mode enabled, the default
+sword layout puts the scabbard on V’s left hip for a right-hand draw, even with left-handed guns.
+
+1. **Draw.** Reach across with your right hand, close your tracked fingers around the wrapped hilt and pull clear. You can also tap **Right Grip** at the hilt to draw.
+2. **Swing.** One hand gives a fast attack. For strong swings, tap **Left Grip** at the lower hilt to keep a two-handed grip. Tap it again to let go. You can also close your tracked fingers around the lower hilt for as long as you want support.
+3. **Sheathe.** With melee gesture holstering enabled, take your left hand off the hilt and close it around the scabbard. Bring your closed right hand to the opening, then open just that hand. For a button shortcut, tap **Right Grip** while holding the sword.
+
+To carry the sword in your left hand, set your weapon hand to left and turn off **F10 → Controls → General → CyberFinger swords in right hand**. Swap hands and hips for the steps above. [Katana and dual-wield controls](README_CYBRFNGR.md#grabbing-and-weapons).
+
+| While playing | CyberFinger control |
+|---|---|
+| Toggle Offensive mode | On foot, center the right stick, hold the **left stick click** and push the **right stick up** once. If armed, V puts everything away and switches the mode off. With empty hands, the gesture toggles the mode. Switching it off hides the tactical belt and holsters and disables Trigger-to-draw. Trigger still interacts with the world. |
+| Hide or show the HUD | Hold **both physical Menu buttons** for **0.5 seconds** to hide the main HUD and interaction panel. Release both, then repeat to show them. While hidden, the panels reappear temporarily for dialogue choices, subtitles, loot and interaction prompts. |
+| Exit a camera or shard | After using the scanner to take control of a surveillance camera, tap **Right Menu** to return to V. While reading a shard, tap **Right Grip** to close it. |
+
 ## In-headset overlay (F10)
 
 The controller-operated overlay saves settings to `vrport.ini`. Point, select,
@@ -551,6 +574,22 @@ play: it is for diagnosis and it costs both frame time and a very large log.
 
 ## Test hardware used during development
 
+### CyberFinger test system
+
+| Component | Tested configuration |
+|---|---|
+| Operating system | Windows 11 Home 25H2, build 26200, 64-bit |
+| Processor | AMD Ryzen 7 9800X3D, 8 cores at 4.70 GHz |
+| Installed RAM | 64.0 GB |
+| Graphics card | AMD Radeon RX 7900 XT, 20 GB |
+| Frame generation | FSR3 in extrapolation mode |
+| Headset and connection | Meta Quest 3 via Steam Link over Wi-Fi |
+| CyberFinger Bridge and SteamVR driver | [2.2.5](https://github.com/DrSciCortex/CyberFinger_SteamVR/releases/tag/v2.2.5) |
+| CyberFinger firmware | [1.4.1](https://github.com/DrSciCortex/CyberFingerFW_ESP32/releases/tag/v1.4.1) |
+| [CyberFinger hardware](https://scicortex.com/products/cyberfinger-v1-0-beta) | CFV1BP (Pro), with a back-of-the-hand IMU and haptics module |
+
+### Upstream test system
+
 - Headset: PICO 4 (via VDXR)
 - Also tested on Meta Quest 3 (via Steam Link and via VDXR)
 - CPU: AMD Ryzen 7 5800X
@@ -601,3 +640,6 @@ possible — nobody is forcing you to do it.
   memory allocations.
 - **[Apex Neural Rendering](https://github.com/apex-compute/ANR)** — the ANR FG frame generation model,
   shipped unchanged beside the plugin.
+- **[DrSciCortex](https://github.com/DrSciCortex)** — integrated CyberFinger controls and eight-tracker SlimeVR support,
+  added Quest Pro face tracking for V’s mirror reflection, and developed the katana draw and sheathe gestures,
+  Offensive mode toggle, and HUD hide gesture. Used AI tools to help develop and document these features.

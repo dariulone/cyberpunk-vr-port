@@ -1,10 +1,12 @@
 # CyberFinger + Cyberpunk VR: quick start
 
-Quick start for **CyberFinger + SteamVR** with either weapon hand. Both layouts
+Quick start for **[CyberFinger](https://scicortex.com/products/cyberfinger-v1-0-beta) + SteamVR** with either weapon hand. Both layouts
 use the **CyberFinger CyberpunkVRPort** SteamVR binding. Read the shared controls
 first, then the right-handed assignments and the left-handed differences.
-This checkout's installer defaults to a **left-handed weapon**. The setup used
-here is a Quest Pro over Steam Link, an AMD RX 7900 XT and optional eight-tracker SlimeVR.
+This checkout's installer defaults to a **left-handed weapon**. The CyberFinger test
+system uses a **Meta Quest 3 over Wi-Fi with Steam Link** and a **Radeon RX 7900 XT**
+with FSR3 extrapolation. The guide also covers Quest Pro mirror face tracking and
+optional eight-tracker SlimeVR. [Full test system and CyberFinger versions](README.md#cyberfinger-test-system).
 
 **Need settings right now? Press F10.** For snap turning:
 **Controls > General > Turning (right stick) > Snap turn**, then **Save**.
@@ -181,9 +183,9 @@ preset, pass `-ResetHudDefaults` to the installer. F10's **Reset element** and
 
 ## Start playing
 
-1. Connect Quest Pro through **Steam Link** and start **SteamVR**. Enable Quest
-   hand tracking. For eye-tracked foveation, also enable/calibrate eye tracking
-   and allow Steam Link to share it with PC apps.
+1. Connect your Quest through **Steam Link** and start **SteamVR**. Enable Quest
+   hand tracking. To use eye-tracked foveation on Quest Pro, enable and calibrate eye tracking
+   in the headset and allow Steam Link to share eye tracking data with PC apps.
 2. Start **CyberFinger Bridge** and connect both CyberFingers. Confirm both hands
    move in SteamVR. In the bridge, set **Right pink button = SteamVR** so that
    button reaches the game instead of controlling microphone mute/FluxAction.
@@ -191,8 +193,8 @@ preset, pass `-ResetHudDefaults` to the installer. F10's **Reset element** and
    For a monitor-only session, choose **Play on desktop**. You can skip headset and SteamVR setup
    for that launch. To bring back a hidden startup dialog, set `show_launcher=1` in
    `red4ext/plugins/cyberpunkvrport/config/vrport-launcher.ini`. For VR, choose
-   **Meta Quest Pro**, **SteamVR**, and **2080 x 2104 (Balanced)** as the initial
-   resolution, then click **Play in VR**. Leave **DEBUG off** for normal play; enable it when collecting
+   your headset preset and **SteamVR**, then click **Play in VR**. For Quest Pro,
+   **2080 x 2104 (Balanced)** is a starting resolution. Leave **DEBUG off** for normal play; enable it when collecting
    diagnostic logs.
 4. For the first launch or after a binding reset, keep the game running and open
    SteamVR's **Settings > Controllers > Manage Controller Bindings**. Choose
@@ -477,8 +479,7 @@ panels. Keyboard text entry still uses the keyboard. See
   To put an enabled weapon away in simple holster mode, close the weapon hand within
   **12 cm** of a hip or shoulder. Immersive hip katanas use the scabbard return below.
 - **Katana hand and scabbard.** With **F10 > Controls > General > CyberFinger swords in right hand** on (default), automatic immersive holsters place the katana at the left hip and V draws it with the right hand. This also applies with left-handed guns. Turn the option off to follow the weapon-hand setting for swords. Hip-mounted katanas share a dark scabbard with brass trim that stays on the belt while the sword is drawn. The inventory’s **Hide holsters** control hides it.
-- **Draw.** In **Holstered** or **Fists**, line up the centre of V’s drawing hand with the wrapped handle, about a palm-width below the guard. Tap **Grip** there, or close your fingers around the handle and pull clear. You can steady the first scabbard with your free hand. Some scripted scenes require empty hands. If the blade appears briefly there, try the same wheel draw outside after the scene ends.
-- **Draw with the Grip button.** With Offensive mode on and the sword visible on your belt, tap the drawing hand’s **Grip** at its hilt. This works from **Holstered** and **Fists**. With the default sword setting, use right Grip at the left hip. If you equip swords in the left hand, use left Grip at the right hip.
+- **Traditional draw.** With Offensive mode on and the sword visible on your belt, start from **Holstered** or **Fists**. Reach across to the wrapped handle, about a palm-width below the guard. Close your tracked fingers around it and pull clear. You can steady the scabbard with your free hand. For a button draw, tap **Right Grip** at the left hip, or **Left Grip** at the right hip for a left-hand sword. Some scripted scenes require empty hands. If the blade appears briefly there, try the same wheel draw outside after the scene ends.
 - **One sword, two grips.** Swing with one hand for a **fast** attack. Tap the free hand’s **Grip** at the lower hilt to latch a two-handed hold for **strong** swings. Tap the same Grip again to release. You can also close and open the free hand on the hilt for momentary support. Away from the sword and scabbard, the free hand can punch.
 - **Put away with Grip.** Tap the Grip on the hand holding the katana. This holsters it directly. With two blades, the secondary hand puts away its own blade. Putting away the primary ends dual wielding. The physical button works with gesture holstering switched off.
 - **Equip two katanas in the VR menu.** Tap the **right pink wrist button**, open **Inventory**, and use the laser and Trigger to select a numbered weapon slot. Choose **Melee**, select a katana you own, and press **Equip**. Select **Equipment** to return to the slot overview. Repeat with a different katana in another numbered slot.
@@ -633,10 +634,11 @@ See the [resume TODO](docs/cyberfinger-session-todo.md) for test status.
 
 ### Quest Pro facial animation (experimental)
 
-The new face build adds **F10 > Avatar > Face tracking > Quest Pro face tracking
-in mirrors**. It is off by default. Enable it, activate an apartment mirror, then
-smile, blink, open your mouth and look around with your eyes. Mouth, blinking,
-eye direction and eyebrows have separate toggles; eyebrows default to off.
+On Quest Pro, enable face sharing in Steam Link and send ALT OSC to port `9015`.
+In the game, turn on **F10 > Avatar > Face tracking > Quest Pro face tracking in mirrors**
+(off by default). Choose **Look in the mirror** in V’s apartment, then smile,
+blink, open your mouth and look around with your eyes. Mouth, blinking, eye
+direction and eyebrows have separate toggles. Eyebrows default to off.
 
 At a mirror you activate with **Look in the mirror**, the reflection follows
 your head, hands and body using its own proportions. This applies at H10,
@@ -657,12 +659,11 @@ To check a difference in your V's appearance, compare the same outfit and a
 neutral expression in inventory, at an interactive mirror, and in the scene
 where you first noticed it.
 
-**Status:** you confirmed V's visible mirror facial animation works on
+V’s facial animation was confirmed in an interactive mirror with Quest Pro on
 2026-11-14. Tracking-loss recovery, reopening mirrors, save reloads and other
 head rigs remain in the [test checklist](docs/cyberfinger-session-todo.md).
 
-Steam Link must share face data through **ALT OSC port 9015**. Live smile, eyelid
-and jaw reception has already been verified on `127.0.0.1:9015`. The feature's
+Live smile, eyelid and jaw reception has been verified on `127.0.0.1:9015`. The feature's
 status shows fresh channels and whether it has found V's mirror rig. It controls
 the interactive mirror double only, leaving story scenes and NPCs to the game.
 Missing data fades back to native animation within 450 ms. Turning the feature
