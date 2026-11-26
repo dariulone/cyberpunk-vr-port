@@ -21,6 +21,9 @@ $dirLines
 
 $looseLines
 
+    bin\x64\powrprof.dll, the port's loader, is left in place: without the cyberpunkvrport folder
+    it starts nothing and the game runs flat.
+
 3. AND THESE -- the plugin writes them at runtime, so they are not in the package
 
     bin\x64\vrport.ini                     every setting you changed in the F10 overlay

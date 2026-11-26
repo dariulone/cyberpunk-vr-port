@@ -205,6 +205,11 @@ static RC_LABEL_RES: Ui<RECT> = Ui::new(NO_RECT);
 static RC_NOTE: Ui<RECT> = Ui::new(NO_RECT);
 static H_MONITOR: Ui<HWND> = Ui::new(null_mut());
 static RC_LABEL_MONITOR: Ui<RECT> = Ui::new(NO_RECT);
+/// How the VR menu is called (crate::launcher::MENU_CALL).
+static H_MENU_CALL: Ui<HWND> = Ui::new(null_mut());
+static RC_LABEL_MENU_CALL: Ui<RECT> = Ui::new(NO_RECT);
+/// The VR menu's calls in MENU_CALL's order: automatic, the thumbrest, the thumbstick (each with the swipe), the swipe.
+const MENU_CALL_OPTIONS: [&str; 4] = ["Auto (thumbrest on Quest 3)", "Thumbrest + gesture", "Thumbstick + gesture", "Gesture only"];
 // THE RENDER SIZE, three ways: the headset's ladder (the combo box), a slider with - / + beside it, and the width,
 // height and aspect typed. The slider runs over the pixel count (log scale) at the pick's aspect, the ladder's entries
 // marked on it; - / + step the width by RES_STEP_PX at that aspect; a typed width or height sets that side alone (the
@@ -270,6 +275,7 @@ const ID_CHECK_PHYSICS: i32 = 114;
 const ID_CHECK_VR: i32 = 115;
 const ID_CHECK_PLANE: i32 = 116;
 const ID_COMBO_MONITOR: i32 = 117;
+const ID_COMBO_MENU_CALL: i32 = 118;
 
 /// The on / off switches' own check state (an owner-drawn button keeps none).
 fn switch_state(id: i32) -> Option<&'static Ui<bool>> {
@@ -711,6 +717,9 @@ unsafe extern "system" fn button_proc(
                     state.set(wparam == BST_CHECKED as WPARAM);
                     if GetDlgCtrlID(hwnd) == ID_CHECK_VR && !H_MONITOR.get().is_null() {
                         EnableWindow(H_MONITOR.get(), VR_ON.get() as BOOL);
+                    }
+                    if GetDlgCtrlID(hwnd) == ID_CHECK_VR && !H_MENU_CALL.get().is_null() {
+                        EnableWindow(H_MENU_CALL.get(), VR_ON.get() as BOOL);
                     }
                     InvalidateRect(hwnd, core::ptr::null(), 0);
                     return 0;
@@ -1503,6 +1512,7 @@ unsafe fn paint_window(dc: HDC, rc: &RECT) {
         let label = DT_LEFT | DT_BOTTOM | DT_SINGLELINE;
         text(dc, &wide("VR FEATURES"), RC_FEATURES.get(), FONT_LABEL.get(), COL_MUTED, label, px(1));
         text(dc, &wide("MONITOR OUTPUT"), RC_LABEL_MONITOR.get(), FONT_LABEL.get(), COL_MUTED, label, px(1));
+        text(dc, &wide("VR MENU CALL"), RC_LABEL_MENU_CALL.get(), FONT_LABEL.get(), COL_MUTED, label, px(1));
         text(
             dc,
             &wide("VR HEADSET"),
@@ -1782,6 +1792,10 @@ unsafe fn start_game(hwnd: HWND) {
             if selection != CB_ERR {
                 crate::launcher::MONITOR_OUTPUT.store(crate::launcher::parse_monitor_output(selection), Ordering::Relaxed);
             }
+            let call = send(H_MENU_CALL.get(), CB_GETCURSEL, 0, 0) as i32;
+            if call != CB_ERR {
+                crate::launcher::MENU_CALL.store(crate::launcher::parse_menu_call(call), Ordering::Relaxed);
+            }
         }
         (rt.set_modes)(VR_ON.get() as i32, PLANE_ON.get() as i32);
         if !VR_ON.get() {
@@ -1984,6 +1998,19 @@ unsafe fn create(hwnd: HWND) {
         send(H_MONITOR.get(), CB_SETCURSEL, crate::launcher::MONITOR_OUTPUT.load(Ordering::Relaxed) as WPARAM, 0);
         size_list(H_MONITOR.get());
         EnableWindow(H_MONITOR.get(), VR_ON.get() as BOOL);
+        // the VR menu's call, under the monitor's output
+        let mut r = NO_RECT;
+        GetWindowRect(H_MONITOR.get(), &mut r);
+        fy += px(26) + (r.bottom - r.top) + px(20);
+        RC_LABEL_MENU_CALL.set(RECT { left: feature_left, top: fy, right: feature_right, bottom: fy + px(18) });
+        H_MENU_CALL.set(make_combo(hwnd, ID_COMBO_MENU_CALL, feature_left, fy + px(26), feature_right - feature_left));
+        for label in MENU_CALL_OPTIONS {
+            let label = wide(label);
+            send(H_MENU_CALL.get(), CB_ADDSTRING, 0, label.as_ptr() as LPARAM);
+        }
+        send(H_MENU_CALL.get(), CB_SETCURSEL, crate::launcher::MENU_CALL.load(Ordering::Relaxed) as WPARAM, 0);
+        size_list(H_MENU_CALL.get());
+        EnableWindow(H_MENU_CALL.get(), VR_ON.get() as BOOL);
 
         // Master switch for every probe, census and dump in the mod (cvr_host::debug_gate). Off is the normal way to
         // play: on, the log grows by tens of MB and the frame time with it, because probes like SightAxisProbe take a
@@ -2014,7 +2041,8 @@ unsafe fn create(hwnd: HWND) {
             },
         ));
         y += px(48) + px(28);
-        CLIENT_H.set(y);
+        // the right column's last field (the VR menu's call: its label's line, the closed box) when it runs longer
+        CLIENT_H.set(y.max(fy + px(26) + px(40) + px(28)));
     }
 }
 
@@ -2114,7 +2142,7 @@ unsafe extern "system" fn launcher_wnd_proc(
                     BRUSH_SURFACE.set(null_mut());
                 }
                 for h in [
-                    &H_HMD, &H_RUNTIME, &H_MONITOR, &H_RES, &H_DEBUG, &H_START, &HOT, &H_RES_DOWN, &H_RES_UP, &H_SLIDER,
+                    &H_HMD, &H_RUNTIME, &H_MONITOR, &H_MENU_CALL, &H_RES, &H_DEBUG, &H_START, &HOT, &H_RES_DOWN, &H_RES_UP, &H_SLIDER,
                     &H_EDIT_W, &H_EDIT_H, &H_EDIT_ASPECT, &H_LOBBY, &H_INTERFACE, &H_PHYSICS,
                 ] {
                     h.set(null_mut());
@@ -2142,7 +2170,7 @@ unsafe fn command(hwnd: HWND, notif: u32, id: i32, lparam: LPARAM) {
             InvalidateRect(hwnd, &RC_LABEL_RES.get(), 0);
         }
         if (notif == CBN_DROPDOWN || notif == CBN_CLOSEUP || notif == CBN_SELCHANGE)
-            && (id == ID_COMBO_HMD || id == ID_COMBO_RUNTIME || id == ID_COMBO_RES || id == ID_COMBO_MONITOR)
+            && (id == ID_COMBO_HMD || id == ID_COMBO_RUNTIME || id == ID_COMBO_RES || id == ID_COMBO_MONITOR || id == ID_COMBO_MENU_CALL)
         {
             InvalidateRect(lparam as HWND, core::ptr::null(), 0);
         }
@@ -2154,6 +2182,7 @@ unsafe fn command(hwnd: HWND, notif: u32, id: i32, lparam: LPARAM) {
             }
             if id == ID_CHECK_VR {
                 EnableWindow(H_MONITOR.get(), VR_ON.get() as BOOL);
+                EnableWindow(H_MENU_CALL.get(), VR_ON.get() as BOOL);
             }
             InvalidateRect(GetDlgItem(hwnd, id), core::ptr::null(), 0);
         } else if id == ID_CHECK_LOBBY && notif == BN_CLICKED {

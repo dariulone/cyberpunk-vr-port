@@ -198,19 +198,21 @@ pub(crate) unsafe fn static_for(object: *mut c_void, name: &str, count: usize) -
             if n.0 == 0 {
                 continue;
             }
-            let Some(f) = static_function(&n.text(), name) else { continue };
-            if f.flags & red4ext_abi::function::function_flags::IS_STATIC == 0 && !f.full_name.text().contains("::") {
-                continue;
-            }
-            let params = f.params.as_slice();
-            // SAFETY: the function's own parameters and their types.
-            let first_is_object = params.first().and_then(|p| unsafe { p.as_ref() }).and_then(|p| unsafe { p.ty.as_ref() }).is_some_and(|ty| {
-                let k = ty.kind();
-                k == red4ext_abi::rtti::RttiKind::Handle as u8 || k == red4ext_abi::rtti::RttiKind::WeakHandle as u8
-            });
-            let fits = first_is_object && mapping_of(params, count + 1).is_some();
-            if fits {
-                return Some(f);
+            // every overload of the name, not the first: the one taking the object first (GetAmmoType(wref<WeaponObject>)
+            // beside GetAmmoType(ItemID))
+            for f in static_overloads(&n.text(), name) {
+                if f.flags & red4ext_abi::function::function_flags::IS_STATIC == 0 && !f.full_name.text().contains("::") {
+                    continue;
+                }
+                let params = f.params.as_slice();
+                // SAFETY: the function's own parameters and their types.
+                let first_is_object = params.first().and_then(|p| unsafe { p.as_ref() }).and_then(|p| unsafe { p.ty.as_ref() }).is_some_and(|ty| {
+                    let k = ty.kind();
+                    k == red4ext_abi::rtti::RttiKind::Handle as u8 || k == red4ext_abi::rtti::RttiKind::WeakHandle as u8
+                });
+                if first_is_object && mapping_of(params, count + 1).is_some() {
+                    return Some(f);
+                }
             }
         }
         class = c.parent();
@@ -223,6 +225,7 @@ pub(crate) unsafe fn static_for(object: *mut c_void, name: &str, count: usize) -
     found
 }
 /// What `object:name(...)` runs: its member, else the static taking it first (static_for).
+#[derive(Clone, Copy)]
 enum Target {
     Member(&'static BaseFunction),
     Static(&'static BaseFunction),
@@ -235,6 +238,69 @@ unsafe fn resolve(object: *mut c_void, name: &str, count: usize) -> Option<Targe
         unsafe { audit_missing(object, name, count) };
     }
     found
+}
+/// As `resolve`, for `values`: a member they do not fit by kind gives way to another overload of the name they fit
+/// (CET picks the overload whose parameters the arguments fit; the first by name is the script bundle's order).
+///
+/// # Safety
+/// `object` is a live scriptable object.
+unsafe fn resolve_for(object: *mut c_void, name: &str, values: &[Value]) -> Option<Target> {
+    // SAFETY: the caller's.
+    let t = unsafe { resolve(object, name, values.len()) }?;
+    let Target::Member(f) = t else { return Some(t) };
+    if values_fit(f, values) {
+        return Some(t);
+    }
+    // (the object's class, the name, the values' kinds) -> the fitting overload, or 0 for none
+    type Fitted = std::collections::HashMap<(usize, u64, u64), usize>;
+    static FITTED: std::sync::LazyLock<std::sync::Mutex<Fitted>> = std::sync::LazyLock::new(Default::default);
+    // SAFETY: the caller's live object.
+    let first = unsafe { object_class(object) }?;
+    let kinds = values.iter().fold(FNV_OFFSET, |h, v| {
+        let k = match v {
+            Value::Bool(_) => "b",
+            Value::Int32(_) => "i",
+            Value::Float(_) => "f",
+            Value::U64(_) => "u",
+            Value::Handle(_) => "h",
+            Value::Ptr(_) => "p",
+            Value::Out(_) => "o",
+        };
+        fnv_extend(h, k)
+    });
+    let key = (first as *const red4ext_abi::rtti::Class as usize, CName::hashed(name).0, kinds);
+    let known = FITTED.lock().unwrap_or_else(|p| p.into_inner()).get(&key).copied();
+    let fitted = match known {
+        // SAFETY: a registered function, alive for the process (0: none).
+        Some(g) => unsafe { (g as *const BaseFunction).as_ref() },
+        None => {
+            let short = CName::hashed(name);
+            let mut class = Some(first);
+            let mut found = None;
+            'walk: while let Some(c) = class {
+                for &g in c.funcs().iter().chain(c.static_funcs().iter()) {
+                    // SAFETY: the class's function pointers are registered functions or null.
+                    let Some(g) = (unsafe { g.as_ref() }) else { continue };
+                    if g.short_name == short && values_fit(g, values) {
+                        found = Some(g);
+                        break 'walk;
+                    }
+                }
+                class = c.parent();
+            }
+            if found.is_none() {
+                let class_name = first.class_name().text().to_string();
+                crate::audit::once(crate::audit::key(&[0x5346_49, CName::hashed(&class_name).0, short.0, kinds]), || {
+                    format!("script call {class_name}.{name}: the values fit none of its overloads ({})", crate::audit::callers())
+                });
+            }
+            if rtti_complete() {
+                FITTED.lock().unwrap_or_else(|p| p.into_inner()).insert(key, found.map_or(0, |g| g as *const BaseFunction as usize));
+            }
+            found
+        }
+    };
+    Some(fitted.map_or(t, Target::Member))
 }
 /// A call that found no function to run, said once per class, name and count (CET says so in its log; the call did
 /// nothing either way).
@@ -503,7 +569,7 @@ fn dummy_context(rtti: &RttiSystem) -> *mut c_void {
 /// `object` is a live scriptable object.
 pub unsafe fn call(object: *mut c_void, name: &str, values: &[Value]) -> bool {
     // SAFETY: the caller's live object.
-    unsafe { resolve(object, name, values.len()).is_some_and(|t| run_target(object, t, values, None)) }
+    unsafe { resolve_for(object, name, values).is_some_and(|t| run_target(object, t, values, None)) }
 }
 
 /// `object:name(values...)` for a function returning a ref<> (a strong handle): the handle, which may be null; None
@@ -513,7 +579,7 @@ pub unsafe fn call(object: *mut c_void, name: &str, values: &[Value]) -> bool {
 /// As [`call`]; the function's result is a handle.
 pub unsafe fn call_handle(object: *mut c_void, name: &str, values: &[Value]) -> Option<Handle> {
     // SAFETY: the caller's live object.
-    match unsafe { resolve(object, name, values.len()) }? {
+    match unsafe { resolve_for(object, name, values) }? {
         // SAFETY: the caller's context; the result read by its own kind.
         Target::Member(f) => unsafe { execute_ref(object, f, values) },
         Target::Static(f) => {
@@ -558,6 +624,84 @@ pub fn static_function(class: &str, name: &str) -> Option<&'static BaseFunction>
         });
     }
     f
+}
+/// Whether `values` go into `f`'s parameters by kind, as far as a value's kind tells (CET picks the overload whose
+/// parameters the arguments fit): a handle only to a handle, weak handle or script reference parameter, and no plain
+/// number or id to a handle; a value in place (Ptr, Out) to anything -- an enum or a struct id travels as an 8-byte
+/// value, a handle's storage as a Ptr. GetAmmoType(wref<WeaponObject>) and GetAmmoType(ItemID) both take one value;
+/// the first by name, which the script bundle's order decides, took the weapon's handle as an ItemID in the vanilla
+/// game (the reload's reserve read 0, a new magazine came in empty).
+fn values_fit(f: &BaseFunction, values: &[Value]) -> bool {
+    use red4ext_abi::rtti::RttiKind;
+    let params = f.params.as_slice();
+    let Some(mapping) = mapping_of(params, values.len()) else { return false };
+    let filled: Vec<&red4ext_abi::function::Property> = match mapping {
+        Mapping::Explicit => params.iter().filter_map(|&p| param(p)).collect(),
+        Mapping::Cet => given(params),
+    };
+    values.iter().zip(filled).all(|(v, p)| {
+        // SAFETY: the parameter's own type (types live as long as the game).
+        let Some(ty) = (unsafe { p.ty.as_ref() }) else { return true };
+        let kind = ty.kind();
+        let handle = kind == RttiKind::Handle as u8 || kind == RttiKind::WeakHandle as u8;
+        let name = ty.name();
+        let (float, boolean) = (name == CName::hashed("Float"), name == CName::hashed("Bool"));
+        match v {
+            Value::Handle(_) => handle || kind == RttiKind::ScriptReference as u8,
+            Value::Out(_) => true,
+            // a value in place: a struct, an id or a handle's storage -- never a Float, a Double or a Bool
+            Value::Ptr(_) => !float && !boolean && name != CName::hashed("Double"),
+            Value::Float(_) => float,
+            Value::Bool(_) => boolean,
+            Value::Int32(_) => !handle && !float && !boolean && (kind == RttiKind::Fundamental as u8 || kind == RttiKind::Enum as u8),
+            // a CName, a TweakDBID, an EntityID, a 64-bit number or an enum: never a 16-byte struct (ItemID)
+            Value::U64(_) => !handle && !float && !boolean && ty.size() <= 8,
+        }
+    })
+}
+/// Every static of `class` named `name`, in the order static_function prefers them: the class chain's statics, the
+/// scripted statics "Class::name;..." (by the script name, then the native one), the class chain's natives.
+fn static_overloads(class: &str, name: &str) -> Vec<&'static BaseFunction> {
+    use red4ext_abi::function::function_flags::{IS_NATIVE, IS_STATIC};
+    let Some(rtti) = RttiSystem::get() else { return Vec::new() };
+    let short = CName::hashed(name);
+    let found = rtti.get_class_by_script_name(CName::hashed(class)).or_else(|| rtti.get_class(CName::hashed(class)));
+    let mut out: Vec<&'static BaseFunction> = Vec::new();
+    let mut at = found;
+    while let Some(c) = at {
+        // SAFETY: the class's function pointers are registered functions or null.
+        out.extend(c.static_funcs().iter().filter_map(|&f| unsafe { f.as_ref() }).filter(|f| f.short_name == short));
+        out.extend(c.funcs().iter().filter_map(|&f| unsafe { f.as_ref() }).filter(|f| f.short_name == short && f.flags & IS_STATIC != 0));
+        at = c.parent();
+    }
+    out.extend(globals_by_head(&[class, "::", name]));
+    if let Some(c) = found {
+        out.extend(globals_by_head(&[c.class_name().text(), "::", name]));
+    }
+    let mut at = found;
+    while let Some(c) = at {
+        // SAFETY: as above.
+        out.extend(c.funcs().iter().filter_map(|&f| unsafe { f.as_ref() }).filter(|f| f.short_name == short && f.flags & IS_NATIVE != 0));
+        at = c.parent();
+    }
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|f| seen.insert(*f as *const BaseFunction as usize));
+    out
+}
+/// The static `class.name` for a call with `values`: the overload they fit (static_function's first otherwise, said
+/// once).
+pub fn static_function_for(class: &str, name: &str, values: &[Value]) -> Option<&'static BaseFunction> {
+    let first = static_function(class, name)?;
+    if values_fit(first, values) {
+        return Some(first);
+    }
+    let fitting = static_overloads(class, name).into_iter().find(|f| values_fit(f, values));
+    if fitting.is_none() {
+        crate::audit::once(crate::audit::key(&[0x5354_46, CName::hashed(class).0, CName::hashed(name).0, values.len() as u64]), || {
+            format!("static {class}.{name}: the values fit none of its overloads ({})", crate::audit::callers())
+        });
+    }
+    Some(fitting.unwrap_or(first))
 }
 /// A class's static by name, its parents' too: whatever is in its list of statics (a native static need not carry the
 /// flag: TDBID.ToStringDEBUG), else a member flagged static -- never a plain member, which comes first in the class's
@@ -669,6 +813,11 @@ pub(crate) fn global_by_head(parts: &[&str], keep: impl Fn(&'static BaseFunction
     let key = fnv_parts(parts);
     with_index(|ix| ix.by_head.get(&key).and_then(|v| v.iter().map(|&e| entry_function(e)).find(|&f| keep(f)))).flatten()
 }
+/// Every global function whose full name's head is `parts` joined ("Class::name"), in the registry's order.
+fn globals_by_head(parts: &[&str]) -> Vec<&'static BaseFunction> {
+    let key = fnv_parts(parts);
+    with_index(|ix| ix.by_head.get(&key).map(|v| v.iter().map(|&e| entry_function(e)).collect())).flatten().unwrap_or_default()
+}
 /// The first global function, in the registry's order, whose short name is `name`.
 pub(crate) fn global_by_short(name: &str) -> Option<&'static BaseFunction> {
     let key = CName::hashed(name).0;
@@ -694,7 +843,15 @@ pub fn native_class_function(class: &str, name: &str) -> Option<&'static BaseFun
 /// A class by its native name, else by the name the scripts know it by (CET resolves both).
 pub fn class_any(name: &str) -> Option<&'static red4ext_abi::rtti::Class> {
     let rtti = RttiSystem::get()?;
-    rtti.get_class(CName::hashed(name)).or_else(|| rtti.get_class_by_script_name(CName::hashed(name)))
+    let found = rtti.get_class(CName::hashed(name)).or_else(|| rtti.get_class_by_script_name(CName::hashed(name)));
+    // a class the game does not have (one another mod adds, or a name gone wrong), said once with the verbose
+    // diagnostics: several lookups are optional on purpose (Codeware's, NightCoop's)
+    if found.is_none() && cvr_host::log::verbose() {
+        crate::audit::once(crate::audit::key(&[0x5343_4c, CName::hashed(name).0]), || {
+            format!("class {name}: no such class (from {})", crate::audit::callers())
+        });
+    }
+    found
 }
 
 /// The global function whose short name is `name` (CET's `Game.X()` first looks here: a GameInstance static such as
@@ -719,7 +876,15 @@ pub fn global_by_short_name(name: &'static str, cache: &'static std::sync::OnceL
             (h, m) => h.or(m),
         }
     })
-    .flatten()?;
+    .flatten();
+    let Some(found) = found else {
+        if cvr_host::log::verbose() {
+            crate::audit::once(crate::audit::key(&[0x4746_4e, wanted]), || {
+                format!("global function {name}: no such function (from {})", crate::audit::callers())
+            });
+        }
+        return None;
+    };
     let _ = cache.set(found.1);
     Some(entry_function(found))
 }
@@ -1045,7 +1210,7 @@ pub unsafe fn invoke_void(context: *mut c_void, f: &'static BaseFunction, values
 /// As [`call`].
 pub unsafe fn method_owned(object: *mut c_void, name: &str, values: &[Value]) -> Option<Owned> {
     // SAFETY: the caller's live object.
-    let t = unsafe { resolve(object, name, values.len()) }?;
+    let t = unsafe { resolve_for(object, name, values) }?;
     let f = match t {
         Target::Member(f) | Target::Static(f) => f,
     };
@@ -1076,7 +1241,7 @@ pub unsafe fn method_owned(object: *mut c_void, name: &str, values: &[Value]) ->
 /// As [`call`].
 pub unsafe fn method<R: Ret>(object: *mut c_void, name: &str, values: &[Value]) -> Option<R> {
     // SAFETY: the caller's live object.
-    match unsafe { resolve(object, name, values.len()) }? {
+    match unsafe { resolve_for(object, name, values) }? {
         // SAFETY: as above.
         Target::Member(f) => unsafe { invoke(object, f, values) },
         Target::Static(f) => {
@@ -1094,7 +1259,14 @@ pub unsafe fn method<R: Ret>(object: *mut c_void, name: &str, values: &[Value]) 
 /// # Safety
 /// On the game's main thread.
 pub unsafe fn call_native<R: Ret>(name: &str, values: &[Value]) -> Option<R> {
-    let f = RttiSystem::get()?.get_function(CName::hashed(name))?;
+    let Some(f) = RttiSystem::get()?.get_function(CName::hashed(name)) else {
+        if cvr_host::log::verbose() {
+            crate::audit::once(crate::audit::key(&[0x4e41_54, CName::hashed(name).0]), || {
+                format!("native {name}: no such global function (from {})", crate::audit::callers())
+            });
+        }
+        return None;
+    };
     // SAFETY: a registered global function, no context.
     unsafe { invoke(core::ptr::null_mut(), &f.base, values) }
 }
@@ -1122,7 +1294,7 @@ pub unsafe fn method_typed<R: Ret>(object: *mut c_void, name: &str, types: &[&st
 pub unsafe fn call_bool_with(object: *mut c_void, name: &str, values: &[Value]) -> Option<bool> {
     let mut value = 0u64;
     // SAFETY: an 8-byte slot for the Bool.
-    unsafe { resolve(object, name, values.len()) }
+    unsafe { resolve_for(object, name, values) }
         .is_some_and(|t| unsafe { run_target(object, t, values, Some((&mut value as *mut u64).cast())) })
         .then_some(value as u8 != 0)
 }

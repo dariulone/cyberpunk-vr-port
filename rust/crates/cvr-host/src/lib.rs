@@ -4,6 +4,9 @@
 //! src/Core/ScriptCompiler.cpp), and the launcher's DEBUG gate over the diagnostic flags (`debug_gate`,
 //! src/Utils/DebugGate.cpp), and the probe's internal-command flag the D3D12 hooks honour (`probe`,
 //! include/Render/RenderProbeScope.hpp).
+/// The release this build is (the package's version; Cargo's own stays three-part semver).
+pub const RELEASE: &str = "0.2.5.5";
+
 pub mod debug_gate;
 pub mod fast;
 pub mod guard;

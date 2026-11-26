@@ -398,13 +398,20 @@ pub unsafe extern "C" fn VRMenuGesture(
         || cvr_anim_grasp_holding(1)
         || super::physhands::grab::holds_on(1);
     let hand = [p[0] + head.pos[0], p[1] + head.pos[1], p[2] + head.pos[2]];
-    // THE SWIPE'S MODIFIER (2026-11-24): the left thumbrest held (Quest 3's Touch controllers) or the left stick held
-    // in (every other controller), as the D-pad's -- no longer the right grip, which grabs things.
-    let modifier = cvr_input::modifier::held(GetTickCount64());
+    // THE SWIPE'S MODIFIER, as the launcher's "VR menu call" picks it: the left thumbrest held (by default on a Quest
+    // 3), the left stick held in (by default on every other headset), or none -- the swipe alone. Never the right
+    // grip, which grabs things.
+    use cvr_settings::launcher::{menu_call_effective, MENU_CALL_GESTURE, MENU_CALL_STICK, MENU_CALL_THUMBREST};
+    let call = menu_call_effective();
+    let modifier = match call {
+        MENU_CALL_GESTURE => true,
+        MENU_CALL_THUMBREST => cvr_input::modifier::thumbrest_held(GetTickCount64()),
+        _ => cvr_input::modifier::LEFT_CLICK.load(Relaxed),
+    };
     let Some((start, end)) = g.swipe.push(t, &hand, modifier, holding) else {
         return;
     };
-    if !cvr_input::modifier::thumbrest_controller() {
+    if call == MENU_CALL_STICK {
         // the stick held for the swipe: its release is no sprint
         cvr_input::modifier::SWIPE_USED_CLICK.store(true, Relaxed);
     }

@@ -104,7 +104,8 @@ fn valid_version(v: &str) -> bool {
         None => (v, None),
     };
     let parts: Vec<&str> = core.split('.').collect();
-    let core_ok = parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    // three numbers, or four for a release between two (0.2.5.5)
+    let core_ok = (3..=4).contains(&parts.len()) && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
     let suffix_ok = suffix.is_none_or(|s| {
         s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
     });
@@ -232,7 +233,7 @@ const GIT: &str = "$(git -C $RepoRoot rev-parse --short HEAD 2>$null)";
 const DATE: &str = "$(Get-Date -Format \"yyyy-MM-dd\")";
 
 fn dist(args: &[String]) -> R<()> {
-    let mut version = "0.2.5".to_string();
+    let mut version = "0.2.5.5".to_string();
     let mut build_dir = release::DEFAULT_BUILD_DIR.to_string();
     let (mut zip, mut force) = (false, false);
     let mut it = args.iter();
@@ -466,6 +467,8 @@ fn dist(args: &[String]) -> R<()> {
         .manifest
         .iter()
         .filter(|(path, bytes)| *bytes > 0 && !own_dirs.iter().any(|d| path.starts_with(&format!("{d}\\"))))
+        // the loader stays: without cyberpunkvrport\ it starts nothing and the game runs flat (UNINSTALL.txt says so)
+        .filter(|(path, _)| !path.eq_ignore_ascii_case("bin\\x64\\powrprof.dll"))
         .map(|(path, _)| path.clone())
         .collect();
     loose.push("engine\\config\\platform\\pc\\vrcam_cpu_tweaks.ini".into());

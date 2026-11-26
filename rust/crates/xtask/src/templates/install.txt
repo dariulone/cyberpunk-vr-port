@@ -104,6 +104,9 @@ INSTALL
     Then start your OpenXR runtime, then the game. A small launcher window appears first: pick
     your headset and per-eye render resolution there.
 
+    RESTART THE GAME AFTER THE FIRST LAUNCH. The first start creates the port's files (its
+    settings and config); the plugin is fully on from the next start.
+
 WHAT LANDS WHERE
     cyberpunkvrport\      the VR plugin and its folders: shaders, grips, config, log
     cyberpunkvrport\grips\        captured hand poses for holding a cigarette and lighter

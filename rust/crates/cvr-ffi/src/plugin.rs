@@ -186,8 +186,8 @@ unsafe fn load(handle: PluginHandle, sdk_ptr: *const Sdk) -> bool {
         return false;
     }
     log!("=== CyberpunkVRPort red4ext plugin loaded (no dxgi proxy) ===\n");
-    log!("[rust] entry points, log, folders, build gate and script compiler in Rust (cvr_rust {})\n",
-        env!("CARGO_PKG_VERSION"));
+    log!("[rust] entry points, log, folders, build gate and script compiler in Rust (CyberpunkVRPort {}, cvr_rust {})\n",
+        cvr_host::RELEASE, env!("CARGO_PKG_VERSION"));
     let sdk = unsafe { &*sdk_ptr };
     // The natives: the table is Rust's with the Rust solve (crate::natives), C++'s otherwise (src/Natives/Registration.cpp).
     #[cfg(feature = "vrik")]

@@ -23,6 +23,8 @@ Repository: <https://github.com/dariulone/cyberpunk-vr-port>
    (for Steam: `steamapps\common\Cyberpunk 2077`).
 3. **Start your OpenXR runtime, then launch the game.** In the small launcher window pick your headset and
    resolution and press *Start*.
+4. **Restart the game after the first launch.** The first start creates the port's files (its settings and
+   config); the plugin is fully on from the next start.
 
 ## Controls
 

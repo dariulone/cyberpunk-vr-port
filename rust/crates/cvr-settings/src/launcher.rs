@@ -27,6 +27,8 @@ pub struct Launcher {
     pub monitor_output: i32,
     /// The launcher's weapon-plane pick, until the live ini has saved it; -1 uses xr_weapon_plane_as_scene.
     pub weapon_plane: i32,
+    /// How the VR menu is called (MENU_CALL_*): the swipe's modifier, or the swipe alone.
+    pub menu_call: i32,
 }
 
 /// Before the file says otherwise.
@@ -41,6 +43,7 @@ pub const DEFAULTS: Launcher = Launcher {
     vr_enabled: 1,
     monitor_output: 0,
     weapon_plane: -1,
+    menu_call: MENU_CALL_AUTO,
 };
 
 /// g_launcherVrEnabled, cvr::GetMonitorOutput, g_pendingLauncherWeaponPlane, g_launcherCustomRes (main's VrCore.cpp and
@@ -49,6 +52,33 @@ pub static VR_ENABLED: AtomicI32 = AtomicI32::new(1);
 pub static MONITOR_OUTPUT: AtomicI32 = AtomicI32::new(0);
 pub static PENDING_WEAPON_PLANE: AtomicI32 = AtomicI32::new(-1);
 pub static CUSTOM_RES: AtomicI32 = AtomicI32::new(0);
+/// The launcher's "VR menu" pick, read by the menu's swipe (cvr-rig vr_menu.rs).
+pub static MENU_CALL: AtomicI32 = AtomicI32::new(MENU_CALL_AUTO);
+
+/// The VR menu's call: by the headset picked (Quest 3: its thumbrest, every other headset: the left stick held in),
+/// the thumbrest, the left stick held in -- each with the right hand's swipe down -- or the swipe alone.
+pub const MENU_CALL_AUTO: i32 = 0;
+pub const MENU_CALL_THUMBREST: i32 = 1;
+pub const MENU_CALL_STICK: i32 = 2;
+pub const MENU_CALL_GESTURE: i32 = 3;
+/// The headset whose controllers the automatic call takes the thumbrest of (launcher_presets: Meta Quest 3).
+pub const HMD_QUEST3: i32 = 2;
+
+/// A menu_call value, an unknown one automatic.
+pub fn parse_menu_call(value: i32) -> i32 {
+    if (MENU_CALL_AUTO..=MENU_CALL_GESTURE).contains(&value) { value } else { MENU_CALL_AUTO }
+}
+/// The call in effect: the automatic one resolved by the headset picked in the launcher.
+pub fn menu_call_effective() -> i32 {
+    match MENU_CALL.load(Ordering::Relaxed) {
+        MENU_CALL_AUTO => {
+            // SAFETY: the C++ half's launcher int, alive for the process.
+            let hmd = globals().map_or(-1, |g| unsafe { *g.hmd_type });
+            if hmd == HMD_QUEST3 { MENU_CALL_THUMBREST } else { MENU_CALL_STICK }
+        }
+        call => call,
+    }
+}
 
 /// cvr::ParseMonitorOutput: missing and unrecognized values use the game's output.
 pub fn parse_monitor_output(value: i32) -> i32 {
@@ -87,6 +117,8 @@ pub unsafe fn parse_line(line: *const c_char, l: &mut Launcher) {
             l.vr_enabled = (v != 0) as i32;
         } else if crt::scan(line, c"weapon_plane = %d", &[crt::ptr(&mut v)]) == 1 {
             l.weapon_plane = (v != 0) as i32;
+        } else if crt::scan(line, c"menu_call = %d", &[crt::ptr(&mut v)]) == 1 {
+            l.menu_call = parse_menu_call(v);
         } else if let Some(v) = key(line, c"launcher_delay_ms=%d", c"launcher_delay_ms = %d") {
             l.delay_ms = v.clamp(0, 10000);
         } else if let Some(v) = key(line, c"show_launcher=%d", c"show_launcher = %d") {
@@ -113,8 +145,8 @@ pub unsafe fn parse_line(line: *const c_char, l: &mut Launcher) {
 pub fn text(l: &Launcher) -> String {
     let plane = if l.weapon_plane >= 0 { format!("weapon_plane={}\n", l.weapon_plane) } else { String::new() };
     format!(
-        "width={}\nheight={}\nhmd_type={}\ncustom_res={}\ndebug={}\nshow_launcher={}\nvr_enabled={}\nmonitor_output={}\n{plane}launcher_delay_ms={}\n",
-        l.width, l.height, l.hmd_type, l.custom_res, l.debug, l.show, l.vr_enabled, l.monitor_output, l.delay_ms
+        "width={}\nheight={}\nhmd_type={}\ncustom_res={}\ndebug={}\nshow_launcher={}\nvr_enabled={}\nmonitor_output={}\nmenu_call={}\n{plane}launcher_delay_ms={}\n",
+        l.width, l.height, l.hmd_type, l.custom_res, l.debug, l.show, l.vr_enabled, l.monitor_output, l.menu_call, l.delay_ms
     )
 }
 
@@ -196,6 +228,7 @@ unsafe fn read(g: &Globals) -> Launcher {
             vr_enabled: VR_ENABLED.load(Ordering::Relaxed),
             monitor_output: MONITOR_OUTPUT.load(Ordering::Relaxed),
             weapon_plane: PENDING_WEAPON_PLANE.load(Ordering::Relaxed),
+            menu_call: MENU_CALL.load(Ordering::Relaxed),
         }
     }
 }
@@ -215,6 +248,7 @@ unsafe fn write(g: &Globals, l: &Launcher) {
     VR_ENABLED.store(l.vr_enabled, Ordering::Relaxed);
     MONITOR_OUTPUT.store(l.monitor_output, Ordering::Relaxed);
     PENDING_WEAPON_PLANE.store(l.weapon_plane, Ordering::Relaxed);
+    MENU_CALL.store(l.menu_call, Ordering::Relaxed);
 }
 
 /// LoadLauncherConfig: the defaults, then the file's lines over them (a missing file leaves the defaults).
@@ -308,6 +342,10 @@ mod tests {
         assert_eq!(l.monitor_output, 0);
         let l = parse(&[c"monitor_output = 1  \n"]);
         assert_eq!(l.monitor_output, 1);
+        // the VR menu's call: a known one kept, an unknown one automatic
+        assert_eq!(parse(&[c"menu_call=3\n"]).menu_call, MENU_CALL_GESTURE);
+        assert_eq!(parse(&[c"menu_call = 2\n"]).menu_call, MENU_CALL_STICK);
+        assert_eq!(parse(&[c"menu_call=9\n"]).menu_call, MENU_CALL_AUTO);
     }
 
     #[test]
@@ -323,9 +361,9 @@ mod tests {
         };
         assert_eq!(
             text(&l),
-            "width=2064\nheight=2232\nhmd_type=2\ncustom_res=0\ndebug=0\nshow_launcher=1\nvr_enabled=1\nmonitor_output=0\nlauncher_delay_ms=1000\n"
+            "width=2064\nheight=2232\nhmd_type=2\ncustom_res=0\ndebug=0\nshow_launcher=1\nvr_enabled=1\nmonitor_output=0\nmenu_call=0\nlauncher_delay_ms=1000\n"
         );
         let l = Launcher { weapon_plane: 0, monitor_output: 1, ..l };
-        assert!(text(&l).contains("monitor_output=1\nweapon_plane=0\nlauncher_delay_ms"));
+        assert!(text(&l).contains("monitor_output=1\nmenu_call=0\nweapon_plane=0\nlauncher_delay_ms"));
     }
 }

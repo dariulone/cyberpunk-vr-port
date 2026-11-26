@@ -425,7 +425,8 @@ pub(in crate::mechanics) fn dev_window(frame: [f32; 2]) {
 
 /// A development check (CVR_AMMO_TEST): 44 s into the loaded save the first weapon slot is drawn; at 52 s the
 /// magazine's count is read (mag_ammo -- WeaponObject.GetMagazineAmmoCount, a static called on the weapon as CET
-/// calls it) and set one lower through setMagAmmo, and 2 s later read again.
+/// calls it) and set one lower through setMagAmmo, and 2 s later read again; then filled as a reload fills it (the
+/// capacity, at most the reserve) and read again 2 s later.
 pub(in crate::mechanics) fn ammo_test(dt: f64) {
     thread_local! {
         static T: std::cell::Cell<(f64, u32, usize, i32)> = const { std::cell::Cell::new((0.0, 0, 0, -1)) };
@@ -435,7 +436,7 @@ pub(in crate::mechanics) fn ammo_test(dt: f64) {
     }
     let pl = player();
     let (t, step, first, before) = T.with(|c| c.get());
-    if pl.is_null() || step >= 3 {
+    if pl.is_null() || step >= 4 {
         return;
     }
     let p = pl.instance as usize;
@@ -448,6 +449,14 @@ pub(in crate::mechanics) fn ammo_test(dt: f64) {
     let (mut step, mut before) = (step, before);
     if step == 0 && t > 44.0 {
         super::holster::equip_request(&pl, "RequestWeaponSlot1");
+        // the weapon records as the weapon grip window lists them (the TweakDB's records by type, no TweakXL)
+        let db = red4ext_abi::tweakdb::get();
+        let n = match crate::script_call::class_any("gamedataWeaponItem_Record") {
+            // SAFETY: the live TweakDB and a record class.
+            Some(class) if !db.is_null() => unsafe { red4ext_abi::tweakdb::record_ids_of_type(db, (class as *const red4ext_abi::rtti::Class).cast()) }.len(),
+            _ => 0,
+        };
+        log!("[Reload] ammo test: {n} weapon records in the TweakDB (from Rust)\n");
         step = 1;
     } else if step == 1 && t > 52.0 {
         let weapon = active_weapon(&pl);
@@ -459,9 +468,20 @@ pub(in crate::mechanics) fn ammo_test(dt: f64) {
         before = cur.unwrap_or(-1);
         step = 2;
     } else if step == 2 && t > 54.0 {
-        let after = super::reload_core::mag_ammo(&active_weapon(&pl));
+        let weapon = active_weapon(&pl);
+        let after = super::reload_core::mag_ammo(&weapon);
         log!("[Reload] ammo test 2 s later: count {after:?} (was {before}) (from Rust)\n");
+        // the magazine filled as a reload fills it: the capacity, at most the reserve
+        let (cap, reserve) = (super::reload_core::mag_capacity(&weapon), super::reload_core::reserve_ammo(&weapon));
+        let mut guard = RELOAD.lock().unwrap_or_else(|p| p.into_inner());
+        let r = guard.get_or_insert_with(new_reload);
+        let ok = super::reload_core::set_mag_ammo(&mut r.s, &weapon, cap.min(reserve));
+        log!("[Reload] ammo test fill: capacity {cap}, reserve {reserve}, set {}: {ok} ({}) (from Rust)\n", cap.min(reserve), r.s.ammo_err);
         step = 3;
+    } else if step == 3 && t > 56.0 {
+        let after = super::reload_core::mag_ammo(&active_weapon(&pl));
+        log!("[Reload] ammo test fill 2 s later: count {after:?} (from Rust)\n");
+        step = 4;
     }
     T.with(|c| c.set((t, step, first, before)));
 }

@@ -3,7 +3,7 @@
 //! (CET registers that class), else through the plugin's own spawner (spawn_system: the template's own SpawnableObject
 //! record in the population system), which a player without CET has. CVR_NO_EX_SPAWNER=1 (a development switch) takes
 //! the plugin's own with CET installed too.
-use crate::script_call::{invoke, native_class_function, Value};
+use crate::script_call::{invoke, Value};
 use red4ext_abi::handle::Handle;
 use red4ext_abi::function::BaseFunction;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -17,7 +17,9 @@ fn ex(name: &str) -> Option<&'static BaseFunction> {
     if *OFF.get_or_init(|| std::env::var("CVR_NO_EX_SPAWNER").is_ok_and(|v| v == "1")) {
         return None;
     }
-    native_class_function("exEntitySpawner", name)
+    // CET's class, looked up without the missing-class audit: a clean game has no CET, and the plugin spawns itself
+    let rtti = red4ext_abi::rtti::RttiSystem::get()?;
+    rtti.get_class(red4ext_abi::cname::CName::hashed("exEntitySpawner")).and_then(|c| c.function(red4ext_abi::cname::CName::hashed(name)))
 }
 
 /// Which spawner was taken, said once each.

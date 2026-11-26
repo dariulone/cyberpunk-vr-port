@@ -61,6 +61,8 @@ struct Model {
 struct Catalog {
     built: bool,
     total: u32,
+    /// The weapon records' ids, read once from the TweakDB's records by type.
+    ids: Vec<u64>,
     cursor: u32,
     models: BTreeMap<String, Model>,
     /// The models in the list's order: by kind, then by name.
@@ -110,7 +112,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     record: None,
     dirty: false,
     since_change: 0.0,
-    catalog: Catalog { built: false, total: 0, cursor: 0, models: BTreeMap::new(), order: Vec::new() },
+    catalog: Catalog { built: false, total: 0, ids: Vec::new(), cursor: 0, models: BTreeMap::new(), order: Vec::new() },
     want_catalog: false,
     filter: String::new(),
     pick: None,
@@ -283,11 +285,29 @@ fn in_hand(wpn: &Handle) -> Item {
     unsafe { crate::script_call::method::<Item>(wpn.instance, "GetItemID", &[]) }.unwrap_or(NONE)
 }
 
+/// TweakDBInterface.GetRecord of a record's id.
+fn record_by_id(id: u64) -> Handle {
+    let values = [Value::U64(id)];
+    crate::script_call::static_function_for("TweakDBInterface", "GetRecord", &values)
+        // SAFETY: a static returning a handle (no context).
+        .and_then(|f| unsafe { crate::script_call::invoke_handle(core::ptr::null_mut(), f, &values) })
+        .unwrap_or_else(Handle::null)
+}
+
 /// The list made a few dozen records a frame.
 fn catalog_step(c: &mut Catalog) {
-    let ty = CName::hashed("gamedataWeaponItem_Record").0;
     if c.total == 0 {
-        c.total = rt::static_num("TweakDBInterface", "GetRecordCount", &[A::Name(ty)]).unwrap_or(0.0) as u32;
+        // the weapon records straight from the TweakDB's records by type: TweakXL's GetRecordCount and
+        // GetRecordByIndex, which the list read before, are not in a clean game
+        let db = red4ext_abi::tweakdb::get();
+        c.ids = match crate::script_call::class_any("gamedataWeaponItem_Record") {
+            // SAFETY: the live TweakDB and a record class.
+            Some(class) if !db.is_null() => unsafe {
+                red4ext_abi::tweakdb::record_ids_of_type(db, (class as *const red4ext_abi::rtti::Class).cast())
+            },
+            _ => Vec::new(),
+        };
+        c.total = c.ids.len() as u32;
         if c.total == 0 {
             c.built = true;
             log!("[weapon-wrist] the game has no weapon records to list\n");
@@ -297,7 +317,7 @@ fn catalog_step(c: &mut Catalog) {
     let tag = |r: &Handle, t: &str| ret_bool(rt::call(r, "TagsContains", &[A::Name(CName::hashed(t).0)]));
     let end = (c.cursor + RECORDS_PER_FRAME).min(c.total);
     for i in c.cursor..end {
-        let r = rt::static_obj("TweakDBInterface", "GetRecordByIndex", &[A::Name(ty), A::N(f64::from(i))]);
+        let r = record_by_id(c.ids[i as usize]);
         if r.is_null() {
             continue;
         }

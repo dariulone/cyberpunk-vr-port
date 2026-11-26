@@ -16,7 +16,7 @@
 //! code-owned keys kept, the versioned upgrades) and read again when the CET overlay saves it; the overlay and its
 //! offset files stay the Lua host's.
 use super::belt_grenade::{self as grenade, Grenade};
-use crate::script_call::{call_handle, call_native, invoke, invoke_handle, method, static_function, Value};
+use crate::script_call::{call_handle, call_native, invoke, invoke_handle, method, Value};
 use cvr_host::log;
 use red4ext_abi::cname::CName;
 use red4ext_abi::handle::Handle;
@@ -145,11 +145,11 @@ pub(super) fn native<T: crate::script_call::Ret>(name: &str, values: &[Value]) -
 }
 pub(super) fn st<T: crate::script_call::Ret>(class: &str, name: &str, values: &[Value]) -> Option<T> {
     // SAFETY: a static function (no context).
-    static_function(class, name).and_then(|f| unsafe { invoke::<T>(core::ptr::null_mut(), f, values) })
+    crate::script_call::static_function_for(class, name, values).and_then(|f| unsafe { invoke::<T>(core::ptr::null_mut(), f, values) })
 }
 pub(super) fn st_handle(class: &str, name: &str, values: &[Value]) -> Handle {
     // SAFETY: as above.
-    static_function(class, name).and_then(|f| unsafe { invoke_handle(core::ptr::null_mut(), f, values) }).unwrap_or_else(Handle::null)
+    crate::script_call::static_function_for(class, name, values).and_then(|f| unsafe { invoke_handle(core::ptr::null_mut(), f, values) }).unwrap_or_else(Handle::null)
 }
 pub(super) fn cn(s: &str) -> Value {
     Value::U64(CName::hashed(s).0)

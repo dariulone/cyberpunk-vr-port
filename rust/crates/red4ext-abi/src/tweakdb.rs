@@ -301,6 +301,35 @@ pub unsafe fn first_record_of_type(db: *mut c_void, ty: *const c_void) -> u64 {
     }
 }
 
+/// Every record id of `recordsByType.Get(type)` (under `mutex01`), in the map's order; empty when the type has none.
+/// What TweakXL's TweakDBInterface.GetRecordCount / GetRecordByIndex read, without TweakXL.
+///
+/// # Safety
+/// `db` is the live TweakDB.
+pub unsafe fn record_ids_of_type(db: *mut c_void, ty: *const c_void) -> Vec<u64> {
+    // SAFETY: as first_record_of_type.
+    unsafe {
+        let _held = SharedSpinLock::of(db, RECORDS_LOCK).shared();
+        let key = ty as u64;
+        let map = &*(db.cast::<u8>().add(RECORDS_BY_TYPE) as *const HashMap);
+        let records = map.get(crate::fnv::fnv1a32(&key.to_le_bytes()), |other| other == key);
+        if records.is_null() {
+            return Vec::new();
+        }
+        let entries = *(records as *const *const crate::handle::Handle);
+        let size = *(records.add(0xC) as *const u32) as usize;
+        if entries.is_null() {
+            return Vec::new();
+        }
+        (0..size)
+            .filter_map(|i| {
+                let h = &*entries.add(i);
+                (!h.instance.is_null()).then(|| *(h.instance.cast::<u8>().add(RECORD_ID) as *const u64))
+            })
+            .collect()
+    }
+}
+
 static DYNARRAY_REALLOC: Reloc = Reloc::new(hashes::DynArray_Realloc);
 static CREATE_RECORD: Reloc = Reloc::new(hashes::TweakDB_CreateRecord);
 

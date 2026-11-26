@@ -124,13 +124,13 @@ fn native<T: crate::script_call::Ret>(name: &str, values: &[Value]) -> Option<T>
     unsafe { call_native::<T>(name, values) }
 }
 fn stat_static<T: crate::script_call::Ret>(class: &str, name: &str, values: &[Value]) -> R<T> {
-    let f = static_function(class, name).ok_or_else(|| format!("no {class}.{name}"))?;
+    let f = crate::script_call::static_function_for(class, name, values).ok_or_else(|| format!("no {class}.{name}"))?;
     // SAFETY: a static function (no context).
     unsafe { invoke::<T>(core::ptr::null_mut(), f, values) }.ok_or_else(|| format!("{class}.{name} failed"))
 }
 fn static_handle(class: &str, name: &str, values: &[Value]) -> Handle {
     // SAFETY: a static function (no context).
-    static_function(class, name).and_then(|f| unsafe { invoke_handle(core::ptr::null_mut(), f, values) }).unwrap_or_else(Handle::null)
+    crate::script_call::static_function_for(class, name, values).and_then(|f| unsafe { invoke_handle(core::ptr::null_mut(), f, values) }).unwrap_or_else(Handle::null)
 }
 fn shared(i: i32) -> f32 {
     // SAFETY: the shared block's read.

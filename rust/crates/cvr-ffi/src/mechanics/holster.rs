@@ -22,7 +22,7 @@
 //! The menu's side (slotInfo, setPlace, hidden, setHidden) stays the Lua host's and writes holster_places.json; the
 //! belt asks VRHolsterNear; the player's detach releases everything (VRHolsterRelease).
 use super::holster_data::{Pose, BIND_CHEST_M, BIND_CHEST_W, HARNESS_M, HARNESS_PARTS, HARNESS_W, LEG, LOOKS};
-use crate::script_call::{call_handle, call_native, invoke, invoke_handle, method, static_function, Value};
+use crate::script_call::{call_handle, call_native, invoke, invoke_handle, method, Value};
 use cvr_host::log;
 use red4ext_abi::cname::CName;
 use red4ext_abi::handle::{Handle, WeakHandle};
@@ -599,11 +599,11 @@ fn native<T: crate::script_call::Ret>(name: &str, values: &[Value]) -> Option<T>
 }
 fn st<T: crate::script_call::Ret>(class: &str, name: &str, values: &[Value]) -> Option<T> {
     // SAFETY: a static function (no context).
-    static_function(class, name).and_then(|f| unsafe { invoke::<T>(core::ptr::null_mut(), f, values) })
+    crate::script_call::static_function_for(class, name, values).and_then(|f| unsafe { invoke::<T>(core::ptr::null_mut(), f, values) })
 }
 fn st_handle(class: &str, name: &str, values: &[Value]) -> Handle {
     // SAFETY: as above.
-    static_function(class, name).and_then(|f| unsafe { invoke_handle(core::ptr::null_mut(), f, values) }).unwrap_or_else(Handle::null)
+    crate::script_call::static_function_for(class, name, values).and_then(|f| unsafe { invoke_handle(core::ptr::null_mut(), f, values) }).unwrap_or_else(Handle::null)
 }
 fn shared(i: i32) -> f32 {
     // SAFETY: the shared block's read.
